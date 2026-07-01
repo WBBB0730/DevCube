@@ -56,7 +56,7 @@ export function ConfigDialog(): React.JSX.Element {
       onClick={close}
     >
       <div
-        className="w-[440px] rounded border border-[color:var(--border-input)] bg-[var(--bg-popover)] shadow-xl"
+        className="w-[440px] rounded border border-[color:var(--border-input)] bg-panel shadow-xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="border-b px-4 py-2.5 text-[13px] text-[color:var(--fg-dialog-title)]">
@@ -115,7 +115,7 @@ export function ConfigDialog(): React.JSX.Element {
               ))}
               <button
                 type="button"
-                className="flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-[color:var(--fg-icon)]"
+                className="flex items-center gap-1 text-[12px] text-muted-foreground transition-colors hover:text-[color:var(--fg-icon)]"
                 onClick={() => setEnvRows((rows) => [...rows, ['', '']])}
               >
                 <Plus className="size-3" /> 添加变量
@@ -145,7 +145,7 @@ function Field({
 }): React.JSX.Element {
   return (
     <label className="block">
-      <span className="mb-1 block text-[11px] text-muted-foreground">{label}</span>
+      <span className="mb-1 block text-[12px] text-muted-foreground">{label}</span>
       {children}
     </label>
   )
