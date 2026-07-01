@@ -1,3 +1,4 @@
+/* eslint-disable react-hooks/refs -- floating-ui 的 refs.setReference/setFloating 是 callback ref（非 .current 读取），该规则在此误报 */
 import { useState } from 'react'
 import { ChevronRight, Folder, Pencil, Play, Plus, RotateCw, Square, Trash2, X } from 'lucide-react'
 import {
@@ -15,6 +16,18 @@ import {
   verticalListSortingStrategy
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import {
+  FloatingPortal,
+  autoUpdate,
+  flip,
+  offset,
+  shift,
+  useClick,
+  useDismiss,
+  useFloating,
+  useInteractions,
+  useRole
+} from '@floating-ui/react'
 import type {
   DiscoveredScript,
   ProjectNode,
@@ -148,37 +161,65 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
           {empty && (
             <div className="px-3 py-0.5 text-[11px] text-[var(--fg-disabled)]">无可运行项</div>
           )}
-          {node.discovered.length > 0 && <DiscoveredSubmenu discovered={node.discovered} />}
+          {node.discovered.length > 0 && <DiscoveredMenu discovered={node.discovered} />}
         </div>
       )}
     </div>
   )
 }
 
-function DiscoveredSubmenu({ discovered }: { discovered: DiscoveredScript[] }): React.JSX.Element {
+// 探测脚本收进一个临时弹出菜单（浮层），菜单项与配置行同款样式。
+function DiscoveredMenu({ discovered }: { discovered: DiscoveredScript[] }): React.JSX.Element {
   const [open, setOpen] = useState(false)
+  const { refs, floatingStyles, context } = useFloating({
+    open,
+    onOpenChange: setOpen,
+    placement: 'bottom-start',
+    strategy: 'fixed',
+    middleware: [offset(4), flip({ padding: 8 }), shift({ padding: 8 })],
+    whileElementsMounted: autoUpdate
+  })
+  const { getReferenceProps, getFloatingProps } = useInteractions([
+    useClick(context),
+    useDismiss(context),
+    useRole(context, { role: 'menu' })
+  ])
 
   return (
     <div className="mt-0.5">
-      <div
-        className="group mx-1 flex h-7 cursor-pointer items-center gap-1 rounded px-2 text-muted-foreground hover:bg-[var(--bg-row-hover)]"
-        onClick={() => setOpen((v) => !v)}
+      <button
+        ref={refs.setReference}
+        {...getReferenceProps()}
+        type="button"
+        className={cn(
+          'flex h-7 w-full items-center gap-1 px-2 text-muted-foreground hover:bg-[var(--bg-row-hover)]',
+          open && 'bg-[var(--bg-row-hover)]'
+        )}
       >
         <ChevronRight className={cn('size-4 shrink-0 transition-transform', open && 'rotate-90')} />
-        <span className="flex-1 text-[11px] font-medium uppercase tracking-wide">探测脚本</span>
+        <span className="flex-1 text-left text-[11px] font-medium uppercase tracking-wide">
+          探测脚本
+        </span>
         <span className="text-[11px] text-[var(--fg-disabled)]">{discovered.length}</span>
-      </div>
+      </button>
       {open && (
-        <div className="pl-4">
-          {discovered.map((s) => (
-            <RunnableRow
-              key={s.name}
-              label={s.name}
-              rkey={scriptKey(s.projectPath, s.name)}
-              target={{ type: 'script', projectPath: s.projectPath, name: s.name }}
-            />
-          ))}
-        </div>
+        <FloatingPortal>
+          <div
+            ref={refs.setFloating}
+            style={floatingStyles}
+            {...getFloatingProps()}
+            className="z-50 max-h-72 w-56 overflow-auto rounded border border-[color:var(--border-input)] bg-[var(--bg-popover)] py-1 shadow-xl"
+          >
+            {discovered.map((s) => (
+              <RunnableRow
+                key={s.name}
+                label={s.name}
+                rkey={scriptKey(s.projectPath, s.name)}
+                target={{ type: 'script', projectPath: s.projectPath, name: s.name }}
+              />
+            ))}
+          </div>
+        </FloatingPortal>
       )}
     </div>
   )
