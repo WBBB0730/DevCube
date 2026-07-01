@@ -3,6 +3,7 @@ import {
   ChevronRight,
   Folder,
   FolderPlus,
+  MoreVertical,
   Pencil,
   Play,
   Plus,
@@ -37,11 +38,18 @@ import { configKey, scriptKey } from '@shared/runnable'
 import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@renderer/components/ui/dropdown-menu'
 import { useApp } from '@renderer/store'
 
-// 所有行统一固定高 + 圆角。四周内边距 8px：pl-2 / pr-2 各 8px，
-// h-11(44px) 让 size-7(28px) 按钮上下各留 8px；固定高避免 hover 出按钮时整行跳动。
-const ROW = 'group flex h-11 cursor-pointer items-center gap-1.5 rounded pl-2 pr-2'
+// 所有行统一固定高 + 圆角。四周内边距 6px：px-1.5 各 6px，
+// h-10(40px) 让 size-7(28px) 按钮上下各留 6px；固定高避免 hover 出按钮时整行跳动。
+const ROW = 'group flex h-10 cursor-pointer items-center gap-1.5 rounded px-1.5'
+const BTN = 'flex size-7 shrink-0 items-center justify-center rounded-lg'
 
 export function ProjectTree(): React.JSX.Element {
   const tree = useApp((s) => s.tree)
@@ -124,7 +132,6 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
         )}
         <IconButton
           title="新建命令"
-          hoverClass="hover:bg-[var(--bg-button-hover)]"
           onClick={(e) => {
             e.stopPropagation()
             openCreateDialog(node.project.path)
@@ -134,7 +141,6 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
         </IconButton>
         <IconButton
           title="移除项目"
-          hoverClass="hover:bg-[var(--bg-button-hover)]"
           onClick={(e) => {
             e.stopPropagation()
             removeProject(node.project.path)
@@ -177,10 +183,11 @@ function DiscoveredMenu({ discovered }: { discovered: DiscoveredScript[] }): Rea
         <PopoverTrigger
           className={cn(ROW, 'w-full text-muted-foreground hover:bg-[var(--bg-row-hover)]')}
         >
-          {/* 两个占位列，使数字与配置文本左对齐 */}
+          {/* 占位补齐折叠箭头列；数字放在圆点列，与配置的状态点对齐 */}
           <span className="size-4 shrink-0" />
-          <span className="size-4 shrink-0" />
-          <span className="text-[11px] text-[var(--fg-disabled)]">{discovered.length}</span>
+          <span className="flex size-4 shrink-0 items-center justify-center text-[11px] text-[var(--fg-disabled)]">
+            {discovered.length}
+          </span>
           <span className="flex-1 truncate text-left">检测到的配置</span>
           <ChevronRight className="size-4 shrink-0" />
         </PopoverTrigger>
@@ -241,8 +248,6 @@ function RunnableRow({
   const run = useApp((s) => s.run)
   const stop = useApp((s) => s.stop)
   const select = useApp((s) => s.select)
-  const openEditDialog = useApp((s) => s.openEditDialog)
-  const deleteConfig = useApp((s) => s.deleteConfig)
   const running = status === 'running'
   // 选中蓝底行上的按钮 hover 用蓝色高亮，而非灰色。
   const btnHover = selected
@@ -260,52 +265,16 @@ function RunnableRow({
         <StatusDot status={status} />
       </span>
       <span className="flex-1 truncate">{label}</span>
-      {!running && config?.kind === 'command' && (
-        <IconButton
-          title="编辑"
-          hoverClass={btnHover}
-          onClick={(e) => {
-            e.stopPropagation()
-            openEditDialog(config)
-          }}
-        >
-          <Pencil className="size-4" />
-        </IconButton>
-      )}
-      {!running && config && (
-        <IconButton
-          title="删除配置"
-          hoverClass={btnHover}
-          onClick={(e) => {
-            e.stopPropagation()
-            deleteConfig(config.id)
-          }}
-        >
-          <Trash2 className="size-4" />
-        </IconButton>
-      )}
-      {/* 停止在运行按钮之前，运行/重跑恒为最右固定位（激活即原地替换） */}
-      {running && (
-        <button
-          type="button"
-          title="停止"
-          className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-[var(--stop-active-bg)] text-white hover:bg-[var(--stop-active-bg-hover)]"
-          onClick={(e) => {
-            e.stopPropagation()
-            stop(rkey)
-          }}
-        >
-          <Square className="size-4" />
-        </button>
-      )}
+
+      {/* 左：运行 / 重新运行（恒在左，激活即原地替换） */}
       <button
         type="button"
         title={running ? '重新运行' : '运行'}
         className={cn(
-          'size-7 shrink-0 items-center justify-center rounded-lg',
+          BTN,
           running
-            ? 'flex bg-[var(--run-active-bg)] text-white hover:bg-[var(--run-active-bg-hover)]'
-            : cn('text-[var(--run-glyph)]', btnHover, selected ? 'flex' : 'hidden group-hover:flex')
+            ? 'bg-[var(--run-active-bg)] text-white hover:bg-[var(--run-active-bg-hover)]'
+            : cn('text-[var(--run-glyph)]', btnHover)
         )}
         onClick={(e) => {
           e.stopPropagation()
@@ -314,18 +283,71 @@ function RunnableRow({
       >
         {running ? <RotateCw className="size-4" /> : <Play className="size-4" />}
       </button>
+
+      {/* 右：空闲=更多菜单（仅配置）/ 运行中=停止 */}
+      {running ? (
+        <button
+          type="button"
+          title="停止"
+          className={cn(
+            BTN,
+            'bg-[var(--stop-active-bg)] text-white hover:bg-[var(--stop-active-bg-hover)]'
+          )}
+          onClick={(e) => {
+            e.stopPropagation()
+            stop(rkey)
+          }}
+        >
+          <Square className="size-4" />
+        </button>
+      ) : (
+        config && (
+          <MoreMenu config={config} triggerClass={cn(BTN, 'text-muted-foreground', btnHover)} />
+        )
+      )}
     </div>
+  )
+}
+
+function MoreMenu({
+  config,
+  triggerClass
+}: {
+  config: RunConfig
+  triggerClass: string
+}): React.JSX.Element {
+  const openEditDialog = useApp((s) => s.openEditDialog)
+  const deleteConfig = useApp((s) => s.deleteConfig)
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger
+        className={triggerClass}
+        title="更多"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <MoreVertical className="size-4" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent>
+        {config.kind === 'command' && (
+          <DropdownMenuItem onClick={() => openEditDialog(config)}>
+            <Pencil className="size-4" /> 编辑
+          </DropdownMenuItem>
+        )}
+        <DropdownMenuItem onClick={() => deleteConfig(config.id)}>
+          <Trash2 className="size-4" /> 删除
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
   )
 }
 
 function IconButton({
   title,
-  hoverClass,
   onClick,
   children
 }: {
   title: string
-  hoverClass: string
   onClick: (e: React.MouseEvent) => void
   children: React.ReactNode
 }): React.JSX.Element {
@@ -334,10 +356,7 @@ function IconButton({
       type="button"
       title={title}
       onClick={onClick}
-      className={cn(
-        'hidden size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground group-hover:flex',
-        hoverClass
-      )}
+      className="hidden size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-[var(--bg-button-hover)] group-hover:flex"
     >
       {children}
     </button>

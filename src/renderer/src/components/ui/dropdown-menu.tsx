@@ -1,0 +1,58 @@
+import { Menu } from '@base-ui-components/react/menu'
+import { cn } from '@renderer/lib/utils'
+
+const DropdownMenu = Menu.Root
+const DropdownMenuTrigger = Menu.Trigger
+
+function DropdownMenuContent({
+  className,
+  children,
+  side = 'bottom',
+  align = 'end',
+  sideOffset = 4
+}: {
+  className?: string
+  children?: React.ReactNode
+  side?: 'top' | 'right' | 'bottom' | 'left'
+  align?: 'start' | 'center' | 'end'
+  sideOffset?: number
+}): React.JSX.Element {
+  return (
+    <Menu.Portal>
+      <Menu.Positioner className="z-50" side={side} align={align} sideOffset={sideOffset}>
+        <Menu.Popup
+          className={cn(
+            'min-w-32 rounded-xl border border-[color:var(--border-input)] bg-panel py-1 shadow-xl outline-none',
+            className
+          )}
+        >
+          {children}
+        </Menu.Popup>
+      </Menu.Positioner>
+    </Menu.Portal>
+  )
+}
+
+function DropdownMenuItem({
+  className,
+  children,
+  onClick
+}: {
+  className?: string
+  children?: React.ReactNode
+  onClick?: () => void
+}): React.JSX.Element {
+  return (
+    <Menu.Item
+      className={cn(
+        'flex h-8 cursor-pointer select-none items-center gap-2 px-3 text-[13px] text-foreground outline-none data-[highlighted]:bg-[var(--bg-row-hover)]',
+        className
+      )}
+      onClick={onClick}
+    >
+      {children}
+    </Menu.Item>
+  )
+}
+
+export { DropdownMenu, DropdownMenuTrigger, DropdownMenuContent, DropdownMenuItem }
