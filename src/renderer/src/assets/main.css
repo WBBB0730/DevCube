@@ -11,7 +11,6 @@
   /* —— 应用语义 token（DESIGN.md） —— */
   --bg-deepest: #1e1f22;
   --bg-panel: #2b2d30;
-  --bg-popover: #393b40;
   --bg-row-hover: #393b40;
   --bg-button-hover: #515257;
   --fg-primary: #dfe1e5;
@@ -32,6 +31,10 @@
   --status-running: #5fad65;
   --status-success: #57965d;
   --status-failed: #c94f4f;
+
+  /* —— 滚动条（webkit） —— */
+  --scrollbar-thumb: #404043;
+  --scrollbar-thumb-hover: #626365;
 
   /* —— shadcn 语义 token → 映射到 JetBrains —— */
   --radius: 0.25rem;
@@ -116,5 +119,24 @@
     user-select: none;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* 全局细滚动条（webkit / Chromium）：透明轨道，thumb hover 变亮 */
+  ::-webkit-scrollbar {
+    width: 8px;
+    height: 8px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: var(--scrollbar-thumb);
+    border-radius: 4px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: var(--scrollbar-thumb-hover);
+  }
+  ::-webkit-scrollbar-corner {
+    background: transparent;
   }
 }
