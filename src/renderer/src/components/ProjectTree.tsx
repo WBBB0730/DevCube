@@ -11,7 +11,7 @@ export function ProjectTree(): React.JSX.Element {
   const addProject = useApp((s) => s.addProject)
 
   return (
-    <div className="flex h-full w-64 shrink-0 flex-col border-r bg-panel">
+    <div className="flex h-full w-full flex-col bg-panel">
       <header className="flex h-8 items-center justify-between pl-3 pr-1.5 text-muted-foreground">
         <span className="text-[11px] font-medium uppercase tracking-wide">项目</span>
         <Button

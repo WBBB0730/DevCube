@@ -2,8 +2,23 @@ import { useEffect, useRef } from 'react'
 import { Terminal } from '@xterm/xterm'
 import { FitAddon } from '@xterm/addon-fit'
 import '@xterm/xterm/css/xterm.css'
+import type { ProjectNode, SessionState } from '@shared/types'
+import { configKey, scriptKey } from '@shared/runnable'
 import { useApp } from '@renderer/store'
 import { xtermTheme } from '@renderer/lib/xterm-theme'
+
+function findLabel(tree: ProjectNode[], key: string | null): string | null {
+  if (!key) return null
+  for (const node of tree) {
+    for (const s of node.discovered) {
+      if (scriptKey(s.projectPath, s.name) === key) return s.name
+    }
+    for (const c of node.configs) {
+      if (configKey(c) === key) return c.kind === 'referenced' ? c.scriptName : c.name
+    }
+  }
+  return null
+}
 
 export function Console(): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -11,6 +26,8 @@ export function Console(): React.JSX.Element {
   const fitRef = useRef<FitAddon | null>(null)
   const selectedRef = useRef<string | null>(null)
   const selectedKey = useApp((s) => s.selectedKey)
+  const label = useApp((s) => findLabel(s.tree, s.selectedKey))
+  const session = useApp((s) => (s.selectedKey ? s.sessions[s.selectedKey] : undefined))
 
   // 终端只创建一次，跨选择复用。
   useEffect(() => {
@@ -74,13 +91,36 @@ export function Console(): React.JSX.Element {
   }, [selectedKey])
 
   return (
-    <div className="relative h-full min-w-0 flex-1 bg-deepest">
-      <div ref={containerRef} className="h-full w-full p-1" />
-      {!selectedKey && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
-          选中左侧一个可运行项查看输出
-        </div>
-      )}
+    <div className="flex h-full w-full flex-col bg-deepest">
+      <div className="flex h-7 shrink-0 items-center gap-2 border-b px-3 text-[12px]">
+        {label ? (
+          <>
+            <span className="truncate text-foreground">{label}</span>
+            <StatusText session={session} />
+          </>
+        ) : (
+          <span className="text-muted-foreground">控制台</span>
+        )}
+      </div>
+      <div className="relative min-h-0 flex-1">
+        <div ref={containerRef} className="h-full w-full p-1" />
+        {!selectedKey && (
+          <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
+            选中左侧一个可运行项查看输出
+          </div>
+        )}
+      </div>
     </div>
   )
+}
+
+function StatusText({ session }: { session?: SessionState }): React.JSX.Element | null {
+  if (!session) return null
+  if (session.status === 'running') {
+    return <span style={{ color: 'var(--status-running)' }}>运行中</span>
+  }
+  if (session.status === 'exited' && session.exitCode === 0) {
+    return <span className="text-muted-foreground">已完成</span>
+  }
+  return <span style={{ color: 'var(--status-failed)' }}>退出码 {session.exitCode}</span>
 }

@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { Group, Panel, Separator } from 'react-resizable-panels'
 import { ProjectTree } from '@renderer/components/ProjectTree'
 import { Console } from '@renderer/components/Console'
 import { ConfigDialog } from '@renderer/components/ConfigDialog'
@@ -19,11 +20,20 @@ function App(): React.JSX.Element {
   }, [init])
 
   return (
-    <div className="flex h-full">
-      <ProjectTree />
-      <Console />
+    <>
+      <Group orientation="horizontal" className="h-full">
+        <Panel defaultSize="22%" minSize="14%" maxSize="40%">
+          <ProjectTree />
+        </Panel>
+        <Separator className="group relative flex w-1.5 items-stretch justify-center">
+          <div className="w-px bg-[var(--separator)] transition-colors group-hover:bg-[var(--selection-row)]" />
+        </Separator>
+        <Panel>
+          <Console />
+        </Panel>
+      </Group>
       {dialog.open && <ConfigDialog key={dialog.config?.id ?? 'new'} />}
-    </div>
+    </>
   )
 }
 
