@@ -13,6 +13,8 @@ interface AppState {
   tree: ProjectNode[]
   sessions: Record<string, SessionState>
   selectedKey: string | null
+  /** 运行/重跑时 +1，驱动终端自动聚焦（重跑当前项时 selectedKey 不变，靠它触发） */
+  focusNonce: number
   dialog: DialogState
   setTree: (tree: ProjectNode[]) => void
   setSession: (s: SessionState) => void
@@ -36,6 +38,7 @@ export const useApp = create<AppState>((set) => ({
   tree: [],
   sessions: {},
   selectedKey: null,
+  focusNonce: 0,
   dialog: { open: false },
   setTree: (tree) => set({ tree }),
   setSession: (s) => set((state) => ({ sessions: { ...state.sessions, [s.key]: s } })),
@@ -54,7 +57,8 @@ export const useApp = create<AppState>((set) => ({
   addProjectByPath: async (path) => set({ tree: await window.api.addProjectByPath(path) }),
   removeProject: async (path) => set({ tree: await window.api.removeProject(path) }),
   run: async (target, key) => {
-    set({ selectedKey: key })
+    // 运行即切到该项并 +1 焦点信号，让终端自动聚焦（重跑当前项时 selectedKey 不变，靠此触发）。
+    set((state) => ({ selectedKey: key, focusNonce: state.focusNonce + 1 }))
     await window.api.run(target)
   },
   stop: async (key) => window.api.stop(key),
