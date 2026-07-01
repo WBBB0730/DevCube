@@ -79,7 +79,7 @@ ANSI 16 色（从 .icls 语法/输出色派生，地道 Darcula）：
 - **控制台字体**：JetBrains Mono，13px。
 - **侧栏**固定宽 **280px**（不可拖拽）。
 - **树行 / 触发行**固定高 40px（`h-10`，四周内边距 6px；固定高以免 hover 出按钮时整行跳动）；行内图标按钮 28px、图标 16px；状态点 8px。
-- **圆角**：按钮 6px（`rounded-lg`）、条目/配置行高亮 4px（`rounded`）、**弹出菜单 12px（`rounded-xl`）**、面板 0。
+- **圆角**：按钮 / 弹出菜单 6px（`rounded-lg`）、条目/配置行高亮 4px（`rounded`）、面板 0。
 - **分隔线** 1px `--separator`。
 
 ## 图标
