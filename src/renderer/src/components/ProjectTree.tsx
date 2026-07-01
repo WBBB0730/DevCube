@@ -15,7 +15,13 @@ import {
   verticalListSortingStrategy
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import type { ProjectNode, RunConfig, RunTarget, SessionStatus } from '@shared/types'
+import type {
+  DiscoveredScript,
+  ProjectNode,
+  RunConfig,
+  RunTarget,
+  SessionStatus
+} from '@shared/types'
 import { configKey, scriptKey } from '@shared/runnable'
 import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui/button'
@@ -79,8 +85,10 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
     reorderConfigs(node.project.path, arrayMove(ids, from, to))
   }
 
+  const empty = node.configs.length === 0 && node.discovered.length === 0
+
   return (
-    <div>
+    <div className="mb-1.5">
       <div
         className="group flex h-7 cursor-pointer items-center gap-1 px-2 text-foreground hover:bg-[var(--bg-row-hover)]"
         onClick={() => setOpen((v) => !v)}
@@ -100,6 +108,17 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
         )}
         <button
           type="button"
+          title="新建命令"
+          className="hidden size-6 items-center justify-center rounded text-muted-foreground hover:bg-[var(--bg-button-hover)] group-hover:flex"
+          onClick={(e) => {
+            e.stopPropagation()
+            openCreateDialog(node.project.path)
+          }}
+        >
+          <Plus className="size-4" />
+        </button>
+        <button
+          type="button"
           title="移除项目"
           className="hidden size-6 items-center justify-center rounded text-muted-foreground hover:bg-[var(--bg-button-hover)] group-hover:flex"
           onClick={(e) => {
@@ -111,75 +130,55 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
         </button>
       </div>
       {open && (
-        <div className="pl-4">
-          <Group
-            label="我的配置"
-            empty={node.configs.length === 0}
-            onAdd={() => openCreateDialog(node.project.path)}
+        <div className="mt-0.5">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragEnd={handleDragEnd}
           >
-            <DndContext
-              sensors={sensors}
-              collisionDetection={closestCenter}
-              onDragEnd={handleDragEnd}
+            <SortableContext
+              items={node.configs.map((c) => c.id)}
+              strategy={verticalListSortingStrategy}
             >
-              <SortableContext
-                items={node.configs.map((c) => c.id)}
-                strategy={verticalListSortingStrategy}
-              >
-                {node.configs.map((c) => (
-                  <SortableConfigRow key={c.id} config={c} />
-                ))}
-              </SortableContext>
-            </DndContext>
-          </Group>
-          <Group label="探测脚本" empty={node.discovered.length === 0}>
-            {node.discovered.map((s) => (
-              <RunnableRow
-                key={s.name}
-                label={s.name}
-                rkey={scriptKey(s.projectPath, s.name)}
-                target={{ type: 'script', projectPath: s.projectPath, name: s.name }}
-              />
-            ))}
-          </Group>
+              {node.configs.map((c) => (
+                <SortableConfigRow key={c.id} config={c} />
+              ))}
+            </SortableContext>
+          </DndContext>
+          {empty && (
+            <div className="px-3 py-0.5 text-[11px] text-[var(--fg-disabled)]">无可运行项</div>
+          )}
+          {node.discovered.length > 0 && <DiscoveredSubmenu discovered={node.discovered} />}
         </div>
       )}
     </div>
   )
 }
 
-function Group({
-  label,
-  empty,
-  onAdd,
-  children
-}: {
-  label: string
-  empty: boolean
-  onAdd?: () => void
-  children: React.ReactNode
-}): React.JSX.Element {
+function DiscoveredSubmenu({ discovered }: { discovered: DiscoveredScript[] }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+
   return (
-    <div className="group/g py-0.5">
-      <div className="flex h-7 items-center justify-between px-2">
-        <span className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">
-          {label}
-        </span>
-        {onAdd && (
-          <button
-            type="button"
-            title="新建命令"
-            className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-[var(--bg-button-hover)] group-hover/g:opacity-100"
-            onClick={onAdd}
-          >
-            <Plus className="size-4" />
-          </button>
-        )}
+    <div className="mt-0.5">
+      <div
+        className="group mx-1 flex h-7 cursor-pointer items-center gap-1 rounded px-2 text-muted-foreground hover:bg-[var(--bg-row-hover)]"
+        onClick={() => setOpen((v) => !v)}
+      >
+        <ChevronRight className={cn('size-4 shrink-0 transition-transform', open && 'rotate-90')} />
+        <span className="flex-1 text-[11px] font-medium uppercase tracking-wide">探测脚本</span>
+        <span className="text-[11px] text-[var(--fg-disabled)]">{discovered.length}</span>
       </div>
-      {empty ? (
-        <div className="px-2.5 py-0.5 text-[11px] text-[var(--fg-disabled)]">—</div>
-      ) : (
-        children
+      {open && (
+        <div className="pl-4">
+          {discovered.map((s) => (
+            <RunnableRow
+              key={s.name}
+              label={s.name}
+              rkey={scriptKey(s.projectPath, s.name)}
+              target={{ type: 'script', projectPath: s.projectPath, name: s.name }}
+            />
+          ))}
+        </div>
       )}
     </div>
   )
