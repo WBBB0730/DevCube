@@ -254,6 +254,8 @@ function RunnableRow({
   const btnHover = selected
     ? 'hover:bg-[var(--selection-row-hover)]'
     : 'hover:bg-[var(--bg-button-hover)]'
+  // 空闲时按钮仅 hover / 选中才显示；运行中的重跑与停止恒显。
+  const idleVis = selected ? 'flex' : 'hidden group-hover:flex'
 
   return (
     <div
@@ -275,7 +277,7 @@ function RunnableRow({
           BTN,
           running
             ? 'bg-[var(--run-active-bg)] text-white hover:bg-[var(--run-active-bg-hover)]'
-            : cn('text-[var(--run-glyph)]', btnHover)
+            : cn('text-[var(--run-glyph)]', btnHover, idleVis)
         )}
         onClick={(e) => {
           e.stopPropagation()
@@ -303,7 +305,11 @@ function RunnableRow({
         </button>
       ) : (
         config && (
-          <MoreMenu config={config} triggerClass={cn(BTN, 'text-muted-foreground', btnHover)} />
+          <MoreMenu
+            config={config}
+            baseClass={cn(BTN, 'text-muted-foreground', btnHover)}
+            idleVis={idleVis}
+          />
         )
       )}
     </div>
@@ -312,18 +318,21 @@ function RunnableRow({
 
 function MoreMenu({
   config,
-  triggerClass
+  baseClass,
+  idleVis
 }: {
   config: RunConfig
-  triggerClass: string
+  baseClass: string
+  idleVis: string
 }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
   const openEditDialog = useApp((s) => s.openEditDialog)
   const deleteConfig = useApp((s) => s.deleteConfig)
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={(nextOpen) => setOpen(nextOpen)}>
       <DropdownMenuTrigger
-        className={triggerClass}
+        className={cn(baseClass, open ? 'flex' : idleVis)}
         title="更多"
         onClick={(e) => e.stopPropagation()}
       >
