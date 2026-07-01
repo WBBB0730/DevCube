@@ -7,8 +7,7 @@ import { configKey, scriptKey } from '@shared/runnable'
 import { useApp } from '@renderer/store'
 import { xtermTheme } from '@renderer/lib/xterm-theme'
 
-function findLabel(tree: ProjectNode[], key: string | null): string | null {
-  if (!key) return null
+function findLabel(tree: ProjectNode[], key: string): string | null {
   for (const node of tree) {
     for (const s of node.discovered) {
       if (scriptKey(s.projectPath, s.name) === key) return s.name
@@ -21,16 +20,33 @@ function findLabel(tree: ProjectNode[], key: string | null): string | null {
 }
 
 export function Console(): React.JSX.Element {
+  const selectedKey = useApp((s) => s.selectedKey)
+  // 有会话 = 跑过、有内容 → 渲染终端；否则（未选中 / 选中但没跑过）只显示占位。
+  const hasSession = useApp((s) => (s.selectedKey ? !!s.sessions[s.selectedKey] : false))
+
+  return (
+    <div className="flex h-full min-w-0 flex-1 flex-col bg-deepest">
+      {selectedKey && hasSession ? (
+        <TerminalView selectedKey={selectedKey} />
+      ) : (
+        <div className="flex h-full items-center justify-center px-6 text-center text-sm text-muted-foreground">
+          {selectedKey ? '这个配置还没有输出，点运行 ▶ 开始' : '选中左侧一个可运行项查看输出'}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function TerminalView({ selectedKey }: { selectedKey: string }): React.JSX.Element {
   const containerRef = useRef<HTMLDivElement>(null)
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
-  const selectedRef = useRef<string | null>(null)
+  const selectedRef = useRef<string>(selectedKey)
   const readyRef = useRef(false)
-  const selectedKey = useApp((s) => s.selectedKey)
-  const label = useApp((s) => findLabel(s.tree, s.selectedKey))
-  const session = useApp((s) => (s.selectedKey ? s.sessions[s.selectedKey] : undefined))
+  const label = useApp((s) => findLabel(s.tree, selectedKey))
+  const session = useApp((s) => s.sessions[selectedKey])
 
-  // 终端只创建一次，跨选择复用。
+  // 终端随本组件挂载/卸载创建与销毁。
   useEffect(() => {
     const term = new Terminal({
       fontFamily: "'JetBrains Mono Variable', ui-monospace, monospace",
@@ -80,7 +96,6 @@ export function Console(): React.JSX.Element {
     const term = termRef.current
     if (!term) return
     term.reset()
-    if (!selectedKey) return
     window.api.getSessionBuffer(selectedKey).then((buffer) => {
       if (selectedRef.current !== selectedKey) return
       term.write(buffer)
@@ -95,26 +110,15 @@ export function Console(): React.JSX.Element {
   }, [selectedKey])
 
   return (
-    <div className="flex h-full min-w-0 flex-1 flex-col bg-deepest">
+    <>
       <div className="flex h-7 shrink-0 items-center gap-2 border-b px-3 text-[12px]">
-        {label ? (
-          <>
-            <span className="truncate text-foreground">{label}</span>
-            <StatusText session={session} />
-          </>
-        ) : (
-          <span className="text-muted-foreground">控制台</span>
-        )}
+        <span className="truncate text-foreground">{label}</span>
+        <StatusText session={session} />
       </div>
       <div className="relative min-h-0 flex-1">
         <div ref={containerRef} className="h-full w-full p-1" />
-        {!selectedKey && (
-          <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-sm text-muted-foreground">
-            选中左侧一个可运行项查看输出
-          </div>
-        )}
       </div>
-    </div>
+    </>
   )
 }
 
