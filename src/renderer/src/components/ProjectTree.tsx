@@ -186,8 +186,11 @@ function DiscoveredMenu({ discovered }: { discovered: DiscoveredScript[] }): Rea
           <span className="flex size-4 shrink-0 items-center justify-center text-[11px] text-[var(--fg-disabled)]">
             {discovered.length}
           </span>
-          <span className="truncate text-left">检测到的配置</span>
-          <ChevronRight className="size-4 shrink-0" />
+          <span className="flex-1 truncate text-left">检测到的配置</span>
+          {/* 箭头放进 size-7 槽并靠右，与配置行最右的「更多」按钮图标同列对齐 */}
+          <span className="flex size-7 shrink-0 items-center justify-center">
+            <ChevronRight className="size-4 shrink-0" />
+          </span>
         </PopoverTrigger>
         <PopoverContent className="w-60">
           {discovered.map((s) => (
