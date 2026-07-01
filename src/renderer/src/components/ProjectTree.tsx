@@ -1,4 +1,3 @@
-/* eslint-disable react-hooks/refs -- floating-ui 的 refs.setReference/setFloating 是 callback ref（非 .current 读取），该规则在此误报 */
 import { useState } from 'react'
 import { ChevronRight, Folder, Pencil, Play, Plus, RotateCw, Square, Trash2, X } from 'lucide-react'
 import {
@@ -16,18 +15,6 @@ import {
   verticalListSortingStrategy
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import {
-  FloatingPortal,
-  autoUpdate,
-  flip,
-  offset,
-  shift,
-  useClick,
-  useDismiss,
-  useFloating,
-  useInteractions,
-  useRole
-} from '@floating-ui/react'
 import type {
   DiscoveredScript,
   ProjectNode,
@@ -38,7 +25,11 @@ import type {
 import { configKey, scriptKey } from '@shared/runnable'
 import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
 import { useApp } from '@renderer/store'
+
+// 所有行统一的内边距 / 圆角。左 8px（供内容缩进对齐），右与上下均 6px（按钮四周内边距一致）。
+const ROW = 'group flex cursor-pointer items-center gap-1.5 rounded py-1.5 pl-2 pr-1.5'
 
 export function ProjectTree(): React.JSX.Element {
   const tree = useApp((s) => s.tree)
@@ -68,7 +59,7 @@ export function ProjectTree(): React.JSX.Element {
           <Plus className="size-4" />
         </Button>
       </header>
-      <div className="flex-1 overflow-auto py-1">
+      <div className="flex-1 overflow-auto px-1 py-1">
         {tree.length === 0 ? (
           <p className="px-3 py-6 text-center text-xs text-muted-foreground">
             还没有项目，点上方 + 或把文件夹拖进来
@@ -103,7 +94,7 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
   return (
     <div className="mb-1.5">
       <div
-        className="group flex h-7 cursor-pointer items-center gap-1 px-2 text-foreground hover:bg-[var(--bg-row-hover)]"
+        className={cn(ROW, 'text-foreground hover:bg-[var(--bg-row-hover)]')}
         onClick={() => setOpen((v) => !v)}
       >
         <ChevronRight
@@ -119,28 +110,26 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
             {node.packageManager}
           </span>
         )}
-        <button
-          type="button"
+        <IconButton
           title="新建命令"
-          className="hidden size-6 items-center justify-center rounded text-muted-foreground hover:bg-[var(--bg-button-hover)] group-hover:flex"
+          hoverClass="hover:bg-[var(--bg-button-hover)]"
           onClick={(e) => {
             e.stopPropagation()
             openCreateDialog(node.project.path)
           }}
         >
           <Plus className="size-4" />
-        </button>
-        <button
-          type="button"
+        </IconButton>
+        <IconButton
           title="移除项目"
-          className="hidden size-6 items-center justify-center rounded text-muted-foreground hover:bg-[var(--bg-button-hover)] group-hover:flex"
+          hoverClass="hover:bg-[var(--bg-button-hover)]"
           onClick={(e) => {
             e.stopPropagation()
             removeProject(node.project.path)
           }}
         >
           <X className="size-4" />
-        </button>
+        </IconButton>
       </div>
       {open && (
         <div className="mt-0.5">
@@ -159,7 +148,7 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
             </SortableContext>
           </DndContext>
           {empty && (
-            <div className="px-3 py-0.5 text-[11px] text-[var(--fg-disabled)]">无可运行项</div>
+            <div className="py-0.5 pl-9 text-[11px] text-[var(--fg-disabled)]">无可运行项</div>
           )}
           {node.discovered.length > 0 && <DiscoveredMenu discovered={node.discovered} />}
         </div>
@@ -168,59 +157,31 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
   )
 }
 
-// 探测脚本收进一个临时弹出菜单（浮层），菜单项与配置行同款样式。
+// 探测脚本收进一个临时弹出菜单（Base UI Popover），菜单项与配置行同款样式。
 function DiscoveredMenu({ discovered }: { discovered: DiscoveredScript[] }): React.JSX.Element {
-  const [open, setOpen] = useState(false)
-  const { refs, floatingStyles, context } = useFloating({
-    open,
-    onOpenChange: setOpen,
-    placement: 'bottom-start',
-    strategy: 'fixed',
-    middleware: [offset(4), flip({ padding: 8 }), shift({ padding: 8 })],
-    whileElementsMounted: autoUpdate
-  })
-  const { getReferenceProps, getFloatingProps } = useInteractions([
-    useClick(context),
-    useDismiss(context),
-    useRole(context, { role: 'menu' })
-  ])
-
   return (
     <div className="mt-0.5">
-      <button
-        ref={refs.setReference}
-        {...getReferenceProps()}
-        type="button"
-        className={cn(
-          'flex h-7 w-full items-center gap-1 px-2 text-muted-foreground hover:bg-[var(--bg-row-hover)]',
-          open && 'bg-[var(--bg-row-hover)]'
-        )}
-      >
-        <ChevronRight className={cn('size-4 shrink-0 transition-transform', open && 'rotate-90')} />
-        <span className="flex-1 text-left text-[11px] font-medium uppercase tracking-wide">
-          探测脚本
-        </span>
-        <span className="text-[11px] text-[var(--fg-disabled)]">{discovered.length}</span>
-      </button>
-      {open && (
-        <FloatingPortal>
-          <div
-            ref={refs.setFloating}
-            style={floatingStyles}
-            {...getFloatingProps()}
-            className="z-50 max-h-72 w-56 overflow-auto rounded border border-[color:var(--border-input)] bg-[var(--bg-popover)] py-1 shadow-xl"
-          >
-            {discovered.map((s) => (
-              <RunnableRow
-                key={s.name}
-                label={s.name}
-                rkey={scriptKey(s.projectPath, s.name)}
-                target={{ type: 'script', projectPath: s.projectPath, name: s.name }}
-              />
-            ))}
-          </div>
-        </FloatingPortal>
-      )}
+      <Popover>
+        <PopoverTrigger
+          className={cn(ROW, 'w-full text-muted-foreground hover:bg-[var(--bg-row-hover)]')}
+        >
+          <ChevronRight className="size-4 shrink-0" />
+          <span className="flex-1 text-left text-[11px] font-medium uppercase tracking-wide">
+            探测脚本
+          </span>
+          <span className="pr-0.5 text-[11px] text-[var(--fg-disabled)]">{discovered.length}</span>
+        </PopoverTrigger>
+        <PopoverContent className="w-60 px-1">
+          {discovered.map((s) => (
+            <RunnableRow
+              key={s.name}
+              label={s.name}
+              rkey={scriptKey(s.projectPath, s.name)}
+              target={{ type: 'script', projectPath: s.projectPath, name: s.name }}
+            />
+          ))}
+        </PopoverContent>
+      </Popover>
     </div>
   )
 }
@@ -243,6 +204,7 @@ function SortableConfigRow({ config }: { config: RunConfig }): React.JSX.Element
         rkey={configKey(config)}
         target={{ type: 'config', id: config.id }}
         config={config}
+        indent
       />
     </div>
   )
@@ -252,12 +214,14 @@ function RunnableRow({
   label,
   rkey,
   target,
-  config
+  config,
+  indent
 }: {
   label: string
   rkey: string
   target: RunTarget
   config?: RunConfig
+  indent?: boolean
 }): React.JSX.Element {
   const status = useApp((s) => s.sessions[rkey]?.status ?? 'idle')
   const selected = useApp((s) => s.selectedKey === rkey)
@@ -274,13 +238,14 @@ function RunnableRow({
 
   return (
     <div
-      className={cn(
-        'group mx-1 flex h-7 cursor-pointer items-center gap-1.5 rounded px-2',
-        selected ? 'bg-[var(--selection-row)]' : 'hover:bg-[var(--bg-row-hover)]'
-      )}
+      className={cn(ROW, selected ? 'bg-[var(--selection-row)]' : 'hover:bg-[var(--bg-row-hover)]')}
       onClick={() => select(rkey)}
     >
-      <StatusDot status={status} />
+      {/* 缩进对齐：占位补齐折叠箭头列，点居中于文件夹图标列 */}
+      {indent && <span className="size-4 shrink-0" />}
+      <span className="flex size-4 shrink-0 items-center justify-center">
+        <StatusDot status={status} />
+      </span>
       <span className="flex-1 truncate">{label}</span>
       {!running && config?.kind === 'command' && (
         <IconButton
@@ -306,11 +271,25 @@ function RunnableRow({
           <Trash2 className="size-4" />
         </IconButton>
       )}
+      {/* 停止在运行按钮之前，运行/重跑恒为最右固定位（激活即原地替换） */}
+      {running && (
+        <button
+          type="button"
+          title="停止"
+          className="flex size-6 shrink-0 items-center justify-center rounded bg-[var(--stop-active-bg)] text-white hover:bg-[var(--stop-active-bg-hover)]"
+          onClick={(e) => {
+            e.stopPropagation()
+            stop(rkey)
+          }}
+        >
+          <Square className="size-3.5" />
+        </button>
+      )}
       <button
         type="button"
         title={running ? '重新运行' : '运行'}
         className={cn(
-          'size-6 items-center justify-center rounded',
+          'size-6 shrink-0 items-center justify-center rounded',
           running
             ? 'flex bg-[var(--run-active-bg)] text-white hover:bg-[var(--run-active-bg-hover)]'
             : cn('text-[var(--run-glyph)]', btnHover, selected ? 'flex' : 'hidden group-hover:flex')
@@ -322,19 +301,6 @@ function RunnableRow({
       >
         {running ? <RotateCw className="size-4" /> : <Play className="size-4" />}
       </button>
-      {running && (
-        <button
-          type="button"
-          title="停止"
-          className="flex size-6 items-center justify-center rounded bg-[var(--stop-active-bg)] text-white hover:bg-[var(--stop-active-bg-hover)]"
-          onClick={(e) => {
-            e.stopPropagation()
-            stop(rkey)
-          }}
-        >
-          <Square className="size-3.5" />
-        </button>
-      )}
     </div>
   )
 }
@@ -356,7 +322,7 @@ function IconButton({
       title={title}
       onClick={onClick}
       className={cn(
-        'hidden size-6 items-center justify-center rounded text-muted-foreground group-hover:flex',
+        'hidden size-6 shrink-0 items-center justify-center rounded text-muted-foreground group-hover:flex',
         hoverClass
       )}
     >
