@@ -106,10 +106,10 @@ export function ConfigDialog(): React.JSX.Element {
                   <button
                     type="button"
                     title="删除变量"
-                    className="flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-[var(--bg-row-hover)]"
+                    className="flex size-8 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-[var(--bg-row-hover)]"
                     onClick={() => setEnvRows((rows) => rows.filter((_, idx) => idx !== i))}
                   >
-                    <Trash2 className="size-3.5" />
+                    <Trash2 className="size-4" />
                   </button>
                 </div>
               ))}

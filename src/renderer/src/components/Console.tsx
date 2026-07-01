@@ -95,7 +95,7 @@ export function Console(): React.JSX.Element {
   }, [selectedKey])
 
   return (
-    <div className="flex h-full w-full flex-col bg-deepest">
+    <div className="flex h-full min-w-0 flex-1 flex-col bg-deepest">
       <div className="flex h-7 shrink-0 items-center gap-2 border-b px-3 text-[12px]">
         {label ? (
           <>

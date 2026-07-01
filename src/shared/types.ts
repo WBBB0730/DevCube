@@ -99,6 +99,8 @@ export interface RunAPI {
   createCommandConfig(input: Omit<CommandRunConfig, 'id' | 'kind'>): Promise<ProjectNode[]>
   updateCommandConfig(config: CommandRunConfig): Promise<ProjectNode[]>
   deleteConfig(id: string): Promise<ProjectNode[]>
+  /** 重排某项目下「我的配置」的顺序 */
+  reorderConfigs(projectPath: string, orderedIds: string[]): Promise<ProjectNode[]>
 
   // —— 事件订阅（返回取消函数） ——
   onTreeChanged(cb: (tree: ProjectNode[]) => void): () => void

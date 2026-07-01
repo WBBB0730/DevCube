@@ -30,7 +30,8 @@
 |---|---|---|
 | `--border-input` | `#4F5157` | input / select / dialog 描边 |
 | `--separator` | `#1E1F22` | 面板间 1px 分隔 |
-| `--selection-row` | `#2D436E` | 聚焦时选中行填充（未聚焦降级为 `--bg-row-hover`） |
+| `--selection-row` | `#2D436E` | 选中行圆角填充 |
+| `--selection-row-hover` | `#35538F` | 选中（蓝底）行上按钮的 hover 底（非灰） |
 | `--accent` | `#3574F0` | 焦点环 / 强调（New UI 主蓝，⚠ 推导，非 .icls） |
 | `--link` | `#548AF7` | 链接（.icls HYPERLINK） |
 
@@ -76,37 +77,38 @@ ANSI 16 色（从 .icls 语法/输出色派生，地道 Darcula）：
 
 - **UI 字体**：Inter，13px，行高 ~20px（JetBrains New UI 默认）。
 - **控制台字体**：JetBrains Mono，13px。
-- **树行高** ~24px，紧凑；分组标题小号、`--fg-muted`。
-- **圆角**：控件 4px、面板 0；**图标** 16px；运行/停止 glyph 16px。
+- **侧栏**固定宽 **280px**（不可拖拽）。
+- **树行高** 28px；行内图标按钮 24px、图标 16px；状态点 8px。分组标题固定 28px 高（hover 出「新建」按钮用 opacity 切换，不改变行高）。
+- **圆角**：控件 4px、**条目/配置行高亮圆角**、面板 0。
 - **分隔线** 1px `--separator`。
 
 ## 图标
 
-Lucide（随 shadcn）：`Play`(运行) · `RotateCw`(重新运行) · `Square`(停止) · `MoreVertical`(更多⋮) · `ChevronRight`(树展开) · `Plus`(添加项目) · `X`(移除)。运行三角以 `--run-glyph` 上色。
+Lucide（随 shadcn）：`Play`(运行) · `RotateCw`(重新运行) · `Square`(停止) · `Pencil`(编辑) · `Trash2`(删除) · `ChevronRight`(树展开) · `Plus`(添加/新建) · `X`(移除)。运行三角以 `--run-glyph` 上色。
 
 ## 布局
 
 ```
-┌───────────────────────────────┬──────────────────────────────┐
-│ 左树面板  --bg-panel           │ 控制台区  --bg-deepest        │
-│                                │                              │
-│ ▾ project-a         [＋]       │  ┌ 状态条: 名称 · 退出码 ─┐   │
-│   探测脚本  --fg-muted         │  │                        │   │
-│    ● build                     │  │  xterm (JetBrains Mono)│   │
-│   我的配置                     │  │                        │   │
-│    ● dev        ▶  ⋮   ← hover  │  └────────────────────────┘   │
-│ ▸ project-b                    │                              │
-└───────────────────────────────┴──────────────────────────────┘
-        ↑ 可拖拽分隔 (shadcn Resizable) ┘
+┌── 侧栏 280px 固定 ──┬────────────────────────────┐
+│ 左树面板 --bg-panel  │ 控制台区 --bg-deepest       │
+│                     │                            │
+│ ▾ project-a    [＋] │ ┌ 状态条: 名称 · 退出码 ─┐  │
+│   我的配置    [＋]   │ │                       │  │
+│    ● dev  ✎ 🗑 ▶     │ │  xterm (JetBrains Mono)│  │
+│   探测脚本          │ │                       │  │
+│    ● build      ▶   │ └───────────────────────┘  │
+│ ▸ project-b         │                            │
+└─────────────────────┴────────────────────────────┘
 ```
 
-- **左树**：Project（可折叠）→ 分组 `探测脚本 / 我的配置`（标题 `--fg-muted`）→ 条目行。行内容：状态点 + 名称 +（hover/选中时）右侧运行 + 更多按钮。
-- **行选中**：`--selection-row` 填充；窗口失焦时降级为 `--bg-row-hover`。
+- **左树**：固定 280px。Project（可折叠）→ 分组（**「我的配置」在上、「探测脚本」在下**，标题 `--fg-muted`）→ 条目行。行内容：状态点 + 名称 +（hover/选中时）右侧编辑/删除/运行按钮。
+- **「我的配置」支持拖拽排序**（@dnd-kit，PointerSensor 距离 6px 激活以不误触点击；顺序落盘）。
+- **行选中**：`--selection-row` 圆角填充；其上按钮 hover 用 `--selection-row-hover`（蓝）而非灰。
 - **右控制台**：跟随左树选择；顶部极简状态条（名称 + 退出码/状态）；主体为选中会话的 xterm，退出后保留输出。
 
 ## 交互（呼应 CONTEXT.md / PRD）
 
-- **每行两按钮**：空闲 = 运行（绿三角 `--run-glyph`）+ 更多（⋮）；运行中 = 重新运行（实心绿 `--run-active-bg`）+ 停止（实心红 `--stop-active-bg`）。
+- **行内操作**（hover/选中浮出）：空闲 = 配置行有 编辑 `Pencil` + 删除 `Trash2`，末尾运行（绿三角 `--run-glyph`）；运行中 = 重新运行（实心绿 `--run-active-bg`）+ 停止（实心红 `--stop-active-bg`）。
 - **"激活" = 会话运行中态**（非鼠标按下）：配置一旦有活跃 Run Session，运行按钮即变实心绿的重新运行、旁出实心红停止。
 - **克制展示**：非 hover 行只显示状态点 + 名称；hover 或选中才浮出按钮（WebStorm 手感）。
 - **控制台跟随选择**、退出后保留输出（见 PRD 用户故事 22–25）。

@@ -16,5 +16,6 @@ export const IPC = {
   sessionRemoved: 'session:removed',
   configCreate: 'config:create',
   configUpdate: 'config:update',
-  configDelete: 'config:delete'
+  configDelete: 'config:delete',
+  configReorder: 'config:reorder'
 } as const

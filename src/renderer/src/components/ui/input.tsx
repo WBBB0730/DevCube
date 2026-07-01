@@ -7,7 +7,7 @@ function Input({
   return (
     <input
       className={cn(
-        'h-7 w-full rounded border border-[color:var(--border-input)] bg-[var(--bg-panel)] px-2 text-[13px] text-foreground outline-none placeholder:text-[color:var(--fg-disabled)] focus-visible:ring-2 focus-visible:ring-ring',
+        'h-8 w-full rounded border border-[color:var(--border-input)] bg-[var(--bg-panel)] px-2.5 text-[13px] text-foreground outline-none placeholder:text-[color:var(--fg-disabled)] focus-visible:ring-2 focus-visible:ring-ring',
         className
       )}
       {...props}

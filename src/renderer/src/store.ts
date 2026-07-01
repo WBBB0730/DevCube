@@ -29,6 +29,7 @@ interface AppState {
   closeDialog: () => void
   saveCommandConfig: (input: CommandInput, id?: string) => Promise<void>
   deleteConfig: (id: string) => Promise<void>
+  reorderConfigs: (projectPath: string, orderedIds: string[]) => Promise<void>
 }
 
 export const useApp = create<AppState>((set) => ({
@@ -67,5 +68,7 @@ export const useApp = create<AppState>((set) => ({
       : await window.api.createCommandConfig(input)
     set({ tree, dialog: { open: false } })
   },
-  deleteConfig: async (id) => set({ tree: await window.api.deleteConfig(id) })
+  deleteConfig: async (id) => set({ tree: await window.api.deleteConfig(id) }),
+  reorderConfigs: async (projectPath, orderedIds) =>
+    set({ tree: await window.api.reorderConfigs(projectPath, orderedIds) })
 }))

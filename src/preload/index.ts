@@ -26,6 +26,8 @@ const api: RunAPI = {
     ipcRenderer.invoke(IPC.configCreate, input),
   updateCommandConfig: (config) => ipcRenderer.invoke(IPC.configUpdate, config),
   deleteConfig: (id) => ipcRenderer.invoke(IPC.configDelete, id),
+  reorderConfigs: (projectPath, orderedIds) =>
+    ipcRenderer.invoke(IPC.configReorder, projectPath, orderedIds),
 
   onTreeChanged: (cb) => subscribe(IPC.treeChanged, cb),
   onSessionOutput: (cb) => subscribe(IPC.sessionOutput, cb),

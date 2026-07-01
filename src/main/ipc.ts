@@ -7,6 +7,7 @@ import {
   deleteConfig,
   promoteScript,
   reconcileConfigs,
+  reorderConfigs,
   updateCommandConfig
 } from './configs'
 import { addProjectByPath, pickAndAddProject, removeProject } from './projects'
@@ -122,6 +123,11 @@ export function registerIpc(win: BrowserWindow): void {
     const config = getConfigs().find((c) => c.id === id)
     if (config) disposeSession(configKey(config))
     deleteConfig(id)
+    return buildTree()
+  })
+
+  ipcMain.handle(IPC.configReorder, (_e, projectPath: string, orderedIds: string[]) => {
+    reorderConfigs(projectPath, orderedIds)
     return buildTree()
   })
 }

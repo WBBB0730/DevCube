@@ -70,3 +70,14 @@ export function updateCommandConfig(config: CommandRunConfig): void {
 export function deleteConfig(id: string): void {
   setConfigs(getConfigs().filter((c) => c.id !== id))
 }
+
+/** 重排某项目下的配置顺序。其它项目的配置相对顺序不变（buildTree 按项目过滤，跨项目顺序无关紧要）。 */
+export function reorderConfigs(projectPath: string, orderedIds: string[]): void {
+  const configs = getConfigs()
+  const byId = new Map(configs.map((c) => [c.id, c]))
+  const reordered = orderedIds
+    .map((id) => byId.get(id))
+    .filter((c): c is RunConfig => !!c && c.projectPath === projectPath)
+  const others = configs.filter((c) => c.projectPath !== projectPath)
+  setConfigs([...others, ...reordered])
+}
