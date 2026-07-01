@@ -46,7 +46,8 @@ import { useApp } from '@renderer/store'
 
 // 所有行统一固定高 + 圆角。四周内边距 6px：px-1.5 各 6px，
 // h-10(40px) 让 size-7(28px) 按钮上下各留 6px；固定高避免 hover 出按钮时整行跳动。
-const ROW = 'group flex h-10 cursor-pointer items-center gap-1.5 rounded px-1.5 transition-colors'
+const ROW =
+  'group flex h-10 cursor-pointer items-center gap-1.5 rounded px-1.5 text-[14px] transition-colors'
 const BTN = 'flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors'
 
 export function ProjectTree(): React.JSX.Element {
@@ -66,7 +67,7 @@ export function ProjectTree(): React.JSX.Element {
       }}
     >
       <header className="flex h-10 items-center justify-between pl-3 pr-2 text-muted-foreground">
-        <span className="text-[11px] font-medium uppercase tracking-wide">项目</span>
+        <span className="text-[12px] font-medium uppercase tracking-wide">项目</span>
         <button
           type="button"
           title="添加项目"
@@ -79,10 +80,10 @@ export function ProjectTree(): React.JSX.Element {
           <FolderPlus className="size-4" />
         </button>
       </header>
-      <div className="flex-1 overflow-auto px-1.5 py-3">
+      <div className="flex-1 overflow-auto px-1.5 pb-1.5">
         {tree.length === 0 ? (
           <p className="px-3 py-6 text-center text-xs text-muted-foreground">
-            还没有项目，点上方 + 或把文件夹拖进来
+            拖入文件夹，或点上方 +
           </p>
         ) : (
           tree.map((node) => <ProjectRow key={node.project.path} node={node} />)
@@ -111,7 +112,7 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
   const empty = node.configs.length === 0 && node.discovered.length === 0
 
   return (
-    <div className="mb-3">
+    <div className="mb-3 last:mb-0">
       <div
         className={cn(ROW, 'text-foreground hover:bg-[var(--bg-row-hover)]')}
         onClick={() => setOpen((v) => !v)}
@@ -124,8 +125,8 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
         />
         <Folder className="size-4 shrink-0 text-muted-foreground" />
         <span className="flex-1 truncate">{node.project.name}</span>
-        {node.packageManager && (
-          <span className="text-[11px] text-muted-foreground group-hover:hidden">
+        {node.packageManager && node.packageManager !== 'pnpm' && (
+          <span className="text-[12px] text-muted-foreground group-hover:hidden">
             {node.packageManager}
           </span>
         )}
@@ -157,7 +158,7 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
             </SortableContext>
           </DndContext>
           {empty && (
-            <div className="py-0.5 pl-9 text-[11px] text-[var(--fg-disabled)]">无可运行项</div>
+            <div className="py-0.5 pl-9 text-[12px] text-[var(--fg-disabled)]">无可运行项</div>
           )}
           {node.discovered.length > 0 && <DiscoveredMenu discovered={node.discovered} />}
         </div>
@@ -174,18 +175,19 @@ function DiscoveredMenu({ discovered }: { discovered: DiscoveredScript[] }): Rea
         <PopoverTrigger
           className={cn(ROW, 'w-full text-muted-foreground hover:bg-[var(--bg-row-hover)]')}
         >
-          {/* 占位补齐折叠箭头列；数字放在圆点列，与配置的状态点对齐 */}
+          {/* 占位补齐折叠箭头列；文案接着圆点列起始，与配置的状态点对齐 */}
           <span className="size-4 shrink-0" />
-          <span className="flex size-4 shrink-0 items-center justify-center text-[11px] text-[var(--fg-disabled)]">
+          <span className="flex-1 truncate text-left">检测到的配置</span>
+          {/* 数字移到箭头前 */}
+          <span className="shrink-0 text-[12px] text-[var(--fg-disabled)]">
             {discovered.length}
           </span>
-          <span className="flex-1 truncate text-left">检测到的配置</span>
           {/* 箭头放进 size-7 槽并靠右，与配置行最右的「更多」按钮图标同列对齐 */}
           <span className="flex size-7 shrink-0 items-center justify-center">
             <ChevronRight className="size-4 shrink-0" />
           </span>
         </PopoverTrigger>
-        <PopoverContent className="w-60">
+        <PopoverContent align="end" className="w-60">
           {discovered.map((s) => (
             <RunnableRow
               key={s.name}
