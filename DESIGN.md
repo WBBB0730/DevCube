@@ -12,8 +12,8 @@
 | `--bg-deepest` | `#1E1F22` | 控制台底、最深区、分割线（当深色凹槽） |
 | `--bg-panel` | `#2B2D30` | 左树面板 / 工具栏 / 顶栏 / 输入框 / **弹出菜单**背景（与列表一致） |
 | `--bg-popover` | `#393B40` | 对话框（ConfigDialog）背景 |
-| `--bg-row-hover` | `#43454A` | 树行 hover |
-| `--bg-button-hover` | `#404144` | 运行按钮空闲态 hover 底 |
+| `--bg-row-hover` | `#393B40` | 树行 / 触发行 hover（较深） |
+| `--bg-button-hover` | `#515257` | 行内图标按钮 hover 底（较浅，与行 hover 拉开对比） |
 | `--bg-caret-row` | `#26282E` | 控制台当前行（可选） |
 
 **文字 / 图标**
