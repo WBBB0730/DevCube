@@ -45,7 +45,7 @@ function DropdownMenuItem({
   return (
     <Menu.Item
       className={cn(
-        'flex h-8 cursor-pointer select-none items-center gap-2 rounded px-2 text-[13px] text-foreground outline-none data-[highlighted]:bg-[var(--bg-row-hover)]',
+        'flex h-8 cursor-pointer select-none items-center gap-2 rounded px-2 text-[13px] text-foreground outline-none transition-colors data-[highlighted]:bg-[var(--bg-row-hover)]',
         className
       )}
       onClick={onClick}

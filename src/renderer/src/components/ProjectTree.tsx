@@ -46,8 +46,8 @@ import { useApp } from '@renderer/store'
 
 // 所有行统一固定高 + 圆角。四周内边距 6px：px-1.5 各 6px，
 // h-10(40px) 让 size-7(28px) 按钮上下各留 6px；固定高避免 hover 出按钮时整行跳动。
-const ROW = 'group flex h-10 cursor-pointer items-center gap-1.5 rounded px-1.5'
-const BTN = 'flex size-7 shrink-0 items-center justify-center rounded-lg'
+const ROW = 'group flex h-10 cursor-pointer items-center gap-1.5 rounded px-1.5 transition-colors'
+const BTN = 'flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors'
 
 export function ProjectTree(): React.JSX.Element {
   const tree = useApp((s) => s.tree)
@@ -73,7 +73,7 @@ export function ProjectTree(): React.JSX.Element {
           onClick={addProject}
           className={cn(
             BTN,
-            'text-muted-foreground hover:bg-[var(--bg-button-hover)] hover:text-foreground'
+            'text-muted-foreground hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
           )}
         >
           <FolderPlus className="size-4" />
@@ -300,7 +300,7 @@ function RunnableRow({
         config && (
           <MoreMenu
             config={config}
-            baseClass={cn(BTN, 'text-muted-foreground hover:text-foreground', btnHover)}
+            baseClass={cn(BTN, 'text-muted-foreground hover:text-[color:var(--fg-icon)]', btnHover)}
             idleVis={idleVis}
           />
         )
@@ -354,7 +354,7 @@ function ProjectMoreMenu({ projectPath }: { projectPath: string }): React.JSX.El
       <DropdownMenuTrigger
         className={cn(
           BTN,
-          'text-muted-foreground hover:bg-[var(--bg-button-hover)] hover:text-foreground',
+          'text-muted-foreground hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]',
           open ? 'flex' : 'hidden group-hover:flex'
         )}
         title="更多"
@@ -385,7 +385,7 @@ function IconButton({
       type="button"
       title={title}
       onClick={onClick}
-      className="hidden size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-[var(--bg-button-hover)] hover:text-foreground group-hover:flex"
+      className="hidden size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)] group-hover:flex"
     >
       {children}
     </button>
@@ -401,6 +401,9 @@ const STATUS_COLOR: Record<SessionStatus | 'idle', string> = {
 
 function StatusDot({ status }: { status: SessionStatus | 'idle' }): React.JSX.Element {
   return (
-    <span className="size-2 shrink-0 rounded-full" style={{ background: STATUS_COLOR[status] }} />
+    <span
+      className="size-2 shrink-0 rounded-full transition-colors"
+      style={{ background: STATUS_COLOR[status] }}
+    />
   )
 }

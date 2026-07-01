@@ -106,7 +106,7 @@ export function ConfigDialog(): React.JSX.Element {
                   <button
                     type="button"
                     title="删除变量"
-                    className="flex size-8 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-[var(--bg-row-hover)]"
+                    className="flex size-8 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-[var(--bg-row-hover)]"
                     onClick={() => setEnvRows((rows) => rows.filter((_, idx) => idx !== i))}
                   >
                     <Trash2 className="size-4" />
@@ -115,7 +115,7 @@ export function ConfigDialog(): React.JSX.Element {
               ))}
               <button
                 type="button"
-                className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+                className="flex items-center gap-1 text-[11px] text-muted-foreground transition-colors hover:text-[color:var(--fg-icon)]"
                 onClick={() => setEnvRows((rows) => [...rows, ['', '']])}
               >
                 <Plus className="size-3" /> 添加变量
