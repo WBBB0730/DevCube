@@ -1,5 +1,16 @@
 import { useState } from 'react'
-import { ChevronRight, Folder, Pencil, Play, Plus, RotateCw, Square, Trash2, X } from 'lucide-react'
+import {
+  ChevronRight,
+  Folder,
+  FolderPlus,
+  Pencil,
+  Play,
+  Plus,
+  RotateCw,
+  Square,
+  Trash2,
+  X
+} from 'lucide-react'
 import {
   DndContext,
   PointerSensor,
@@ -57,7 +68,7 @@ export function ProjectTree(): React.JSX.Element {
           title="添加项目"
           onClick={addProject}
         >
-          <Plus className="size-5" />
+          <FolderPlus className="size-4" />
         </Button>
       </header>
       <div className="flex-1 overflow-auto px-1 py-1">
@@ -119,7 +130,7 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
             openCreateDialog(node.project.path)
           }}
         >
-          <Plus className="size-5" />
+          <Plus className="size-4" />
         </IconButton>
         <IconButton
           title="移除项目"
@@ -129,7 +140,7 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
             removeProject(node.project.path)
           }}
         >
-          <X className="size-5" />
+          <X className="size-4" />
         </IconButton>
       </div>
       {open && (
@@ -257,7 +268,7 @@ function RunnableRow({
             openEditDialog(config)
           }}
         >
-          <Pencil className="size-5" />
+          <Pencil className="size-4" />
         </IconButton>
       )}
       {!running && config && (
@@ -269,7 +280,7 @@ function RunnableRow({
             deleteConfig(config.id)
           }}
         >
-          <Trash2 className="size-5" />
+          <Trash2 className="size-4" />
         </IconButton>
       )}
       {/* 停止在运行按钮之前，运行/重跑恒为最右固定位（激活即原地替换） */}
@@ -277,7 +288,7 @@ function RunnableRow({
         <button
           type="button"
           title="停止"
-          className="flex size-7 shrink-0 items-center justify-center rounded bg-[var(--stop-active-bg)] text-white hover:bg-[var(--stop-active-bg-hover)]"
+          className="flex size-7 shrink-0 items-center justify-center rounded-lg bg-[var(--stop-active-bg)] text-white hover:bg-[var(--stop-active-bg-hover)]"
           onClick={(e) => {
             e.stopPropagation()
             stop(rkey)
@@ -290,7 +301,7 @@ function RunnableRow({
         type="button"
         title={running ? '重新运行' : '运行'}
         className={cn(
-          'size-7 shrink-0 items-center justify-center rounded',
+          'size-7 shrink-0 items-center justify-center rounded-lg',
           running
             ? 'flex bg-[var(--run-active-bg)] text-white hover:bg-[var(--run-active-bg-hover)]'
             : cn('text-[var(--run-glyph)]', btnHover, selected ? 'flex' : 'hidden group-hover:flex')
@@ -300,7 +311,7 @@ function RunnableRow({
           run(target, rkey)
         }}
       >
-        {running ? <RotateCw className="size-5" /> : <Play className="size-5" />}
+        {running ? <RotateCw className="size-4" /> : <Play className="size-4" />}
       </button>
     </div>
   )
@@ -323,7 +334,7 @@ function IconButton({
       title={title}
       onClick={onClick}
       className={cn(
-        'hidden size-7 shrink-0 items-center justify-center rounded text-muted-foreground group-hover:flex',
+        'hidden size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground group-hover:flex',
         hoverClass
       )}
     >
