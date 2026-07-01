@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import type { RunConfig } from '../shared/types'
+import type { CommandRunConfig, RunConfig } from '../shared/types'
 import { readScripts } from './discovery'
 import { getConfigs, getProjects, setConfigs } from './store'
 
@@ -52,4 +52,20 @@ export function reconcileConfigs(): boolean {
   if (after.length === before.length) return false
   setConfigs(after)
   return true
+}
+
+/** 新建一条命令型配置。 */
+export function createCommandConfig(input: Omit<CommandRunConfig, 'id' | 'kind'>): void {
+  const config: CommandRunConfig = { ...input, id: randomUUID(), kind: 'command' }
+  setConfigs([...getConfigs(), config])
+}
+
+/** 覆盖更新一条命令型配置。 */
+export function updateCommandConfig(config: CommandRunConfig): void {
+  setConfigs(getConfigs().map((c) => (c.id === config.id ? config : c)))
+}
+
+/** 按 id 删除任意配置（引用型删除即「取消晋升」，script 会重新回到候补区）。 */
+export function deleteConfig(id: string): void {
+  setConfigs(getConfigs().filter((c) => c.id !== id))
 }

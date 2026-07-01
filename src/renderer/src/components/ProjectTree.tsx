@@ -1,6 +1,6 @@
 import { useState } from 'react'
-import { ChevronRight, Folder, Play, Plus, RotateCw, Square, X } from 'lucide-react'
-import type { ProjectNode, RunTarget, SessionStatus } from '@shared/types'
+import { ChevronRight, Folder, Pencil, Play, Plus, RotateCw, Square, Trash2, X } from 'lucide-react'
+import type { ProjectNode, RunConfig, RunTarget, SessionStatus } from '@shared/types'
 import { configKey, scriptKey } from '@shared/runnable'
 import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui/button'
@@ -40,6 +40,7 @@ export function ProjectTree(): React.JSX.Element {
 function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
   const [open, setOpen] = useState(true)
   const removeProject = useApp((s) => s.removeProject)
+  const openCreateDialog = useApp((s) => s.openCreateDialog)
 
   return (
     <div>
@@ -85,13 +86,18 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
               />
             ))}
           </Group>
-          <Group label="我的配置" empty={node.configs.length === 0}>
+          <Group
+            label="我的配置"
+            empty={node.configs.length === 0}
+            onAdd={() => openCreateDialog(node.project.path)}
+          >
             {node.configs.map((c) => (
               <RunnableRow
                 key={c.id}
                 label={c.kind === 'referenced' ? c.scriptName : c.name}
                 rkey={configKey(c)}
                 target={{ type: 'config', id: c.id }}
+                config={c}
               />
             ))}
           </Group>
@@ -104,16 +110,30 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
 function Group({
   label,
   empty,
+  onAdd,
   children
 }: {
   label: string
   empty: boolean
+  onAdd?: () => void
   children: React.ReactNode
 }): React.JSX.Element {
   return (
-    <div className="py-0.5">
-      <div className="px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
-        {label}
+    <div className="group/g py-0.5">
+      <div className="flex items-center justify-between px-1.5 py-0.5">
+        <span className="text-[10px] font-medium uppercase tracking-wide text-muted-foreground">
+          {label}
+        </span>
+        {onAdd && (
+          <button
+            type="button"
+            title="新建命令"
+            className="hidden size-4 items-center justify-center rounded text-muted-foreground hover:bg-[var(--bg-button-hover)] group-hover/g:flex"
+            onClick={onAdd}
+          >
+            <Plus className="size-3" />
+          </button>
+        )}
       </div>
       {empty ? (
         <div className="px-2 py-0.5 text-[11px] text-[var(--fg-disabled)]">—</div>
@@ -127,17 +147,21 @@ function Group({
 function RunnableRow({
   label,
   rkey,
-  target
+  target,
+  config
 }: {
   label: string
   rkey: string
   target: RunTarget
+  config?: RunConfig
 }): React.JSX.Element {
   const status = useApp((s) => s.sessions[rkey]?.status ?? 'idle')
   const selected = useApp((s) => s.selectedKey === rkey)
   const run = useApp((s) => s.run)
   const stop = useApp((s) => s.stop)
   const select = useApp((s) => s.select)
+  const openEditDialog = useApp((s) => s.openEditDialog)
+  const deleteConfig = useApp((s) => s.deleteConfig)
   const running = status === 'running'
 
   return (
@@ -150,6 +174,28 @@ function RunnableRow({
     >
       <StatusDot status={status} />
       <span className="flex-1 truncate">{label}</span>
+      {!running && config?.kind === 'command' && (
+        <IconButton
+          title="编辑"
+          onClick={(e) => {
+            e.stopPropagation()
+            openEditDialog(config)
+          }}
+        >
+          <Pencil className="size-3.5" />
+        </IconButton>
+      )}
+      {!running && config && (
+        <IconButton
+          title="删除配置"
+          onClick={(e) => {
+            e.stopPropagation()
+            deleteConfig(config.id)
+          }}
+        >
+          <Trash2 className="size-3.5" />
+        </IconButton>
+      )}
       <button
         type="button"
         title={running ? '重新运行' : '运行'}
@@ -183,6 +229,27 @@ function RunnableRow({
         </button>
       )}
     </div>
+  )
+}
+
+function IconButton({
+  title,
+  onClick,
+  children
+}: {
+  title: string
+  onClick: (e: React.MouseEvent) => void
+  children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      title={title}
+      onClick={onClick}
+      className="hidden size-5 items-center justify-center rounded text-muted-foreground hover:bg-[var(--bg-button-hover)] group-hover:flex"
+    >
+      {children}
+    </button>
   )
 }
 

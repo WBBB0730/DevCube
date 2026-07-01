@@ -96,9 +96,9 @@ export interface RunAPI {
   getSessions(): Promise<SessionState[]>
 
   // —— 命令型配置（slice 6） ——
-  createCommandConfig(input: Omit<CommandRunConfig, 'id' | 'kind'>): Promise<void>
-  updateCommandConfig(config: CommandRunConfig): Promise<void>
-  deleteConfig(id: string): Promise<void>
+  createCommandConfig(input: Omit<CommandRunConfig, 'id' | 'kind'>): Promise<ProjectNode[]>
+  updateCommandConfig(config: CommandRunConfig): Promise<ProjectNode[]>
+  deleteConfig(id: string): Promise<ProjectNode[]>
 
   // —— 事件订阅（返回取消函数） ——
   onTreeChanged(cb: (tree: ProjectNode[]) => void): () => void

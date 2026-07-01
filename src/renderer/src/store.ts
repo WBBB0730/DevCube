@@ -1,10 +1,19 @@
 import { create } from 'zustand'
-import type { ProjectNode, RunTarget, SessionState } from '@shared/types'
+import type { CommandRunConfig, ProjectNode, RunTarget, SessionState } from '@shared/types'
+
+type CommandInput = Omit<CommandRunConfig, 'id' | 'kind'>
+
+interface DialogState {
+  open: boolean
+  projectPath?: string
+  config?: CommandRunConfig
+}
 
 interface AppState {
   tree: ProjectNode[]
   sessions: Record<string, SessionState>
   selectedKey: string | null
+  dialog: DialogState
   setTree: (tree: ProjectNode[]) => void
   setSession: (s: SessionState) => void
   select: (key: string) => void
@@ -13,12 +22,18 @@ interface AppState {
   removeProject: (path: string) => Promise<void>
   run: (target: RunTarget, key: string) => Promise<void>
   stop: (key: string) => Promise<void>
+  openCreateDialog: (projectPath: string) => void
+  openEditDialog: (config: CommandRunConfig) => void
+  closeDialog: () => void
+  saveCommandConfig: (input: CommandInput, id?: string) => Promise<void>
+  deleteConfig: (id: string) => Promise<void>
 }
 
 export const useApp = create<AppState>((set) => ({
   tree: [],
   sessions: {},
   selectedKey: null,
+  dialog: { open: false },
   setTree: (tree) => set({ tree }),
   setSession: (s) => set((state) => ({ sessions: { ...state.sessions, [s.key]: s } })),
   select: (key) => set({ selectedKey: key }),
@@ -32,5 +47,16 @@ export const useApp = create<AppState>((set) => ({
     set({ selectedKey: key })
     await window.api.run(target)
   },
-  stop: async (key) => window.api.stop(key)
+  stop: async (key) => window.api.stop(key),
+  openCreateDialog: (projectPath) => set({ dialog: { open: true, projectPath } }),
+  openEditDialog: (config) =>
+    set({ dialog: { open: true, projectPath: config.projectPath, config } }),
+  closeDialog: () => set({ dialog: { open: false } }),
+  saveCommandConfig: async (input, id) => {
+    const tree = id
+      ? await window.api.updateCommandConfig({ ...input, id, kind: 'command' })
+      : await window.api.createCommandConfig(input)
+    set({ tree, dialog: { open: false } })
+  },
+  deleteConfig: async (id) => set({ tree: await window.api.deleteConfig(id) })
 }))

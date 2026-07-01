@@ -1,10 +1,12 @@
 import { useEffect } from 'react'
 import { ProjectTree } from '@renderer/components/ProjectTree'
 import { Console } from '@renderer/components/Console'
+import { ConfigDialog } from '@renderer/components/ConfigDialog'
 import { useApp } from '@renderer/store'
 
 function App(): React.JSX.Element {
   const init = useApp((s) => s.init)
+  const dialog = useApp((s) => s.dialog)
 
   useEffect(() => {
     init()
@@ -20,6 +22,7 @@ function App(): React.JSX.Element {
     <div className="flex h-full">
       <ProjectTree />
       <Console />
+      {dialog.open && <ConfigDialog key={dialog.config?.id ?? 'new'} />}
     </div>
   )
 }

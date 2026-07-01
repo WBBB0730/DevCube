@@ -1,7 +1,14 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { IPC } from '../shared/ipc'
-import type { RunTarget } from '../shared/types'
-import { promoteScript, reconcileConfigs } from './configs'
+import { configKey } from '../shared/runnable'
+import type { CommandRunConfig, RunTarget } from '../shared/types'
+import {
+  createCommandConfig,
+  deleteConfig,
+  promoteScript,
+  reconcileConfigs,
+  updateCommandConfig
+} from './configs'
 import { addProjectByPath, pickAndAddProject, removeProject } from './projects'
 import {
   getSessionBuffer,
@@ -12,7 +19,7 @@ import {
   stop,
   writeStdin
 } from './runner'
-import { getProjects } from './store'
+import { getConfigs, getProjects } from './store'
 import { buildTree } from './tree'
 import { syncWatchers } from './watcher'
 
@@ -91,4 +98,23 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.on(IPC.resize, (_e, key: string, cols: number, rows: number) => resize(key, cols, rows))
   ipcMain.handle(IPC.sessionBuffer, (_e, key: string) => getSessionBuffer(key))
   ipcMain.handle(IPC.sessions, () => getSessions())
+
+  // —— 命令型配置 CRUD ——
+  ipcMain.handle(IPC.configCreate, (_e, input: Omit<CommandRunConfig, 'id' | 'kind'>) => {
+    createCommandConfig(input)
+    return buildTree()
+  })
+
+  ipcMain.handle(IPC.configUpdate, (_e, config: CommandRunConfig) => {
+    updateCommandConfig(config)
+    return buildTree()
+  })
+
+  ipcMain.handle(IPC.configDelete, (_e, id: string) => {
+    // 删除前若该配置正在运行，先停掉其进程树。
+    const config = getConfigs().find((c) => c.id === id)
+    if (config) stop(configKey(config))
+    deleteConfig(id)
+    return buildTree()
+  })
 }
