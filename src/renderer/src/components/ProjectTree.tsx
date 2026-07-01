@@ -54,6 +54,11 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
         />
         <Folder className="size-3.5 shrink-0 text-muted-foreground" />
         <span className="flex-1 truncate">{node.project.name}</span>
+        {node.packageManager && (
+          <span className="text-[10px] text-muted-foreground group-hover:hidden">
+            {node.packageManager}
+          </span>
+        )}
         <Button
           variant="ghost"
           size="icon"
