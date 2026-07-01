@@ -1,6 +1,7 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { IPC } from '../shared/ipc'
 import type { RunTarget } from '../shared/types'
+import { promoteScript, reconcileConfigs } from './configs'
 import { addProjectByPath, pickAndAddProject, removeProject } from './projects'
 import {
   getSessionBuffer,
@@ -31,8 +32,11 @@ function debounce(fn: () => void, ms: number): () => void {
   }
 }
 
-// 文件事件可能连发，防抖后再重建树推送。
-const onWatchEvent = debounce(emitTree, 120)
+// 文件事件可能连发，防抖后先对账（删除引用悬空的配置）再重建树推送。
+const onWatchEvent = debounce(() => {
+  reconcileConfigs()
+  emitTree()
+}, 120)
 
 function refreshWatchers(): void {
   syncWatchers(
@@ -49,6 +53,7 @@ export function registerIpc(win: BrowserWindow): void {
     return
   }
   registered = true
+  reconcileConfigs() // 启动对账：清掉关闭期间 script 已消失的引用型配置
   refreshWatchers()
 
   // —— 项目 / 树 ——
@@ -73,7 +78,14 @@ export function registerIpc(win: BrowserWindow): void {
   })
 
   // —— 运行时 ——
-  ipcMain.handle(IPC.run, (_e, target: RunTarget) => run(target))
+  ipcMain.handle(IPC.run, (_e, target: RunTarget) => {
+    // 运行探测脚本即晋升为引用型配置：它随即从候补区移到「我的配置」。
+    if (target.type === 'script') {
+      promoteScript(target.projectPath, target.name)
+      emitTree()
+    }
+    run(target)
+  })
   ipcMain.handle(IPC.stop, (_e, key: string) => stop(key))
   ipcMain.on(IPC.stdin, (_e, key: string, data: string) => writeStdin(key, data))
   ipcMain.on(IPC.resize, (_e, key: string, cols: number, rows: number) => resize(key, cols, rows))
