@@ -39,10 +39,9 @@ import { Button } from '@renderer/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
 import { useApp } from '@renderer/store'
 
-// 所有行统一固定高 h-9 + 圆角。左 8px（供内容缩进对齐）、右 4px。
-// 固定行高避免 hover 出按钮时整行跳动；按钮 size-7 在 h-9 里四周内边距一致 ~4px。
-// 行圆角 10px = 按钮圆角 rounded-lg(6px) + 内边距 4px，与按钮同心、看起来和谐。
-const ROW = 'group flex h-9 cursor-pointer items-center gap-1.5 rounded-[10px] pl-2 pr-1'
+// 所有行统一固定高 + 圆角。四周内边距 8px：pl-2 / pr-2 各 8px，
+// h-11(44px) 让 size-7(28px) 按钮上下各留 8px；固定高避免 hover 出按钮时整行跳动。
+const ROW = 'group flex h-11 cursor-pointer items-center gap-1.5 rounded pl-2 pr-2'
 
 export function ProjectTree(): React.JSX.Element {
   const tree = useApp((s) => s.tree)
@@ -178,11 +177,11 @@ function DiscoveredMenu({ discovered }: { discovered: DiscoveredScript[] }): Rea
         <PopoverTrigger
           className={cn(ROW, 'w-full text-muted-foreground hover:bg-[var(--bg-row-hover)]')}
         >
-          {/* 两个占位列，使文案与配置文本左对齐 */}
+          {/* 两个占位列，使数字与配置文本左对齐 */}
           <span className="size-4 shrink-0" />
           <span className="size-4 shrink-0" />
-          <span className="flex-1 truncate text-left">检测到的配置</span>
           <span className="text-[11px] text-[var(--fg-disabled)]">{discovered.length}</span>
+          <span className="flex-1 truncate text-left">检测到的配置</span>
           <ChevronRight className="size-4 shrink-0" />
         </PopoverTrigger>
         <PopoverContent className="w-60 px-1">
