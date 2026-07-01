@@ -110,7 +110,7 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
   const empty = node.configs.length === 0 && node.discovered.length === 0
 
   return (
-    <div className="mb-1.5">
+    <div className="mb-3">
       <div
         className={cn(ROW, 'text-foreground hover:bg-[var(--bg-row-hover)]')}
         onClick={() => setOpen((v) => !v)}
