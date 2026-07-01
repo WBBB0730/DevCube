@@ -71,7 +71,10 @@ export function ProjectTree(): React.JSX.Element {
           type="button"
           title="添加项目"
           onClick={addProject}
-          className={cn(BTN, 'text-muted-foreground hover:bg-[var(--bg-button-hover)]')}
+          className={cn(
+            BTN,
+            'text-muted-foreground hover:bg-[var(--bg-button-hover)] hover:text-foreground'
+          )}
         >
           <FolderPlus className="size-4" />
         </button>
@@ -297,7 +300,7 @@ function RunnableRow({
         config && (
           <MoreMenu
             config={config}
-            baseClass={cn(BTN, 'text-muted-foreground', btnHover)}
+            baseClass={cn(BTN, 'text-muted-foreground hover:text-foreground', btnHover)}
             idleVis={idleVis}
           />
         )
@@ -351,7 +354,7 @@ function ProjectMoreMenu({ projectPath }: { projectPath: string }): React.JSX.El
       <DropdownMenuTrigger
         className={cn(
           BTN,
-          'text-muted-foreground hover:bg-[var(--bg-button-hover)]',
+          'text-muted-foreground hover:bg-[var(--bg-button-hover)] hover:text-foreground',
           open ? 'flex' : 'hidden group-hover:flex'
         )}
         title="更多"
@@ -382,7 +385,7 @@ function IconButton({
       type="button"
       title={title}
       onClick={onClick}
-      className="hidden size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-[var(--bg-button-hover)] group-hover:flex"
+      className="hidden size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground hover:bg-[var(--bg-button-hover)] hover:text-foreground group-hover:flex"
     >
       {children}
     </button>
