@@ -22,7 +22,7 @@ function DropdownMenuContent({
       <Menu.Positioner className="z-50" side={side} align={align} sideOffset={sideOffset}>
         <Menu.Popup
           className={cn(
-            'min-w-32 rounded-xl border border-[color:var(--border-input)] bg-panel px-1.5 py-3 shadow-xl outline-none',
+            'min-w-32 rounded-xl border border-[color:var(--border-input)] bg-panel p-1.5 shadow-xl outline-none',
             className
           )}
         >
