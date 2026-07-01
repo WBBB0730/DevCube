@@ -102,6 +102,10 @@ export interface RunAPI {
   /** 重排某项目下「我的配置」的顺序 */
   reorderConfigs(projectPath: string, orderedIds: string[]): Promise<ProjectNode[]>
 
+  // —— 外链 ——
+  /** 在系统默认浏览器打开 http/https 链接（终端可点击链接） */
+  openExternal(url: string): Promise<void>
+
   // —— 事件订阅（返回取消函数） ——
   onTreeChanged(cb: (tree: ProjectNode[]) => void): () => void
   onSessionOutput(cb: (e: SessionOutput) => void): () => void

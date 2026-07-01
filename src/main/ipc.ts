@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow } from 'electron'
+import { ipcMain, BrowserWindow, shell } from 'electron'
 import { IPC } from '../shared/ipc'
 import { configKey } from '../shared/runnable'
 import type { CommandRunConfig, RunTarget } from '../shared/types'
@@ -129,5 +129,11 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.configReorder, (_e, projectPath: string, orderedIds: string[]) => {
     reorderConfigs(projectPath, orderedIds)
     return buildTree()
+  })
+
+  // —— 外链 ——
+  // 终端里点击链接 → 系统默认浏览器；仅放行 http/https，杜绝 file:// 等其他协议。
+  ipcMain.handle(IPC.openExternal, (_e, url: string) => {
+    if (/^https?:\/\//i.test(url)) shell.openExternal(url)
   })
 }

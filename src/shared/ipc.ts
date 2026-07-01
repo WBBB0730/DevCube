@@ -17,5 +17,6 @@ export const IPC = {
   configCreate: 'config:create',
   configUpdate: 'config:update',
   configDelete: 'config:delete',
-  configReorder: 'config:reorder'
+  configReorder: 'config:reorder',
+  openExternal: 'shell:open-external'
 } as const

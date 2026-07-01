@@ -29,6 +29,8 @@ const api: RunAPI = {
   reorderConfigs: (projectPath, orderedIds) =>
     ipcRenderer.invoke(IPC.configReorder, projectPath, orderedIds),
 
+  openExternal: (url) => ipcRenderer.invoke(IPC.openExternal, url),
+
   onTreeChanged: (cb) => subscribe(IPC.treeChanged, cb),
   onSessionOutput: (cb) => subscribe(IPC.sessionOutput, cb),
   onSessionStatus: (cb) => subscribe(IPC.sessionStatus, cb),
