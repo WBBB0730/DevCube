@@ -1,9 +1,15 @@
 import { dialog } from 'electron'
+import { statSync } from 'fs'
 import { basename } from 'path'
 import { getConfigs, getProjects, setConfigs, setProjects } from './store'
 
-/** 按绝对路径去重登记一个项目。 */
+/** 按绝对路径去重登记一个项目；非目录（如误拖入文件）直接忽略。 */
 export function addProjectByPath(dir: string): void {
+  try {
+    if (!statSync(dir).isDirectory()) return
+  } catch {
+    return
+  }
   const projects = getProjects()
   if (projects.some((p) => p.path === dir)) return
   projects.push({ path: dir, name: basename(dir) })

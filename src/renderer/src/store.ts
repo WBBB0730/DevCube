@@ -19,6 +19,7 @@ interface AppState {
   select: (key: string) => void
   init: () => Promise<void>
   addProject: () => Promise<void>
+  addProjectByPath: (path: string) => Promise<void>
   removeProject: (path: string) => Promise<void>
   run: (target: RunTarget, key: string) => Promise<void>
   stop: (key: string) => Promise<void>
@@ -42,6 +43,7 @@ export const useApp = create<AppState>((set) => ({
     set({ tree, sessions: Object.fromEntries(sessions.map((s) => [s.key, s])) })
   },
   addProject: async () => set({ tree: await window.api.addProject() }),
+  addProjectByPath: async (path) => set({ tree: await window.api.addProjectByPath(path) }),
   removeProject: async (path) => set({ tree: await window.api.removeProject(path) }),
   run: async (target, key) => {
     set({ selectedKey: key })

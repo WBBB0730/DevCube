@@ -5,5 +5,6 @@ declare global {
   interface Window {
     electron: ElectronAPI
     api: RunAPI
+    drop: { getPathForFile: (file: File) => string }
   }
 }

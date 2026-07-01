@@ -9,9 +9,19 @@ import { useApp } from '@renderer/store'
 export function ProjectTree(): React.JSX.Element {
   const tree = useApp((s) => s.tree)
   const addProject = useApp((s) => s.addProject)
+  const addProjectByPath = useApp((s) => s.addProjectByPath)
 
   return (
-    <div className="flex h-full w-full flex-col bg-panel">
+    <div
+      className="flex h-full w-full flex-col bg-panel"
+      onDragOver={(e) => e.preventDefault()}
+      onDrop={async (e) => {
+        e.preventDefault()
+        for (const file of Array.from(e.dataTransfer.files)) {
+          await addProjectByPath(window.drop.getPathForFile(file))
+        }
+      }}
+    >
       <header className="flex h-8 items-center justify-between pl-3 pr-1.5 text-muted-foreground">
         <span className="text-[11px] font-medium uppercase tracking-wide">项目</span>
         <Button

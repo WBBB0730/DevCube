@@ -1,4 +1,4 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import { IPC } from '../shared/ipc'
 import type { CommandRunConfig, RunAPI, RunTarget } from '../shared/types'
@@ -34,10 +34,14 @@ const api: RunAPI = {
 
 // Use `contextBridge` APIs to expose Electron APIs to renderer
 // only if context isolation is enabled, otherwise just add to the DOM global.
+// 拖拽文件夹入面板时，用 webUtils 取真实路径（contextIsolation 下 File.path 已不可用）。
+const drop = { getPathForFile: (file: File): string => webUtils.getPathForFile(file) }
+
 if (process.contextIsolated) {
   try {
     contextBridge.exposeInMainWorld('electron', electronAPI)
     contextBridge.exposeInMainWorld('api', api)
+    contextBridge.exposeInMainWorld('drop', drop)
   } catch (error) {
     console.error(error)
   }
@@ -46,4 +50,6 @@ if (process.contextIsolated) {
   window.electron = electronAPI
   // @ts-ignore (define in dts)
   window.api = api
+  // @ts-ignore (define in dts)
+  window.drop = drop
 }
