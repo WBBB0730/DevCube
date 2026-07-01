@@ -9,8 +9,7 @@ import {
   Plus,
   RotateCw,
   Square,
-  Trash2,
-  X
+  Trash2
 } from 'lucide-react'
 import {
   DndContext,
@@ -92,7 +91,6 @@ export function ProjectTree(): React.JSX.Element {
 
 function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
   const [open, setOpen] = useState(true)
-  const removeProject = useApp((s) => s.removeProject)
   const openCreateDialog = useApp((s) => s.openCreateDialog)
   const reorderConfigs = useApp((s) => s.reorderConfigs)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
@@ -137,15 +135,7 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
         >
           <Plus className="size-4" />
         </IconButton>
-        <IconButton
-          title="移除项目"
-          onClick={(e) => {
-            e.stopPropagation()
-            removeProject(node.project.path)
-          }}
-        >
-          <X className="size-4" />
-        </IconButton>
+        <ProjectMoreMenu projectPath={node.project.path} />
       </div>
       {open && (
         <div className="mt-0.5">
@@ -346,6 +336,32 @@ function MoreMenu({
         )}
         <DropdownMenuItem onClick={() => deleteConfig(config.id)}>
           <Trash2 className="size-4" /> 删除
+        </DropdownMenuItem>
+      </DropdownMenuContent>
+    </DropdownMenu>
+  )
+}
+
+function ProjectMoreMenu({ projectPath }: { projectPath: string }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const removeProject = useApp((s) => s.removeProject)
+
+  return (
+    <DropdownMenu open={open} onOpenChange={(nextOpen) => setOpen(nextOpen)}>
+      <DropdownMenuTrigger
+        className={cn(
+          BTN,
+          'text-muted-foreground hover:bg-[var(--bg-button-hover)]',
+          open ? 'flex' : 'hidden group-hover:flex'
+        )}
+        title="更多"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <MoreVertical className="size-4" />
+      </DropdownMenuTrigger>
+      <DropdownMenuContent>
+        <DropdownMenuItem onClick={() => removeProject(projectPath)}>
+          <Trash2 className="size-4" /> 移除项目
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>
