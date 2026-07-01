@@ -199,7 +199,7 @@ function SortableConfigRow({ config }: { config: RunConfig }): React.JSX.Element
     position: 'relative'
   }
   return (
-    <div ref={setNodeRef} style={style} {...attributes} {...listeners}>
+    <div ref={setNodeRef} style={style} className="mb-0.5" {...attributes} {...listeners}>
       <RunnableRow
         label={config.kind === 'referenced' ? config.scriptName : config.name}
         rkey={configKey(config)}
