@@ -22,7 +22,7 @@ function DropdownMenuContent({
       <Menu.Positioner className="z-50" side={side} align={align} sideOffset={sideOffset}>
         <Menu.Popup
           className={cn(
-            'min-w-32 rounded-xl border border-[color:var(--border-input)] bg-panel py-1 shadow-xl outline-none',
+            'min-w-32 rounded-xl border border-[color:var(--border-input)] bg-panel px-1.5 py-3 shadow-xl outline-none',
             className
           )}
         >
@@ -45,7 +45,7 @@ function DropdownMenuItem({
   return (
     <Menu.Item
       className={cn(
-        'flex h-8 cursor-pointer select-none items-center gap-2 px-3 text-[13px] text-foreground outline-none data-[highlighted]:bg-[var(--bg-row-hover)]',
+        'flex h-8 cursor-pointer select-none items-center gap-2 rounded px-2 text-[13px] text-foreground outline-none data-[highlighted]:bg-[var(--bg-row-hover)]',
         className
       )}
       onClick={onClick}

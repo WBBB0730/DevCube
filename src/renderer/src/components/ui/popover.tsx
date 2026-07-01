@@ -22,7 +22,7 @@ function PopoverContent({
       <BasePopover.Positioner className="z-50" side={side} align={align} sideOffset={sideOffset}>
         <BasePopover.Popup
           className={cn(
-            'max-h-72 min-w-56 overflow-auto rounded-xl border border-[color:var(--border-input)] bg-panel py-1 shadow-xl outline-none',
+            'max-h-72 min-w-56 overflow-auto rounded-xl border border-[color:var(--border-input)] bg-panel px-1.5 py-3 shadow-xl outline-none',
             className
           )}
         >

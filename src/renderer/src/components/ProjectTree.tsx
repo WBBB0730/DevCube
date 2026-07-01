@@ -36,7 +36,6 @@ import type {
 } from '@shared/types'
 import { configKey, scriptKey } from '@shared/runnable'
 import { cn } from '@renderer/lib/utils'
-import { Button } from '@renderer/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
 import {
   DropdownMenu,
@@ -69,17 +68,16 @@ export function ProjectTree(): React.JSX.Element {
     >
       <header className="flex h-10 items-center justify-between pl-3 pr-2 text-muted-foreground">
         <span className="text-[11px] font-medium uppercase tracking-wide">项目</span>
-        <Button
-          variant="ghost"
-          size="icon"
-          className="size-7"
+        <button
+          type="button"
           title="添加项目"
           onClick={addProject}
+          className={cn(BTN, 'text-muted-foreground hover:bg-[var(--bg-button-hover)]')}
         >
           <FolderPlus className="size-4" />
-        </Button>
+        </button>
       </header>
-      <div className="flex-1 overflow-auto px-1 py-1">
+      <div className="flex-1 overflow-auto px-1.5 py-3">
         {tree.length === 0 ? (
           <p className="px-3 py-6 text-center text-xs text-muted-foreground">
             还没有项目，点上方 + 或把文件夹拖进来
@@ -188,10 +186,10 @@ function DiscoveredMenu({ discovered }: { discovered: DiscoveredScript[] }): Rea
           <span className="flex size-4 shrink-0 items-center justify-center text-[11px] text-[var(--fg-disabled)]">
             {discovered.length}
           </span>
-          <span className="flex-1 truncate text-left">检测到的配置</span>
+          <span className="truncate text-left">检测到的配置</span>
           <ChevronRight className="size-4 shrink-0" />
         </PopoverTrigger>
-        <PopoverContent className="w-60 px-1">
+        <PopoverContent className="w-60">
           {discovered.map((s) => (
             <RunnableRow
               key={s.name}
