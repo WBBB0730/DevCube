@@ -1,6 +1,16 @@
 import { ipcMain, BrowserWindow } from 'electron'
 import { IPC } from '../shared/ipc'
+import type { RunTarget } from '../shared/types'
 import { addProjectByPath, pickAndAddProject, removeProject } from './projects'
+import {
+  getSessionBuffer,
+  getSessions,
+  resize,
+  run,
+  setRunnerWindow,
+  stop,
+  writeStdin
+} from './runner'
 import { getProjects } from './store'
 import { buildTree } from './tree'
 import { syncWatchers } from './watcher'
@@ -33,6 +43,7 @@ function refreshWatchers(): void {
 
 export function registerIpc(win: BrowserWindow): void {
   mainWindow = win
+  setRunnerWindow(win)
   if (registered) {
     refreshWatchers()
     return
@@ -40,6 +51,7 @@ export function registerIpc(win: BrowserWindow): void {
   registered = true
   refreshWatchers()
 
+  // —— 项目 / 树 ——
   ipcMain.handle(IPC.treeGet, () => buildTree())
 
   ipcMain.handle(IPC.projectAdd, async () => {
@@ -59,4 +71,12 @@ export function registerIpc(win: BrowserWindow): void {
     refreshWatchers()
     return buildTree()
   })
+
+  // —— 运行时 ——
+  ipcMain.handle(IPC.run, (_e, target: RunTarget) => run(target))
+  ipcMain.handle(IPC.stop, (_e, key: string) => stop(key))
+  ipcMain.on(IPC.stdin, (_e, key: string, data: string) => writeStdin(key, data))
+  ipcMain.on(IPC.resize, (_e, key: string, cols: number, rows: number) => resize(key, cols, rows))
+  ipcMain.handle(IPC.sessionBuffer, (_e, key: string) => getSessionBuffer(key))
+  ipcMain.handle(IPC.sessions, () => getSessions())
 }

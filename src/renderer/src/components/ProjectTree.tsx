@@ -1,6 +1,7 @@
 import { useState } from 'react'
-import { ChevronRight, Folder, Plus, X } from 'lucide-react'
-import type { ProjectNode } from '@shared/types'
+import { ChevronRight, Folder, Play, Plus, RotateCw, Square, X } from 'lucide-react'
+import type { ProjectNode, RunTarget, SessionStatus } from '@shared/types'
+import { configKey, scriptKey } from '@shared/runnable'
 import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui/button'
 import { useApp } from '@renderer/store'
@@ -76,12 +77,22 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
         <div className="pl-4">
           <Group label="探测脚本" empty={node.discovered.length === 0}>
             {node.discovered.map((s) => (
-              <ItemRow key={s.name} label={s.name} />
+              <RunnableRow
+                key={s.name}
+                label={s.name}
+                rkey={scriptKey(s.projectPath, s.name)}
+                target={{ type: 'script', projectPath: s.projectPath, name: s.name }}
+              />
             ))}
           </Group>
           <Group label="我的配置" empty={node.configs.length === 0}>
             {node.configs.map((c) => (
-              <ItemRow key={c.id} label={c.kind === 'referenced' ? c.scriptName : c.name} />
+              <RunnableRow
+                key={c.id}
+                label={c.kind === 'referenced' ? c.scriptName : c.name}
+                rkey={configKey(c)}
+                target={{ type: 'config', id: c.id }}
+              />
             ))}
           </Group>
         </div>
@@ -113,11 +124,77 @@ function Group({
   )
 }
 
-function ItemRow({ label }: { label: string }): React.JSX.Element {
+function RunnableRow({
+  label,
+  rkey,
+  target
+}: {
+  label: string
+  rkey: string
+  target: RunTarget
+}): React.JSX.Element {
+  const status = useApp((s) => s.sessions[rkey]?.status ?? 'idle')
+  const selected = useApp((s) => s.selectedKey === rkey)
+  const run = useApp((s) => s.run)
+  const stop = useApp((s) => s.stop)
+  const select = useApp((s) => s.select)
+  const running = status === 'running'
+
   return (
-    <div className="flex h-6 items-center gap-1.5 px-1.5 hover:bg-[var(--bg-row-hover)]">
-      <span className="size-1.5 shrink-0 rounded-full bg-[var(--status-idle)]" />
+    <div
+      className={cn(
+        'group flex h-6 cursor-pointer items-center gap-1.5 px-1.5',
+        selected ? 'bg-[var(--selection-row)]' : 'hover:bg-[var(--bg-row-hover)]'
+      )}
+      onClick={() => select(rkey)}
+    >
+      <StatusDot status={status} />
       <span className="flex-1 truncate">{label}</span>
+      <button
+        type="button"
+        title={running ? '重新运行' : '运行'}
+        className={cn(
+          'size-5 items-center justify-center rounded',
+          running
+            ? 'flex bg-[var(--run-active-bg)] text-white hover:bg-[var(--run-active-bg-hover)]'
+            : cn(
+                'text-[var(--run-glyph)] hover:bg-[var(--bg-button-hover)]',
+                selected ? 'flex' : 'hidden group-hover:flex'
+              )
+        )}
+        onClick={(e) => {
+          e.stopPropagation()
+          run(target, rkey)
+        }}
+      >
+        {running ? <RotateCw className="size-3" /> : <Play className="size-3.5" />}
+      </button>
+      {running && (
+        <button
+          type="button"
+          title="停止"
+          className="flex size-5 items-center justify-center rounded bg-[var(--stop-active-bg)] text-white hover:bg-[var(--stop-active-bg-hover)]"
+          onClick={(e) => {
+            e.stopPropagation()
+            stop(rkey)
+          }}
+        >
+          <Square className="size-3" />
+        </button>
+      )}
     </div>
+  )
+}
+
+const STATUS_COLOR: Record<SessionStatus | 'idle', string> = {
+  idle: 'var(--status-idle)',
+  running: 'var(--status-running)',
+  exited: 'var(--status-success)',
+  failed: 'var(--status-failed)'
+}
+
+function StatusDot({ status }: { status: SessionStatus | 'idle' }): React.JSX.Element {
+  return (
+    <span className="size-1.5 shrink-0 rounded-full" style={{ background: STATUS_COLOR[status] }} />
   )
 }

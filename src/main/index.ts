@@ -4,6 +4,7 @@ import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { initStore } from './store'
 import { registerIpc } from './ipc'
+import { killAllSessions } from './runner'
 
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -60,8 +61,12 @@ app.whenReady().then(async () => {
   })
 })
 
+// 退出前杀掉所有活跃会话的进程树，避免 dev server 变孤儿。
+app.on('before-quit', killAllSessions)
+
 // Quit when all windows are closed, except on macOS.
 app.on('window-all-closed', () => {
+  killAllSessions()
   if (process.platform !== 'darwin') {
     app.quit()
   }
