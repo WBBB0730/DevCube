@@ -16,6 +16,7 @@ interface AppState {
   dialog: DialogState
   setTree: (tree: ProjectNode[]) => void
   setSession: (s: SessionState) => void
+  removeSession: (key: string) => void
   select: (key: string) => void
   init: () => Promise<void>
   addProject: () => Promise<void>
@@ -37,6 +38,12 @@ export const useApp = create<AppState>((set) => ({
   dialog: { open: false },
   setTree: (tree) => set({ tree }),
   setSession: (s) => set((state) => ({ sessions: { ...state.sessions, [s.key]: s } })),
+  removeSession: (key) =>
+    set((state) => {
+      const sessions = { ...state.sessions }
+      delete sessions[key]
+      return { sessions }
+    }),
   select: (key) => set({ selectedKey: key }),
   init: async () => {
     const [tree, sessions] = await Promise.all([window.api.getTree(), window.api.getSessions()])

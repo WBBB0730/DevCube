@@ -5,6 +5,7 @@ import icon from '../../resources/icon.png?asset'
 import { initStore } from './store'
 import { registerIpc } from './ipc'
 import { killAllSessions } from './runner'
+import { closeAllWatchers } from './watcher'
 
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -67,6 +68,7 @@ app.on('before-quit', killAllSessions)
 // Quit when all windows are closed, except on macOS.
 app.on('window-all-closed', () => {
   killAllSessions()
+  closeAllWatchers()
   if (process.platform !== 'darwin') {
     app.quit()
   }

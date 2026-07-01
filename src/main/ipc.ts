@@ -11,6 +11,7 @@ import {
 } from './configs'
 import { addProjectByPath, pickAndAddProject, removeProject } from './projects'
 import {
+  disposeSession,
   getSessionBuffer,
   getSessions,
   resize,
@@ -28,7 +29,9 @@ let registered = false
 
 /** 主动向渲染端推送最新树（供文件监听 / 自动删除等 main 侧变更使用）。 */
 export function emitTree(): void {
-  mainWindow?.webContents.send(IPC.treeChanged, buildTree())
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(IPC.treeChanged, buildTree())
+  }
 }
 
 function debounce(fn: () => void, ms: number): () => void {
@@ -39,9 +42,9 @@ function debounce(fn: () => void, ms: number): () => void {
   }
 }
 
-// 文件事件可能连发，防抖后先对账（删除引用悬空的配置）再重建树推送。
+// 文件事件可能连发，防抖后先对账（删除引用悬空的配置、销毁其会话）再重建树推送。
 const onWatchEvent = debounce(() => {
-  reconcileConfigs()
+  for (const removed of reconcileConfigs()) disposeSession(configKey(removed))
   emitTree()
 }, 120)
 
@@ -79,6 +82,10 @@ export function registerIpc(win: BrowserWindow): void {
   })
 
   ipcMain.handle(IPC.projectRemove, (_e, path: string) => {
+    // 先销毁该项目名下所有会话（杀进程树 + 清状态），再移除项目。
+    for (const config of getConfigs().filter((c) => c.projectPath === path)) {
+      disposeSession(configKey(config))
+    }
     removeProject(path)
     refreshWatchers()
     return buildTree()
@@ -111,9 +118,9 @@ export function registerIpc(win: BrowserWindow): void {
   })
 
   ipcMain.handle(IPC.configDelete, (_e, id: string) => {
-    // 删除前若该配置正在运行，先停掉其进程树。
+    // 删除前销毁其会话（杀进程树 + 清状态）。
     const config = getConfigs().find((c) => c.id === id)
-    if (config) stop(configKey(config))
+    if (config) disposeSession(configKey(config))
     deleteConfig(id)
     return buildTree()
   })

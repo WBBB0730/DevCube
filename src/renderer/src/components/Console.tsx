@@ -25,6 +25,7 @@ export function Console(): React.JSX.Element {
   const termRef = useRef<Terminal | null>(null)
   const fitRef = useRef<FitAddon | null>(null)
   const selectedRef = useRef<string | null>(null)
+  const readyRef = useRef(false)
   const selectedKey = useApp((s) => s.selectedKey)
   const label = useApp((s) => findLabel(s.tree, s.selectedKey))
   const session = useApp((s) => (s.selectedKey ? s.sessions[s.selectedKey] : undefined))
@@ -46,7 +47,8 @@ export function Console(): React.JSX.Element {
     fitRef.current = fit
 
     const offOutput = window.api.onSessionOutput((e) => {
-      if (e.key === selectedRef.current) term.write(e.data)
+      // 仅在历史缓冲回填完成后才追加实时输出，避免与回填内容重复/错序。
+      if (e.key === selectedRef.current && readyRef.current) term.write(e.data)
     })
     const disposeInput = term.onData((data) => {
       if (selectedRef.current) window.api.writeStdin(selectedRef.current, data)
@@ -74,6 +76,7 @@ export function Console(): React.JSX.Element {
   // 选择变化：清屏并回填该会话已缓冲的历史输出。
   useEffect(() => {
     selectedRef.current = selectedKey
+    readyRef.current = false
     const term = termRef.current
     if (!term) return
     term.reset()
@@ -81,6 +84,7 @@ export function Console(): React.JSX.Element {
     window.api.getSessionBuffer(selectedKey).then((buffer) => {
       if (selectedRef.current !== selectedKey) return
       term.write(buffer)
+      readyRef.current = true
       try {
         fitRef.current?.fit()
       } catch {

@@ -28,6 +28,11 @@ export function setRunnerWindow(w: BrowserWindow): void {
   win = w
 }
 
+// 统一的 main→renderer 发送：窗口已销毁（macOS 关窗后进程仍活）时跳过，避免抛异常。
+function post(channel: string, payload: unknown): void {
+  if (win && !win.isDestroyed()) win.webContents.send(channel, payload)
+}
+
 interface Resolved {
   key: string
   command: string
@@ -65,7 +70,7 @@ function snapshot(s: Session): SessionState {
 }
 
 function emitStatus(s: Session): void {
-  win?.webContents.send(IPC.sessionStatus, snapshot(s))
+  post(IPC.sessionStatus, snapshot(s))
 }
 
 // 杀掉整棵进程树：posix 下向进程组发信号，避免 dev server 子进程变孤儿。
@@ -117,7 +122,7 @@ export function run(target: RunTarget): void {
     if (sessions.get(session.key) !== session) return // 已被新会话取代
     session.buffer += data
     if (session.buffer.length > MAX_BUFFER) session.buffer = session.buffer.slice(-MAX_BUFFER)
-    win?.webContents.send(IPC.sessionOutput, { key: session.key, data })
+    post(IPC.sessionOutput, { key: session.key, data })
   })
 
   pty.onExit(({ exitCode }) => {
@@ -162,6 +167,18 @@ export function getSessionBuffer(key: string): string {
 
 export function getSessions(): SessionState[] {
   return [...sessions.values()].map(snapshot)
+}
+
+/**
+ * 彻底销毁一个会话：在跑则先杀进程树，从 Map 移除，并通知渲染端清除其状态。
+ * 用于配置被删除 / 对账移除 / 项目移除 —— 区别于用户「停止」（后者保留历史以便回看）。
+ */
+export function disposeSession(key: string): void {
+  const session = sessions.get(key)
+  if (!session) return
+  if (session.status === 'running') killTree(session, 'SIGKILL')
+  sessions.delete(key)
+  post(IPC.sessionRemoved, key)
 }
 
 /** 应用退出时清掉所有活跃进程树，避免 dev server 变孤儿。 */

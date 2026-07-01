@@ -42,16 +42,17 @@ export function promoteScript(projectPath: string, scriptName: string): void {
   setConfigs(promote(getConfigs(), projectPath, scriptName, randomUUID()))
 }
 
-/** 依据各项目当前 package.json 的 scripts 做一次对账；有删改则落盘并返回 true。 */
-export function reconcileConfigs(): boolean {
+/** 依据各项目当前 package.json 的 scripts 做一次对账；落盘并返回**被删除的配置**（供调用方销毁其会话）。 */
+export function reconcileConfigs(): RunConfig[] {
   const scriptsByProject = new Map(
     getProjects().map((p) => [p.path, new Set(Object.keys(readScripts(p.path)))] as const)
   )
   const before = getConfigs()
   const after = reconcile(before, scriptsByProject)
-  if (after.length === before.length) return false
-  setConfigs(after)
-  return true
+  const afterIds = new Set(after.map((c) => c.id))
+  const removed = before.filter((c) => !afterIds.has(c.id))
+  if (removed.length) setConfigs(after)
+  return removed
 }
 
 /** 新建一条命令型配置。 */

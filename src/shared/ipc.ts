@@ -13,6 +13,7 @@ export const IPC = {
   sessions: 'session:list',
   sessionOutput: 'session:output',
   sessionStatus: 'session:status',
+  sessionRemoved: 'session:removed',
   configCreate: 'config:create',
   configUpdate: 'config:update',
   configDelete: 'config:delete'

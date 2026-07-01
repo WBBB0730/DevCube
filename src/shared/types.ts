@@ -104,4 +104,6 @@ export interface RunAPI {
   onTreeChanged(cb: (tree: ProjectNode[]) => void): () => void
   onSessionOutput(cb: (e: SessionOutput) => void): () => void
   onSessionStatus(cb: (e: SessionState) => void): () => void
+  /** 会话被彻底销毁（配置删除/对账/项目移除），渲染端应清除其状态 */
+  onSessionRemoved(cb: (key: string) => void): () => void
 }

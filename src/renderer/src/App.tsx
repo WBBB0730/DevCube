@@ -13,9 +13,11 @@ function App(): React.JSX.Element {
     init()
     const offTree = window.api.onTreeChanged((tree) => useApp.getState().setTree(tree))
     const offStatus = window.api.onSessionStatus((s) => useApp.getState().setSession(s))
+    const offRemoved = window.api.onSessionRemoved((key) => useApp.getState().removeSession(key))
     return () => {
       offTree()
       offStatus()
+      offRemoved()
     }
   }, [init])
 
