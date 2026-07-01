@@ -87,6 +87,11 @@ function killTree(session: Session, signal: NodeJS.Signals): void {
   }
 }
 
+// 运行前的头部：同一行「工作目录（灰） $ 命令（粗）」，像常见终端的提示符一样先交代「在哪跑、跑什么」。
+function runHeader(resolved: Resolved): string {
+  return `\x1b[90m${resolved.cwd} $\x1b[0m \x1b[1m${resolved.command}\x1b[0m\r\n`
+}
+
 export function run(target: RunTarget): void {
   const resolved = resolveTarget(target)
   if (!resolved) return
@@ -111,7 +116,7 @@ export function run(target: RunTarget): void {
     pty,
     status: 'running',
     exitCode: null,
-    buffer: '',
+    buffer: runHeader(resolved),
     cols,
     rows
   }
@@ -127,6 +132,12 @@ export function run(target: RunTarget): void {
 
   pty.onExit(({ exitCode }) => {
     if (sessions.get(session.key) !== session) return
+    // 结束后先空一行，再补「进程已结束，退出代码为 N」（标准色，\x1b[0m 重置防遗留色），并隐藏光标（\x1b[?25l）。
+    // 空行按输出是否已换行补足，保证恰好一行空行；写进缓冲并推给正在看的终端。
+    const sep = session.buffer.endsWith('\n') ? '\r\n' : '\r\n\r\n'
+    const footer = `${sep}\x1b[0m进程已结束，退出代码为 ${exitCode}\r\n\x1b[?25l`
+    session.buffer += footer
+    post(IPC.sessionOutput, { key: session.key, data: footer })
     session.status = exitCode === 0 ? 'exited' : 'failed'
     session.exitCode = exitCode
     emitStatus(session)
