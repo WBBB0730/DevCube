@@ -234,7 +234,7 @@ function TerminalView({ selectedKey }: { selectedKey: string }): React.JSX.Eleme
         </div>
       </div>
       <div className="relative min-h-0 flex-1">
-        <div ref={containerRef} className="h-full w-full p-1" />
+        <div ref={containerRef} className="h-full w-full p-2" />
         {searchOpen && (
           <div className="absolute right-3 top-2 z-20 flex w-80 items-center gap-1 rounded-lg border border-[color:var(--border-input)] bg-panel px-1.5 py-1 shadow-xl">
             <Search className="size-3.5 shrink-0 text-muted-foreground" />
