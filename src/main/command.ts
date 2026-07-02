@@ -23,3 +23,14 @@ export function buildShellInvocation(
   }
   return { file: shell || '/bin/zsh', args: ['-l', '-i', '-c', command] }
 }
+
+/** Terminal（自由 shell）的调用：一个登录交互 shell，不带 `-c`——像用户手开一个终端。 */
+export function buildShellSession(
+  platform: NodeJS.Platform,
+  shell: string | undefined
+): { file: string; args: string[] } {
+  if (platform === 'win32') {
+    return { file: 'powershell.exe', args: ['-NoLogo'] }
+  }
+  return { file: shell || '/bin/zsh', args: ['-l', '-i'] }
+}

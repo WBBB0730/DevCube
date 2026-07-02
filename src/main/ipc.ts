@@ -13,8 +13,11 @@ import {
 import { addProjectByPath, pickAndAddProject, removeProject } from './projects'
 import {
   disposeSession,
+  disposeTerminalsForProject,
   getSessionBuffer,
   getSessions,
+  getTerminals,
+  openTerminal,
   resize,
   run,
   setRunnerWindow,
@@ -87,6 +90,7 @@ export function registerIpc(win: BrowserWindow): void {
     for (const config of getConfigs().filter((c) => c.projectPath === path)) {
       disposeSession(configKey(config))
     }
+    disposeTerminalsForProject(path) // 一并杀掉并清除它名下的全部 Terminal
     removeProject(path)
     refreshWatchers()
     return buildTree()
@@ -106,6 +110,12 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.on(IPC.resize, (_e, key: string, cols: number, rows: number) => resize(key, cols, rows))
   ipcMain.handle(IPC.sessionBuffer, (_e, key: string) => getSessionBuffer(key))
   ipcMain.handle(IPC.sessions, () => getSessions())
+
+  // —— 终端（Terminal，自由 shell） ——
+  ipcMain.handle(IPC.terminalOpen, (_e, projectPath: string) => openTerminal(projectPath))
+  // 关闭 = 销毁会话（杀 shell + 清状态 + 通知渲染端移除 Tab），与用户「删除」同路径。
+  ipcMain.handle(IPC.terminalClose, (_e, key: string) => disposeSession(key))
+  ipcMain.handle(IPC.terminals, () => getTerminals())
 
   // —— 命令型配置 CRUD ——
   ipcMain.handle(IPC.configCreate, (_e, input: Omit<CommandRunConfig, 'id' | 'kind'>) => {

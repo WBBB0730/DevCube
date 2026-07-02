@@ -22,6 +22,10 @@ const api: RunAPI = {
   getSessionBuffer: (key) => ipcRenderer.invoke(IPC.sessionBuffer, key),
   getSessions: () => ipcRenderer.invoke(IPC.sessions),
 
+  openTerminal: (projectPath) => ipcRenderer.invoke(IPC.terminalOpen, projectPath),
+  closeTerminal: (key) => ipcRenderer.invoke(IPC.terminalClose, key),
+  getTerminals: () => ipcRenderer.invoke(IPC.terminals),
+
   createCommandConfig: (input: Omit<CommandRunConfig, 'id' | 'kind'>) =>
     ipcRenderer.invoke(IPC.configCreate, input),
   updateCommandConfig: (config) => ipcRenderer.invoke(IPC.configUpdate, config),

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildScriptCommand, buildShellInvocation, resolveCwd } from './command'
+import { buildScriptCommand, buildShellInvocation, buildShellSession, resolveCwd } from './command'
 
 describe('buildScriptCommand', () => {
   it('用探测到的 PM 运行 script', () => {
@@ -35,5 +35,23 @@ describe('buildShellInvocation', () => {
   })
   it('win32 用 powershell', () => {
     expect(buildShellInvocation('dir', 'win32', undefined).file).toBe('powershell.exe')
+  })
+})
+
+describe('buildShellSession', () => {
+  it('posix 起登录交互 shell，不带 -c', () => {
+    expect(buildShellSession('darwin', '/bin/zsh')).toEqual({
+      file: '/bin/zsh',
+      args: ['-l', '-i']
+    })
+  })
+  it('无 $SHELL 时回退 /bin/zsh', () => {
+    expect(buildShellSession('linux', undefined).file).toBe('/bin/zsh')
+  })
+  it('win32 用 powershell', () => {
+    expect(buildShellSession('win32', undefined)).toEqual({
+      file: 'powershell.exe',
+      args: ['-NoLogo']
+    })
   })
 })

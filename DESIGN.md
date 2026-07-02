@@ -90,7 +90,7 @@ ANSI 16 色（取自 JetBrains 终端真实 Console Colors 调色板）：
 
 ## 图标
 
-Lucide（随 shadcn）：`Play`(运行) · `RotateCw`(重新运行) · `Square`(停止) · `MoreVertical`(更多⋮) · `Pencil`(编辑) · `Trash2`(删除) · `ChevronRight`(树展开 / 弹层箭头) · `FolderPlus`(添加项目) · `Plus`(新建命令) · `Search`/`ChevronUp`/`ChevronDown`/`X`(终端搜索框)。运行三角以 `--run-glyph` 上色。
+Lucide（随 shadcn）：`Play`(运行) · `RotateCw`(重新运行) · `Square`(停止) · `MoreVertical`(更多⋮) · `Pencil`(编辑) · `Trash2`(删除) · `ChevronRight`(树展开 / 弹层箭头) · `FolderPlus`(添加项目) · `Plus`(新建命令 / 新建终端) · `Terminal`(终端 Tab) · `Search`/`ChevronUp`/`ChevronDown`/`X`(终端搜索框 / 关闭 Tab)。运行三角以 `--run-glyph` 上色。
 
 ## 布局
 
@@ -112,7 +112,7 @@ Lucide（随 shadcn）：`Play`(运行) · `RotateCw`(重新运行) · `Square`(
 - **配置支持拖拽排序**（@dnd-kit，PointerSensor 距离 6px 激活以不误触点击；顺序落盘）。
 - **行内图标按钮**四周内边距一致 6px（固定高 `h-10` + `px-1.5`）。
 - **行选中**：`--selection-row` 圆角填充；其上按钮 hover 用 `--selection-row-hover`（蓝）而非灰。
-- **右控制台**：跟随左树选择。**仅当选中项已有会话（跑过、有内容）才渲染 xterm**（顶部 **Tab 标签栏**，高度同左侧标题栏 40px、同 `--bg-panel` 底：状态点 + 配置名（字号同列表 14px），选中态用 `--primary` 主色下描边 3px 标示，文字在整栏含描边区垂直居中，hover 高亮 `--bg-row-hover`）；未选中或选中项没跑过时只显示占位提示，不挂载终端界面。退出后保留输出。
+- **右控制台**：顶部为**当前项目的 Tab 栏**（详见下「终端 Tab 栏」），下方是当前 Tab 的 xterm 正文。运行控制台（Tab 1）跟随左树选择，**仅当选中项已有会话（跑过、有内容）才渲染其 xterm 正文**，否则显示占位提示（「点击 ▶ 运行配置」）；退出后保留输出。Tab 高度同左侧标题栏 40px、同 `--bg-panel` 底，选中态用 `--primary` 主色下描边 3px、文字在整栏含描边区垂直居中、hover 高亮 `--bg-row-hover`。
 
 ## 交互（呼应 CONTEXT.md / PRD）
 
@@ -121,6 +121,20 @@ Lucide（随 shadcn）：`Play`(运行) · `RotateCw`(重新运行) · `Square`(
 - **克制展示**：非 hover 行只显示状态点 + 名称；hover 或选中才浮出按钮（WebStorm 手感）。
 - **控制台跟随选择**、退出后保留输出（见 PRD 用户故事 22–25）；**运行 / 重跑 / 切换选择后自动聚焦终端**（可直接输入 stdin）；**每次运行先输出头部**（同一行：工作目录灰字 + `$` + 命令粗体）再接进程输出，**结束后空一行再补「进程已结束，退出代码为 N」**（标准色），并将终端切为**只读**（禁输入、隐藏光标，仍可选中 / 复制 / 搜索）。
 - **终端能力**（xterm 插件）：链接可点击（经主进程 `shell.openExternal` 走系统浏览器，仅放行 http/https）；**Cmd/Ctrl+F 搜索输出**（右上浮层搜索框，Enter / Shift+Enter 下/上一条、Esc 关闭，高亮取自 Shell.icls SEARCH_RESULT 绿 `#2d543f`）；WebGL 渲染器（大量输出更顺，不可用回退 DOM）；Unicode 11 字宽（emoji / CJK 对齐）。
+
+## 终端 Tab 栏（以项目为维度）
+
+右控制台顶部的 Tab 栏承载**当前项目**的全部 Tab（高 40px `h-10`、底 `--bg-panel`，与左标题栏同高同色；术语见 CONTEXT.md「Terminal」、取舍见 ADR-0003）：
+
+- **Tab 1 · 运行控制台**（不可关闭）：状态点 + 当前选中配置名（14px），跟随该项目选中的配置。**仅当有内容可显示时才出现**——即选中了某条配置且它已跑过、有会话；未选中配置（选中的是项目本身）或选中配置未跑过时**整条 Tab 1 不渲染**，正文区显示占位。它是唯一「跟随选中原地换内容」的 Tab——沿用「reset + 回填会话缓冲」的方式；同项目并发运行的多条配置不各占 Tab，靠左树选择在 Tab 1 内切换。
+- **终端 Tab（Terminal）**：`Terminal` 图标 16px + 名称；**hover 右侧浮出 `×`** 关闭（关闭即杀 shell，不二次确认）。默认名「终端 / 终端 2 …」按项目内序号，**双击可改名**（仅内存态，重启不留）。
+- **末尾 `+`**（`Plus`，tooltip「新建终端」）：在当前项目根目录起一个交互 `$SHELL` 的新终端 Tab 并聚焦。
+- **选中态** 3px `--primary` 主色下描边（与 Tab 1 同款）、**hover** `--bg-row-hover`；Tab 过多时横向溢出、走全局细滚动条。
+- 每个 Tab 常驻各自的 xterm 实例（切走仅隐藏、不卸载），故切走的终端 shell 仍在后台运行、滚动历史与现场保留；切回某项目恢复其上次活动的 Tab 与上次选中的配置。
+
+**当前项目与选中**：左树**项目行与配置行是同一层级的互斥选中**——单击项目行＝选中「项目本身」（右侧切到它的 Tab 栏、项目行以 `--selection-row` 高亮、清空配置选中、无 Tab 1）；单击配置行＝选中该配置（只高亮配置行，不连带高亮其项目行）。**折叠 / 展开改为只点左侧箭头**触发。新建 / 点选某终端也会把其项目设为当前。项目行上的「新建命令 / 更多」按钮，其 hover 底色跟随行态（选中蓝底行用 `--selection-row-hover`）。空项目（无可运行项）亦可点行进入并新建终端。
+
+**终端交互**：终端**始终可交互**（不像运行控制台退出后转只读）；切到 / 新建即自动聚焦、可直接输入；shell 自行结束（`exit` / Ctrl-D / 崩溃）即**自动关闭**该 Tab。xterm 能力（Cmd/Ctrl+F 搜索、链接点击、WebGL、Unicode 11）与运行控制台一致。**快捷键**：`Cmd/Ctrl+T` 在当前项目新建终端、`Cmd/Ctrl+W` 关闭当前终端 Tab（Tab 1 不响应）、`Ctrl+Tab` / `Ctrl+Shift+Tab` 在当前项目的全部 Tab（含 Tab 1）间循环。终端 Tab v1 **不支持拖拽排序**（配置的拖拽排序不受影响）。
 
 ## 待校准
 

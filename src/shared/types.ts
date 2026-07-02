@@ -73,6 +73,22 @@ export interface SessionState {
 export interface SessionOutput {
   key: string
   data: string
+  /** 该块写入后本会话输出流的累计字节长度；用于回填去重，消除「快照 vs 实时事件」的竞态窗口 */
+  bytes: number
+}
+
+/** 某会话已缓冲输出的快照：可能被截断的尾部文本 + 其对应的累计流长度。 */
+export interface SessionBufferSnapshot {
+  data: string
+  bytes: number
+}
+
+/** 一个活跃 Terminal（自由 shell）的最小信息，供渲染端重建其 Tab（术语见 CONTEXT.md）。 */
+export interface TerminalInfo {
+  /** 会话唯一键（`terminal:<uuid>`），与 Run Session 共用同一套输出/输入/缓冲通道 */
+  key: string
+  /** 所属项目绝对路径 —— 决定 cwd 与它归属的 Tab 栏 */
+  projectPath: string
 }
 
 /** preload 经 contextBridge 暴露给渲染端的 API。随 slice 逐步实现。 */
@@ -90,10 +106,18 @@ export interface RunAPI {
   stop(key: string): Promise<void>
   writeStdin(key: string, data: string): void
   resize(key: string, cols: number, rows: number): void
-  /** 拉取某会话已缓冲的历史输出（切换选择时回填控制台） */
-  getSessionBuffer(key: string): Promise<string>
+  /** 拉取某会话已缓冲的历史输出快照（切换选择时回填控制台；含累计流长度用于去重） */
+  getSessionBuffer(key: string): Promise<SessionBufferSnapshot>
   /** 当前所有活跃/已结束但保留的会话快照 */
   getSessions(): Promise<SessionState[]>
+
+  // —— 终端（Terminal，自由 shell） ——
+  /** 在项目根目录起一个交互 shell 的新 Terminal，返回其会话键 */
+  openTerminal(projectPath: string): Promise<string>
+  /** 关闭一个 Terminal：杀掉 shell、清除会话（同用户「删除」路径） */
+  closeTerminal(key: string): Promise<void>
+  /** 当前所有活跃 Terminal（供渲染端重建 Tab，如 dev 热重载后） */
+  getTerminals(): Promise<TerminalInfo[]>
 
   // —— 命令型配置（slice 6） ——
   createCommandConfig(input: Omit<CommandRunConfig, 'id' | 'kind'>): Promise<ProjectNode[]>

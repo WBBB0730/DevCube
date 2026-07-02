@@ -97,6 +97,11 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
   const [open, setOpen] = useState(true)
   const openCreateDialog = useApp((s) => s.openCreateDialog)
   const reorderConfigs = useApp((s) => s.reorderConfigs)
+  const selectProject = useApp((s) => s.selectProject)
+  // 与配置行同层级的互斥选中：仅当「项目本身」被选中（无可运行项选中）时高亮项目行。
+  const selected = useApp(
+    (s) => s.currentProjectPath === node.project.path && s.selectedKey === null
+  )
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
   const handleDragEnd = (e: DragEndEvent): void => {
@@ -114,15 +119,25 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
   return (
     <div className="mb-3 last:mb-0">
       <div
-        className={cn(ROW, 'text-foreground hover:bg-[var(--bg-row-hover)]')}
-        onClick={() => setOpen((v) => !v)}
+        className={cn(
+          ROW,
+          'text-foreground',
+          selected ? 'bg-[var(--selection-row)]' : 'hover:bg-[var(--bg-row-hover)]'
+        )}
+        onClick={() => selectProject(node.project.path)}
       >
-        <ChevronRight
-          className={cn(
-            'size-4 shrink-0 text-muted-foreground transition-transform',
-            open && 'rotate-90'
-          )}
-        />
+        {/* 折叠/展开只由箭头触发（整行点击留给「设为当前项目」）。 */}
+        <button
+          type="button"
+          title={open ? '折叠' : '展开'}
+          onClick={(e) => {
+            e.stopPropagation()
+            setOpen((v) => !v)
+          }}
+          className="flex size-4 shrink-0 items-center justify-center text-muted-foreground"
+        >
+          <ChevronRight className={cn('size-4 transition-transform', open && 'rotate-90')} />
+        </button>
         <Folder className="size-4 shrink-0 text-muted-foreground" />
         <span className="flex-1 truncate">{node.project.name}</span>
         {node.packageManager && node.packageManager !== 'pnpm' && (
@@ -132,6 +147,7 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
         )}
         <IconButton
           title="新建命令"
+          selected={selected}
           onClick={(e) => {
             e.stopPropagation()
             openCreateDialog(node.project.path)
@@ -139,7 +155,7 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
         >
           <Plus className="size-4" />
         </IconButton>
-        <ProjectMoreMenu projectPath={node.project.path} />
+        <ProjectMoreMenu projectPath={node.project.path} selected={selected} />
       </div>
       {open && (
         <div className="mt-0.5">
@@ -194,6 +210,7 @@ function DiscoveredMenu({ discovered }: { discovered: DiscoveredScript[] }): Rea
               label={s.name}
               rkey={scriptKey(s.projectPath, s.name)}
               target={{ type: 'script', projectPath: s.projectPath, name: s.name }}
+              projectPath={s.projectPath}
             />
           ))}
         </PopoverContent>
@@ -219,6 +236,7 @@ function SortableConfigRow({ config }: { config: RunConfig }): React.JSX.Element
         label={config.kind === 'referenced' ? config.scriptName : config.name}
         rkey={configKey(config)}
         target={{ type: 'config', id: config.id }}
+        projectPath={config.projectPath}
         config={config}
         indent
       />
@@ -230,12 +248,14 @@ function RunnableRow({
   label,
   rkey,
   target,
+  projectPath,
   config,
   indent
 }: {
   label: string
   rkey: string
   target: RunTarget
+  projectPath: string
   config?: RunConfig
   indent?: boolean
 }): React.JSX.Element {
@@ -255,7 +275,7 @@ function RunnableRow({
   return (
     <div
       className={cn(ROW, selected ? 'bg-[var(--selection-row)]' : 'hover:bg-[var(--bg-row-hover)]')}
-      onClick={() => select(rkey)}
+      onClick={() => select(rkey, projectPath)}
     >
       {/* 缩进对齐：占位补齐折叠箭头列，点居中于文件夹图标列 */}
       {indent && <span className="size-4 shrink-0" />}
@@ -276,7 +296,7 @@ function RunnableRow({
         )}
         onClick={(e) => {
           e.stopPropagation()
-          run(target, rkey)
+          run(target, rkey, projectPath)
         }}
       >
         {running ? <RotateCw className="size-4" /> : <Play className="size-4" />}
@@ -347,7 +367,13 @@ function MoreMenu({
   )
 }
 
-function ProjectMoreMenu({ projectPath }: { projectPath: string }): React.JSX.Element {
+function ProjectMoreMenu({
+  projectPath,
+  selected
+}: {
+  projectPath: string
+  selected?: boolean
+}): React.JSX.Element {
   const [open, setOpen] = useState(false)
   const removeProject = useApp((s) => s.removeProject)
 
@@ -356,7 +382,9 @@ function ProjectMoreMenu({ projectPath }: { projectPath: string }): React.JSX.El
       <DropdownMenuTrigger
         className={cn(
           BTN,
-          'text-muted-foreground hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]',
+          'text-muted-foreground hover:text-[color:var(--fg-icon)]',
+          // 选中（蓝底）行上的按钮 hover 用蓝色高亮，而非灰色。
+          selected ? 'hover:bg-[var(--selection-row-hover)]' : 'hover:bg-[var(--bg-button-hover)]',
           open ? 'flex' : 'hidden group-hover:flex'
         )}
         title="更多"
@@ -376,10 +404,12 @@ function ProjectMoreMenu({ projectPath }: { projectPath: string }): React.JSX.El
 function IconButton({
   title,
   onClick,
+  selected,
   children
 }: {
   title: string
   onClick: (e: React.MouseEvent) => void
+  selected?: boolean
   children: React.ReactNode
 }): React.JSX.Element {
   return (
@@ -387,7 +417,11 @@ function IconButton({
       type="button"
       title={title}
       onClick={onClick}
-      className="hidden size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)] group-hover:flex"
+      className={cn(
+        'hidden size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-[color:var(--fg-icon)] group-hover:flex',
+        // 选中（蓝底）行上的按钮 hover 用蓝色高亮，而非灰色。
+        selected ? 'hover:bg-[var(--selection-row-hover)]' : 'hover:bg-[var(--bg-button-hover)]'
+      )}
     >
       {children}
     </button>

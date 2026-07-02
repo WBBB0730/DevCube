@@ -20,6 +20,9 @@ _Avoid_: Task, Profile, Preset
 **Run Session（运行会话）**：某条 Run Configuration 的一次"活的执行"，拥有自己的进程、输出、状态（运行中 / 已退出 / 失败）与控制（停止、重跑）。一条配置**单实例**：同时最多只有一个活跃的 Run Session；对运行中的配置再次"运行"即"重新运行"（先停旧进程再起新的）。
 _Avoid_: Run, Process, Instance, Job
 
+**Terminal（终端）**：项目下的一个自由交互 shell 会话——在项目根目录起一个 `$SHELL`，可随意敲命令，**不绑定任何 Run Configuration / Discovered Script**。纯内存、不持久化；shell 进程结束即销毁。与 **Run Session** 并列但语义不同：Run Session 是"某条配置的一次执行"，Terminal 是"项目下的一个自由 shell"。一个项目可同时拥有任意多个 Terminal。
+_Avoid_: Shell（裸用）, 控制台
+
 ### 关系
 
 - 一个 **Project** 拥有 0..N 个 **Discovered Script**（实时派生）和 0..N 个 **Run Configuration**（已保存）。
@@ -27,6 +30,8 @@ _Avoid_: Run, Process, Instance, Job
 - **引用型**配置所引用的 script 若从 `package.json` 消失 → 该配置**自动删除**；script 改名视作"删旧出新"（旧配置删除，新名字作为全新 Discovered Script 候补重新出现）。
 - 一切自定义只落在**命令型**配置上；**引用型**不承载任何自定义，因而其自动删除永不丢失用户内容。
 - 一条 **Run Configuration** 至多对应一个活跃的 **Run Session**；不同配置的 Run Session 可并发存在。
+- 一个 **Project** 拥有 0..N 个 **Terminal**（cwd 为项目根、不绑定任何 Run Configuration、随其 shell 退出而销毁）。
+- **Terminal** 与 **Run Session** 都是"活的会话"，但 Terminal 不由任何配置派生、彼此独立——不做单实例去重，同一项目可并存任意多个。
 
 ## Example dialogue
 
@@ -36,3 +41,5 @@ _Avoid_: Run, Process, Instance, Job
 > **领域专家**：那它就**晋升**成一条 **Run Configuration** 了，进了"我的配置"，候补区里不再重复显示。它仍然引用 `package.json` 里的 `dev`，你哪天改了 script，它下次跟着变。
 > **开发者**：那我再手写一条 `docker compose up` 呢？
 > **领域专家**：那是第二种 **Run Configuration**——一条不依赖任何 script 的独立命令。
+> **开发者**：我想在这个项目里随手跑几条 `git`、`ls`，不想每次都建配置。
+> **领域专家**：那就在它下面开个 **Terminal**——项目根目录里的一个自由 shell，跟任何配置都无关，想开几个开几个，关掉就没了（不持久化）。它不是 **Run Session**，别混为一谈。
