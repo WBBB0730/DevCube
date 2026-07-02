@@ -1,5 +1,5 @@
-appId: com.electron.app
-productName: run
+appId: com.wbbb.runlet
+productName: Runlet
 directories:
   buildResources: build
 files:
@@ -12,7 +12,7 @@ files:
 asarUnpack:
   - resources/**
 win:
-  executableName: run
+  executableName: runlet
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}
