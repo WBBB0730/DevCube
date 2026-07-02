@@ -12,6 +12,7 @@ import {
 } from './configs'
 import { addProjectByPath, pickAndAddProject, removeProject } from './projects'
 import {
+  closeSession,
   disposeSession,
   disposeTerminalsForProject,
   getSessionBuffer,
@@ -111,11 +112,17 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.sessionBuffer, (_e, key: string) => getSessionBuffer(key))
   ipcMain.handle(IPC.sessions, () => getSessions())
 
-  // —— 终端（Terminal，自由 shell） ——
+  // —— 终端（Terminal，自由 shell）与 Tab 关闭 ——
   ipcMain.handle(IPC.terminalOpen, (_e, projectPath: string) => openTerminal(projectPath))
-  // 关闭 = 销毁会话（杀 shell + 清状态 + 通知渲染端移除 Tab），与用户「删除」同路径。
-  ipcMain.handle(IPC.terminalClose, (_e, key: string) => disposeSession(key))
+  // 用户关闭 Tab（Run Session / Terminal 通用）：温和停止 + 弃会话 + 通知渲染端移除 Tab。
+  ipcMain.handle(IPC.sessionClose, (_e, key: string) => closeSession(key))
   ipcMain.handle(IPC.terminals, () => getTerminals())
+
+  // 选中探测脚本即晋升为引用型配置（不必等运行；运行路径的晋升见 IPC.run）。
+  ipcMain.handle(IPC.scriptPromote, (_e, projectPath: string, scriptName: string) => {
+    promoteScript(projectPath, scriptName)
+    return buildTree()
+  })
 
   // —— 命令型配置 CRUD ——
   ipcMain.handle(IPC.configCreate, (_e, input: Omit<CommandRunConfig, 'id' | 'kind'>) => {

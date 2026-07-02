@@ -23,7 +23,7 @@ const api: RunAPI = {
   getSessions: () => ipcRenderer.invoke(IPC.sessions),
 
   openTerminal: (projectPath) => ipcRenderer.invoke(IPC.terminalOpen, projectPath),
-  closeTerminal: (key) => ipcRenderer.invoke(IPC.terminalClose, key),
+  closeSession: (key) => ipcRenderer.invoke(IPC.sessionClose, key),
   getTerminals: () => ipcRenderer.invoke(IPC.terminals),
 
   createCommandConfig: (input: Omit<CommandRunConfig, 'id' | 'kind'>) =>
@@ -32,6 +32,8 @@ const api: RunAPI = {
   deleteConfig: (id) => ipcRenderer.invoke(IPC.configDelete, id),
   reorderConfigs: (projectPath, orderedIds) =>
     ipcRenderer.invoke(IPC.configReorder, projectPath, orderedIds),
+  promoteScript: (projectPath, scriptName) =>
+    ipcRenderer.invoke(IPC.scriptPromote, projectPath, scriptName),
 
   openExternal: (url) => ipcRenderer.invoke(IPC.openExternal, url),
 

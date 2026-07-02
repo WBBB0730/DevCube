@@ -15,9 +15,24 @@ import { SearchAddon, type ISearchOptions } from '@xterm/addon-search'
 import { WebglAddon } from '@xterm/addon-webgl'
 import { Unicode11Addon } from '@xterm/addon-unicode11'
 import '@xterm/xterm/css/xterm.css'
-import type { ProjectNode, SessionStatus } from '@shared/types'
-import { configKey, scriptKey } from '@shared/runnable'
-import { useApp, resolveTabs, type TerminalTab } from '@renderer/store'
+import {
+  DndContext,
+  PointerSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type Modifier
+} from '@dnd-kit/core'
+import {
+  SortableContext,
+  arrayMove,
+  horizontalListSortingStrategy,
+  useSortable
+} from '@dnd-kit/sortable'
+import { CSS } from '@dnd-kit/utilities'
+import type { SessionOutput, SessionStatus } from '@shared/types'
+import { useApp, resolveTabs, type RunTabInfo, type TerminalTab } from '@renderer/store'
 import { cn } from '@renderer/lib/utils'
 import { xtermTheme } from '@renderer/lib/xterm-theme'
 
@@ -25,18 +40,6 @@ import { xtermTheme } from '@renderer/lib/xterm-theme'
 // 给全局加载数封顶，超出的终端回退默认渲染，避免挤掉后台终端的上下文造成静默降级。
 const MAX_WEBGL = 12
 let webglCount = 0
-
-function findLabel(tree: ProjectNode[], key: string): string | null {
-  for (const node of tree) {
-    for (const s of node.discovered) {
-      if (scriptKey(s.projectPath, s.name) === key) return s.name
-    }
-    for (const c of node.configs) {
-      if (configKey(c) === key) return c.kind === 'referenced' ? c.scriptName : c.name
-    }
-  }
-  return null
-}
 
 function Placeholder(): React.JSX.Element {
   return (
@@ -50,10 +53,10 @@ function Placeholder(): React.JSX.Element {
 
 export function Console(): React.JSX.Element {
   const currentProjectPath = useApp((s) => s.currentProjectPath)
-  const selectedKey = useApp((s) => s.selectedKey)
-  const terminals = useApp((s) => s.terminals)
+  const tree = useApp((s) => s.tree)
   const sessions = useApp((s) => s.sessions)
-  const activeTerminalByProject = useApp((s) => s.activeTerminalByProject)
+  const terminals = useApp((s) => s.terminals)
+  const activeTabByProject = useApp((s) => s.activeTabByProject)
 
   if (!currentProjectPath) {
     return (
@@ -64,38 +67,41 @@ export function Console(): React.JSX.Element {
   }
 
   // 与 cycleTab / 关闭快捷键共用同一解析规则（见 store.resolveTabs）。
-  const { projTerminals, runShown, showRun, activeTermKey } = resolveTabs(
-    { terminals, selectedKey, sessions, activeTerminalByProject },
+  const { runTabs, termTabs, activeKey } = resolveTabs(
+    { tree, sessions, terminals, activeTabByProject },
     currentProjectPath
   )
-  const nothing = !showRun && activeTermKey === null
+
+  // 运行会话面板：全部项目的会话都常驻（与终端一致——切走仅隐藏，切回项目现场保留）。
+  const termKeys = new Set(terminals.map((t) => t.key))
+  const runSessionKeys = Object.keys(sessions).filter((k) => !termKeys.has(k))
 
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col bg-deepest">
       <TabBar
         projectPath={currentProjectPath}
-        projTerminals={projTerminals}
-        runShown={runShown}
-        showRun={showRun}
-        activeTermKey={activeTermKey}
+        runTabs={runTabs}
+        termTabs={termTabs}
+        activeKey={activeKey}
       />
       <div className="relative min-h-0 flex-1">
-        {/* 运行控制台层（Tab 1）：仅当有内容时才存在；跟随选中配置、退出后只读。 */}
-        {runShown && selectedKey && (
-          <div className={cn('absolute inset-0', !showRun && 'hidden')}>
-            <TerminalPane paneKey={selectedKey} mode="run" visible={showRun} />
-          </div>
-        )}
-        {/* 各终端层：全部常驻，切走仅隐藏，故 shell 后台仍在跑、现场保留。 */}
+        {runSessionKeys.map((k) => {
+          const visible = k === activeKey
+          return (
+            <div key={k} className={cn('absolute inset-0', !visible && 'hidden')}>
+              <TerminalPane paneKey={k} mode="run" visible={visible} />
+            </div>
+          )
+        })}
         {terminals.map((t) => {
-          const visible = t.projectPath === currentProjectPath && t.key === activeTermKey
+          const visible = t.key === activeKey
           return (
             <div key={t.key} className={cn('absolute inset-0', !visible && 'hidden')}>
               <TerminalPane paneKey={t.key} mode="terminal" visible={visible} />
             </div>
           )
         })}
-        {nothing && <Placeholder />}
+        {activeKey === null && <Placeholder />}
       </div>
     </div>
   )
@@ -109,57 +115,127 @@ const STATUS_DOT: Record<SessionStatus | 'idle', string> = {
   failed: 'var(--status-failed)'
 }
 
-// 单个 Tab 外壳样式：与左标题栏同高，选中态用主色下描边（inset box-shadow，不占布局）。
+// 单个 Tab 外壳样式：与左标题栏同高、无圆角、彼此紧贴；选中态用主色下描边（inset box-shadow，不占布局）。
+// 右内边距 8px：12px 的 × 图标在 16px 按钮内居中内缩 2px，8+2=10px 即图标到右边缘的距离。
 const TAB =
-  'flex h-full max-w-[220px] cursor-pointer select-none items-center gap-2 rounded-t-md pl-3 text-[14px] transition-colors hover:bg-[var(--bg-row-hover)]'
+  'flex h-full max-w-[220px] cursor-pointer select-none items-center gap-1.5 pl-2.5 text-[14px] transition-colors hover:bg-[var(--bg-row-hover)]'
 const TAB_ACTIVE = { boxShadow: 'inset 0 -3px 0 0 var(--primary)' } as const
+
+// 关闭键（运行会话/终端 Tab 共用）：16px 按钮 + 12px 图标；常驻，背景仅 hover 显示（圆形 + 颜色过渡）。
+// ml-1 叠加 Tab 的 gap-1.5：文字到关闭键 10px（比文字到左侧图标的 6px 更宽）。
+const TAB_CLOSE =
+  'ml-1 flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
+
+// 终端 Tab 组内拖拽：仅水平移动，且钳制在终端组容器内（containerNodeRect 即被拖项父容器）。
+const restrictToHorizontalWithinList: Modifier = ({
+  transform,
+  draggingNodeRect,
+  containerNodeRect
+}) => {
+  const t = { ...transform, y: 0 }
+  if (!draggingNodeRect || !containerNodeRect) return t
+  if (draggingNodeRect.left + t.x < containerNodeRect.left) {
+    t.x = containerNodeRect.left - draggingNodeRect.left
+  } else if (draggingNodeRect.right + t.x > containerNodeRect.right) {
+    t.x = containerNodeRect.right - draggingNodeRect.right
+  }
+  return t
+}
 
 function TabBar({
   projectPath,
-  projTerminals,
-  runShown,
-  showRun,
-  activeTermKey
+  runTabs,
+  termTabs,
+  activeKey
 }: {
   projectPath: string
-  projTerminals: TerminalTab[]
-  runShown: boolean
-  showRun: boolean
-  activeTermKey: string | null
+  runTabs: RunTabInfo[]
+  termTabs: TerminalTab[]
+  activeKey: string | null
 }): React.JSX.Element {
-  const label = useApp((s) => (s.selectedKey ? findLabel(s.tree, s.selectedKey) : null))
-  const runStatus = useApp(
-    (s) => (s.selectedKey ? s.sessions[s.selectedKey]?.status : undefined) ?? 'idle'
-  )
-  const activateRunConsole = useApp((s) => s.activateRunConsole)
   const newTerminal = useApp((s) => s.newTerminal)
+  const reorderTerminals = useApp((s) => s.reorderTerminals)
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
+
+  const handleDragEnd = (e: DragEndEvent): void => {
+    const { active, over } = e
+    if (!over || active.id === over.id) return
+    const keys = termTabs.map((t) => t.key)
+    const from = keys.indexOf(active.id as string)
+    const to = keys.indexOf(over.id as string)
+    if (from < 0 || to < 0) return
+    reorderTerminals(projectPath, arrayMove(keys, from, to))
+  }
 
   return (
-    <div className="flex h-10 shrink-0 items-center gap-1 overflow-x-auto bg-panel px-2">
-      {/* Tab 1 · 运行控制台：仅当有内容可显示时才渲染（不可关闭）。 */}
-      {runShown && (
-        <div
-          className={cn(TAB, 'pr-4')}
-          style={showRun ? TAB_ACTIVE : undefined}
-          onClick={() => activateRunConsole(projectPath)}
-        >
-          <span
-            className="size-2 shrink-0 rounded-full transition-colors"
-            style={{ background: STATUS_DOT[runStatus] }}
-          />
-          <span className="min-w-0 truncate text-foreground">{label ?? '运行'}</span>
-        </div>
-      )}
-      {projTerminals.map((t) => (
-        <TerminalTabItem key={t.key} tab={t} active={t.key === activeTermKey} />
+    <div className="flex h-10 shrink-0 items-center overflow-x-auto bg-panel px-2">
+      {/* 运行会话 Tab：每条有会话的配置一个，顺序跟随树中配置顺序。 */}
+      {runTabs.map((t) => (
+        <RunTabItem key={t.key} tab={t} active={t.key === activeKey} projectPath={projectPath} />
       ))}
+      {/* 终端 Tab：组内可拖拽排序（仅水平、不与运行会话组混排）。 */}
+      <DndContext
+        sensors={sensors}
+        collisionDetection={closestCenter}
+        modifiers={[restrictToHorizontalWithinList]}
+        onDragEnd={handleDragEnd}
+      >
+        <SortableContext
+          items={termTabs.map((t) => t.key)}
+          strategy={horizontalListSortingStrategy}
+        >
+          <div className="flex h-full shrink-0 items-center">
+            {termTabs.map((t) => (
+              <TerminalTabItem key={t.key} tab={t} active={t.key === activeKey} />
+            ))}
+          </div>
+        </SortableContext>
+      </DndContext>
       <button
         type="button"
         title="新建终端 (⌘T)"
         onClick={() => newTerminal(projectPath)}
-        className="flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]"
+        className="ml-1 flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]"
       >
         <Plus className="size-4" />
+      </button>
+    </div>
+  )
+}
+
+function RunTabItem({
+  tab,
+  active,
+  projectPath
+}: {
+  tab: RunTabInfo
+  active: boolean
+  projectPath: string
+}): React.JSX.Element {
+  const activateTab = useApp((s) => s.activateTab)
+  const closeTab = useApp((s) => s.closeTab)
+
+  return (
+    <div
+      className={cn(TAB, 'group pr-2')}
+      style={active ? TAB_ACTIVE : undefined}
+      onClick={() => activateTab(projectPath, tab.key)}
+    >
+      <span
+        className="size-2 shrink-0 rounded-full transition-colors"
+        style={{ background: STATUS_DOT[tab.status] }}
+      />
+      <span className="min-w-0 truncate text-foreground">{tab.label}</span>
+      <button
+        type="button"
+        title={tab.status === 'running' ? '停止并关闭 (⌘W)' : '关闭 (⌘W)'}
+        onClick={(e) => {
+          e.stopPropagation()
+          closeTab(tab.key)
+        }}
+        className={TAB_CLOSE}
+      >
+        <X className="size-3" />
       </button>
     </div>
   )
@@ -172,12 +248,25 @@ function TerminalTabItem({
   tab: TerminalTab
   active: boolean
 }): React.JSX.Element {
-  const selectTerminal = useApp((s) => s.selectTerminal)
-  const closeTerminal = useApp((s) => s.closeTerminal)
+  const activateTab = useApp((s) => s.activateTab)
+  const closeTab = useApp((s) => s.closeTab)
   const renameTerminal = useApp((s) => s.renameTerminal)
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState(tab.name)
   const inputRef = useRef<HTMLInputElement>(null)
+  const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
+    id: tab.key
+  })
+  const style: React.CSSProperties = {
+    // 只取位移、丢弃缩放：列表策略对不同宽度的条目会算出 scaleX（按目标位置尺寸），
+    // 用 CSS.Transform 会把拖拽中的 Tab 拉伸变形。
+    transform: CSS.Translate.toString(transform),
+    transition,
+    opacity: isDragging ? 0.6 : undefined,
+    zIndex: isDragging ? 10 : undefined,
+    position: 'relative',
+    ...(active ? TAB_ACTIVE : {})
+  }
 
   useEffect(() => {
     if (editing) {
@@ -194,15 +283,18 @@ function TerminalTabItem({
 
   return (
     <div
-      className={cn(TAB, 'group pr-1')}
-      style={active ? TAB_ACTIVE : undefined}
-      onClick={() => selectTerminal(tab.key)}
+      ref={setNodeRef}
+      style={style}
+      className={cn(TAB, 'group pr-2')}
+      {...attributes}
+      {...(editing ? {} : listeners)}
+      onClick={() => activateTab(tab.projectPath, tab.key)}
       onDoubleClick={() => {
         setDraft(tab.name)
         setEditing(true)
       }}
     >
-      <TerminalIcon className="size-4 shrink-0 text-muted-foreground" />
+      <TerminalIcon className="size-3.5 shrink-0 text-muted-foreground" />
       {editing ? (
         <input
           ref={inputRef}
@@ -224,20 +316,16 @@ function TerminalTabItem({
       ) : (
         <span className="min-w-0 truncate text-foreground">{tab.name}</span>
       )}
-      {/* 关闭键始终占位（opacity 切换），避免 hover 时整 Tab 宽度跳动。 */}
       <button
         type="button"
         title="关闭 (⌘W)"
         onClick={(e) => {
           e.stopPropagation()
-          closeTerminal(tab.key)
+          closeTab(tab.key)
         }}
-        className={cn(
-          'flex size-5 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]',
-          active ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
-        )}
+        className={TAB_CLOSE}
       >
-        <X className="size-3.5" />
+        <X className="size-3" />
       </button>
     </div>
   )
@@ -254,8 +342,25 @@ const SEARCH_OPTS: ISearchOptions = {
 }
 
 /**
- * 一块终端画布。mode='run' 跟随选中配置（切 key / 重跑清屏回填、退出只读）；
- * mode='terminal' 绑定固定会话键、始终可交互。切走用 visible=false 隐藏而非卸载。
+ * 按累计偏移（bytes）去重写入：已被覆盖的块跳过，跨越边界的只补超出部分。
+ * 实时路径与回填 flush 必须共用此协议——sessionOutput 事件与快照回复走不同派发通道，
+ * 到达顺序没有保证，快照已含的块（如运行头部）可能在回填完成后才到达，直写即重复。
+ * bytes 只在同一会话代（sid）内可比：重跑即换代重计，调用方必须先滤掉跨代事件。
+ */
+function writeDeduped(
+  term: Terminal,
+  written: { current: number },
+  ev: Pick<SessionOutput, 'data' | 'bytes'>
+): void {
+  if (ev.bytes <= written.current) return
+  const start = ev.bytes - ev.data.length
+  term.write(start >= written.current ? ev.data : ev.data.slice(written.current - start))
+  written.current = ev.bytes
+}
+
+/**
+ * 一块终端画布。mode='run' 绑定一条配置的会话（重跑经 runNonce 触发清屏回填、退出只读）；
+ * mode='terminal' 绑定终端会话、始终可交互。切走用 visible=false 隐藏而非卸载。
  */
 function TerminalPane({
   paneKey,
@@ -272,16 +377,18 @@ function TerminalPane({
   const keyRef = useRef<string>(paneKey)
   const readyRef = useRef(false)
   const visibleRef = useRef(visible)
-  // 回填期间暂存实时输出，快照写入后按累计偏移去重补齐，消除「快照 vs 实时」竞态窗口。
-  const pendingRef = useRef<{ bytes: number; data: string }[]>([])
+  // 回填期间暂存实时输出，快照写入后按代际过滤、按累计偏移去重补齐，消除「快照 vs 实时」竞态窗口。
+  const pendingRef = useRef<SessionOutput[]>([])
   const writtenRef = useRef(0)
+  // 当前已应用快照的会话代际；ready 后只接受同代事件（跨代 bytes 不可比，见 writeDeduped）。
+  const sidRef = useRef('')
   const searchRef = useRef<SearchAddon | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState({ index: -1, count: 0 })
-  // 仅 run 模式订阅 focusNonce / 会话状态；终端模式取常量，避免无谓触发（如别处重跑）。
-  const focusNonce = useApp((s) => (mode === 'run' ? s.focusNonce : 0))
+  // 仅 run 模式订阅自己会话的运行序号 / 状态；终端模式取常量，避免无谓触发（如别的配置重跑）。
+  const runNonce = useApp((s) => (mode === 'run' ? (s.runNonce[paneKey] ?? 0) : 0))
   const status = useApp((s) => (mode === 'run' ? s.sessions[paneKey]?.status : undefined))
 
   // 供内容回填的异步回调判断「回填完成时是否可见」以决定聚焦（避免把 visible 塞进 deps 触发重跑）。
@@ -339,18 +446,23 @@ function TerminalPane({
 
     const offOutput = window.api.onSessionOutput((e) => {
       if (e.key !== keyRef.current) return
-      if (readyRef.current) {
-        term.write(e.data)
-        writtenRef.current = e.bytes
-      } else {
-        // 回填尚未完成：先入队，待快照写入后按偏移去重补齐（避免丢字/重复）。
-        pendingRef.current.push({ bytes: e.bytes, data: e.data })
+      if (!readyRef.current) {
+        // 回填尚未完成：先入队，待快照写入后按代际过滤、按偏移去重补齐（避免丢字/重复）。
+        pendingRef.current.push(e)
+      } else if (e.sid === sidRef.current) {
+        writeDeduped(term, writtenRef, e)
       }
+      // ready 后 sid 不符 = 重跑换代的事件：主进程 run 必经 runNonce +1，本面板随即 reset
+      // 并重新回填，其内容由新快照带回，直接丢弃即可。
     })
     const disposeInput = term.onData((data) => {
       window.api.writeStdin(keyRef.current, data)
     })
     const ro = new ResizeObserver(() => {
+      // 隐藏面板（display:none）容器无尺寸：fit 静默不生效，若照发 resize 会把 pty
+      // 压回 xterm 默认的 80x24，令 shell 重画提示符污染缓冲（刷新后回填即错乱）。
+      const el = containerRef.current
+      if (!el || el.clientWidth === 0 || el.clientHeight === 0) return
       try {
         fit.fit()
       } catch {
@@ -373,7 +485,7 @@ function TerminalPane({
     }
   }, [])
 
-  // 切 key / 重跑：run 清屏后回填该会话缓冲；可见时聚焦。终端模式仅挂载时回填一次。
+  // 挂载 / 重跑（runNonce +1）：run 清屏后回填该会话快照；可见时聚焦。终端模式仅挂载时回填一次。
   useEffect(() => {
     keyRef.current = paneKey
     readyRef.current = false
@@ -382,30 +494,46 @@ function TerminalPane({
     const term = termRef.current
     if (!term) return
     if (mode === 'run') term.reset()
+    // 过期回填必须作废：keyRef 挡不住「同 key 的上一代请求」（StrictMode 双挂载、快速重跑
+    // 都会产生同 key 的在途快照）——旧快照若在 reset 后应用，会写入过期内容、污染 writtenRef
+    // 并提前置 ready / 清 pending，导致丢输出或错排。
+    let cancelled = false
     window.api.getSessionBuffer(paneKey).then((snap) => {
-      if (keyRef.current !== paneKey) return
+      if (cancelled || keyRef.current !== paneKey) return
+      // 先把 xterm 调到快照对应的 pty 尺寸再写入（序列化屏幕按该宽度编码，见 ADR-0004）。
+      // 可见时随后 fit 回容器宽度并由 xterm 重排。
+      if (snap.cols > 0 && snap.rows > 0 && (term.cols !== snap.cols || term.rows !== snap.rows)) {
+        term.resize(snap.cols, snap.rows)
+      }
       term.write(snap.data)
+      // 序列化快照不携带光标可见性：已结束的运行会话补一笔隐藏光标（与退出页脚一致）。
+      if (mode === 'run' && useApp.getState().sessions[paneKey]?.status !== 'running') {
+        term.write('\x1b[?25l')
+      }
       writtenRef.current = snap.bytes
-      // flush 回填期间入队的实时事件：跳过已在快照内的，跨越边界的只补超出部分。
+      sidRef.current = snap.sid
+      // flush 回填期间入队的实时事件：只认与快照同代的（如快速重跑时旧会话的在途残留，
+      // 其旧累计 bytes 会污染写入进度），再走同一去重协议（见 writeDeduped）。
       for (const ev of pendingRef.current) {
-        if (ev.bytes <= writtenRef.current) continue
-        const start = ev.bytes - ev.data.length
-        term.write(
-          start >= writtenRef.current ? ev.data : ev.data.slice(writtenRef.current - start)
-        )
-        writtenRef.current = ev.bytes
+        if (ev.sid === snap.sid) writeDeduped(term, writtenRef, ev)
       }
       pendingRef.current = []
       readyRef.current = true
-      try {
-        fitRef.current?.fit()
-      } catch {
-        /* noop */
+      // 仅可见面板才按容器 refit 并同步 pty；隐藏面板保持快照尺寸，等变可见再统一 fit。
+      if (visibleRef.current) {
+        try {
+          fitRef.current?.fit()
+        } catch {
+          /* noop */
+        }
+        window.api.resize(paneKey, term.cols, term.rows)
+        term.focus()
       }
-      window.api.resize(paneKey, term.cols, term.rows)
-      if (visibleRef.current) term.focus()
     })
-  }, [paneKey, focusNonce, mode])
+    return () => {
+      cancelled = true
+    }
+  }, [paneKey, runNonce, mode])
 
   // 变可见：隐藏期间 ResizeObserver 不触发，手动 refit + 聚焦。
   useEffect(() => {

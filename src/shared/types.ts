@@ -72,15 +72,27 @@ export interface SessionState {
 
 export interface SessionOutput {
   key: string
+  /** 会话代际标识：同 key 重跑即换新会话、bytes 从零重计，跨代事件必须按 sid 丢弃 */
+  sid: string
   data: string
-  /** 该块写入后本会话输出流的累计字节长度；用于回填去重，消除「快照 vs 实时事件」的竞态窗口 */
+  /** 该块写入后本会话输出流的累计字节长度；用于去重，消除「快照 vs 实时事件」的竞态窗口 */
   bytes: number
 }
 
-/** 某会话已缓冲输出的快照：可能被截断的尾部文本 + 其对应的累计流长度。 */
+/** 某会话的屏幕快照：主进程无头终端 serialize 出的当前画面（含滚动历史，ADR-0004）。 */
 export interface SessionBufferSnapshot {
+  /** 快照来源会话的代际标识；渲染端只对同 sid 的实时事件做 bytes 去重 */
+  sid: string
+  /** 序列化的屏幕内容（按 cols 宽度编码的 ANSI 流），非原始输出流 */
   data: string
+  /**
+   * 快照对应的累计输出流长度，供实时事件去重——回填期间与完成后皆需：
+   * 快照回复与输出事件走不同派发通道，到达顺序没有保证。
+   */
   bytes: number
+  /** pty 当前列/行数。回填必须先把 xterm 调到此尺寸再写入 */
+  cols: number
+  rows: number
 }
 
 /** 一个活跃 Terminal（自由 shell）的最小信息，供渲染端重建其 Tab（术语见 CONTEXT.md）。 */
@@ -106,7 +118,7 @@ export interface RunAPI {
   stop(key: string): Promise<void>
   writeStdin(key: string, data: string): void
   resize(key: string, cols: number, rows: number): void
-  /** 拉取某会话已缓冲的历史输出快照（切换选择时回填控制台；含累计流长度用于去重） */
+  /** 拉取某会话的屏幕快照（切换选择/刷新时回填控制台；含累计流长度用于去重） */
   getSessionBuffer(key: string): Promise<SessionBufferSnapshot>
   /** 当前所有活跃/已结束但保留的会话快照 */
   getSessions(): Promise<SessionState[]>
@@ -114,8 +126,11 @@ export interface RunAPI {
   // —— 终端（Terminal，自由 shell） ——
   /** 在项目根目录起一个交互 shell 的新 Terminal，返回其会话键 */
   openTerminal(projectPath: string): Promise<string>
-  /** 关闭一个 Terminal：杀掉 shell、清除会话（同用户「删除」路径） */
-  closeTerminal(key: string): Promise<void>
+  /**
+   * 关闭一个 Tab 对应的会话（Run Session 或 Terminal）：
+   * 运行中则先 SIGTERM 温和停止（超时升级 SIGKILL），随即弃掉会话与输出。
+   */
+  closeSession(key: string): Promise<void>
   /** 当前所有活跃 Terminal（供渲染端重建 Tab，如 dev 热重载后） */
   getTerminals(): Promise<TerminalInfo[]>
 
@@ -125,6 +140,8 @@ export interface RunAPI {
   deleteConfig(id: string): Promise<ProjectNode[]>
   /** 重排某项目下「我的配置」的顺序 */
   reorderConfigs(projectPath: string, orderedIds: string[]): Promise<ProjectNode[]>
+  /** 把一条探测脚本晋升为引用型配置（选中即入列，不必等运行）；返回更新后的树 */
+  promoteScript(projectPath: string, scriptName: string): Promise<ProjectNode[]>
 
   // —— 外链 ——
   /** 在系统默认浏览器打开 http/https 链接（终端可点击链接） */

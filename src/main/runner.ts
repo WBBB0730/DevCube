@@ -1,6 +1,8 @@
 import { randomUUID } from 'crypto'
 import { BrowserWindow } from 'electron'
 import { spawn, type IPty } from 'node-pty'
+import { Terminal as HeadlessTerminal } from '@xterm/headless'
+import { SerializeAddon } from '@xterm/addon-serialize'
 import { IPC } from '../shared/ipc'
 import { configKey, scriptKey } from '../shared/runnable'
 import type {
@@ -20,19 +22,50 @@ interface Session {
   kind: 'run' | 'terminal'
   /** 仅 terminal 使用：其所属项目，供渲染端重建 Tab 与按项目清理 */
   projectPath?: string
+  /** 会话代际标识（每次 spawn 唯一）。bytes 只在同代内可比，随输出与快照下发供渲染端跨代丢弃 */
+  sid: string
   pty: IPty
   status: SessionStatus
   exitCode: number | null
-  buffer: string
-  /** 累计输出字节长度（单调递增、不随 buffer 截断回退）；随每次 sessionOutput 下发，供回填去重 */
+  /**
+   * 主进程侧的无头终端：实时消费 pty 输出、跟随 resize，维护「当前屏幕状态」。
+   * 回填发 serialize() 的屏幕快照而非原始字节流——原始流跨宽度重放无法保真
+   * （zsh 行尾标记 / SIGWINCH 重画等序列依赖产生时的列宽），见 ADR-0004。
+   */
+  screen: HeadlessTerminal
+  serializer: SerializeAddon
+  /** 最后一块输出是否以换行收尾（run 会话补退出页脚时决定空行数） */
+  endsWithNewline: boolean
+  /** 累计输出长度（单调递增）；随每次 sessionOutput 下发，供回填去重 */
   bytes: number
+  /**
+   * 已被无头终端解析进屏幕的累计长度（xterm 的 write 是异步排队解析）。
+   * 快照的 bytes 必须用它：还没进画面的块，渲染端会靠回填去重从 pending 队列补上。
+   */
+  parsedBytes: number
   cols: number
   rows: number
 }
 
-const MAX_BUFFER = 1_000_000
 const DEFAULT_COLS = 80
 const DEFAULT_ROWS = 24
+// 与渲染端 xterm 的 scrollback 一致：序列化快照能带回同样多的历史行。
+const SCROLLBACK = 10000
+
+function createScreen(
+  cols: number,
+  rows: number
+): { screen: HeadlessTerminal; serializer: SerializeAddon } {
+  const screen = new HeadlessTerminal({
+    cols,
+    rows,
+    scrollback: SCROLLBACK,
+    allowProposedApi: true
+  })
+  const serializer = new SerializeAddon()
+  screen.loadAddon(serializer)
+  return { screen, serializer }
+}
 
 const sessions = new Map<string, Session>()
 let win: BrowserWindow | null = null
@@ -86,14 +119,24 @@ function emitStatus(s: Session): void {
   post(IPC.sessionStatus, snapshot(s))
 }
 
-// 进程输出统一入口：追加进环形缓冲并推给渲染端。被新会话取代的旧会话不再产生输出。
+// 会话输出统一入口：喂给无头终端维护屏幕状态，并推给渲染端。
+function emitOutput(session: Session, data: string): void {
+  if (data === '') return
+  session.endsWithNewline = data.endsWith('\n')
+  session.bytes += data.length
+  const parsed = session.bytes
+  // 回调按写入顺序触发；解析完成后才推进 parsedBytes（快照与画面严格一致）。
+  session.screen.write(data, () => {
+    session.parsedBytes = parsed
+  })
+  post(IPC.sessionOutput, { key: session.key, sid: session.sid, data, bytes: session.bytes })
+}
+
+// 被新会话取代 / 已销毁的旧会话不再产生输出（onData 可能在 kill 后仍短暂触发）。
 function pipeOutput(session: Session): void {
   session.pty.onData((data) => {
     if (sessions.get(session.key) !== session) return
-    session.buffer += data
-    if (session.buffer.length > MAX_BUFFER) session.buffer = session.buffer.slice(-MAX_BUFFER)
-    session.bytes += data.length
-    post(IPC.sessionOutput, { key: session.key, data, bytes: session.bytes })
+    emitOutput(session, data)
   })
 }
 
@@ -123,8 +166,11 @@ export function run(target: RunTarget): void {
   const previous = sessions.get(resolved.key)
   const cols = previous?.cols ?? DEFAULT_COLS
   const rows = previous?.rows ?? DEFAULT_ROWS
-  // 单实例：重复运行即先杀旧再起新。旧会话的 onExit 因不再是当前会话而被忽略。
-  if (previous && previous.status === 'running') killTree(previous, 'SIGKILL')
+  // 单实例：重复运行即先杀旧再起新。旧会话的 onExit / onData 因不再是当前会话而被忽略。
+  if (previous) {
+    if (previous.status === 'running') killTree(previous, 'SIGKILL')
+    previous.screen.dispose() // 释放旧屏幕（新会话随即以同 key 顶替 Map 槽位）
+  }
 
   const { file, args } = buildShellInvocation(resolved.command, process.platform, process.env.SHELL)
   const pty = spawn(file, args, {
@@ -136,30 +182,34 @@ export function run(target: RunTarget): void {
   })
 
   const header = runHeader(resolved)
+  const { screen, serializer } = createScreen(cols, rows)
   const session: Session = {
     key: resolved.key,
     kind: 'run',
+    sid: randomUUID(),
     pty,
     status: 'running',
     exitCode: null,
-    buffer: header,
-    bytes: header.length,
+    screen,
+    serializer,
+    endsWithNewline: true,
+    bytes: 0,
+    parsedBytes: 0,
     cols,
     rows
   }
   sessions.set(resolved.key, session)
   emitStatus(session)
+  // 头部走同一输出管道：进无头终端、计入 bytes（渲染端回填去重依赖 bytes 与流内容一致）。
+  emitOutput(session, header)
   pipeOutput(session)
 
   pty.onExit(({ exitCode }) => {
     if (sessions.get(session.key) !== session) return
     // 结束后先空一行，再补「进程已结束，退出代码为 N」（标准色，\x1b[0m 重置防遗留色），并隐藏光标（\x1b[?25l）。
-    // 空行按输出是否已换行补足，保证恰好一行空行；写进缓冲并推给正在看的终端。
-    const sep = session.buffer.endsWith('\n') ? '\r\n' : '\r\n\r\n'
-    const footer = `${sep}\x1b[0m进程已结束，退出代码为 ${exitCode}\r\n\x1b[?25l`
-    session.buffer += footer
-    session.bytes += footer.length
-    post(IPC.sessionOutput, { key: session.key, data: footer, bytes: session.bytes })
+    // 空行按输出是否已换行收尾补足，保证恰好一行空行。
+    const sep = session.endsWithNewline ? '\r\n' : '\r\n\r\n'
+    emitOutput(session, `${sep}\x1b[0m进程已结束，退出代码为 ${exitCode}\r\n\x1b[?25l`)
     session.status = exitCode === 0 ? 'exited' : 'failed'
     session.exitCode = exitCode
     emitStatus(session)
@@ -182,15 +232,20 @@ export function openTerminal(projectPath: string): string {
     env: { ...process.env } as Record<string, string>
   })
 
+  const { screen, serializer } = createScreen(DEFAULT_COLS, DEFAULT_ROWS)
   const session: Session = {
     key,
     kind: 'terminal',
     projectPath,
+    sid: randomUUID(),
     pty,
     status: 'running',
     exitCode: null,
-    buffer: '',
+    screen,
+    serializer,
+    endsWithNewline: true,
     bytes: 0,
+    parsedBytes: 0,
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS
   }
@@ -200,6 +255,7 @@ export function openTerminal(projectPath: string): string {
 
   pty.onExit(() => {
     if (sessions.get(key) !== session) return
+    session.screen.dispose()
     sessions.delete(key)
     post(IPC.sessionRemoved, key)
   })
@@ -236,9 +292,12 @@ export function writeStdin(key: string, data: string): void {
 
 export function resize(key: string, cols: number, rows: number): void {
   const session = sessions.get(key)
-  if (!session) return
+  // 尺寸未变直接早退：避免无谓的 SIGWINCH 触发 shell 重画提示符。
+  if (!session || (session.cols === cols && session.rows === rows)) return
   session.cols = cols
   session.rows = rows
+  // 无头终端始终跟随（含已退出的会话：序列化快照才与渲染端回放宽度一致）。
+  session.screen.resize(cols, rows)
   if (session.status === 'running') {
     try {
       session.pty.resize(cols, rows)
@@ -250,7 +309,16 @@ export function resize(key: string, cols: number, rows: number): void {
 
 export function getSessionBuffer(key: string): SessionBufferSnapshot {
   const s = sessions.get(key)
-  return s ? { data: s.buffer, bytes: s.bytes } : { data: '', bytes: 0 }
+  return s
+    ? // bytes 用 parsedBytes：快照只保证包含「已解析进屏幕」的内容，未解析块由渲染端去重补上。
+      {
+        sid: s.sid,
+        data: s.serializer.serialize(),
+        bytes: s.parsedBytes,
+        cols: s.cols,
+        rows: s.rows
+      }
+    : { sid: '', data: '', bytes: 0, cols: DEFAULT_COLS, rows: DEFAULT_ROWS }
 }
 
 export function getSessions(): SessionState[] {
@@ -265,6 +333,24 @@ export function disposeSession(key: string): void {
   const session = sessions.get(key)
   if (!session) return
   if (session.status === 'running') killTree(session, 'SIGKILL')
+  session.screen.dispose()
+  sessions.delete(key)
+  post(IPC.sessionRemoved, key)
+}
+
+/**
+ * 用户关闭一个 Tab（Run Session 或 Terminal）：运行中则 SIGTERM 温和停止（2s 未退升级
+ * SIGKILL——会话已出 Map，onExit 早退不会更新状态，故到点盲发、killTree 自吞已退出的报错），
+ * 并立即弃掉会话与输出。区别于 disposeSession 的立杀（那是删除/对账等非用户路径）。
+ */
+export function closeSession(key: string): void {
+  const session = sessions.get(key)
+  if (!session) return
+  if (session.status === 'running') {
+    killTree(session, 'SIGTERM')
+    setTimeout(() => killTree(session, 'SIGKILL'), 2000)
+  }
+  session.screen.dispose()
   sessions.delete(key)
   post(IPC.sessionRemoved, key)
 }

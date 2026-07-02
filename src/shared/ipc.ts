@@ -15,11 +15,12 @@ export const IPC = {
   sessionStatus: 'session:status',
   sessionRemoved: 'session:removed',
   terminalOpen: 'terminal:open',
-  terminalClose: 'terminal:close',
+  sessionClose: 'session:close',
   terminals: 'terminal:list',
   configCreate: 'config:create',
   configUpdate: 'config:update',
   configDelete: 'config:delete',
   configReorder: 'config:reorder',
+  scriptPromote: 'script:promote',
   openExternal: 'shell:open-external'
 } as const

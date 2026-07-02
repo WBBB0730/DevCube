@@ -4,18 +4,21 @@ import { Console } from '@renderer/components/Console'
 import { ConfigDialog } from '@renderer/components/ConfigDialog'
 import { resolveTabs, useApp } from '@renderer/store'
 
-// 在当前项目「实际显示」的全部 Tab 间循环。dir: +1 下一个 / -1 上一个。
-// 运行控制台（null 槽）仅在有内容可显示时才参与循环——与 Console 共用 resolveTabs 解析。
+// 在当前项目的全部 Tab（运行会话 + 终端）间循环。dir: +1 下一个 / -1 上一个。
+// 与 Console 共用 resolveTabs 解析；占位（无激活 Tab）时按方向落到首/尾。
 function cycleTab(projectPath: string, dir: 1 | -1): void {
   const st = useApp.getState()
-  const { projTerminals, runShown, showRun, activeTermKey } = resolveTabs(st, projectPath)
-  const tabs: (string | null)[] = [...(runShown ? [null] : []), ...projTerminals.map((t) => t.key)]
-  if (tabs.length === 0) return
-  const current: string | null = showRun ? null : activeTermKey
-  const idx = tabs.indexOf(current)
-  const next = tabs[(idx + dir + tabs.length) % tabs.length]
-  if (next === null) st.activateRunConsole(projectPath)
-  else st.selectTerminal(next)
+  const { runTabs, termTabs, activeKey } = resolveTabs(st, projectPath)
+  const ordered = [...runTabs.map((t) => t.key), ...termTabs.map((t) => t.key)]
+  if (ordered.length === 0) return
+  const idx = activeKey ? ordered.indexOf(activeKey) : -1
+  const next =
+    idx < 0
+      ? dir === 1
+        ? ordered[0]
+        : ordered[ordered.length - 1]
+      : ordered[(idx + dir + ordered.length) % ordered.length]
+  st.activateTab(projectPath, next)
 }
 
 function App(): React.JSX.Element {
@@ -66,12 +69,12 @@ function App(): React.JSX.Element {
         e.stopPropagation()
         st.newTerminal(proj)
       } else if (mod && !e.shiftKey && (e.key === 'w' || e.key === 'W')) {
-        // Cmd/Ctrl+W：关闭当前「实际显示」的终端 Tab（与 Console 同解析）。运行控制台/无终端时不关；
+        // Cmd/Ctrl+W：关闭当前激活的 Tab（运行会话或终端；运行中则温和停止）。占位时无事发生；
         // 但当前项目存在即一律吞掉，绝不冒泡到系统默认 Cmd+W 误关整个窗口（会连带杀掉所有终端/进程）。
         e.preventDefault()
         e.stopPropagation()
-        const { activeTermKey } = resolveTabs(st, proj)
-        if (activeTermKey) st.closeTerminal(activeTermKey)
+        const { activeKey } = resolveTabs(st, proj)
+        if (activeKey) st.closeTab(activeKey)
       } else if (e.ctrlKey && e.key === 'Tab') {
         // Ctrl+Tab / Ctrl+Shift+Tab：在当前项目的 Tab 间循环。
         e.preventDefault()

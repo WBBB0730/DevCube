@@ -17,7 +17,8 @@ import {
   closestCenter,
   useSensor,
   useSensors,
-  type DragEndEvent
+  type DragEndEvent,
+  type Modifier
 } from '@dnd-kit/core'
 import {
   SortableContext,
@@ -49,6 +50,23 @@ import { useApp } from '@renderer/store'
 const ROW =
   'group flex h-10 cursor-pointer items-center gap-1.5 rounded px-1.5 text-[14px] transition-colors'
 const BTN = 'flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors'
+
+// 列表仅垂直排序，且钳制在本项目配置列表块内（containerNodeRect 即被拖行的父容器）。
+// 等价 @dnd-kit/modifiers 的 restrictToVerticalAxis + restrictToParentElement，免引依赖。
+const restrictToVerticalWithinList: Modifier = ({
+  transform,
+  draggingNodeRect,
+  containerNodeRect
+}) => {
+  const t = { ...transform, x: 0 }
+  if (!draggingNodeRect || !containerNodeRect) return t
+  if (draggingNodeRect.top + t.y < containerNodeRect.top) {
+    t.y = containerNodeRect.top - draggingNodeRect.top
+  } else if (draggingNodeRect.bottom + t.y > containerNodeRect.bottom) {
+    t.y = containerNodeRect.bottom - draggingNodeRect.bottom
+  }
+  return t
+}
 
 export function ProjectTree(): React.JSX.Element {
   const tree = useApp((s) => s.tree)
@@ -162,6 +180,7 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
           <DndContext
             sensors={sensors}
             collisionDetection={closestCenter}
+            modifiers={[restrictToVerticalWithinList]}
             onDragEnd={handleDragEnd}
           >
             <SortableContext
@@ -184,10 +203,12 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
 }
 
 // 探测脚本收进一个临时弹出菜单（Base UI Popover），菜单项与配置行同款样式。
+// 受控 open：菜单项被选中或运行即刻关闭（选中即晋升，行随之移出候补区）。
 function DiscoveredMenu({ discovered }: { discovered: DiscoveredScript[] }): React.JSX.Element {
+  const [open, setOpen] = useState(false)
   return (
     <div className="mt-0.5">
-      <Popover>
+      <Popover open={open} onOpenChange={(nextOpen) => setOpen(nextOpen)}>
         <PopoverTrigger
           className={cn(ROW, 'w-full text-muted-foreground hover:bg-[var(--bg-row-hover)]')}
         >
@@ -211,6 +232,7 @@ function DiscoveredMenu({ discovered }: { discovered: DiscoveredScript[] }): Rea
               rkey={scriptKey(s.projectPath, s.name)}
               target={{ type: 'script', projectPath: s.projectPath, name: s.name }}
               projectPath={s.projectPath}
+              onAction={() => setOpen(false)}
             />
           ))}
         </PopoverContent>
@@ -250,7 +272,8 @@ function RunnableRow({
   target,
   projectPath,
   config,
-  indent
+  indent,
+  onAction
 }: {
   label: string
   rkey: string
@@ -258,12 +281,15 @@ function RunnableRow({
   projectPath: string
   config?: RunConfig
   indent?: boolean
+  /** 选中或运行后回调（探测脚本弹出菜单用它及时关闭） */
+  onAction?: () => void
 }): React.JSX.Element {
   const status = useApp((s) => s.sessions[rkey]?.status ?? 'idle')
   const selected = useApp((s) => s.selectedKey === rkey)
   const run = useApp((s) => s.run)
   const stop = useApp((s) => s.stop)
   const select = useApp((s) => s.select)
+  const selectScript = useApp((s) => s.selectScript)
   const running = status === 'running'
   // 选中蓝底行上的按钮 hover 用蓝色高亮，而非灰色。
   const btnHover = selected
@@ -275,7 +301,12 @@ function RunnableRow({
   return (
     <div
       className={cn(ROW, selected ? 'bg-[var(--selection-row)]' : 'hover:bg-[var(--bg-row-hover)]')}
-      onClick={() => select(rkey, projectPath)}
+      onClick={() => {
+        onAction?.()
+        // 探测脚本选中即晋升进「我的配置」，不必等运行。
+        if (target.type === 'script') selectScript(target.projectPath, target.name, rkey)
+        else select(rkey, projectPath)
+      }}
     >
       {/* 缩进对齐：占位补齐折叠箭头列，点居中于文件夹图标列 */}
       {indent && <span className="size-4 shrink-0" />}
@@ -296,6 +327,7 @@ function RunnableRow({
         )}
         onClick={(e) => {
           e.stopPropagation()
+          onAction?.()
           run(target, rkey, projectPath)
         }}
       >
