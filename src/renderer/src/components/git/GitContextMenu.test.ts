@@ -1,4 +1,4 @@
-// buildMenuItems / groupMenuItems / matchIssues 的纯函数测试：构造小提交集与上下文，
+// buildMenuItems / groupMenuItems 的纯函数测试：构造小提交集与上下文，
 // 断言菜单结构（文案、可见性、checked 态）与点击产生的请求（记录式动作出口，零 mock）。
 import { describe, expect, it } from 'vitest'
 import {
@@ -12,7 +12,6 @@ import {
 import {
   buildMenuItems,
   groupMenuItems,
-  matchIssues,
   type GitMenuContext,
   type GitMenuItem
 } from './GitContextMenu'
@@ -37,12 +36,13 @@ function commit(hash: string, parents: string[], extra: Partial<GitCommit> = {})
 interface Recorded {
   ctx: GitMenuContext
   ran: GitAction[]
+  quiet: GitAction[]
   opened: GitDialogRequest[]
   copied: string[]
   filters: (string[] | null)[]
   patches: Partial<GitRepoSettings>[]
-  externals: string[]
   paths: string[]
+  revealed: string[]
   diffs: { from: string; to: string }[]
 }
 
@@ -50,12 +50,13 @@ interface Recorded {
 function makeCtx(overrides: Partial<GitMenuContext> = {}): Recorded {
   const rec: Recorded = {
     ran: [],
+    quiet: [],
     opened: [],
     copied: [],
     filters: [],
     patches: [],
-    externals: [],
     paths: [],
+    revealed: [],
     diffs: [],
     ctx: null as unknown as GitMenuContext
   }
@@ -71,13 +72,14 @@ function makeCtx(overrides: Partial<GitMenuContext> = {}): Recorded {
     viewPrefs: DEFAULT_GIT_VIEW_PREFS,
     actions: {
       runAction: (action) => rec.ran.push(action),
+      runQuietAction: (action) => rec.quiet.push(action),
       openDialog: (req) => rec.opened.push(req),
       setBranchFilter: (b) => rec.filters.push(b),
       updateSettings: (p) => rec.patches.push(p),
       openDiff: (_f, from, to) => rec.diffs.push({ from, to }),
       copyText: (text) => rec.copied.push(text),
-      openExternal: (url) => rec.externals.push(url),
-      openPath: (p) => rec.paths.push(p)
+      openPath: (p) => rec.paths.push(p),
+      revealInFolder: (p) => rec.revealed.push(p)
     },
     ...overrides
   }
@@ -186,17 +188,24 @@ describe('buildMenuItems', () => {
     expect(rec.filters).toEqual([null])
   })
 
-  it('本地分支菜单：issue 规则匹配单个 issue 时直接打开外部链接', () => {
-    const rec = linearCtx({
-      settings: {
-        ...DEFAULT_GIT_REPO_SETTINGS,
-        issueLinkingConfig: { issue: '#(\\d+)', url: 'https://x/i/$1' }
-      }
-    })
-    const items = buildMenuItems({ kind: 'branch', name: 'fix-#42', hash: 'c1' }, rec.ctx)
-    expect(titles(items)).toContain('查看 Issue')
-    click(items, '查看 Issue')
-    expect(rec.externals).toEqual(['https://x/i/42'])
+  it("本地分支菜单：「当前分支」模式（['HEAD']）下选中从头开始，哨兵不与具体分支混排", () => {
+    const rec = linearCtx({ currentBranch: 'main', branchFilter: ['HEAD'] })
+    const items = buildMenuItems({ kind: 'branch', name: 'dev', hash: 'c1' }, rec.ctx)
+    expect(titles(items)).toContain('在分支下拉中选中')
+    click(items, '在分支下拉中选中')
+    expect(rec.filters).toEqual([['dev']])
+  })
+
+  it("远程分支菜单：「当前分支」模式（['HEAD']）下选中同样从头开始", () => {
+    const rec = linearCtx({ currentBranch: 'main', remotes: ['origin'], branchFilter: ['HEAD'] })
+    const target: GitMenuTarget = {
+      kind: 'remote-branch',
+      fullRef: 'origin/dev',
+      remote: 'origin',
+      hash: 'c1'
+    }
+    click(buildMenuItems(target, rec.ctx), '在分支下拉中选中')
+    expect(rec.filters).toEqual([['remotes/origin/dev']])
   })
 
   it('远程分支菜单：孤儿远程 ref（remote=null）隐藏删除/获取/拉取', () => {
@@ -301,6 +310,7 @@ describe('buildMenuItems', () => {
       '查看差异',
       '与工作区文件对比',
       '打开文件',
+      '在文件夹中显示',
       '将文件重置到此版本…',
       '复制文件绝对路径',
       '复制文件相对路径'
@@ -309,6 +319,63 @@ describe('buildMenuItems', () => {
     expect(rec.diffs).toEqual([{ from: 'c2', to: UNCOMMITTED }])
     click(items, '复制文件绝对路径')
     expect(rec.copied).toEqual(['/repo/a.ts'])
+  })
+
+  it('提交面板已暂存段菜单：首项「取消暂存」静默即时，R 文件传旧/新双路径', () => {
+    const rec = linearCtx()
+    const target: GitMenuTarget = {
+      kind: 'uncommitted-file',
+      file: { oldFilePath: 'a.ts', newFilePath: 'b.ts', type: 'R', additions: 1, deletions: 0 },
+      section: 'staged'
+    }
+    const items = buildMenuItems(target, rec.ctx)
+    expect(titles(items)).toEqual([
+      '取消暂存',
+      '打开文件',
+      '在文件夹中显示',
+      '复制文件绝对路径',
+      '复制文件相对路径'
+    ])
+    click(items, '取消暂存')
+    expect(rec.quiet).toEqual([{ kind: 'unstage-paths', paths: ['a.ts', 'b.ts'] }])
+  })
+
+  it('提交面板未暂存段菜单：未跟踪文件首项为「删除文件…」并弹危险确认', () => {
+    const rec = linearCtx()
+    const target: GitMenuTarget = {
+      kind: 'uncommitted-file',
+      file: {
+        oldFilePath: 'n.ts',
+        newFilePath: 'n.ts',
+        type: 'U',
+        additions: null,
+        deletions: null
+      },
+      section: 'unstaged'
+    }
+    const items = buildMenuItems(target, rec.ctx)
+    expect(titles(items)).toEqual([
+      '删除文件…',
+      '打开文件',
+      '在文件夹中显示',
+      '复制文件绝对路径',
+      '复制文件相对路径'
+    ])
+    click(items, '删除文件…')
+    expect(rec.opened).toEqual([{ kind: 'delete-untracked-file', path: 'n.ts' }])
+  })
+
+  it('提交面板未暂存段菜单：已删除文件首项为「撤销更改…」且不给「打开文件」', () => {
+    const rec = linearCtx()
+    const target: GitMenuTarget = {
+      kind: 'uncommitted-file',
+      file: { oldFilePath: 'd.ts', newFilePath: 'd.ts', type: 'D', additions: 0, deletions: 3 },
+      section: 'unstaged'
+    }
+    const items = buildMenuItems(target, rec.ctx)
+    expect(titles(items)).toEqual(['撤销更改…', '复制文件绝对路径', '复制文件相对路径'])
+    click(items, '撤销更改…')
+    expect(rec.opened).toEqual([{ kind: 'discard-file', path: 'd.ts' }])
   })
 })
 
@@ -321,19 +388,5 @@ describe('groupMenuItems', () => {
 
   it('空输入返回空数组（整个菜单不弹出）', () => {
     expect(groupMenuItems([])).toEqual([])
-  })
-})
-
-describe('matchIssues', () => {
-  it('多处匹配各产出一条，URL 回填捕获组', () => {
-    expect(matchIssues('fix-#1-and-#22', { issue: '#(\\d+)', url: 'https://x/$1' })).toEqual([
-      { text: '#1', url: 'https://x/1' },
-      { text: '#22', url: 'https://x/22' }
-    ])
-  })
-
-  it('规则为 null 或正则非法时返回空列表', () => {
-    expect(matchIssues('#1', null)).toEqual([])
-    expect(matchIssues('#1', { issue: '([', url: 'x' })).toEqual([])
   })
 })

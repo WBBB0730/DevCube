@@ -1,7 +1,7 @@
 // Git Tab 的根组件：每项目常驻一个（Console 里切走仅隐藏不卸载，现场保留）。
 // 首次可见才触发加载（懒加载）；四态渲染（非仓库 / 空仓库 / 加载中 / 出错）+ 就绪表格；
-// 全局键盘只在可见时挂 capture 监听：Esc 分层关闭、Cmd/Ctrl+F 打开查找、Cmd/Ctrl+R 软刷新
-// （App.tsx 只占用 T / W / Ctrl+Tab，无冲突）。
+// 全局键盘只在可见时挂 capture 监听：Esc 分层关闭、Cmd/Ctrl+F 打开查找、Cmd/Ctrl+R 刷新
+// （fetch + 软刷新；App.tsx 只占用 T / W / Ctrl+Tab，无冲突）。
 import { useEffect } from 'react'
 import { LoaderCircle } from 'lucide-react'
 import { gitState, useGit } from '@renderer/git-store'
@@ -25,6 +25,7 @@ export function GitPane({
   const isEmptyRepo = useGit((s) => gitState(s, projectPath).isEmptyRepo)
   const loadError = useGit((s) => gitState(s, projectPath).loadError)
   const hasExpanded = useGit((s) => gitState(s, projectPath).expanded !== null)
+  const graphLoading = useGit((s) => gitState(s, projectPath).graphLoading)
   const load = useGit((s) => s.load)
 
   // 懒加载：首次可见才拉数据；隐藏期间状态保留，再次可见不重拉（.git 变动由 App 的
@@ -64,17 +65,17 @@ export function GitPane({
         e.stopPropagation()
         store.setFind(projectPath, { open: true })
       } else if (mod && !e.shiftKey && (e.key === 'r' || e.key === 'R')) {
-        // Cmd/Ctrl+R：软刷新（顺带拦下 Electron 默认的页面重载）
+        // Cmd/Ctrl+R：刷新 = fetch + 软刷新（顺带拦下 Electron 默认的页面重载）
         e.preventDefault()
         e.stopPropagation()
-        void store.load(projectPath)
+        void store.refresh(projectPath)
       }
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [visible, projectPath])
 
-  // 工具栏（分支筛选 / fetch / 刷新 / 查找 / 设置）只在就绪且是仓库时显示（空仓库也给，刷新/设置有用）。
+  // 工具栏（分支筛选 / 视图选项 / 刷新 / 拉取 / 推送 / 创建分支 / 查找 / 设置）只在就绪且是仓库时显示（空仓库也给，刷新/设置有用）。
   const showChrome = status === 'ready' && isRepo
 
   return (
@@ -106,14 +107,23 @@ export function GitPane({
       ) : isEmptyRepo ? (
         <CenteredHint>此仓库还没有任何提交</CenteredHint>
       ) : (
-        // 内容区做 relative 容器：详情面板吊底（自带高度与上边框），diff 面板 absolute 覆盖表格+详情。
+        // 内容区做 relative 容器：详情面板吊底（自带高度与上边框）。diff 面板 absolute
+        // 只覆盖图谱表格区（挂在内层 relative 容器里），吊底的详情/文件列表仍可见。
         <div className="relative flex min-h-0 flex-1 flex-col">
           <div className="relative min-h-0 flex-1">
             <GitCommitTable projectPath={projectPath} />
             <GitFindWidget projectPath={projectPath} />
+            {/* diff 面板：absolute 覆盖本图谱表格区（不盖吊底详情），点文件看 diff 时文件列表仍在 */}
+            <GitDiffView projectPath={projectPath} />
+            {/* 切分支 / 改视图开关时只给图谱区盖半透明 loading，工具栏与详情不受影响 */}
+            {graphLoading && (
+              <div className="absolute inset-0 z-10 flex items-center justify-center gap-1.5 bg-deepest/70 text-sm text-muted-foreground">
+                <LoaderCircle className="size-4 animate-spin" />
+                <span>加载中 …</span>
+              </div>
+            )}
           </div>
           {hasExpanded && <GitCommitDetails projectPath={projectPath} />}
-          <GitDiffView projectPath={projectPath} />
         </div>
       )}
       {/* 右键菜单与对话框自带开合判空（无内容即 null），挂在根级即可 */}

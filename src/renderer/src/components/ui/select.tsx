@@ -18,7 +18,7 @@ function SelectTrigger({
   return (
     <BaseSelect.Trigger
       className={cn(
-        'flex h-8 w-full cursor-pointer select-none items-center justify-between gap-1.5 rounded border border-[color:var(--border-input)] bg-[var(--bg-panel)] px-2.5 text-left text-[13px] text-foreground outline-none transition-colors focus-visible:ring-2 focus-visible:ring-ring',
+        'flex h-8 w-full cursor-pointer select-none items-center justify-between gap-1.5 rounded border border-[color:var(--border-input)] bg-[var(--bg-panel)] px-2.5 text-left text-[13px] text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring',
         className
       )}
     >

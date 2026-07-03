@@ -1,10 +1,16 @@
 // Git 单文件 diff 面板（details-diff §10）：读 git-store 的 diffView，绝对定位覆盖
-// GitPane 内容区（集成者挂载于 relative 容器内）。unified 视图 + 双栏行号；
-// 二进制 / 超大截断 / 延迟加载骨架 / 错误 四态兜底。Esc 关闭由 GitPane 统一处理
-// （diff 优先于详情），本组件只提供 × 按钮。
-import { useEffect, useState } from 'react'
-import { LoaderCircle, X } from 'lucide-react'
-import { UNCOMMITTED, type DiffLine, type GitFileStatus } from '@shared/git'
+// 图谱表格区（集成者挂载于内层 relative 容器内，不盖吊底详情）。统一（unified）/ 左右对比
+// （side-by-side）两视图，头部可切换、偏好跨会话记忆（viewPrefs.diffSplitView）；
+// 二进制 / 超大截断 / 延迟加载骨架 / 错误 四态兜底。Esc 关闭由 GitPane 统一处理。
+import { useEffect, useRef, useState } from 'react'
+import { AlignJustify, Columns2, LoaderCircle, X } from 'lucide-react'
+import {
+  GIT_INDEX,
+  UNCOMMITTED,
+  type DiffHunk,
+  type DiffLine,
+  type GitFileStatus
+} from '@shared/git'
 import { gitState, useGit } from '@renderer/git-store'
 import { cn } from '@renderer/lib/utils'
 import { abbrevHash } from './git-format'
@@ -14,14 +20,20 @@ import {
   FILE_STATUS_LABEL,
   countDiffLines,
   formatHunkHeader,
-  limitDiffHunks
+  limitDiffHunks,
+  splitDiffRows
 } from './git-details'
 
 /**
  * 修订说明文案（§10.2 的描述规则）：单提交场景（from === to）按状态区分添加/删除/区间，
- * 工作区端（to === '*'）显示「工作区」。
+ * 工作区端（to === '*'）显示「工作区」。提交面板的 index 端点两分支必须放最前——
+ * index→'*' 若先命中 to==='*' 分支会得到「::index → 工作区」的原文字样。
  */
 function revLabel(fromHash: string, toHash: string, type: GitFileStatus): string {
+  // 提交面板：未暂存段（index → 工作区，未跟踪行 from 亦为 index 同得此文案）
+  if (fromHash === GIT_INDEX) return '未暂存'
+  // 提交面板：已暂存段（HEAD → index）
+  if (toHash === GIT_INDEX) return '已暂存'
   if (toHash === UNCOMMITTED) {
     return fromHash === 'HEAD' ? '未提交' : `${abbrevHash(fromHash)} → 工作区`
   }
@@ -36,6 +48,8 @@ function revLabel(fromHash: string, toHash: string, type: GitFileStatus): string
 export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX.Element | null {
   const diffView = useGit((s) => gitState(s, projectPath).diffView)
   const closeDiff = useGit((s) => s.closeDiff)
+  const splitView = useGit((s) => s.viewPrefs.diffSplitView)
+  const setViewPrefs = useGit((s) => s.setViewPrefs)
   /** 「仍要全部渲染」记录生效的文件身份：换文件后自然失效，无需 effect 重置 */
   const [renderAllKey, setRenderAllKey] = useState<string | null>(null)
   /** 加载骨架延迟 120ms 出现（防快速响应时闪烁，§10.2） */
@@ -100,6 +114,18 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
         </span>
         <button
           type="button"
+          title={splitView ? '统一视图' : '左右对比'}
+          onClick={() => void setViewPrefs({ diffSplitView: !splitView })}
+          className="flex size-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-[var(--bg-button-hover)]"
+        >
+          {splitView ? (
+            <AlignJustify className="size-3.5 text-[color:var(--fg-icon)]" />
+          ) : (
+            <Columns2 className="size-3.5 text-[color:var(--fg-icon)]" />
+          )}
+        </button>
+        <button
+          type="button"
           title="关闭"
           onClick={() => closeDiff(projectPath)}
           className="flex size-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-[var(--bg-button-hover)]"
@@ -133,23 +159,27 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
         </div>
       ) : (
         <>
-          <div
-            className="min-h-0 flex-1 select-text overflow-auto font-mono text-[13px] leading-[20px]"
-            style={{ tabSize: 4 }}
-          >
-            <div className="min-w-max pb-2">
-              {hunks.map((h, hi) => (
-                <div key={hi} className={hi > 0 ? 'mt-2' : undefined}>
-                  <div className="whitespace-pre bg-[var(--diff-hunk-header-bg)] px-2 text-muted-foreground">
-                    {formatHunkHeader(h)}
+          {splitView ? (
+            <SplitDiffBody hunks={hunks} numW={numW} />
+          ) : (
+            <div
+              className="min-h-0 flex-1 select-text overflow-auto font-mono text-[13px] leading-[20px]"
+              style={{ tabSize: 4 }}
+            >
+              <div className="min-w-max pb-2">
+                {hunks.map((h, hi) => (
+                  <div key={hi} className={hi > 0 ? 'mt-2' : undefined}>
+                    <div className="whitespace-pre bg-[var(--diff-hunk-header-bg)] px-2 text-muted-foreground">
+                      {formatHunkHeader(h)}
+                    </div>
+                    {h.lines.map((line, li) => (
+                      <DiffRow key={li} line={line} numW={numW} />
+                    ))}
                   </div>
-                  {h.lines.map((line, li) => (
-                    <DiffRow key={li} line={line} numW={numW} />
-                  ))}
-                </div>
-              ))}
+                ))}
+              </div>
             </div>
-          </div>
+          )}
           {truncated && (
             <div className="flex h-9 shrink-0 items-center justify-center gap-3 border-t border-[color:var(--separator)] text-[12px] text-muted-foreground">
               <span>差异过大，仅显示前 {DIFF_RENDER_LIMIT} 行。</span>
@@ -204,5 +234,103 @@ function DiffRow({ line, numW }: { line: DiffLine; numW: string }): React.JSX.El
         </div>
       )}
     </>
+  )
+}
+
+/**
+ * 左右对比视图：左右各占半屏（flex-1），各自独立滚动——横向条常驻各栏底部（不用滚到底才出现），
+ * 横向 + 纵向双向同步（滚一侧带动另一侧）；两栏渲染同套配对行序、行高一致故竖直对齐。
+ */
+function SplitDiffBody({ hunks, numW }: { hunks: DiffHunk[]; numW: string }): React.JSX.Element {
+  const leftRef = useRef<HTMLDivElement>(null)
+  const rightRef = useRef<HTMLDivElement>(null)
+  /** 同步锁：程序化设对侧滚动会再触发其 onScroll，用标记 + rAF 吞掉这轮回声避免抖动 */
+  const syncingRef = useRef(false)
+  const syncScroll = (from: HTMLDivElement | null, to: HTMLDivElement | null): void => {
+    if (from === null || to === null || syncingRef.current) return
+    syncingRef.current = true
+    to.scrollTop = from.scrollTop
+    to.scrollLeft = from.scrollLeft
+    requestAnimationFrame(() => {
+      syncingRef.current = false
+    })
+  }
+  const columns = hunks.map((h) => ({ header: formatHunkHeader(h), rows: splitDiffRows(h.lines) }))
+  const paneClass = 'min-w-0 flex-1 overflow-auto'
+  return (
+    <div
+      className="flex min-h-0 flex-1 select-text font-mono text-[13px] leading-[20px]"
+      style={{ tabSize: 4 }}
+    >
+      <div
+        ref={leftRef}
+        onScroll={() => syncScroll(leftRef.current, rightRef.current)}
+        className={paneClass}
+      >
+        <div className="min-w-max pb-2">
+          {columns.map((col, hi) => (
+            <div key={hi}>
+              <div className="whitespace-pre bg-[var(--diff-hunk-header-bg)] px-2 text-muted-foreground">
+                {col.header}
+              </div>
+              {col.rows.map((row, ri) => (
+                <SideRow key={ri} line={row.left} side="old" numW={numW} />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+      <div className="w-px shrink-0 bg-[var(--separator)]" />
+      <div
+        ref={rightRef}
+        onScroll={() => syncScroll(rightRef.current, leftRef.current)}
+        className={paneClass}
+      >
+        <div className="min-w-max pb-2">
+          {columns.map((col, hi) => (
+            <div key={hi}>
+              <div className="whitespace-pre bg-[var(--diff-hunk-header-bg)] px-2 text-muted-foreground">
+                {col.header}
+              </div>
+              {col.rows.map((row, ri) => (
+                <SideRow key={ri} line={row.right} side="new" numW={numW} />
+              ))}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** 左右对比的一侧单行：行号 + 原文；del 标红、add 标绿、context 无底色、空占位淡黑底。 */
+function SideRow({
+  line,
+  side,
+  numW
+}: {
+  line: DiffLine | null
+  side: 'old' | 'new'
+  numW: string
+}): React.JSX.Element {
+  const bg =
+    line === null
+      ? 'bg-black/15'
+      : line.kind === 'del'
+        ? 'bg-[var(--diff-del-bg)]'
+        : line.kind === 'add'
+          ? 'bg-[var(--diff-add-bg)]'
+          : undefined
+  const no = line === null ? '' : side === 'old' ? (line.oldLineNo ?? '') : (line.newLineNo ?? '')
+  return (
+    <div className={cn('flex', bg)}>
+      <span
+        className="shrink-0 select-none pr-1 text-right tabular-nums text-muted-foreground"
+        style={{ width: numW }}
+      >
+        {no}
+      </span>
+      <span className="whitespace-pre pl-2 pr-4">{line?.text ?? ''}</span>
+    </div>
   )
 }

@@ -26,6 +26,9 @@ _Avoid_: Shell（裸用）, 控制台
 **Git Tab（Git 标签页）**：项目的 Git 图谱视图——展示该项目仓库的提交历史图、引用与详情，并可从中执行 git 操作。每项目**恒有一个**、常驻 Tab 栏最前、不可关闭；它不是会话（无进程、无输出流），是 Tab 模型中唯一的非会话 Tab。项目不是 git 仓库时显示兜底提示。
 _Avoid_: Git 面板, 图谱 Tab, 仓库视图
 
+**未提交更改行（未提交更改）**：Git 图谱最上方一条合成的虚拟行，代表工作区相对 HEAD 的改动（仅有改动时才出现）。选中它，其详情面板即该项目的**提交入口**——按「已暂存 / 未暂存」两段管理文件、勾选即暂存、并从中提交（支持修正、提交并推送）。
+_Avoid_: 工作区行, WIP 行, 暂存行
+
 ### 关系
 
 - 一个 **Project** 拥有 0..N 个 **Discovered Script**（实时派生）和 0..N 个 **Run Configuration**（已保存）。
@@ -36,6 +39,7 @@ _Avoid_: Git 面板, 图谱 Tab, 仓库视图
 - 一个 **Project** 拥有 0..N 个 **Terminal**（cwd 为项目根、不绑定任何 Run Configuration、随其 shell 退出而销毁）。
 - **Terminal** 与 **Run Session** 都是"活的会话"，但 Terminal 不由任何配置派生、彼此独立——不做单实例去重，同一项目可并存任意多个。
 - 一个 **Project** 恒有一个 **Git Tab**（非会话、不可关闭、常驻其 Tab 栏最前）；它与 Run Session / Terminal 的 Tab 共用激活与循环规则。
+- 一个 **Git Tab** 的图谱含 0..1 个 **未提交更改行**（工作区有改动才合成）；它是该项目在 Runlet 内的提交入口。
 
 ## Example dialogue
 

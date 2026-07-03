@@ -80,7 +80,8 @@
   --destructive-foreground: #ffffff;
   --border: #1e1f22;
   --input: #4f5157;
-  --ring: #3574f0;
+  /* 不要焦点环：全局设为透明，所有 focus-visible:ring-ring 变不可见 */
+  --ring: transparent;
 }
 
 @theme inline {
@@ -135,6 +136,8 @@
   }
   body {
     @apply bg-background text-foreground;
+    /* 让浏览器以深色渲染原生表单控件（原生 checkbox/radio 未选中态不再是白底） */
+    color-scheme: dark;
     margin: 0;
     overflow: hidden;
     font-family: var(--font-sans);

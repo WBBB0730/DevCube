@@ -117,6 +117,37 @@ export function buildCleanUntrackedArgs(action: ActionOf<'clean-untracked'>): st
   return [['clean', action.directories ? '-fd' : '-f']]
 }
 
+// —— 暂存与提交（提交面板） ——
+
+/** stage-paths：暂存指定路径；paths 为空数组 = 全部。-A 同时覆盖修改 / 删除 / 未跟踪。 */
+export function buildStagePathsArgs(action: ActionOf<'stage-paths'>): string[][] {
+  return action.paths.length === 0 ? [['add', '-A']] : [['add', '-A', '--', ...action.paths]]
+}
+
+/** unstage-paths：取消暂存；空数组 = 全部。reset 默认相对 HEAD；-q 静默不回显文件列表。 */
+export function buildUnstagePathsArgs(action: ActionOf<'unstage-paths'>): string[][] {
+  return action.paths.length === 0 ? [['reset', '-q']] : [['reset', '-q', '--', ...action.paths]]
+}
+
+/** discard-file：把工作区恢复为 index 内容（不带提交参数；区别于 reset-file 的「从提交恢复」）。 */
+export function buildDiscardFileArgs(action: ActionOf<'discard-file'>): string[][] {
+  return [['checkout', '--', action.path]]
+}
+
+/** delete-untracked-file：从磁盘删除单个未跟踪文件。 */
+export function buildDeleteUntrackedFileArgs(
+  action: ActionOf<'delete-untracked-file'>
+): string[][] {
+  return [['clean', '-f', '--', action.path]]
+}
+
+/** commit：恒带 -m（否则 git 会尝试打开编辑器导致进程挂起）；消息内嵌换行由 argv 原样传递。 */
+export function buildCommitArgs(action: ActionOf<'commit'>): string[][] {
+  return action.amend
+    ? [['commit', '--amend', '-m', action.message]]
+    : [['commit', '-m', action.message]]
+}
+
 // —— 远程同步 ——
 
 /** fetch：remote 为 null 抓取全部；pruneTags 的前置校验（须同时 prune、版本 gate）在运行时做。 */
@@ -586,6 +617,16 @@ async function execAction(cwd: string, action: GitAction): Promise<GitActionResu
       return toActionResult(await runSequence(cwd, buildResetFileArgs(action)))
     case 'clean-untracked':
       return toActionResult(await runSequence(cwd, buildCleanUntrackedArgs(action)))
+    case 'stage-paths':
+      return toActionResult(await runSequence(cwd, buildStagePathsArgs(action)))
+    case 'unstage-paths':
+      return toActionResult(await runSequence(cwd, buildUnstagePathsArgs(action)))
+    case 'discard-file':
+      return toActionResult(await runSequence(cwd, buildDiscardFileArgs(action)))
+    case 'delete-untracked-file':
+      return toActionResult(await runSequence(cwd, buildDeleteUntrackedFileArgs(action)))
+    case 'commit':
+      return toActionResult(await runSequence(cwd, buildCommitArgs(action)))
     case 'fetch':
       return runFetch(cwd, action)
     case 'push-branch':

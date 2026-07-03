@@ -589,8 +589,12 @@ const CommitRow = memo(function CommitRow({
           </span>
         </span>
       </td>
-      <td className={cn(TD, dimmed && 'opacity-50')} title={formatDateTime(commit.date)}>
-        {formatRelativeTime(commit.date)}
+      <td
+        className={cn(TD, dimmed && 'opacity-50')}
+        title={isUncommitted ? undefined : formatDateTime(commit.date)}
+      >
+        {/* 未提交行没有真实提交时间：显示 * 而非合成的「最后刷新时刻」相对时间 */}
+        {isUncommitted ? UNCOMMITTED : formatRelativeTime(commit.date)}
       </td>
       <td className={cn(TD, dimmed && 'opacity-50')} title={`${commit.author} <${commit.email}>`}>
         {commit.author}

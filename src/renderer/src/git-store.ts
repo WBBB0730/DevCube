@@ -1,5 +1,7 @@
 // Git 图谱的渲染端 store：每项目一桶状态（提交/refs + 打开中的详情、diff、菜单、对话框）+ 跨项目视图偏好。
-// GitProjectState / GitStoreState 契约冻结于 foundation.md §D，E/F/G 组件按此消费，勿改字段与方法签名。
+// GitProjectState / GitStoreState 契约最初冻结于 foundation.md §D（E/F/G 组件按此消费），
+// 之后随产品演进有序扩展（如 fetching / refresh：工具栏「刷新 = fetch + 软重载」）；
+// 改字段与方法签名仍需同步全部消费方。
 // 刷新语义照 watch-refresh 规格：软刷新保持 ready 原地换数据（数据未变时连 commits 数组引用都不换，
 // 行组件 memo 即零重渲染）；硬刷新清空后进 loading；过期响应用代际号静默丢弃。
 
@@ -63,6 +65,18 @@ export interface GitProjectState {
   actionRunning: string | null
   /** 动作失败的错误列表（错误框展示）；null = 无错误 */
   actionErrors: string[] | null
+  /** 「刷新 = fetch + 软重载」的 fetch 进行中标记（工具栏刷新钮转圈用，不弹进行中遮罩） */
+  fetching: boolean
+  /**
+   * 图谱级重载中标记（切分支筛选 / 改视图开关）：保持工具栏与 ready 布局，仅在图谱区盖
+   * loading 遮罩，不走硬刷新的「清空 + 全局 loading」（那会连工具栏一起闪没）
+   */
+  graphLoading: boolean
+  /**
+   * 提交面板草稿（提交信息 + 修正勾选 + 勾选「修正」前的原信息备份，供取消勾选时恢复）：
+   * 随桶常驻（切走/收起不丢）、不持久化
+   */
+  commitDraft: { message: string; amend: boolean; preAmendMessage: string }
 }
 
 /** Git store 全量形状（冻结契约）。方法均以 projectPath 为第一参定位状态桶。 */
@@ -71,6 +85,8 @@ export interface GitStoreState {
   viewPrefs: GitViewPrefs
   /** 加载/刷新某项目：默认软刷新（ready 原地换数据）；hard=true 清空后 loading 重拉 */
   load(projectPath: string, opts?: { hard?: boolean }): Promise<void>
+  /** 显式刷新（工具栏刷新钮 / ⌘R）：先软刷新本地图谱，再静默 fetch 全部远程并把远程 ref 软刷进图 */
+  refresh(projectPath: string): Promise<void>
   /** 「加载更多」：maxCommits += loadMoreCommits 后软刷新；有在途请求时幂等跳过 */
   loadMore(projectPath: string): Promise<void>
   /** 切换分支筛选：重置 maxCommits 并硬刷新 */
@@ -103,6 +119,13 @@ export interface GitStoreState {
   clearActionErrors(projectPath: string): void
   /** 执行写动作：置 actionRunning=label → gitAction → ok 软刷新收口 / error 落 actionErrors / push-tag 预检原样返回 */
   runAction(projectPath: string, action: GitAction, label: string): Promise<GitActionResult>
+  /**
+   * 静默动作（暂存 / 取消暂存 / 撤销 / 提交专用，PRD「静默即时」）：不置 actionRunning
+   * （无进行中遮罩），每项目 FIFO 串行执行；'ok' 软刷新原地换数据，'error' 落 actionErrors
+   */
+  runQuietAction(projectPath: string, action: GitAction): Promise<GitActionResult>
+  /** 写提交面板草稿（浅合并写回） */
+  setCommitDraft(projectPath: string, patch: Partial<GitProjectState['commitDraft']>): void
 }
 
 /** 未加载项目的默认空态（稳定引用，供 selector 复用避免无谓重渲染）。 */
@@ -128,7 +151,10 @@ const EMPTY_PROJECT: GitProjectState = {
   dialog: null,
   find: null,
   actionRunning: null,
-  actionErrors: null
+  actionErrors: null,
+  fetching: false,
+  graphLoading: false,
+  commitDraft: { message: '', amend: false, preAmendMessage: '' }
 }
 
 /** 取某项目的状态桶；从未加载过则返回稳定的默认空态。 */
@@ -201,6 +227,7 @@ function menuTargetAlive(
     case 'stash':
       return has(target.hash)
     case 'uncommitted':
+    case 'uncommitted-file': // 提交面板文件行菜单：与未提交行同一存活条件（面板本身随行消失而关）
       return commits.length > 0 && commits[0].hash === UNCOMMITTED
     case 'file':
       // fromHash 可能是未加载窗口之外的父提交，只校验 toHash（菜单从属的详情面板同样按它收敛）
@@ -284,6 +311,18 @@ const DATA_SETTING_KEYS: (keyof GitRepoSettings)[] = [
 
 /** 每项目 load 代际号：新请求发出即 +1，落地时不匹配的旧响应静默丢弃（watch-refresh §7）。 */
 const loadGen = new Map<string, number>()
+/**
+ * 每项目 refetchExpanded 代际号（与 loadGen 同法）：未提交面板下多个并发重拉的目标
+ * （hash/compareWith）恒相同，仅靠目标校验拦不住乱序落地——旧快照后到会覆盖新快照。
+ */
+const refetchGen = new Map<string, number>()
+/** refresh 在途标记（防 ⌘R 连按并发多个 fetch --all，且防 fetching 被先完成者提前复位）。 */
+const refreshing = new Set<string>()
+/**
+ * 每项目的静默动作串行链（runQuietAction）：快速连点勾选时按 FIFO 逐个执行，
+ * 防止并发 add / reset 争抢 index 锁产生竞态；链上的每一环自行兜错、恒 resolve。
+ */
+const quietChains = new Map<string, Promise<unknown>>()
 /** loadMore 在途标记（防滚动自动加载重入）。 */
 const loadingMore = new Set<string>()
 /** 视图偏好只需拉一次（StrictMode 双挂载下也幂等）。 */
@@ -302,17 +341,21 @@ export const useGit = create<GitStoreState>((set, get) => {
 
   /**
    * 后台重拉展开中的详情（不置 loading，不闪加载态）：软刷新后未提交侧的工作区内容
-   * 可能已变而提交结构没变（watch-refresh §2.6）。响应落地前目标已切换则丢弃。
+   * 可能已变而提交结构没变（watch-refresh §2.6）。响应落地前目标已切换、或已有更新的
+   * 重拉在途（代际号不匹配）则丢弃——未提交面板下目标恒相同，仅靠目标校验拦不住乱序落地。
    */
   const refetchExpanded = async (projectPath: string): Promise<void> => {
     const exp = gitState(get(), projectPath).expanded
     if (!exp) return
     const { hash, stash, compareWith } = exp
+    const gen = (refetchGen.get(projectPath) ?? 0) + 1
+    refetchGen.set(projectPath, gen)
     const commits = gitState(get(), projectPath).commits
     const result = await window.api.gitDetails(
       projectPath,
       buildDetailsRequest(commits, hash, stash, compareWith)
     )
+    if (refetchGen.get(projectPath) !== gen) return // 过期代际的响应：静默丢弃
     const cur = gitState(get(), projectPath).expanded
     if (!cur || cur.hash !== hash || cur.compareWith !== compareWith) return
     patchProject(projectPath, {
@@ -320,10 +363,32 @@ export const useGit = create<GitStoreState>((set, get) => {
         ...cur,
         details: result.details,
         fileChanges: result.fileChanges,
+        uncommitted: result.uncommitted,
         loading: false,
         error: result.error
       }
     })
+  }
+
+  /**
+   * 图谱级重载（切分支筛选 / 改视图开关）：保持 ready 布局（工具栏、分支下拉不闪没），
+   * 只在图谱区盖 loading 遮罩。故意不走 load(hard)——那会清空提交并置全局 loading，
+   * 连工具栏一起消失。先关引用旧提交的详情 / diff / 菜单 / 对话框，再软刷新原地换数据。
+   * status 已是 ready 时 load 走软路径（不置 loading），旧图谱在遮罩下停留到新数据落地。
+   */
+  const graphReload = async (projectPath: string): Promise<void> => {
+    patchProject(projectPath, {
+      graphLoading: true,
+      expanded: null,
+      diffView: null,
+      contextMenu: null,
+      dialog: null
+    })
+    try {
+      await get().load(projectPath)
+    } finally {
+      patchProject(projectPath, { graphLoading: false })
+    }
   }
 
   return {
@@ -395,6 +460,52 @@ export const useGit = create<GitStoreState>((set, get) => {
       ) {
         void refetchExpanded(projectPath)
       }
+      // config 已经拉过的项目顺带后台保鲜（工具栏拉取按钮的 upstream 判断依赖它；
+      // 上游关系可能被动作改写，如 push --set-upstream）
+      if (gitState(get(), projectPath).config !== null) {
+        void get().loadRepoConfig(projectPath)
+      }
+    },
+
+    refresh: async (projectPath) => {
+      // 在途防重入（⌘R 连按 / 首段软刷新窗口内按钮尚未置灰）：避免并发多个 fetch --all
+      // 争抢 ref 锁，也避免先完成的一轮把 fetching 提前复位
+      if (refreshing.has(projectPath)) return
+      refreshing.add(projectPath)
+      try {
+        // 1) 先软刷新：本地图谱原地更新，不置全局 loading（数据未变时表格零重渲染）
+        await get().load(projectPath)
+        // 2) 无远程可 fetch：软刷新即全部语义
+        if (gitState(get(), projectPath).remotes.length === 0) return
+        // 3) 静默 fetch：刻意不走 runAction —— 不置 actionRunning，不弹进行中遮罩，
+        //    只以 fetching 驱动工具栏刷新钮转圈
+        patchProject(projectPath, { fetching: true })
+        try {
+          let result: GitActionResult
+          try {
+            result = await window.api.gitAction(projectPath, {
+              kind: 'fetch',
+              remote: null,
+              prune: false,
+              pruneTags: false
+            })
+          } catch {
+            // invoke 通道异常兜底（主进程 handler 约定不 reject，此处仅防御）
+            result = { status: 'error', errors: ['IPC 调用失败'] }
+          }
+          // 4) 用户显式点了刷新：网络失败要可见，落 actionErrors 走统一错误框
+          if (result.status === 'error') {
+            patchProject(projectPath, { actionErrors: result.errors })
+          }
+        } finally {
+          // 5) 收口后再软刷新一次，把 fetch 到的远程 ref 刷进图。主进程 gitAction handler
+          //    也会推 git:changed 触发一次软刷新，与这里的显式 load 由代际号去重，无害。
+          patchProject(projectPath, { fetching: false })
+          await get().load(projectPath)
+        }
+      } finally {
+        refreshing.delete(projectPath)
+      }
     },
 
     loadMore: async (projectPath) => {
@@ -411,20 +522,22 @@ export const useGit = create<GitStoreState>((set, get) => {
     },
 
     setBranchFilter: async (projectPath, branches) => {
-      // 改筛选：maxCommits 重置回初始窗口（watch-refresh §4），随后硬刷新
+      // 改筛选：maxCommits 重置回初始窗口（watch-refresh §4），随后图谱级重载
+      // （只给图谱区加 loading，工具栏与分支下拉不闪没）
       patchProject(projectPath, {
         branchFilter: branches,
         maxCommits: GIT_DEFAULTS.initialLoadCommits
       })
-      await get().load(projectPath, { hard: true })
+      await graphReload(projectPath)
     },
 
     updateSettings: async (projectPath, patch) => {
       const snapshot = await window.api.gitSetSettings(projectPath, patch)
       patchProject(projectPath, { settings: snapshot })
-      // 仅数据可见性开关（远程/贮藏/标签等）需要重拉；改名、issue 链接等纯展示项不打扰视图
+      // 当前设置键几乎全是数据可见性开关（远程/贮藏/标签/排序等），命中即重拉；
+      // 与切分支同为「换显示参数」，走图谱级重载而非全局硬刷新
       if (DATA_SETTING_KEYS.some((k) => k in patch)) {
-        await get().load(projectPath, { hard: true })
+        await graphReload(projectPath)
       }
     },
 
@@ -446,6 +559,7 @@ export const useGit = create<GitStoreState>((set, get) => {
           compareWith: null,
           details: null,
           fileChanges: null,
+          uncommitted: null,
           loading: true,
           error: null
         },
@@ -463,6 +577,7 @@ export const useGit = create<GitStoreState>((set, get) => {
           ...cur,
           details: result.details,
           fileChanges: result.fileChanges,
+          uncommitted: result.uncommitted,
           loading: false,
           error: result.error
         }
@@ -479,6 +594,7 @@ export const useGit = create<GitStoreState>((set, get) => {
           compareWith: hashB,
           details: null,
           fileChanges: null,
+          uncommitted: null,
           loading: true,
           error: null
         },
@@ -597,6 +713,40 @@ export const useGit = create<GitStoreState>((set, get) => {
         patchProject(projectPath, { actionRunning: null })
       }
       return result
+    },
+
+    runQuietAction: async (projectPath, action) => {
+      // 静默即时（PRD 12c）：不置 actionRunning（无进行中遮罩），挂到该项目的 FIFO 串行链上
+      const prev = quietChains.get(projectPath) ?? Promise.resolve()
+      const run = prev.then(async (): Promise<GitActionResult> => {
+        let result: GitActionResult
+        try {
+          result = await window.api.gitAction(projectPath, action)
+        } catch {
+          // invoke 通道异常兜底（主进程 handler 约定不 reject，此处仅防御）
+          result = { status: 'error', errors: ['IPC 调用失败'] }
+        }
+        if (result.status === 'ok') {
+          // 成功：软刷新原地换数据（load 内部会对展开中的未提交详情做后台重拉）。
+          // load 约定不 reject（错误折叠进返回值），此处兜底防御：一旦意外 reject，
+          // rejected 的环会被存回 quietChains，后续所有静默动作被永久跳过（链毒化）
+          try {
+            await get().load(projectPath)
+          } catch {
+            // 兜底吞掉：保证链上的每一环恒 resolve
+          }
+        } else if (result.status === 'error') {
+          patchProject(projectPath, { actionErrors: result.errors })
+        }
+        return result
+      })
+      quietChains.set(projectPath, run)
+      return run
+    },
+
+    setCommitDraft: (projectPath, patch) => {
+      const cur = gitState(get(), projectPath).commitDraft
+      patchProject(projectPath, { commitDraft: { ...cur, ...patch } })
     }
   }
 })

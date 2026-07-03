@@ -5,6 +5,12 @@
 /** 「未提交更改」虚拟提交的 hash 常量（与参考实现一致，真实 hash 不可能是它）。 */
 export const UNCOMMITTED = '*'
 
+/**
+ * 「暂存区（index）」diff 端点哨兵。diff 端点共三类：提交 hash / UNCOMMITTED（'*'，工作区）/
+ * GIT_INDEX（'::index'，暂存区）。两段口径：已暂存 = HEAD→'::index'，未暂存 = '::index'→'*'。
+ */
+export const GIT_INDEX = '::index'
+
 // —— 提交与 refs ——
 
 export interface GitCommitTag {
@@ -112,11 +118,25 @@ export type GitDetailsRequest =
   /** 比较两提交：from 为较老一方；to 可为 UNCOMMITTED（'*'，与工作区比较） */
   | { kind: 'compare'; fromHash: string; toHash: string }
 
+/**
+ * 未提交更改的两段文件列表（提交面板数据源）：已暂存 = HEAD↔index 快照差异；
+ * 未暂存 = index↔工作区 + 未跟踪。同一文件可同时出现在两段（暂存后又改）。
+ */
+export interface GitUncommittedDetails {
+  staged: GitFileChange[]
+  unstaged: GitFileChange[]
+}
+
 export interface GitDetailsResult {
-  /** compare 请求时为 null（比较没有单提交元信息） */
+  /**
+   * compare 请求时为 null（比较没有单提交元信息）；'uncommitted' 请求现在也恒为 null
+   * （提交面板不需要伪提交元信息，两段文件列表在 uncommitted 字段里）
+   */
   details: GitCommitDetails | null
-  /** compare 请求时的文件变更列表；其余请求为 null（在 details.fileChanges 里） */
+  /** compare 请求时的文件变更列表；其余请求（含 'uncommitted'）为 null（在 details.fileChanges 里） */
   fileChanges: GitFileChange[] | null
+  /** 'uncommitted' 请求的两段文件列表；其余请求为 null */
+  uncommitted: GitUncommittedDetails | null
   error: string | null
 }
 
@@ -209,17 +229,9 @@ export interface GitRepoConfigResult {
 /** 三态开关：default 回退到应用级默认值（见 GIT_DEFAULTS） */
 export type BooleanOverride = 'default' | 'enabled' | 'disabled'
 
-/** 提交消息中的 issue 链接规则：issue 为匹配正则（如 "#(\\d+)"），url 含 $1 占位 */
-export interface IssueLinkingConfig {
-  issue: string
-  url: string
-}
-
 export type GitCommitOrdering = 'date' | 'author-date' | 'topo'
 
 export interface GitRepoSettings {
-  /** 仓库显示名；null = 项目目录名 */
-  name: string | null
   showRemoteBranches: BooleanOverride
   showStashes: BooleanOverride
   showTags: BooleanOverride
@@ -229,7 +241,6 @@ export interface GitRepoSettings {
   commitOrdering: 'default' | GitCommitOrdering
   /** 隐藏的 remote 名列表（不拉其分支、不在图上标注） */
   hideRemotes: string[]
-  issueLinkingConfig: IssueLinkingConfig | null
 }
 
 /** 跨项目的视图偏好（查找选项、「不再提示」标记等） */
@@ -237,11 +248,12 @@ export interface GitViewPrefs {
   findIsCaseSensitive: boolean
   findIsRegex: boolean
   findOpenCommitDetailsView: boolean
-  globalIssueLinkingConfig: IssueLinkingConfig | null
   /** 「检出提交」确认框勾选过「总是允许」后为 true，此后直接执行 */
   alwaysAcceptCheckoutCommit: boolean
   /** push tag「提交不在远程」警告勾选过「总是继续」后为 true，跳过预检 */
   pushTagSkipRemoteCheck: boolean
+  /** diff 面板视图模式：false = 统一（unified），true = 左右对比（side-by-side）；跨会话记忆 */
+  diffSplitView: boolean
 }
 
 /** BooleanOverride 为 'default' 时的应用级默认值与其它全局常量。 */
@@ -257,24 +269,22 @@ export const GIT_DEFAULTS = {
 } as const
 
 export const DEFAULT_GIT_REPO_SETTINGS: GitRepoSettings = {
-  name: null,
   showRemoteBranches: 'default',
   showStashes: 'default',
   showTags: 'default',
   includeCommitsMentionedByReflogs: 'default',
   onlyFollowFirstParent: 'default',
   commitOrdering: 'default',
-  hideRemotes: [],
-  issueLinkingConfig: null
+  hideRemotes: []
 }
 
 export const DEFAULT_GIT_VIEW_PREFS: GitViewPrefs = {
   findIsCaseSensitive: false,
   findIsRegex: false,
   findOpenCommitDetailsView: false,
-  globalIssueLinkingConfig: null,
   alwaysAcceptCheckoutCommit: false,
-  pushTagSkipRemoteCheck: false
+  pushTagSkipRemoteCheck: false,
+  diffSplitView: true
 }
 
 /** 解一个三态开关的有效值。 */
@@ -355,6 +365,12 @@ export type GitAction =
   | { kind: 'reset'; hash: string; mode: GitResetMode }
   | { kind: 'reset-file'; hash: string; filePath: string }
   | { kind: 'clean-untracked'; directories: boolean }
+  // 暂存与提交（提交面板）
+  | { kind: 'stage-paths'; paths: string[] } // 暂存；paths 为空数组 = 全部（git add -A）
+  | { kind: 'unstage-paths'; paths: string[] } // 取消暂存；空数组 = 全部（git reset -q）
+  | { kind: 'discard-file'; path: string } // 撤销单文件的未暂存更改（工作区恢复为 index）
+  | { kind: 'delete-untracked-file'; path: string } // 从磁盘删除未跟踪文件
+  | { kind: 'commit'; message: string; amend: boolean }
   // 远程同步
   | { kind: 'fetch'; remote: string | null; prune: boolean; pruneTags: boolean }
   | {

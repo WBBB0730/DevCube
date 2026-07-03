@@ -201,6 +201,12 @@ export function registerIpc(win: BrowserWindow): void {
       void shell.openPath(path)
     }
   })
+  // 「在文件夹中显示」→ 系统文件管理器定位并选中；同样只放行登记项目内的绝对路径。
+  ipcMain.handle(IPC.openInFolder, (_e, path: string) => {
+    if (getProjects().some((p) => path.startsWith(p.path + '/') || path === p.path)) {
+      shell.showItemInFolder(path)
+    }
+  })
 
   // —— Git 图谱 ——
   // 读操作：每项目设置在 handler 层解析成有效值传入（git-data 不依赖 store，便于测试）。

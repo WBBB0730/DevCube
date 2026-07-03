@@ -134,7 +134,7 @@ interface DialogButton {
 }
 
 /** 一个待渲染的对话框描述：消息 + 输入 + 动作按钮（第 0 个为主按钮，Enter 触发）。 */
-interface DialogSpec {
+export interface DialogSpec {
   message: React.ReactNode
   inputs: DialogInputSpec[]
   buttons: DialogButton[]
@@ -146,8 +146,8 @@ interface DialogSpec {
   hideCancel?: boolean
 }
 
-/** 对话框构建环境：数据快照 + 动作出口（组件层注入）。 */
-interface DialogEnv {
+/** 对话框构建环境：数据快照 + 动作出口（组件层注入；测试注入记录用实现）。 */
+export interface DialogEnv {
   projectPath: string
   commits: GitCommit[]
   branches: string[]
@@ -159,11 +159,12 @@ interface DialogEnv {
   viewPrefs: GitViewPrefs
   closeDialog(): void
   runAction(action: GitAction, label: string): Promise<GitActionResult>
+  /** 静默动作（提交面板的撤销 / 删除未跟踪文件）：无进行中遮罩（store.runQuietAction） */
+  runQuietAction(action: GitAction): Promise<GitActionResult>
   clearActionErrors(): void
   /** 弹一个追问对话框（重名 / 强制删除 / 不在远程等续弹链） */
   openChase(spec: DialogSpec): void
   setViewPrefs(patch: Partial<GitViewPrefs>): void
-  openExternal(url: string): void
 }
 
 /** 消息里的强调片段（原版 <b><i>…</i></b> 的等价物）。 */
@@ -199,7 +200,8 @@ function currentBranchText(currentBranch: string | null): React.ReactNode {
 }
 
 /** 按 store 的对话框请求构建描述；返回 null 表示该请求由组件层特判（tag-details）。 */
-function buildSpec(req: GitDialogRequest, env: DialogEnv): DialogSpec | null {
+// eslint-disable-next-line react-refresh/only-export-components -- 纯函数与组件同文件导出（供单测）
+export function buildSpec(req: GitDialogRequest, env: DialogEnv): DialogSpec | null {
   switch (req.kind) {
     case 'rename-branch': // D1
       return {
@@ -813,29 +815,6 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
           }
         ]
       }
-    case 'select-issue': // D28
-      return {
-        message: <>选择要查看的 Issue：</>,
-        inputs: [
-          {
-            type: 'select',
-            key: 'idx',
-            label: '',
-            options: req.issues.map((issue, i) => ({ name: issue.text, value: String(i) })),
-            default: '0'
-          }
-        ],
-        buttons: [
-          {
-            label: '查看 Issue',
-            onClick: (v) => {
-              env.closeDialog()
-              const issue = req.issues[Number(v.idx as string)]
-              if (issue !== undefined) env.openExternal(issue.url)
-            }
-          }
-        ]
-      }
     case 'reset-file': // D29
       return {
         message: (
@@ -854,6 +833,42 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
                 { kind: 'reset-file', hash: req.hash, filePath: req.filePath },
                 '正在重置文件'
               )
+          }
+        ]
+      }
+    case 'discard-file': // 提交面板「撤销更改…」：确认后静默执行（PRD 12c，无进行中遮罩）
+      return {
+        message: (
+          <>
+            确定要撤销 <Em>{req.path}</Em> 的未暂存更改吗？此操作不可撤销。
+          </>
+        ),
+        inputs: [],
+        buttons: [
+          {
+            label: '是，撤销更改',
+            onClick: () => {
+              env.closeDialog()
+              void env.runQuietAction({ kind: 'discard-file', path: req.path })
+            }
+          }
+        ]
+      }
+    case 'delete-untracked-file': // 提交面板「删除文件…」：确认后静默执行（同上）
+      return {
+        message: (
+          <>
+            确定要删除未跟踪文件 <Em>{req.path}</Em> 吗？该文件将从磁盘删除，此操作不可撤销。
+          </>
+        ),
+        inputs: [],
+        buttons: [
+          {
+            label: '是，删除',
+            onClick: () => {
+              env.closeDialog()
+              void env.runQuietAction({ kind: 'delete-untracked-file', path: req.path })
+            }
           }
         ]
       }
@@ -1413,10 +1428,10 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
       viewPrefs,
       closeDialog: () => useGit.getState().closeDialog(projectPath),
       runAction: (action, label) => useGit.getState().runAction(projectPath, action, label),
+      runQuietAction: (action) => useGit.getState().runQuietAction(projectPath, action),
       clearActionErrors: () => useGit.getState().clearActionErrors(projectPath),
       openChase: (spec) => setChase((prev) => ({ spec, nonce: (prev?.nonce ?? 0) + 1 })),
-      setViewPrefs: (patch) => void useGit.getState().setViewPrefs(patch),
-      openExternal: (url) => void window.api.openExternal(url)
+      setViewPrefs: (patch) => void useGit.getState().setViewPrefs(patch)
     }),
     [projectPath, commits, branches, tags, remotes, currentBranch, config, settings, viewPrefs]
   )

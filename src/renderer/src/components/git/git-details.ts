@@ -1,15 +1,16 @@
 // Git 提交详情 / diff 面板的纯逻辑（details-diff 规格）：文件树构建与单链压缩展平、
-// 提交信息正文分词（URL / issue 链接）、单文件 diff 端点解析、超大 diff 截断。
+// 提交信息正文分词（URL 自动链接）、单文件 diff 端点解析、超大 diff 截断。
 // 与 React 无关；组件文件受 react-refresh only-export-components 限制不宜导出纯函数，
 // 故独立成模块供 GitCommitDetails / GitDiffView 消费并单测（写法对齐 git-format.ts）。
 
 import {
+  GIT_INDEX,
   UNCOMMITTED,
   type DiffHunk,
+  type DiffLine,
   type GitCommitStash,
   type GitFileChange,
-  type GitFileStatus,
-  type IssueLinkingConfig
+  type GitFileStatus
 } from '@shared/git'
 
 // —— 文件状态展示 ——
@@ -186,7 +187,21 @@ export function resolveDiffEndpoints(
   return { fromHash: exp.hash, toHash: exp.hash }
 }
 
-// —— 提交信息正文分词（§5.1：URL 自动链接 + issue 链接；哈希链接 v1 不做） ——
+/**
+ * 提交面板（未提交行详情）文件行 → openDiff 的端点：已暂存段看 HEAD→暂存区快照、
+ * 未暂存段看 暂存区→工作区。未跟踪行同用 unstaged 端点——diff 请求按 type='U'
+ * 优先走 no-index 合成新增 hunk，无需特判。
+ */
+export function uncommittedDiffEndpoints(section: 'staged' | 'unstaged'): {
+  fromHash: string
+  toHash: string
+} {
+  return section === 'staged'
+    ? { fromHash: 'HEAD', toHash: GIT_INDEX }
+    : { fromHash: GIT_INDEX, toHash: UNCOMMITTED }
+}
+
+// —— 提交信息正文分词（§5.1：URL 自动链接；哈希链接 v1 不做） ——
 
 export type BodyToken = { kind: 'text'; text: string } | { kind: 'link'; text: string; url: string }
 
@@ -210,43 +225,11 @@ function trimUrlTail(raw: string): string {
   }
 }
 
-/** issue 链接模板实例化：url 中的 $1..$9 替换为正则捕获组。 */
-function issueUrl(template: string, match: RegExpExecArray): string {
-  return template.replace(/\$(\d)/g, (_, d: string) => match[parseInt(d, 10)] ?? '')
-}
-
-/**
- * 提交信息正文 → 顺序 token 流：先切 URL，再在纯文本段内按 issue 规则切链接。
- * issue 正则非法或空匹配时安全退化为纯文本（不抛错、不死循环）。
- */
-export function tokenizeBody(body: string, issue: IssueLinkingConfig | null): BodyToken[] {
+/** 提交信息正文 → 顺序 token 流：按 URL 切分，URL 之外的片段为纯文本。 */
+export function tokenizeBody(body: string): BodyToken[] {
   const tokens: BodyToken[] = []
   const pushText = (text: string): void => {
-    if (text === '') return
-    let re: RegExp | null = null
-    if (issue !== null) {
-      try {
-        re = new RegExp(issue.issue, 'g')
-      } catch {
-        /* 用户配置的正则非法：整段按纯文本处理 */
-      }
-    }
-    if (re === null || issue === null) {
-      tokens.push({ kind: 'text', text })
-      return
-    }
-    let last = 0
-    let m: RegExpExecArray | null
-    while ((m = re.exec(text)) !== null) {
-      if (m[0] === '') {
-        re.lastIndex++ // 防零宽匹配死循环
-        continue
-      }
-      if (m.index > last) tokens.push({ kind: 'text', text: text.slice(last, m.index) })
-      tokens.push({ kind: 'link', text: m[0], url: issueUrl(issue.url, m) })
-      last = m.index + m[0].length
-    }
-    if (last < text.length) tokens.push({ kind: 'text', text: text.slice(last) })
+    if (text !== '') tokens.push({ kind: 'text', text })
   }
   let last = 0
   let m: RegExpExecArray | null
@@ -293,4 +276,35 @@ export function limitDiffHunks(hunks: readonly DiffHunk[], maxLines: number): Di
 export function formatHunkHeader(h: DiffHunk): string {
   const head = `@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`
   return h.sectionHeader === '' ? head : `${head} ${h.sectionHeader}`
+}
+
+/** 左右对比 diff 的一行：left = 旧侧（context / del / null 占位），right = 新侧（context / add / null）。 */
+export interface SplitDiffRow {
+  left: DiffLine | null
+  right: DiffLine | null
+}
+
+/**
+ * 把一个 hunk 的行序列配对成左右对比行（unified → side-by-side）：
+ * context 两侧同显；一段连续的 del 与紧随其后的 add 按序两两配对（del 在左、add 在右），
+ * 多出的一侧与 null 配对（另一侧留空占位）。纯函数，供 GitDiffView 与单测。
+ */
+export function splitDiffRows(lines: readonly DiffLine[]): SplitDiffRow[] {
+  const rows: SplitDiffRow[] = []
+  let i = 0
+  while (i < lines.length) {
+    if (lines[i].kind === 'context') {
+      rows.push({ left: lines[i], right: lines[i] })
+      i++
+      continue
+    }
+    // 收集一段连续的 del，再收集紧随的 add，按行序两两配对
+    const dels: DiffLine[] = []
+    const adds: DiffLine[] = []
+    while (i < lines.length && lines[i].kind === 'del') dels.push(lines[i++])
+    while (i < lines.length && lines[i].kind === 'add') adds.push(lines[i++])
+    const n = Math.max(dels.length, adds.length)
+    for (let j = 0; j < n; j++) rows.push({ left: dels[j] ?? null, right: adds[j] ?? null })
+  }
+  return rows
 }

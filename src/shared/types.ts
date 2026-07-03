@@ -155,6 +155,8 @@ export interface RunAPI extends GitAPI {
   openExternal(url: string): Promise<void>
   /** 用系统默认应用打开本地文件（Git 详情面板「打开文件」） */
   openPath(path: string): Promise<void>
+  /** 在系统文件管理器中定位并选中该文件（「在文件夹中显示」） */
+  revealInFolder(path: string): Promise<void>
 
   // —— 事件订阅（返回取消函数） ——
   onTreeChanged(cb: (tree: ProjectNode[]) => void): () => void

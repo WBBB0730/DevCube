@@ -220,7 +220,7 @@ function TabBar({
   )
 }
 
-// Git Tab：图标 + 「Git」，无关闭键（左右内边距对称 pl-2.5/pr-2.5，其余 Tab 右侧有 × 故 pr-2）。
+// Git Tab：图标 + 「Git」，无关闭键（左右内边距对称 pl-3/pr-3 即 12px，其余 Tab 右侧有 × 故 pr-2）。
 function GitTabItem({
   gitKey,
   projectPath,
@@ -233,7 +233,7 @@ function GitTabItem({
   const activateTab = useApp((s) => s.activateTab)
   return (
     <div
-      className={cn(TAB, 'pr-2.5')}
+      className={cn(TAB, 'pl-3 pr-3')}
       style={active ? TAB_ACTIVE : undefined}
       onClick={() => activateTab(projectPath, gitKey)}
     >

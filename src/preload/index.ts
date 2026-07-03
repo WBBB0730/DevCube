@@ -38,6 +38,7 @@ const api: RunAPI = {
 
   openExternal: (url) => ipcRenderer.invoke(IPC.openExternal, url),
   openPath: (path) => ipcRenderer.invoke(IPC.openPath, path),
+  revealInFolder: (path) => ipcRenderer.invoke(IPC.openInFolder, path),
 
   gitLoad: (projectPath, options: GitLoadOptions) =>
     ipcRenderer.invoke(IPC.gitLoad, projectPath, options),

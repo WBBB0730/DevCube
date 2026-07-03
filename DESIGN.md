@@ -34,7 +34,7 @@
 | `--separator`           | `#1E1F22` | 面板间 1px 分隔                                |
 | `--selection-row`       | `#2D436E` | 选中行圆角填充                                 |
 | `--selection-row-hover` | `#35538F` | 选中（蓝底）行上按钮的 hover 底（非灰）        |
-| `--accent`              | `#3574F0` | 焦点环 / 强调（New UI 主蓝，⚠ 推导，非 .icls） |
+| `--accent`              | `#3574F0` | 强调（New UI 主蓝，⚠ 推导，非 .icls）；**焦点环全局关闭**（`--ring: transparent`） |
 | `--link`                | `#548AF7` | 链接（.icls HYPERLINK）                        |
 
 **运行 / 停止按钮**
@@ -99,7 +99,7 @@ ANSI 16 色（取自 JetBrains 终端真实 Console Colors 调色板）：
 
 Lucide（随 shadcn）：`Play`(运行) · `RotateCw`(重新运行 / Git 刷新) · `Square`(停止) · `MoreVertical`(更多⋮) · `Pencil`(编辑) · `Trash2`(删除) · `ChevronRight`(树展开 / 弹层箭头) · `FolderPlus`(添加项目) · `Plus`(新建命令 / 新建终端) · `Terminal`(终端 Tab) · `Search`/`ChevronUp`/`ChevronDown`/`X`(终端搜索框 / 关闭 Tab)。运行三角以 `--run-glyph` 上色。
 
-Git 图谱专用：`GitBranch`(Git Tab) · `CloudDownload`(从远程获取) · `Settings`(仓库设置) · `LoaderCircle`(加载 / 动作进行中) · `TriangleAlert`(操作失败)。
+Git 图谱专用：`GitBranch`(Git Tab) · `SlidersHorizontal`(视图选项) · `GitCommitHorizontal`(提交，等同点「未提交的更改」行) · `RotateCw`(刷新) · `CircleArrowDown`(拉取) · `CircleArrowUp`(推送) · `GitBranchPlus`(创建分支) · `Settings`(仓库设置) · `LoaderCircle`(加载 / 动作进行中) · `TriangleAlert`(操作失败) · `Ellipsis`(提交面板文件行 … 菜单)。
 
 ## 布局
 
@@ -135,7 +135,7 @@ Git 图谱专用：`GitBranch`(Git Tab) · `CloudDownload`(从远程获取) · `
 
 右控制台顶部的 Tab 栏承载**当前项目**的全部 Tab。除**常驻首位的 Git Tab**外，其余每个 Tab = 一个活的会话（Run Session 或 Terminal）。高 40px `h-10`、底 `--bg-panel`，与左标题栏同高同色；术语见 CONTEXT.md、取舍见 ADR-0003（含修订）、ADR-0005（Git Tab 破例）：
 
-- **Git Tab**：**每项目常驻第一个、不可关闭**（无 `×`）。`GitBranch` 图标 16px + 「Git」（14px）；左右内边距对称（`pl-2.5 pr-2.5`，因无 `×`）。选中态与 hover 同其它 Tab。它不是会话——数据状态存独立 git store，切走仅隐藏不卸载、首次可见才拉数据。
+- **Git Tab**：**每项目常驻第一个、不可关闭**（无 `×`）。`GitBranch` 图标 16px + 「Git」（14px）；左右内边距对称（`pl-3 pr-3`，12px，因无 `×`）。选中态与 hover 同其它 Tab。它不是会话——数据状态存独立 git store，切走仅隐藏不卸载、首次可见才拉数据。
 - **运行会话 Tab**：**每条有会话的配置一个**（运行中或已退出未关闭）。状态点 + 配置名（14px）；`×` 常驻（背景仅 hover，圆形、颜色过渡）——运行中＝**停止并关闭**（温和停止，不二次确认），已退出＝关闭并弃输出（树上状态点回灰）。**顺序跟随树中配置顺序**；重跑复用原 Tab（单实例语义不变）。
 - **终端 Tab（Terminal）**：`Terminal` 图标 16px + 名称；`×` 同上（关闭即杀 shell）。默认名「终端 / 终端 (2) …」按项目内序号，**双击可改名**（仅内存态，重启不留）。**组内支持拖拽排序**（仅水平、钳制在终端组内，不与运行会话组混排；顺序纯内存）。整组排在运行会话组之后。
 - **末尾 `+`**（`Plus`，tooltip「新建终端」）：在当前项目根目录起一个交互 `$SHELL` 的新终端 Tab 并聚焦。
@@ -151,12 +151,13 @@ Git 图谱专用：`GitBranch`(Git Tab) · `CloudDownload`(从远程获取) · `
 
 移植自 vscode-git-graph，观感套进本工作区的深色（Darcula）体系；术语见 CONTEXT.md（Git Tab），产品范围见 `docs/prd/git-graph.md`。
 
-- **顶部工具栏**（高 40px、底 `--bg-panel`，同 Tab 栏）：分支筛选下拉 + 「显示远程分支」勾选 + 右侧图标钮组（`CloudDownload` 获取 / `RotateCw` 刷新 / `Search` 查找 / `Settings` 仓库设置）。获取钮仅在有远程时出现。
+- **顶部工具栏**（高 40px、底 `--bg-panel`，同 Tab 栏）：左 = 分支筛选下拉 + 视图选项 Popover（`SlidersHorizontal`，五个数据可见性开关 + 提交排序三选一）+ `Search` 查找（紧挨视图选项）；右 = 图标钮组（`GitCommitHorizontal` 提交 / `RotateCw` 刷新 / `CircleArrowDown` 拉取当前分支 / `CircleArrowUp` 推送当前分支 / `GitBranchPlus` 创建分支 / `Settings` 仓库设置——面板仅剩隐藏的远程、用户信息、远程管理）。提交钮等同点图上「未提交的更改」行、无改动时禁用。刷新 = fetch + 静默软重载（fetch 期间刷新钮转圈，不弹进行中遮罩）；拉取仅在当前分支有上游时可用（禁用即可，不显提示文案）。**切分支筛选 / 改视图开关走图谱级重载**：只给图谱区盖半透明 loading，工具栏与分支下拉不闪没。
 - **提交表格**：紧凑行高 24px（图谱网格 `grid.y`）、13px。列 = 图谱 / 描述 / 日期 / 作者 / 提交哈希（8 位缩写，`font-mono`）。图谱列宽随分支线内容同步、上限视图 1/3，超出用 SVG 右缘 12px 渐隐。
 - **分支线配色**：12 色循环调色板 `--git-graph-color0..11`（沿用参考默认值）；行级 `data-color="i"` 注入 `--git-graph-color`，圆点/标签/HEAD 空心圆引用它。未提交更改行与其线为灰 `--git-uncommitted`。
 - **引用标签顺序**：stash → 当前分支（提前）→ 其余本地分支 → 远程分支；tag 独立一组。当前提交行加粗、HEAD 圆点空心。已合并进 HEAD 的 merge commit 半透明（mute）。
-- **详情面板**：吊底停靠（默认高 250px、顶边可拖 [100,600]），左右分栏可拖（比例 [0.2,0.8]）。左 = 提交/贮藏元信息（hash 可复制、父提交可跳、`mailto`/URL/issue 链接）、右 = 文件变更树（单链文件夹压缩、状态色 A/U 绿 · M/R 蓝 · D 红、`+N -M`）。
-- **Diff 面板**：应用内 unified diff，`absolute` 覆盖表格+详情。hunk 头底 `--diff-hunk-header-bg`、新增行 `--diff-add-bg`、删除行 `--diff-del-bg`、双栏行号 `tabular-nums`、`font-mono` 横向滚动不折行；二进制/超大（>2 万行）兜底，120ms 延迟加载态。
+- **详情面板**：吊底停靠（默认高 250px、顶边可拖 [100,600]），左右分栏可拖（比例 [0.2,0.8]）。左 = 提交/贮藏元信息（hash 可复制、父提交可跳、`mailto`/URL 链接）、右 = 文件变更树（单链文件夹压缩、状态色 A/U 绿 · M/R 蓝 · D 红、`+N -M`；**当前打开 diff 的文件行以 `--selection-row` 高亮、文件名转白 `--fg-primary`**）。
+- **提交面板**：未提交行的详情即提交面板（ADR-0006，对齐 SourceTree）——左 = 提交信息多行框，其下一行「修正上次提交」勾选在左、「提交并推送」(ghost) 与「提交」按钮靠右（不再收进二级菜单）；右 =「已暂存 / 未暂存」两段文件树（区头 checkbox 全选、**目录行 checkbox 暂存/取消该目录下全部文件**、勾选文件即 `git add`、取消勾选即 unstage、**勾选后乐观即时把文件移到另一段（行位置 + 复选框一起翻，git 后台确认、失败回退）**、行点击看 HEAD→暂存 或 暂存→工作区 diff、**当前打开 diff 的文件行以 `--selection-row` 高亮、文件名转白 `--fg-primary`**、行尾 `Ellipsis` 菜单：撤销更改 / 删除未跟踪文件 / 打开文件 / **在文件夹中显示** / 复制路径；暂存类操作静默即时、不弹进行中遮罩）。复选框/单选统一用 shadcn `Checkbox`/`RadioGroup`（Base UI）。默认高 320。
+- **Diff 面板**：应用内 diff，`absolute` **只覆盖图谱表格区**（吊底详情/文件列表仍可见，点文件看 diff 时能继续切文件）。头部可切**统一（`AlignJustify`）/ 左右对比（`Columns2`）**两视图，偏好存 `viewPrefs.diffSplitView` 跨会话记忆、**默认左右对比**。左右对比左右各占半屏（flex-1），**各栏独立滚动、横竖双向同步**（横向条常驻各栏底部、不用滚到底才出现），两栏渲染同套配对行序（行高一致→竖直对齐），hunk 头两侧同显、空占位淡黑底。hunk 头底 `--diff-hunk-header-bg`、新增 `--diff-add-bg`、删除 `--diff-del-bg`、行号 `tabular-nums`、`font-mono` 不折行；二进制/超大（>2 万行）兜底，120ms 延迟加载态。
 - **查找**：`Cmd/Ctrl+F` 右上浮层（样式同终端搜索框），命中行高亮 `--find-match-bg`、当前项 `--find-match-active-bg`（取自 Shell.icls SEARCH_RESULT 绿）。
 - **右键菜单 / 对话框**：Base UI Menu（鼠标坐标虚拟 anchor）+ ConfigDialog 同款遮罩弹窗（`w-[440px] bg-panel`）；危险操作先确认，追问链（强删 / 重名替换 / 推标签预警）对齐参考。动作进行中遮罩（可隐藏继续看图）、失败转错误框。交互式变基在项目 Terminal Tab 里启动。
 - **键盘**：`Esc` 分层关闭（diff → 详情 → 菜单 → 对话框 → 查找）、`Cmd/Ctrl+R` 软刷新、`Cmd/Ctrl+F` 查找；焦点在输入控件时让位。

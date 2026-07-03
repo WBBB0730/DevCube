@@ -2,6 +2,7 @@
 // 组件层只负责用 Base UI Menu 受控渲染（虚拟 anchor 定位于鼠标点）与注入动作分发。
 // v1 取舍（原版有、此处不做）：
 // - PR 创建整组不做（无 pullRequestConfig 契约）；
+// - Issue 链接整组不做（产品演进中已删除该功能）；
 // - 「创建归档」不做 —— GitAction 契约（@shared/git）没有 archive 动作；
 // - 表头菜单只做排序三选一，列显隐 v1 不做（表格尚无列显隐状态可写）；
 // - URL/链接菜单（§2.8）不做 —— GitMenuTarget 契约无该目标类型，详情面板链接直接外部打开；
@@ -19,12 +20,12 @@ import {
   type GitCommitStash,
   type GitFileChange,
   type GitRepoSettings,
-  type GitViewPrefs,
-  type IssueLinkingConfig
+  type GitViewPrefs
 } from '@shared/git'
 import { dropCommitPossible } from '@renderer/lib/git-graph'
 import { gitState, useGit } from '@renderer/git-store'
 import { cn } from '@renderer/lib/utils'
+import { toggleBranch } from './GitBranchDropdown'
 import { abbrevHash } from './git-format'
 import type { GitDialogRequest, GitMenuTarget } from './git-view-types'
 
@@ -41,13 +42,15 @@ export interface GitMenuItem {
 /** buildMenuItems 的动作出口：组件注入 store / window.api 分发，测试注入记录用实现。 */
 export interface GitMenuActions {
   runAction(action: GitAction, label: string): void
+  /** 静默动作（提交面板的暂存 / 取消暂存）：无进行中遮罩（store.runQuietAction） */
+  runQuietAction(action: GitAction): void
   openDialog(req: GitDialogRequest): void
   setBranchFilter(branches: string[] | null): void
   updateSettings(patch: Partial<GitRepoSettings>): void
   openDiff(file: GitFileChange, fromHash: string, toHash: string): void
   copyText(text: string, typeLabel: string): void
-  openExternal(url: string): void
   openPath(absolutePath: string): void
+  revealInFolder(absolutePath: string): void
 }
 
 /** 构建菜单所需的图谱上下文（全部来自 git-store 的项目桶与视图偏好）。 */
@@ -68,58 +71,6 @@ export interface GitMenuContext {
 function firstLine(text: string): string {
   const idx = text.indexOf('\n')
   return idx === -1 ? text : text.substring(0, idx)
-}
-
-/**
- * 分支名按 issue 链接规则匹配出的 issue 列表：每处匹配一条，URL 中 $1..$9 回填捕获组。
- * 规则来源：仓库设置的 issueLinkingConfig，缺省回退全局配置。
- */
-// eslint-disable-next-line react-refresh/only-export-components -- 纯函数与组件同文件导出（供单测）
-export function matchIssues(
-  name: string,
-  cfg: IssueLinkingConfig | null
-): { text: string; url: string }[] {
-  if (cfg === null) return []
-  let re: RegExp
-  try {
-    // 与原实现一致：unicode 语义编译（\p{...}、\u{...}、代理对按码点处理）
-    re = new RegExp(cfg.issue, 'gu')
-  } catch {
-    return [] // 用户配置的正则非法：视为无匹配
-  }
-  const out: { text: string; url: string }[] = []
-  for (const m of name.matchAll(re)) {
-    if (m[0] === '') break // 首个零宽匹配即终止整个扫描（对齐原实现）
-    // 占位符支持多位组号（$10、$12…）；越界索引原样保留占位符文本
-    const url = cfg.url.replace(/\$([1-9][0-9]*)/g, (_s, d: string) => {
-      const i = Number(d)
-      return i < m.length ? (m[i] ?? '') : `$${d}`
-    })
-    out.push({ text: m[0], url })
-  }
-  return out
-}
-
-/** 解析生效的 issue 链接规则：仓库级优先，回退全局。 */
-function issueConfig(ctx: GitMenuContext): IssueLinkingConfig | null {
-  return ctx.settings?.issueLinkingConfig ?? ctx.viewPrefs.globalIssueLinkingConfig
-}
-
-/** 「在分支下拉中选中/取消选中」的筛选值切换（null=显示全部；全不选回落 null）。 */
-function toggleFilter(filter: string[] | null, value: string): string[] | null {
-  if (filter === null) return [value]
-  const next = filter.includes(value) ? filter.filter((v) => v !== value) : [...filter, value]
-  return next.length === 0 ? null : next
-}
-
-/** 「查看 Issue」项：单个直接打开外部链接；多个弹选择框（文案带省略号）。 */
-function viewIssueItem(
-  issues: { text: string; url: string }[],
-  actions: GitMenuActions
-): GitMenuItem {
-  return issues.length === 1
-    ? { title: '查看 Issue', onClick: () => actions.openExternal(issues[0].url) }
-    : { title: '查看 Issue…', onClick: () => actions.openDialog({ kind: 'select-issue', issues }) }
 }
 
 /**
@@ -148,6 +99,8 @@ export function buildMenuItems(
       return headerMenu(ctx)
     case 'file':
       return fileMenu(target, ctx)
+    case 'uncommitted-file':
+      return uncommittedFileMenu(target, ctx)
   }
 }
 
@@ -264,8 +217,6 @@ function branchMenu(name: string, ctx: GitMenuContext): (GitMenuItem | 'divider'
       onClick: () => actions.openDialog({ kind: 'push-branch', branch: name })
     })
   }
-  const issues = matchIssues(name, issueConfig(ctx))
-  if (issues.length > 0) items.push('divider', viewIssueItem(issues, actions))
   // 「创建 Pull Request」与「创建归档」v1 不做（见文件头注释）
   items.push('divider', selectInDropdownItem(name, ctx), 'divider', {
     title: '复制分支名',
@@ -274,12 +225,16 @@ function branchMenu(name: string, ctx: GitMenuContext): (GitMenuItem | 'divider'
   return items
 }
 
-/** 「在分支下拉中选中/取消选中」项（本地分支传分支名，远程分支传 remotes/ 前缀值）。 */
+/**
+ * 「在分支下拉中选中/取消选中」项（本地分支传分支名，远程分支传 remotes/ 前缀值）。
+ * 切换语义复用分支下拉的 toggleBranch：含「当前分支」哨兵 ['HEAD'] 的从头选中
+ * （防止哨兵与具体分支混排）与全不选回落 null。
+ */
 function selectInDropdownItem(filterValue: string, ctx: GitMenuContext): GitMenuItem {
   const selected = ctx.branchFilter !== null && ctx.branchFilter.includes(filterValue)
   return {
     title: selected ? '在分支下拉中取消选中' : '在分支下拉中选中',
-    onClick: () => ctx.actions.setBranchFilter(toggleFilter(ctx.branchFilter, filterValue))
+    onClick: () => ctx.actions.setBranchFilter(toggleBranch(ctx.branchFilter, filterValue))
   }
 }
 
@@ -339,9 +294,6 @@ function remoteBranchMenu(
         actions.openDialog({ kind: 'pull-branch', remote, branch: branchName, remoteRef: fullRef })
     })
   }
-  // issue 匹配始终针对完整远程 ref（如 'origin/feature'），与原实现一致
-  const issues = matchIssues(fullRef, issueConfig(ctx))
-  if (issues.length > 0) items.push('divider', viewIssueItem(issues, actions))
   // 「创建 Pull Request」与「创建归档」v1 不做（见文件头注释）
   items.push('divider', selectInDropdownItem(`remotes/${fullRef}`, ctx), 'divider', {
     title: '复制分支名',
@@ -463,10 +415,16 @@ function fileMenu(
     })
   }
   if (file.type !== 'D') {
-    items.push({
-      title: '打开文件',
-      onClick: () => actions.openPath(`${ctx.projectPath}/${file.newFilePath}`)
-    })
+    items.push(
+      {
+        title: '打开文件',
+        onClick: () => actions.openPath(`${ctx.projectPath}/${file.newFilePath}`)
+      },
+      {
+        title: '在文件夹中显示',
+        onClick: () => actions.revealInFolder(`${ctx.projectPath}/${file.newFilePath}`)
+      }
+    )
   }
   // 「标记为已审阅/未审阅」组 v1 不做（见文件头注释）
   if (file.type !== 'D' && !isUncommitted && !isCompare) {
@@ -480,6 +438,62 @@ function fileMenu(
     'divider',
     {
       // 绝对路径以项目根拼接（项目根即打开的仓库目录；见 foundation「打开文件」约定）
+      title: '复制文件绝对路径',
+      onClick: () => actions.copyText(`${ctx.projectPath}/${file.newFilePath}`, '文件路径')
+    },
+    {
+      title: '复制文件相对路径',
+      onClick: () => actions.copyText(file.newFilePath, '文件路径')
+    }
+  )
+  return items
+}
+
+/**
+ * 提交面板文件行菜单（… 按钮与右键共用，ADR-0006）：已暂存段首项「取消暂存」（静默即时），
+ * 未暂存段首项按类型分流——未跟踪走「删除文件…」、其余走「撤销更改…」（均先弹危险确认）。
+ */
+function uncommittedFileMenu(
+  target: Extract<GitMenuTarget, { kind: 'uncommitted-file' }>,
+  ctx: GitMenuContext
+): (GitMenuItem | 'divider')[] {
+  const { actions } = ctx
+  const { file, section } = target
+  const items: (GitMenuItem | 'divider')[] = []
+  if (section === 'staged') {
+    // R 需要同时传旧 / 新两个路径（reset 的 pathspec 覆盖重命名两端）
+    const paths = file.type === 'R' ? [file.oldFilePath, file.newFilePath] : [file.newFilePath]
+    items.push({
+      title: '取消暂存',
+      onClick: () => actions.runQuietAction({ kind: 'unstage-paths', paths })
+    })
+  } else if (file.type === 'U') {
+    items.push({
+      title: '删除文件…',
+      onClick: () => actions.openDialog({ kind: 'delete-untracked-file', path: file.newFilePath })
+    })
+  } else {
+    items.push({
+      title: '撤销更改…',
+      onClick: () => actions.openDialog({ kind: 'discard-file', path: file.newFilePath })
+    })
+  }
+  if (file.type !== 'D') {
+    items.push(
+      {
+        title: '打开文件',
+        onClick: () => actions.openPath(`${ctx.projectPath}/${file.newFilePath}`)
+      },
+      {
+        title: '在文件夹中显示',
+        onClick: () => actions.revealInFolder(`${ctx.projectPath}/${file.newFilePath}`)
+      }
+    )
+  }
+  items.push(
+    'divider',
+    {
+      // 绝对路径以项目根拼接（同 fileMenu 的约定）
       title: '复制文件绝对路径',
       onClick: () => actions.copyText(`${ctx.projectPath}/${file.newFilePath}`, '文件路径')
     },
@@ -527,6 +541,7 @@ export function GitContextMenu({ projectPath }: { projectPath: string }): React.
   const actions = useMemo<GitMenuActions>(
     () => ({
       runAction: (action, label) => void useGit.getState().runAction(projectPath, action, label),
+      runQuietAction: (action) => void useGit.getState().runQuietAction(projectPath, action),
       openDialog: (req) => useGit.getState().openDialog(projectPath, req),
       setBranchFilter: (next) => void useGit.getState().setBranchFilter(projectPath, next),
       updateSettings: (patch) => void useGit.getState().updateSettings(projectPath, patch),
@@ -548,8 +563,8 @@ export function GitContextMenu({ projectPath }: { projectPath: string }): React.
           })
         })
       },
-      openExternal: (url) => void window.api.openExternal(url),
-      openPath: (absolutePath) => void window.api.openPath(absolutePath)
+      openPath: (absolutePath) => void window.api.openPath(absolutePath),
+      revealInFolder: (absolutePath) => void window.api.revealInFolder(absolutePath)
     }),
     [projectPath]
   )
@@ -585,9 +600,20 @@ export function GitContextMenu({ projectPath }: { projectPath: string }): React.
     <Menu.Root
       open
       modal={false}
-      onOpenChange={(open) => {
-        // 点击项 / 点击外部 / Esc 都会走这里；store 的 openDialog 也会自行关菜单（幂等）
-        if (!open) useGit.getState().closeContextMenu(projectPath)
+      onOpenChange={(open, eventDetails) => {
+        if (open) return
+        // 裸 Menu.Root（无 context-menu 父类型）会因 focus-out 等在鼠标移出/失焦时自动关；
+        // 右键菜单只在「明确关闭意图」时关：Esc / 点菜单项 / 点外部，其余原因（focus-out 等）忽略。
+        const reason = eventDetails?.reason
+        if (
+          reason === 'escape-key' ||
+          reason === 'outside-press' ||
+          reason === 'item-press' ||
+          reason === 'close-press' ||
+          reason === 'imperative-action'
+        ) {
+          useGit.getState().closeContextMenu(projectPath)
+        }
       }}
     >
       <Menu.Portal>

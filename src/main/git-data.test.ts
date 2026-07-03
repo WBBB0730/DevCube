@@ -4,13 +4,16 @@
 import { describe, expect, it } from 'vitest'
 import {
   assembleRepoConfig,
+  assembleUncommitted,
   buildDiffArgs,
   buildFileDiffArgs,
   buildLogArgs,
   buildShowRefArgs,
-  buildStatusArgs
+  buildStatusArgs,
+  buildUncommittedDiffArgs
 } from './git-data'
 import { GIT_FORMAT_LOG } from './git-parse'
+import { GIT_INDEX } from '../shared/git'
 import type { GitDiffRequest, GitEffectiveSettings } from '../shared/git'
 
 /** 参考实现默认值的有效设置（测试基准，逐项覆盖时在其上打补丁）。 */
@@ -145,6 +148,44 @@ describe('buildDiffArgs', () => {
   })
 })
 
+describe('buildUncommittedDiffArgs', () => {
+  it('staged 带 --cached（HEAD↔index），不带任何 revision', () => {
+    expect(buildUncommittedDiffArgs('--name-status', 'staged')).toEqual([
+      'diff',
+      '--name-status',
+      '--cached',
+      '--find-renames',
+      '--diff-filter=AMDR',
+      '-z'
+    ])
+    expect(buildUncommittedDiffArgs('--numstat', 'staged')).toEqual([
+      'diff',
+      '--numstat',
+      '--cached',
+      '--find-renames',
+      '--diff-filter=AMDR',
+      '-z'
+    ])
+  })
+
+  it('unstaged 不带 commit 参数（index↔工作区）', () => {
+    expect(buildUncommittedDiffArgs('--name-status', 'unstaged')).toEqual([
+      'diff',
+      '--name-status',
+      '--find-renames',
+      '--diff-filter=AMDR',
+      '-z'
+    ])
+    expect(buildUncommittedDiffArgs('--numstat', 'unstaged')).toEqual([
+      'diff',
+      '--numstat',
+      '--find-renames',
+      '--diff-filter=AMDR',
+      '-z'
+    ])
+  })
+})
+
 describe('buildFileDiffArgs', () => {
   const base: GitDiffRequest = {
     fromHash: 'aaa',
@@ -202,6 +243,64 @@ describe('buildFileDiffArgs', () => {
     const { args } = buildFileDiffArgs(base, '/repo')
     expect(args.filter((arg) => arg === 'src/a.ts')).toHaveLength(1)
   })
+
+  it('to 为 index（已暂存单文件）用 diff --cached，fromHash 不进 argv', () => {
+    const { args, noIndex } = buildFileDiffArgs(
+      { ...base, fromHash: 'HEAD', toHash: GIT_INDEX },
+      '/repo'
+    )
+    expect(noIndex).toBe(false)
+    expect(args).toContain('--cached')
+    expect(args).toContain('--find-renames')
+    expect(args).not.toContain('HEAD')
+    expect(args).not.toContain(GIT_INDEX)
+  })
+
+  it('已暂存 rename 传旧新两个路径', () => {
+    const { args } = buildFileDiffArgs(
+      {
+        ...base,
+        fromHash: 'HEAD',
+        toHash: GIT_INDEX,
+        oldFilePath: 'src/old.ts',
+        newFilePath: 'src/new.ts',
+        type: 'R'
+      },
+      '/repo'
+    )
+    expect(args).toContain('src/old.ts')
+    expect(args).toContain('src/new.ts')
+  })
+
+  it('from 为 index（未暂存单文件）不带 revision 也不带 --cached', () => {
+    const { args, noIndex } = buildFileDiffArgs(
+      { ...base, fromHash: GIT_INDEX, toHash: '*' },
+      '/repo'
+    )
+    expect(noIndex).toBe(false)
+    expect(args).not.toContain('--cached')
+    expect(args).not.toContain(GIT_INDEX)
+    expect(args).not.toContain('*')
+    expect(args).toContain('src/a.ts')
+  })
+
+  it('未跟踪文件（U）的端点为 index→工作区时仍优先走 no-index（回归）', () => {
+    const { args, noIndex } = buildFileDiffArgs(
+      {
+        ...base,
+        fromHash: GIT_INDEX,
+        toHash: '*',
+        type: 'U',
+        oldFilePath: 'x.txt',
+        newFilePath: 'x.txt'
+      },
+      '/repo'
+    )
+    expect(noIndex).toBe(true)
+    expect(args).toContain('--no-index')
+    expect(args).toContain('/dev/null')
+    expect(args).toContain('/repo/x.txt')
+  })
 })
 
 describe('buildStatusArgs', () => {
@@ -219,6 +318,91 @@ describe('buildStatusArgs', () => {
       '--untracked-files=no',
       '--porcelain',
       '-z'
+    ])
+  })
+})
+
+describe('assembleUncommitted', () => {
+  it('同一文件暂存后又改：staged 与 unstaged 两段各出现一次，计数各自独立', () => {
+    const result = assembleUncommitted(
+      'M\0src/a.ts\0',
+      '3\t1\tsrc/a.ts\0',
+      'M\0src/a.ts\0',
+      '2\t0\tsrc/a.ts\0',
+      'MM src/a.ts\0'
+    )
+    expect(result.staged).toEqual([
+      { oldFilePath: 'src/a.ts', newFilePath: 'src/a.ts', type: 'M', additions: 3, deletions: 1 }
+    ])
+    expect(result.unstaged).toEqual([
+      { oldFilePath: 'src/a.ts', newFilePath: 'src/a.ts', type: 'M', additions: 2, deletions: 0 }
+    ])
+  })
+
+  it('暂存删除（X 位 D）只出现在已暂存段，不因 status.deleted 混进未暂存段', () => {
+    const result = assembleUncommitted(
+      'D\0src/gone.ts\0',
+      '0\t5\tsrc/gone.ts\0',
+      '',
+      '',
+      'D  src/gone.ts\0'
+    )
+    expect(result.staged).toEqual([
+      {
+        oldFilePath: 'src/gone.ts',
+        newFilePath: 'src/gone.ts',
+        type: 'D',
+        additions: 0,
+        deletions: 5
+      }
+    ])
+    expect(result.unstaged).toEqual([])
+  })
+
+  it('未跟踪文件追加为 U 且计数保持 null', () => {
+    const result = assembleUncommitted('', '', '', '', '?? new file.txt\0')
+    expect(result.staged).toEqual([])
+    expect(result.unstaged).toEqual([
+      {
+        oldFilePath: 'new file.txt',
+        newFilePath: 'new file.txt',
+        type: 'U',
+        additions: null,
+        deletions: null
+      }
+    ])
+  })
+
+  it('staged 段 rename：name-status 的 R100 三段与 numstat 的空路径双段按新路径合流', () => {
+    const result = assembleUncommitted(
+      'R100\0src/old.ts\0src/new.ts\0',
+      '0\t0\t\0src/old.ts\0src/new.ts\0',
+      '',
+      '',
+      'R  src/new.ts\0src/old.ts\0'
+    )
+    expect(result.staged).toEqual([
+      {
+        oldFilePath: 'src/old.ts',
+        newFilePath: 'src/new.ts',
+        type: 'R',
+        additions: 0,
+        deletions: 0
+      }
+    ])
+    expect(result.unstaged).toEqual([])
+  })
+
+  it('二进制文件的 "-" 计数解析为 null', () => {
+    const result = assembleUncommitted('M\0img.png\0', '-\t-\timg.png\0', '', '', 'M  img.png\0')
+    expect(result.staged).toEqual([
+      {
+        oldFilePath: 'img.png',
+        newFilePath: 'img.png',
+        type: 'M',
+        additions: null,
+        deletions: null
+      }
     ])
   })
 })

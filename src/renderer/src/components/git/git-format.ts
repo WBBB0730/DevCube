@@ -1,13 +1,16 @@
-// Git 图谱的展示格式化纯函数：hash 缩写、相对时间、完整日期时间（日期/hash 列的 title 用）。
-// 阈值与格式照抄参考实现（graph-table 规格 §4），相对时间文案中文化。
+// Git 图谱的展示格式化纯函数：hash 缩写、相对时间、完整日期时间（tooltip 与详情面板用）。
+// 相对时间阈值照抄参考实现（graph-table 规格 §4），文案中文化；完整日期时间改用 Intl 标准 API 输出中文格式。
 
-/** 月份缩写：沿用参考实现的「D MMM YYYY」英文短格式，保持列宽紧凑稳定。 */
-const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
-
-/** 补零到两位。 */
-function pad2(n: number): string {
-  return n < 10 ? `0${n}` : String(n)
-}
+/** 完整日期时间格式器：模块级复用，避免每次调用都 new。 */
+const DATE_TIME_FORMAT = new Intl.DateTimeFormat('zh-CN', {
+  year: 'numeric',
+  month: 'long',
+  day: 'numeric',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hour12: false
+})
 
 /** 提交 hash 缩写：固定前 8 位，不做唯一性动态加长。 */
 export function abbrevHash(hash: string): string {
@@ -36,10 +39,7 @@ export function formatRelativeTime(unixSec: number): string {
   return formatRelativeDuration(Date.now() / 1000 - unixSec)
 }
 
-/** Unix 秒 → 本地时区完整时间「D MMM YYYY HH:MM:SS」（悬浮 title 恒用完整精度）。 */
+/** Unix 秒 → 本地时区完整时间「2026年7月3日 09:05:07」（24 小时制、时分秒补零，悬浮 title 恒用完整精度）。 */
 export function formatDateTime(unixSec: number): string {
-  const d = new Date(unixSec * 1000)
-  const date = `${d.getDate()} ${MONTHS[d.getMonth()]} ${d.getFullYear()}`
-  const time = `${pad2(d.getHours())}:${pad2(d.getMinutes())}:${pad2(d.getSeconds())}`
-  return `${date} ${time}`
+  return DATE_TIME_FORMAT.format(new Date(unixSec * 1000))
 }

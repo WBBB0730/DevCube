@@ -1,7 +1,13 @@
 // git-details 纯函数测试：文件树构建/压缩/排序、diff 可点性、diff 端点解析、
-// 正文分词（URL / issue 链接）、diff 截断与 hunk 头还原（details-diff 规格）。
+// 正文分词（URL 自动链接）、diff 截断与 hunk 头还原（details-diff 规格）。
 import { describe, expect, it } from 'vitest'
-import type { DiffHunk, GitFileChange } from '@shared/git'
+import {
+  GIT_INDEX,
+  UNCOMMITTED,
+  type DiffHunk,
+  type DiffLine,
+  type GitFileChange
+} from '@shared/git'
 import {
   DIFF_RENDER_LIMIT,
   buildFileTree,
@@ -13,7 +19,9 @@ import {
   limitDiffHunks,
   normalizeCompare,
   resolveDiffEndpoints,
-  tokenizeBody
+  splitDiffRows,
+  tokenizeBody,
+  uncommittedDiffEndpoints
 } from './git-details'
 
 /** 快捷构造一个文件变更。 */
@@ -181,15 +189,26 @@ describe('resolveDiffEndpoints', () => {
   })
 })
 
+describe('uncommittedDiffEndpoints', () => {
+  it('已暂存段：HEAD → 暂存区（::index）', () => {
+    expect(uncommittedDiffEndpoints('staged')).toEqual({ fromHash: 'HEAD', toHash: GIT_INDEX })
+  })
+
+  it('未暂存段：暂存区（::index）→ 工作区（*）；未跟踪行同用此端点，diff 按 U 优先走 no-index', () => {
+    expect(uncommittedDiffEndpoints('unstaged')).toEqual({
+      fromHash: GIT_INDEX,
+      toHash: UNCOMMITTED
+    })
+  })
+})
+
 describe('tokenizeBody', () => {
   it('无链接的正文得到单个文本 token', () => {
-    expect(tokenizeBody('fix: 修正编码问题', null)).toEqual([
-      { kind: 'text', text: 'fix: 修正编码问题' }
-    ])
+    expect(tokenizeBody('fix: 修正编码问题')).toEqual([{ kind: 'text', text: 'fix: 修正编码问题' }])
   })
 
   it('识别 URL 并修剪结尾标点（句号归还给文本）', () => {
-    expect(tokenizeBody('详见 https://example.com/a. 谢谢', null)).toEqual([
+    expect(tokenizeBody('详见 https://example.com/a. 谢谢')).toEqual([
       { kind: 'text', text: '详见 ' },
       { kind: 'link', text: 'https://example.com/a', url: 'https://example.com/a' },
       { kind: 'text', text: '. 谢谢' }
@@ -197,46 +216,20 @@ describe('tokenizeBody', () => {
   })
 
   it('URL 内成对括号保留、不成对右括号截掉', () => {
-    expect(tokenizeBody('见 https://a.com/x_(y)', null)[1]).toEqual({
+    expect(tokenizeBody('见 https://a.com/x_(y)')[1]).toEqual({
       kind: 'link',
       text: 'https://a.com/x_(y)',
       url: 'https://a.com/x_(y)'
     })
-    expect(tokenizeBody('(见 https://a.com/x)', null)).toEqual([
+    expect(tokenizeBody('(见 https://a.com/x)')).toEqual([
       { kind: 'text', text: '(见 ' },
       { kind: 'link', text: 'https://a.com/x', url: 'https://a.com/x' },
       { kind: 'text', text: ')' }
     ])
   })
 
-  it('issue 规则把 #N 替换为链接（$1 占位实例化）', () => {
-    const issue = { issue: '#(\\d+)', url: 'https://github.com/x/y/issues/$1' }
-    expect(tokenizeBody('fix #42 与 #7', issue)).toEqual([
-      { kind: 'text', text: 'fix ' },
-      { kind: 'link', text: '#42', url: 'https://github.com/x/y/issues/42' },
-      { kind: 'text', text: ' 与 ' },
-      { kind: 'link', text: '#7', url: 'https://github.com/x/y/issues/7' }
-    ])
-  })
-
-  it('URL 与 issue 共存时互不干扰（URL 段不做 issue 匹配）', () => {
-    const issue = { issue: '#(\\d+)', url: 'https://t/$1' }
-    expect(tokenizeBody('#1 https://a.com/#2 尾', issue)).toEqual([
-      { kind: 'link', text: '#1', url: 'https://t/1' },
-      { kind: 'text', text: ' ' },
-      { kind: 'link', text: 'https://a.com/#2', url: 'https://a.com/#2' },
-      { kind: 'text', text: ' 尾' }
-    ])
-  })
-
-  it('issue 正则非法时安全退化为纯文本', () => {
-    expect(tokenizeBody('fix #42', { issue: '#(\\d+', url: 'https://t/$1' })).toEqual([
-      { kind: 'text', text: 'fix #42' }
-    ])
-  })
-
   it('空正文得到空 token 集', () => {
-    expect(tokenizeBody('', null)).toEqual([])
+    expect(tokenizeBody('')).toEqual([])
   })
 })
 
@@ -288,5 +281,67 @@ describe('formatHunkHeader', () => {
 
   it('有函数上下文时附在 @@ 之后', () => {
     expect(formatHunkHeader(hunk(3, 'function foo()'))).toBe('@@ -1,3 +1,3 @@ function foo()')
+  })
+})
+
+describe('splitDiffRows', () => {
+  const ctx = (text: string, o: number, n: number): DiffLine => ({
+    kind: 'context',
+    text,
+    oldLineNo: o,
+    newLineNo: n
+  })
+  const del = (text: string, o: number): DiffLine => ({
+    kind: 'del',
+    text,
+    oldLineNo: o,
+    newLineNo: null
+  })
+  const add = (text: string, n: number): DiffLine => ({
+    kind: 'add',
+    text,
+    oldLineNo: null,
+    newLineNo: n
+  })
+
+  it('context 两侧同显', () => {
+    expect(splitDiffRows([ctx('a', 1, 1)])).toEqual([
+      { left: ctx('a', 1, 1), right: ctx('a', 1, 1) }
+    ])
+  })
+
+  it('等长 del/add 两两配对（del 在左、add 在右）', () => {
+    expect(splitDiffRows([del('x', 1), add('y', 1)])).toEqual([
+      { left: del('x', 1), right: add('y', 1) }
+    ])
+  })
+
+  it('del 多于 add：多出的 del 右侧留空', () => {
+    expect(splitDiffRows([del('a', 1), del('b', 2), add('c', 1)])).toEqual([
+      { left: del('a', 1), right: add('c', 1) },
+      { left: del('b', 2), right: null }
+    ])
+  })
+
+  it('add 多于 del：多出的 add 左侧留空', () => {
+    expect(splitDiffRows([del('a', 1), add('b', 1), add('c', 2)])).toEqual([
+      { left: del('a', 1), right: add('b', 1) },
+      { left: null, right: add('c', 2) }
+    ])
+  })
+
+  it('纯新增（无 del）左侧全空', () => {
+    expect(splitDiffRows([add('a', 1), add('b', 2)])).toEqual([
+      { left: null, right: add('a', 1) },
+      { left: null, right: add('b', 2) }
+    ])
+  })
+
+  it('context 分隔的两段各自配对', () => {
+    expect(splitDiffRows([del('a', 1), add('b', 1), ctx('c', 2, 2), del('d', 3)])).toEqual([
+      { left: del('a', 1), right: add('b', 1) },
+      { left: ctx('c', 2, 2), right: ctx('c', 2, 2) },
+      { left: del('d', 3), right: null }
+    ])
   })
 })

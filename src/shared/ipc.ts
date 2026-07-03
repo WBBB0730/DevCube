@@ -24,6 +24,7 @@ export const IPC = {
   scriptPromote: 'script:promote',
   openExternal: 'shell:open-external',
   openPath: 'shell:open-path',
+  openInFolder: 'shell:open-in-folder',
   gitLoad: 'git:load',
   gitDetails: 'git:details',
   gitFileDiff: 'git:file-diff',

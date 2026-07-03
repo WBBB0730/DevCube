@@ -6,12 +6,15 @@ import {
   buildCheckoutCommitArgs,
   buildCherrypickArgs,
   buildCleanUntrackedArgs,
+  buildCommitArgs,
   buildCreateBranchArgs,
   buildDeleteBranchArgs,
   buildDeleteRemoteArgs,
   buildDeleteRemoteBranchArgs,
   buildDeleteRemoteTrackingBranchArgs,
   buildDeleteTagArgs,
+  buildDeleteUntrackedFileArgs,
+  buildDiscardFileArgs,
   buildDropCommitArgs,
   buildEditRemoteArgs,
   buildFetchArgs,
@@ -30,12 +33,14 @@ import {
   buildSetConfigArgs,
   buildSquashCommitArgs,
   buildSquashMessage,
+  buildStagePathsArgs,
   buildStashApplyArgs,
   buildStashBranchArgs,
   buildStashDropArgs,
   buildStashPopArgs,
   buildStashPushArgs,
   buildUnsetConfigArgs,
+  buildUnstagePathsArgs,
   buildVersionGateError,
   findRemotesMissingCommit,
   parseGitVersion,
@@ -306,6 +311,67 @@ describe('buildCleanUntrackedArgs', () => {
     expect(buildCleanUntrackedArgs({ kind: 'clean-untracked', directories: true })).toEqual([
       ['clean', '-fd']
     ])
+  })
+})
+
+describe('buildStagePathsArgs', () => {
+  it('空 paths 时全部暂存（add -A）', () => {
+    expect(buildStagePathsArgs({ kind: 'stage-paths', paths: [] })).toEqual([['add', '-A']])
+  })
+  it('非空 paths 追加在 -- 之后，含空格路径原样成段', () => {
+    expect(buildStagePathsArgs({ kind: 'stage-paths', paths: ['src/a b.ts', 'x.txt'] })).toEqual([
+      ['add', '-A', '--', 'src/a b.ts', 'x.txt']
+    ])
+  })
+  it('R 双路径场景由调用方传旧新两个路径，构造层原样透传', () => {
+    expect(
+      buildStagePathsArgs({ kind: 'stage-paths', paths: ['src/old.ts', 'src/new.ts'] })
+    ).toEqual([['add', '-A', '--', 'src/old.ts', 'src/new.ts']])
+  })
+})
+
+describe('buildUnstagePathsArgs', () => {
+  it('空 paths 时全部取消暂存（reset -q）', () => {
+    expect(buildUnstagePathsArgs({ kind: 'unstage-paths', paths: [] })).toEqual([['reset', '-q']])
+  })
+  it('非空 paths 追加在 -- 之后，含空格路径原样成段', () => {
+    expect(buildUnstagePathsArgs({ kind: 'unstage-paths', paths: ['src/a b.ts'] })).toEqual([
+      ['reset', '-q', '--', 'src/a b.ts']
+    ])
+  })
+})
+
+describe('buildDiscardFileArgs', () => {
+  it('不带提交参数，从 index 恢复工作区（区别于 reset-file 的从提交恢复）', () => {
+    expect(buildDiscardFileArgs({ kind: 'discard-file', path: 'src/a b.ts' })).toEqual([
+      ['checkout', '--', 'src/a b.ts']
+    ])
+  })
+})
+
+describe('buildDeleteUntrackedFileArgs', () => {
+  it('用 clean -f 删除单个未跟踪文件', () => {
+    expect(
+      buildDeleteUntrackedFileArgs({ kind: 'delete-untracked-file', path: 'new file.txt' })
+    ).toEqual([['clean', '-f', '--', 'new file.txt']])
+  })
+})
+
+describe('buildCommitArgs', () => {
+  it('普通提交为 commit -m', () => {
+    expect(buildCommitArgs({ kind: 'commit', message: '修复问题', amend: false })).toEqual([
+      ['commit', '-m', '修复问题']
+    ])
+  })
+  it('amend 时带 --amend', () => {
+    expect(buildCommitArgs({ kind: 'commit', message: '修正上次提交', amend: true })).toEqual([
+      ['commit', '--amend', '-m', '修正上次提交']
+    ])
+  })
+  it('消息含换行时在单个 argv 段内原样保留', () => {
+    expect(
+      buildCommitArgs({ kind: 'commit', message: '主题\n\n正文第一行', amend: false })
+    ).toEqual([['commit', '-m', '主题\n\n正文第一行']])
   })
 })
 

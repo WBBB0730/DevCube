@@ -66,14 +66,14 @@ describe('formatRelativeTime', () => {
 })
 
 describe('formatDateTime', () => {
-  it('输出「D MMM YYYY HH:MM:SS」本地时区完整时间', () => {
+  it('输出「2026年7月3日 09:05:07」中文本地时区完整时间', () => {
     // 用本地时间构造时间戳，断言与运行机器的时区无关
     const unixSec = new Date(2026, 6, 3, 9, 5, 7).getTime() / 1000
-    expect(formatDateTime(unixSec)).toBe('3 Jul 2026 09:05:07')
+    expect(formatDateTime(unixSec)).toBe('2026年7月3日 09:05:07')
   })
 
-  it('日不补零、时分秒补零', () => {
+  it('月日不补零、时分秒补零，24 小时制', () => {
     const unixSec = new Date(2025, 11, 31, 23, 59, 59).getTime() / 1000
-    expect(formatDateTime(unixSec)).toBe('31 Dec 2025 23:59:59')
+    expect(formatDateTime(unixSec)).toBe('2025年12月31日 23:59:59')
   })
 })

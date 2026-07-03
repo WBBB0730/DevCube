@@ -26,7 +26,7 @@ import {
   parseUnifiedDiff
 } from './git-parse'
 import type { GitRefData, GitStash } from './git-parse'
-import { UNCOMMITTED } from '../shared/git'
+import { GIT_INDEX, UNCOMMITTED } from '../shared/git'
 import type {
   GitDetailsRequest,
   GitDetailsResult,
@@ -38,7 +38,8 @@ import type {
   GitLoadResult,
   GitRepoConfig,
   GitRepoConfigResult,
-  GitTagDetailsResult
+  GitTagDetailsResult,
+  GitUncommittedDetails
 } from '../shared/git'
 
 // —— 常量 ——
@@ -134,6 +135,19 @@ export function buildDiffArgs(
   return { args, diffTree: false }
 }
 
+/**
+ * 未提交两段列表的 diff 参数构造（风格对齐 buildDiffArgs，口径见 assembleUncommitted）：
+ * staged 用 --cached（HEAD↔index）；unstaged 不带 commit 参数（index↔工作区）。
+ */
+export function buildUncommittedDiffArgs(
+  mode: '--name-status' | '--numstat',
+  scope: 'staged' | 'unstaged'
+): string[] {
+  return scope === 'staged'
+    ? ['diff', mode, '--cached', '--find-renames', '--diff-filter=AMDR', '-z']
+    : ['diff', mode, '--find-renames', '--diff-filter=AMDR', '-z']
+}
+
 /** 单文件 unified diff 的命令选择（data-read.md §8.2 命令表）。noIndex 时退出码 1 视为成功。 */
 export function buildFileDiffArgs(
   request: GitDiffRequest,
@@ -162,6 +176,33 @@ export function buildFileDiffArgs(
     }
   }
   const base = ['-c', 'core.quotepath=false']
+  // 以下两个 index 端点分支与 assembleUncommitted 的两段口径一致：
+  // 已暂存 = HEAD→index（--cached 默认与 HEAD 比，fromHash 不进 argv）；未暂存 = index→工作区。
+  // 未跟踪文件（U）的端点也是 '::index'→'*'，靠前面的 U 分支优先命中 no-index，不会走到这里。
+  if (request.toHash === GIT_INDEX) {
+    // 已暂存单文件：HEAD↔index
+    return {
+      args: [
+        ...base,
+        'diff',
+        '--cached',
+        '--no-color',
+        '--no-ext-diff',
+        '--find-renames',
+        '-U3',
+        '--',
+        ...paths
+      ],
+      noIndex: false
+    }
+  }
+  if (request.fromHash === GIT_INDEX) {
+    // 未暂存单文件（to 恒为 '*'）：index↔工作区
+    return {
+      args: [...base, 'diff', '--no-color', '--no-ext-diff', '-U3', '--', ...paths],
+      noIndex: false
+    }
+  }
   if (request.fromHash === request.toHash) {
     // 提交自身的变更：根提交 / stash 第三父（含其 U 文件，diff 里呈现为 A）
     return {
@@ -217,6 +258,34 @@ export function buildFileDiffArgs(
 /** 未提交明细的 status 参数（data-read.md §5.2）：-z 下 rename 原路径是独立 NUL 段。 */
 export function buildStatusArgs(showUntracked: boolean): string[] {
   return ['status', '-s', `--untracked-files=${showUntracked ? 'all' : 'no'}`, '--porcelain', '-z']
+}
+
+/**
+ * 五路 stdout 组装未提交两段列表（提交面板数据源，ADR-0006）：
+ * 已暂存 = HEAD↔index（diff --cached）；未暂存 = index↔工作区（diff）+ status 的未跟踪文件。
+ */
+export function assembleUncommitted(
+  stagedNS: string,
+  stagedNum: string,
+  wtNS: string,
+  wtNum: string,
+  statusStdout: string
+): GitUncommittedDetails {
+  const status = parseStatusFilesZ(statusStdout)
+  return {
+    staged: generateFileChanges(
+      parseNameStatusZ(stagedNS, false),
+      parseNumStatZ(stagedNum, false),
+      null
+    ),
+    // 关键坑：parseStatusFilesZ 的 deleted 混含「暂存删除」（X 位 D）——若透传会把暂存删除
+    // 错混进未暂存段；工作区删除（Y 位 D）已由 index↔工作区 diff 自身的 D 记录覆盖，
+    // 故 deleted 传空数组、只用 untracked
+    unstaged: generateFileChanges(parseNameStatusZ(wtNS, false), parseNumStatZ(wtNum, false), {
+      deleted: [],
+      untracked: status.untracked
+    })
+  }
 }
 
 /** 三份 config 列表 + remote 名列表 → GitRepoConfig（data-read.md §9.5）。 */
@@ -446,7 +515,7 @@ async function loadFileChanges(
 
 /**
  * 详情四入口（data-read.md §7.6 表）：
- * commit（hasParents 决定 from=hash^）/ uncommitted（HEAD→工作区 + status 合成）/
+ * commit（hasParents 决定 from=hash^）/ uncommitted（已暂存 + 未暂存两段并行合成，ADR-0006）/
  * stash（第三父的未跟踪文件改标 U 追加）/ compare（to='*' 时与工作区比 + status）。
  */
 export async function getDetails(
@@ -455,7 +524,8 @@ export async function getDetails(
   showUntracked: boolean
 ): Promise<GitDetailsResult> {
   const root = await resolveRepoRoot(projectPath)
-  if (root === null) return { details: null, fileChanges: null, error: NOT_A_REPO }
+  if (root === null)
+    return { details: null, fileChanges: null, uncommitted: null, error: NOT_A_REPO }
   if (request.kind === 'compare') {
     // 比较没有单提交元信息，只有文件变更列表；to='*' 时与工作区比并叠加 status 明细
     const withWorking = request.toHash === UNCOMMITTED
@@ -465,27 +535,40 @@ export async function getDetails(
       withWorking ? '' : request.toHash,
       withWorking ? buildStatusArgs(showUntracked) : null
     )
-    if (!result.ok) return { details: null, fileChanges: null, error: result.error }
-    return { details: null, fileChanges: result.fileChanges, error: null }
+    if (!result.ok) {
+      return { details: null, fileChanges: null, uncommitted: null, error: result.error }
+    }
+    return { details: null, fileChanges: result.fileChanges, uncommitted: null, error: null }
   }
   if (request.kind === 'uncommitted') {
-    const result = await loadFileChanges(root, 'HEAD', '', buildStatusArgs(showUntracked))
-    if (!result.ok) return { details: null, fileChanges: null, error: result.error }
+    // 提交面板不需要伪提交元信息（details / fileChanges 恒为 null），
+    // 五路并行取两段素材：已暂存 name-status/numstat + 未暂存 name-status/numstat + status
+    const [stagedNS, stagedNum, wtNS, wtNum, statusRes] = await Promise.all([
+      runGit(root, buildUncommittedDiffArgs('--name-status', 'staged')),
+      runGit(root, buildUncommittedDiffArgs('--numstat', 'staged')),
+      runGit(root, buildUncommittedDiffArgs('--name-status', 'unstaged')),
+      runGit(root, buildUncommittedDiffArgs('--numstat', 'unstaged')),
+      runGit(root, buildStatusArgs(showUntracked))
+    ])
+    if (!stagedNS.ok)
+      return { details: null, fileChanges: null, uncommitted: null, error: stagedNS.error }
+    if (!stagedNum.ok)
+      return { details: null, fileChanges: null, uncommitted: null, error: stagedNum.error }
+    if (!wtNS.ok) return { details: null, fileChanges: null, uncommitted: null, error: wtNS.error }
+    if (!wtNum.ok)
+      return { details: null, fileChanges: null, uncommitted: null, error: wtNum.error }
+    if (!statusRes.ok)
+      return { details: null, fileChanges: null, uncommitted: null, error: statusRes.error }
     return {
-      // 未提交详情没有提交元信息：hash='*'、作者/时间全空，只有 fileChanges
-      details: {
-        hash: UNCOMMITTED,
-        parents: [],
-        author: '',
-        authorEmail: '',
-        authorDate: 0,
-        committer: '',
-        committerEmail: '',
-        committerDate: 0,
-        body: '',
-        fileChanges: result.fileChanges
-      },
+      details: null,
       fileChanges: null,
+      uncommitted: assembleUncommitted(
+        stagedNS.stdout,
+        stagedNum.stdout,
+        wtNS.stdout,
+        wtNum.stdout,
+        statusRes.stdout
+      ),
       error: null
     }
   }
@@ -512,10 +595,12 @@ export async function getDetails(
       ? loadFileChanges(root, untrackedHash, untrackedHash, null)
       : Promise.resolve(null)
   ])
-  if (!showRes.ok) return { details: null, fileChanges: null, error: showRes.error }
-  if (!changes.ok) return { details: null, fileChanges: null, error: changes.error }
+  if (!showRes.ok)
+    return { details: null, fileChanges: null, uncommitted: null, error: showRes.error }
+  if (!changes.ok)
+    return { details: null, fileChanges: null, uncommitted: null, error: changes.error }
   if (untrackedChanges !== null && !untrackedChanges.ok) {
-    return { details: null, fileChanges: null, error: untrackedChanges.error }
+    return { details: null, fileChanges: null, uncommitted: null, error: untrackedChanges.error }
   }
   let fileChanges = changes.fileChanges
   if (untrackedChanges !== null) {
@@ -529,6 +614,7 @@ export async function getDetails(
   return {
     details: { ...parseDetails(showRes.stdout), fileChanges },
     fileChanges: null,
+    uncommitted: null,
     error: null
   }
 }

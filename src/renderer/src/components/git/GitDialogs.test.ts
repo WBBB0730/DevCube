@@ -1,8 +1,20 @@
 // GitDialogs 纯函数层测试：ref 名校验（照参考 REF_INVALID_REGEX）、中文列表串、
-// 最近标签提取、push remote 默认值求值链。
+// 最近标签提取、push remote 默认值求值链、提交面板危险确认的 buildSpec 描述。
 import { describe, expect, it } from 'vitest'
-import type { GitCommit, GitRepoConfig } from '@shared/git'
-import { defaultPushRemote, formatCommaList, isRefInvalid, latestTagNames } from './GitDialogs'
+import {
+  DEFAULT_GIT_VIEW_PREFS,
+  type GitAction,
+  type GitCommit,
+  type GitRepoConfig
+} from '@shared/git'
+import {
+  buildSpec,
+  defaultPushRemote,
+  formatCommaList,
+  isRefInvalid,
+  latestTagNames,
+  type DialogEnv
+} from './GitDialogs'
 
 describe('isRefInvalid', () => {
   it('常规分支名与带斜杠的层级名合法', () => {
@@ -122,5 +134,58 @@ describe('defaultPushRemote', () => {
 
   it('remote 列表为空时返回空串', () => {
     expect(defaultPushRemote('dev', [], null)).toBe('')
+  })
+})
+
+/** 记录式对话框环境：动作出口只往数组里记（构造输入 → 断言输出，零 mock）。 */
+function makeEnv(): { env: DialogEnv; quiet: GitAction[]; closed: () => number } {
+  const quiet: GitAction[] = []
+  let closedCount = 0
+  const env: DialogEnv = {
+    projectPath: '/repo',
+    commits: [],
+    branches: [],
+    tags: [],
+    remotes: [],
+    currentBranch: null,
+    config: null,
+    settings: null,
+    viewPrefs: DEFAULT_GIT_VIEW_PREFS,
+    closeDialog: () => {
+      closedCount++
+    },
+    runAction: async () => ({ status: 'ok' }),
+    runQuietAction: async (action) => {
+      quiet.push(action)
+      return { status: 'ok' }
+    },
+    clearActionErrors: () => {},
+    openChase: () => {},
+    setViewPrefs: () => {}
+  }
+  return { env, quiet, closed: () => closedCount }
+}
+
+describe('buildSpec：提交面板的危险确认', () => {
+  it('discard-file：无输入项，主按钮「是，撤销更改」先关对话框再静默执行', () => {
+    const { env, quiet, closed } = makeEnv()
+    const spec = buildSpec({ kind: 'discard-file', path: 'src/a.ts' }, env)
+    expect(spec).not.toBeNull()
+    expect(spec!.inputs).toEqual([])
+    expect(spec!.buttons.map((b) => b.label)).toEqual(['是，撤销更改'])
+    spec!.buttons[0].onClick({})
+    expect(closed()).toBe(1)
+    expect(quiet).toEqual([{ kind: 'discard-file', path: 'src/a.ts' }])
+  })
+
+  it('delete-untracked-file：无输入项，主按钮「是，删除」先关对话框再静默执行', () => {
+    const { env, quiet, closed } = makeEnv()
+    const spec = buildSpec({ kind: 'delete-untracked-file', path: 'tmp/n.log' }, env)
+    expect(spec).not.toBeNull()
+    expect(spec!.inputs).toEqual([])
+    expect(spec!.buttons.map((b) => b.label)).toEqual(['是，删除'])
+    spec!.buttons[0].onClick({})
+    expect(closed()).toBe(1)
+    expect(quiet).toEqual([{ kind: 'delete-untracked-file', path: 'tmp/n.log' }])
   })
 })

@@ -1,12 +1,22 @@
-// Git Tab 顶部工具栏（toolbar-widgets §1）：分支筛选下拉 + 「显示远程分支」checkbox +
-// 右侧图标钮组（获取 / 刷新 / 查找 / 仓库设置）。高 40px、bg-panel，对齐 Console Tab 栏观感。
-// 「显示远程分支」写 settings 三态（enabled/disabled），updateSettings 内部会触发硬刷新；
-// 获取按钮仅在有远程时出现（§1.5），点击 = fetch --all（prune 暂固定 false，仓库级默认后续接入）。
-import { useState } from 'react'
-import { CloudDownload, LoaderCircle, RotateCw, Search, Settings } from 'lucide-react'
-import { GIT_DEFAULTS, resolveOverride } from '@shared/git'
+// Git Tab 顶部工具栏：左侧「分支：」标签 + 分支筛选下拉 + 视图选项 Popover + 查找；
+// 右侧图标钮组（提交 / 刷新 / 拉取 / 推送 / 创建分支 / 仓库设置）。高 40px、bg-panel，
+// 对齐 Console Tab 栏观感。刷新 = fetch + 静默软重载（store.refresh，fetch 期间小圈转动、
+// 不弹进行中遮罩）；拉取 / 推送 / 创建分支预设目标后打开既有对话框（GitDialogs）。
+import { useEffect, useState } from 'react'
+import {
+  CircleArrowDown,
+  CircleArrowUp,
+  GitBranchPlus,
+  GitCommitHorizontal,
+  LoaderCircle,
+  RotateCw,
+  Search,
+  Settings
+} from 'lucide-react'
+import { UNCOMMITTED } from '@shared/git'
 import { gitState, useGit } from '@renderer/git-store'
 import { GitBranchDropdown } from './GitBranchDropdown'
+import { GitViewOptions } from './GitViewOptions'
 import { GitRepoSettings } from './GitRepoSettings'
 
 // 图标钮：观感对齐 Console Tab 栏的「新建终端」按钮（size-7 圆角 hover 加亮）
@@ -16,62 +26,69 @@ const ICON_BTN =
 /** 工具栏：数据全部读 git-store，仓库设置面板的开合是本组件的局部状态。 */
 export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.Element {
   const status = useGit((s) => gitState(s, projectPath).status)
+  const isRepo = useGit((s) => gitState(s, projectPath).isRepo)
   const remotes = useGit((s) => gitState(s, projectPath).remotes)
-  const settings = useGit((s) => gitState(s, projectPath).settings)
-  const load = useGit((s) => s.load)
-  const updateSettings = useGit((s) => s.updateSettings)
+  const currentBranch = useGit((s) => gitState(s, projectPath).currentBranch)
+  const headHash = useGit((s) => gitState(s, projectPath).headHash)
+  const config = useGit((s) => gitState(s, projectPath).config)
+  const fetching = useGit((s) => gitState(s, projectPath).fetching)
+  // 有无「未提交更改」行：提交钮仅在有改动时可用（等同于图上该行存在时才可点）
+  const hasUncommitted = useGit((s) => {
+    const commits = gitState(s, projectPath).commits
+    return commits.length > 0 && commits[0].hash === UNCOMMITTED
+  })
+  const refresh = useGit((s) => s.refresh)
+  const loadRepoConfig = useGit((s) => s.loadRepoConfig)
   const setFind = useGit((s) => s.setFind)
-  const runAction = useGit((s) => s.runAction)
+  const openDialog = useGit((s) => s.openDialog)
+  const openDetails = useGit((s) => s.openDetails)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
-  // settings 未拉到前按 default 解析显示（拉到后权威快照落桶自动纠正）
-  const showRemoteBranches = resolveOverride(
-    settings?.showRemoteBranches ?? 'default',
-    GIT_DEFAULTS.showRemoteBranches
-  )
-  const refreshing = status === 'loading'
+  // 拉取按钮的 upstream 判断依赖仓库 config（branch.<name>.remote）：就绪后按需拉一次。
+  // StrictMode 双挂载幂等 —— loadRepoConfig 只是覆盖式落桶，重复调用无害。
+  useEffect(() => {
+    if (status === 'ready' && isRepo && config === null) void loadRepoConfig(projectPath)
+  }, [status, isRepo, config, projectPath, loadRepoConfig])
+
+  const refreshing = fetching || status === 'loading'
+  // 当前分支的上游 remote（须仍在 remotes 里；config 未加载 / 无上游则 null → 拉取不可用）
+  const configuredRemote =
+    currentBranch !== null ? (config?.branches[currentBranch]?.remote ?? null) : null
+  const upstreamRemote =
+    configuredRemote !== null && remotes.includes(configuredRemote) ? configuredRemote : null
 
   return (
     <div className="flex h-10 shrink-0 items-center gap-2 bg-panel px-2">
       <span className="shrink-0 text-[13px] text-muted-foreground">分支：</span>
       <GitBranchDropdown projectPath={projectPath} />
-      <label className="flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-[13px] text-foreground">
-        <input
-          type="checkbox"
-          checked={showRemoteBranches}
-          onChange={(e) =>
-            // 三态写回：勾选 = enabled、取消 = disabled（updateSettings 对数据键自动硬刷新）
-            void updateSettings(projectPath, {
-              showRemoteBranches: e.target.checked ? 'enabled' : 'disabled'
-            })
-          }
-          className="accent-[var(--primary)]"
-        />
-        显示远程分支
-      </label>
-      <div className="ml-auto flex shrink-0 items-center gap-0.5">
-        {remotes.length > 0 && (
-          <button
-            type="button"
-            title="从远程获取"
-            className={ICON_BTN}
-            onClick={() =>
-              void runAction(
-                projectPath,
-                { kind: 'fetch', remote: null, prune: false, pruneTags: false },
-                '正在从远程获取…'
-              )
-            }
-          >
-            <CloudDownload className="size-4" />
-          </button>
-        )}
+      <div className="flex shrink-0 items-center gap-0.5">
+        <GitViewOptions projectPath={projectPath} />
         <button
           type="button"
-          title={refreshing ? '正在刷新' : '刷新 (⌘R)'}
+          title="查找 (⌘F)"
+          className={ICON_BTN}
+          onClick={() => setFind(projectPath, { open: true })}
+        >
+          <Search className="size-4" />
+        </button>
+      </div>
+      <div className="ml-auto flex shrink-0 items-center gap-0.5">
+        <button
+          type="button"
+          title="提交（打开未提交更改）"
+          disabled={!hasUncommitted}
+          className={ICON_BTN}
+          // 效果等同点图上「未提交的更改」行：打开提交面板
+          onClick={() => void openDetails(projectPath, UNCOMMITTED, null)}
+        >
+          <GitCommitHorizontal className="size-4" />
+        </button>
+        <button
+          type="button"
+          title="刷新（fetch + 重载）(⌘R)"
           disabled={refreshing}
           className={ICON_BTN}
-          onClick={() => void load(projectPath)}
+          onClick={() => void refresh(projectPath)}
         >
           {refreshing ? (
             <LoaderCircle className="size-4 animate-spin" />
@@ -81,11 +98,46 @@ export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.
         </button>
         <button
           type="button"
-          title="查找 (⌘F)"
+          title="拉取当前分支"
+          // 已知取舍：上游分支名按同名预设（branch.<name>.merge 改名上游的少数情况
+          // 由 pull-branch 对话框的 remoteRef 文案兜底，用户可取消）
+          disabled={currentBranch === null || remotes.length === 0 || upstreamRemote === null}
           className={ICON_BTN}
-          onClick={() => setFind(projectPath, { open: true })}
+          onClick={() =>
+            currentBranch !== null &&
+            upstreamRemote !== null &&
+            openDialog(projectPath, {
+              kind: 'pull-branch',
+              remote: upstreamRemote,
+              branch: currentBranch,
+              remoteRef: `${upstreamRemote}/${currentBranch}`
+            })
+          }
         >
-          <Search className="size-4" />
+          <CircleArrowDown className="size-4" />
+        </button>
+        <button
+          type="button"
+          title="推送当前分支"
+          disabled={currentBranch === null || remotes.length === 0}
+          className={ICON_BTN}
+          onClick={() =>
+            currentBranch !== null &&
+            openDialog(projectPath, { kind: 'push-branch', branch: currentBranch })
+          }
+        >
+          <CircleArrowUp className="size-4" />
+        </button>
+        <button
+          type="button"
+          title="在 HEAD 创建分支"
+          disabled={headHash === null}
+          className={ICON_BTN}
+          onClick={() =>
+            headHash !== null && openDialog(projectPath, { kind: 'create-branch', hash: headHash })
+          }
+        >
+          <GitBranchPlus className="size-4" />
         </button>
         <button
           type="button"

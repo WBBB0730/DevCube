@@ -6,7 +6,8 @@ import type {
   GitCommitStash,
   GitFileChange,
   GitMergeOn,
-  GitRebaseOn
+  GitRebaseOn,
+  GitUncommittedDetails
 } from '@shared/git'
 
 // —— 右键菜单 ——
@@ -33,6 +34,8 @@ export type GitMenuTarget =
       /** 比较端点是否含未提交更改（影响「重置到此版本」等可见性） */
       isUncommitted: boolean
     }
+  /** 提交面板（未提交行详情）文件行的 … 菜单 / 右键 */
+  | { kind: 'uncommitted-file'; file: GitFileChange; section: 'staged' | 'unstaged' }
 
 export interface GitContextMenuState {
   /** 鼠标坐标（相对视口），菜单以虚拟 anchor 定位 */
@@ -76,10 +79,12 @@ export type GitDialogRequest =
   | { kind: 'stash-branch'; selector: string }
   /** annotated tag 详情（打开后异步加载 gitTagDetails） */
   | { kind: 'tag-details'; name: string }
-  /** 分支名匹配到多个 issue 时的选择框 */
-  | { kind: 'select-issue'; issues: { text: string; url: string }[] }
   /** CDV 文件行「将文件重置到此版本」 */
   | { kind: 'reset-file'; hash: string; filePath: string }
+  /** 提交面板文件行「撤销更改…」（未暂存段，工作区恢复为 index） */
+  | { kind: 'discard-file'; path: string }
+  /** 提交面板文件行「删除文件…」（未跟踪文件，从磁盘删除） */
+  | { kind: 'delete-untracked-file'; path: string }
 
 // —— 详情面板 / diff 面板 ——
 
@@ -94,6 +99,8 @@ export interface GitExpandedState {
   details: GitCommitDetails | null
   /** 比较模式的文件变更列表（普通详情在 details.fileChanges） */
   fileChanges: GitFileChange[] | null
+  /** 未提交行的两段明细（已暂存 / 未暂存，提交面板数据源）；其余目标为 null */
+  uncommitted: GitUncommittedDetails | null
   loading: boolean
   error: string | null
 }

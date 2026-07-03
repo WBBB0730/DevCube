@@ -1,40 +1,17 @@
 // 仓库设置面板（toolbar-widgets §4）：居中弹层（骨架照 ConfigDialog 的手写 fixed 遮罩），
-// 五个区块 —— 常规（显示名 / 三态开关 / 提交排序）、隐藏的远程、用户信息、远程管理、Issue 链接。
-// 三态开关与排序直接 updateSettings（数据键变更由 store 自动硬刷新）；用户信息与远程 CRUD
-// 走 runAction（进行中遮罩 / 错误框由 F 的 GitDialogs 统一呈现），成功后重拉 config。
-// F 名下的 ui/select、ui/checkbox 与本文件并行写作，为避免跨波次依赖，这里刻意只用
-// 原生 <select> / <input type="checkbox" | "radio">（观感用同一套 token 对齐 Input）。
+// 三个区块 —— 隐藏的远程、用户信息、远程管理（三态开关与提交排序已移至工具栏的视图选项
+// Popover，见 GitViewOptions）。用户信息与远程 CRUD 走 runAction（进行中遮罩 / 错误框由
+// GitDialogs 统一呈现），成功后重拉 config。控件用 shadcn Checkbox / RadioGroup。
 import { useEffect, useRef, useState } from 'react'
 import { Eraser, Pencil, Plus, Trash2, X } from 'lucide-react'
-import {
-  GIT_DEFAULTS,
-  type BooleanOverride,
-  type GitAction,
-  type GitCommitOrdering,
-  type GitRepoSettings as GitRepoSettingsShape
-} from '@shared/git'
+import { type GitAction } from '@shared/git'
 import { gitState, useGit } from '@renderer/git-store'
-import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
+import { Checkbox } from '@renderer/components/ui/checkbox'
+import { RadioGroup, RadioGroupItem } from '@renderer/components/ui/radio-group'
 
 // —— 纯逻辑（导出供测试） ——
-
-/** Issue 链接配置校验（§4.5）：返回错误文案，合法返回 null。 */
-// eslint-disable-next-line react-refresh/only-export-components -- 纯函数与组件同文件导出（供单测）
-export function validateIssueLinking(issue: string, url: string): string | null {
-  if (issue.trim() === '' || url.trim() === '') return 'Issue 正则与 Issue URL 均不能为空。'
-  if (!issue.includes('(') || !issue.includes(')')) return '正则表达式不包含捕获组 ( )。'
-  try {
-    void new RegExp(issue, 'gu')
-  } catch (e) {
-    return e instanceof Error ? e.message : '无效的正则表达式'
-  }
-  if (!/\$([1-9][0-9]*)/.test(url)) {
-    return 'Issue URL 中不含用于代入 Issue 编号的占位符（$1、$2 等）。'
-  }
-  return null
-}
 
 /** 切换某 remote 的隐藏态后的 hideRemotes 新数组（幂等：重复勾选不产生重复项）。 */
 // eslint-disable-next-line react-refresh/only-export-components -- 纯函数与组件同文件导出（供单测）
@@ -53,38 +30,6 @@ interface ConfirmRequest {
   run: () => void
 }
 
-/** 常规区的五个三态开关行：settings 键 → 文案 / 悬停说明 / default 档的回退值提示。 */
-const OVERRIDE_ROWS: {
-  key:
-    | 'showRemoteBranches'
-    | 'showStashes'
-    | 'showTags'
-    | 'includeCommitsMentionedByReflogs'
-    | 'onlyFollowFirstParent'
-  label: string
-  title?: string
-  def: boolean
-}[] = [
-  { key: 'showRemoteBranches', label: '显示远程分支', def: GIT_DEFAULTS.showRemoteBranches },
-  { key: 'showStashes', label: '显示贮藏', def: GIT_DEFAULTS.showStashes },
-  { key: 'showTags', label: '显示标签', def: GIT_DEFAULTS.showTags },
-  {
-    key: 'includeCommitsMentionedByReflogs',
-    label: '包含仅被 reflog 提及的提交',
-    title: '仅在显示所有分支时生效。',
-    def: GIT_DEFAULTS.includeCommitsMentionedByReflogs
-  },
-  {
-    key: 'onlyFollowFirstParent',
-    label: '只跟随第一父提交',
-    title: '发现提交时只沿第一父提交回溯，不展开其余父链。',
-    def: GIT_DEFAULTS.onlyFollowFirstParent
-  }
-]
-
-// 原生 select 的观感对齐 Input（h-7 紧凑高度、同一套边框与焦点环 token）
-const SELECT =
-  'h-7 shrink-0 rounded border border-[color:var(--border-input)] bg-[var(--bg-panel)] px-1 text-[13px] text-foreground outline-none focus-visible:ring-2 focus-visible:ring-ring'
 // 行内图标钮（编辑 / 清理 / 删除），观感对齐工具栏图标钮
 const ICON_BTN =
   'flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
@@ -163,11 +108,9 @@ export function GitRepoSettings({
           </button>
         </div>
         <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-3">
-          <GeneralSection projectPath={projectPath} />
           <HiddenRemotesSection projectPath={projectPath} />
           <UserSection projectPath={projectPath} onConfirm={setConfirm} />
           <RemotesSection projectPath={projectPath} onConfirm={setConfirm} />
-          <IssueSection projectPath={projectPath} />
         </div>
         {confirm !== null && (
           <div
@@ -260,90 +203,6 @@ function FormRow({
   )
 }
 
-// —— 「常规」区 ——
-
-/** 显示名（blur / Enter 提交，空 = 回退目录名）+ 五个三态开关 + 提交排序，全部走 updateSettings。 */
-function GeneralSection({ projectPath }: { projectPath: string }): React.JSX.Element {
-  const settings = useGit((s) => gitState(s, projectPath).settings)
-  const updateSettings = useGit((s) => s.updateSettings)
-  const [nameDraft, setNameDraft] = useState('')
-  const storedName = settings?.name ?? null
-
-  // settings 快照落桶（面板打开时可能仍在途）后同步草稿；只依赖字符串值，编辑其它项不清稿
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 同步外部 store 异步落地的快照到本地草稿
-    setNameDraft(storedName ?? '')
-  }, [storedName])
-
-  const dirName = projectPath.split(/[\\/]/).filter(Boolean).pop() ?? projectPath
-
-  const commitName = (): void => {
-    const next = nameDraft.trim() === '' ? null : nameDraft.trim()
-    if (next !== storedName) void updateSettings(projectPath, { name: next })
-  }
-
-  return (
-    <Section title="常规">
-      <div className="space-y-1">
-        <div className="flex h-8 items-center justify-between gap-3">
-          <span className="shrink-0 text-[13px] text-foreground">显示名</span>
-          <Input
-            value={nameDraft}
-            onChange={(e) => setNameDraft(e.target.value)}
-            onBlur={commitName}
-            onKeyDown={(e) => {
-              if (e.nativeEvent.isComposing) return // 输入法合成中的 Enter 是确认候选
-              if (e.key === 'Enter') commitName()
-            }}
-            placeholder={dirName}
-            className="h-7 w-56"
-          />
-        </div>
-        {OVERRIDE_ROWS.map((row) => (
-          <div
-            key={row.key}
-            className="flex h-8 items-center justify-between gap-3"
-            title={row.title}
-          >
-            <span className="text-[13px] text-foreground">{row.label}</span>
-            <select
-              className={cn(SELECT, 'w-56')}
-              value={settings?.[row.key] ?? 'default'}
-              onChange={(e) =>
-                // 计算键的对象字面量会宽化成索引签名，显式收窄回 Partial<GitRepoSettings>
-                void updateSettings(projectPath, {
-                  [row.key]: e.target.value as BooleanOverride
-                } as Partial<GitRepoSettingsShape>)
-              }
-            >
-              <option value="default">默认（{row.def ? '开启' : '关闭'}）</option>
-              <option value="enabled">开启</option>
-              <option value="disabled">关闭</option>
-            </select>
-          </div>
-        ))}
-        <div className="flex h-8 items-center justify-between gap-3">
-          <span className="text-[13px] text-foreground">提交排序</span>
-          <select
-            className={cn(SELECT, 'w-56')}
-            value={settings?.commitOrdering ?? 'default'}
-            onChange={(e) =>
-              void updateSettings(projectPath, {
-                commitOrdering: e.target.value as 'default' | GitCommitOrdering
-              })
-            }
-          >
-            <option value="default">默认（提交时间）</option>
-            <option value="date">提交时间</option>
-            <option value="author-date">作者时间</option>
-            <option value="topo">拓扑顺序</option>
-          </select>
-        </div>
-      </div>
-    </Section>
-  )
-}
-
 // —— 「隐藏的远程」区 ——
 
 /** 勾选 = 隐藏该远程的分支（写 hideRemotes，数据键变更自动硬刷新）；无远程时整区不渲染。 */
@@ -362,13 +221,11 @@ function HiddenRemotesSection({ projectPath }: { projectPath: string }): React.J
             key={r}
             className="flex h-7 cursor-pointer select-none items-center gap-1.5 text-[13px] text-foreground"
           >
-            <input
-              type="checkbox"
-              className="accent-[var(--primary)]"
+            <Checkbox
               checked={hidden.includes(r)}
-              onChange={(e) =>
+              onCheckedChange={(checked) =>
                 void updateSettings(projectPath, {
-                  hideRemotes: nextHideRemotes(hidden, r, e.target.checked)
+                  hideRemotes: nextHideRemotes(hidden, r, checked)
                 })
               }
             />
@@ -526,29 +383,23 @@ function UserSection({
             />
           </FormRow>
           <FormRow label="写入位置">
-            <div className="flex items-center gap-3">
+            <RadioGroup
+              className="flex-row items-center gap-3"
+              value={form.location}
+              onValueChange={(v) => setForm({ ...form, location: v as 'local' | 'global' })}
+            >
               <label className="flex cursor-pointer select-none items-center gap-1.5 text-[13px] text-foreground">
-                <input
-                  type="radio"
-                  className="accent-[var(--primary)]"
-                  checked={form.location === 'local'}
-                  onChange={() => setForm({ ...form, location: 'local' })}
-                />
+                <RadioGroupItem value="local" />
                 本仓库
               </label>
               <label
                 className="flex cursor-pointer select-none items-center gap-1.5 text-[13px] text-foreground"
                 title="将该用户名与邮箱全局用于所有 Git 仓库（可按仓库覆盖）。"
               >
-                <input
-                  type="radio"
-                  className="accent-[var(--primary)]"
-                  checked={form.location === 'global'}
-                  onChange={() => setForm({ ...form, location: 'global' })}
-                />
+                <RadioGroupItem value="global" />
                 全局
               </label>
-            </div>
+            </RadioGroup>
           </FormRow>
           <div className="flex justify-end gap-2">
             <Button variant="ghost" size="sm" onClick={() => setForm(null)}>
@@ -755,11 +606,9 @@ function RemotesSection({
           </FormRow>
           {form.mode === 'add' && (
             <label className="flex cursor-pointer select-none items-center gap-1.5 pl-[72px] text-[13px] text-foreground">
-              <input
-                type="checkbox"
-                className="accent-[var(--primary)]"
+              <Checkbox
                 checked={form.fetchAfter}
-                onChange={(e) => setForm({ ...form, fetchAfter: e.target.checked })}
+                onCheckedChange={(checked) => setForm({ ...form, fetchAfter: checked })}
               />
               添加后立即获取
             </label>
@@ -778,88 +627,6 @@ function RemotesSection({
           </div>
         </div>
       )}
-    </Section>
-  )
-}
-
-// —— 「Issue 链接」区 ——
-
-/** 把提交信息中的 Issue 编号渲染为超链接的配置（存 settings.issueLinkingConfig，纯展示项不触发重拉）。 */
-function IssueSection({ projectPath }: { projectPath: string }): React.JSX.Element {
-  const settings = useGit((s) => gitState(s, projectPath).settings)
-  const updateSettings = useGit((s) => s.updateSettings)
-  const stored = settings?.issueLinkingConfig ?? null
-  const storedIssue = stored?.issue ?? null
-  const storedUrl = stored?.url ?? null
-  const [draft, setDraft] = useState({ issue: '', url: '' })
-  const [error, setError] = useState<string | null>(null)
-
-  // 已存配置落桶 / 被移除时同步草稿；只依赖字符串值，避免 settings 换引用清掉编辑中的输入
-  useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- 同步外部 store 异步落地的快照到本地草稿
-    setDraft({ issue: storedIssue ?? '', url: storedUrl ?? '' })
-    setError(null)
-  }, [storedIssue, storedUrl])
-
-  const save = (): void => {
-    const err = validateIssueLinking(draft.issue, draft.url)
-    setError(err)
-    if (err !== null) return
-    void updateSettings(projectPath, {
-      issueLinkingConfig: { issue: draft.issue.trim(), url: draft.url.trim() }
-    })
-  }
-
-  const removeCfg = (): void => {
-    setError(null)
-    void updateSettings(projectPath, { issueLinkingConfig: null })
-  }
-
-  const dirty = draft.issue !== (storedIssue ?? '') || draft.url !== (storedUrl ?? '')
-
-  return (
-    <Section title="Issue 链接">
-      <div className={HINT}>
-        将提交信息中的 Issue 编号转换为超链接。示例：正则 #(\d+)，URL
-        https://github.com/owner/repo/issues/$1。
-      </div>
-      <div className="mt-1.5 space-y-2">
-        <FormRow label="Issue 正则">
-          <Input
-            className="h-7 font-mono"
-            value={draft.issue}
-            onChange={(e) => setDraft({ ...draft, issue: e.target.value })}
-            placeholder="#(\d+)"
-            title="匹配 Issue 编号的正则表达式，须含至少一个捕获组 ( )，捕获内容将代入 Issue URL。"
-          />
-        </FormRow>
-        <FormRow label="Issue URL">
-          <Input
-            className="h-7 font-mono"
-            value={draft.url}
-            onChange={(e) => setDraft({ ...draft, url: e.target.value })}
-            placeholder="含 $1 占位符"
-            title="Issue 跟踪系统中的 URL，用 $1、$2 等占位符引用正则中捕获的内容。"
-          />
-        </FormRow>
-        {error !== null && (
-          <div className="pl-[72px] text-[12px] text-[color:var(--status-failed)]">{error}</div>
-        )}
-        <div className="flex justify-end gap-2">
-          {stored !== null && (
-            <Button variant="ghost" size="sm" onClick={removeCfg}>
-              移除
-            </Button>
-          )}
-          <Button
-            size="sm"
-            disabled={!dirty || draft.issue.trim() === '' || draft.url.trim() === ''}
-            onClick={save}
-          >
-            保存
-          </Button>
-        </div>
-      </div>
     </Section>
   )
 }
