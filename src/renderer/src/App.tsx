@@ -3,15 +3,16 @@ import { ProjectTree } from '@renderer/components/ProjectTree'
 import { Console } from '@renderer/components/Console'
 import { ConfigDialog } from '@renderer/components/ConfigDialog'
 import { resolveTabs, useApp } from '@renderer/store'
+import { useGit } from '@renderer/git-store'
+import { isGitTabKey } from '@shared/runnable'
 
-// 在当前项目的全部 Tab（运行会话 + 终端）间循环。dir: +1 下一个 / -1 上一个。
-// 与 Console 共用 resolveTabs 解析；占位（无激活 Tab）时按方向落到首/尾。
+// 在当前项目的全部 Tab（Git + 运行会话 + 终端）间循环。dir: +1 下一个 / -1 上一个。
+// 与 Console 共用 resolveTabs 解析。
 function cycleTab(projectPath: string, dir: 1 | -1): void {
   const st = useApp.getState()
-  const { runTabs, termTabs, activeKey } = resolveTabs(st, projectPath)
-  const ordered = [...runTabs.map((t) => t.key), ...termTabs.map((t) => t.key)]
-  if (ordered.length === 0) return
-  const idx = activeKey ? ordered.indexOf(activeKey) : -1
+  const { gitKey, runTabs, termTabs, activeKey } = resolveTabs(st, projectPath)
+  const ordered = [gitKey, ...runTabs.map((t) => t.key), ...termTabs.map((t) => t.key)]
+  const idx = ordered.indexOf(activeKey)
   const next =
     idx < 0
       ? dir === 1
@@ -43,10 +44,16 @@ function App(): React.JSX.Element {
     const offRemoved = window.api.onSessionRemoved((key) =>
       useApp.getState().handleSessionRemoved(key)
     )
+    // 仓库变化（.git 变动 / git 动作完成）→ 软刷新对应项目的图谱；从未打开过的项目跳过。
+    const offGit = window.api.onGitChanged((projectPath) => {
+      const git = useGit.getState()
+      if (git.projects[projectPath]) void git.load(projectPath)
+    })
     return () => {
       offTree()
       offStatus()
       offRemoved()
+      offGit()
     }
   }, [init])
 
@@ -69,12 +76,12 @@ function App(): React.JSX.Element {
         e.stopPropagation()
         st.newTerminal(proj)
       } else if (mod && !e.shiftKey && (e.key === 'w' || e.key === 'W')) {
-        // Cmd/Ctrl+W：关闭当前激活的 Tab（运行会话或终端；运行中则温和停止）。占位时无事发生；
+        // Cmd/Ctrl+W：关闭当前激活的 Tab（运行会话或终端；运行中则温和停止）。Git Tab 常驻不可关；
         // 但当前项目存在即一律吞掉，绝不冒泡到系统默认 Cmd+W 误关整个窗口（会连带杀掉所有终端/进程）。
         e.preventDefault()
         e.stopPropagation()
         const { activeKey } = resolveTabs(st, proj)
-        if (activeKey) st.closeTab(activeKey)
+        if (!isGitTabKey(activeKey)) st.closeTab(activeKey)
       } else if (e.ctrlKey && e.key === 'Tab') {
         // Ctrl+Tab / Ctrl+Shift+Tab：在当前项目的 Tab 间循环。
         e.preventDefault()

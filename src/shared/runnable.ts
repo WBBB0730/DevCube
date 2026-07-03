@@ -14,3 +14,13 @@ export function configKey(config: RunConfig): string {
     ? scriptKey(config.projectPath, config.scriptName)
     : `cmd${SEP}${config.id}`
 }
+
+// Git Tab 键：每项目一个常驻、非会话的 Tab（ADR-0005），与会话键共用同一套激活/循环逻辑。
+// 前缀 'git:' 不会与会话键撞车（script 键含 NUL、命令键 'cmd\0'、终端键 'terminal:<uuid>'）。
+export function gitTabKey(projectPath: string): string {
+  return `git:${projectPath}`
+}
+
+export function isGitTabKey(key: string): boolean {
+  return key.startsWith('git:')
+}

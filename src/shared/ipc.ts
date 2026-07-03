@@ -22,5 +22,17 @@ export const IPC = {
   configDelete: 'config:delete',
   configReorder: 'config:reorder',
   scriptPromote: 'script:promote',
-  openExternal: 'shell:open-external'
+  openExternal: 'shell:open-external',
+  openPath: 'shell:open-path',
+  gitLoad: 'git:load',
+  gitDetails: 'git:details',
+  gitFileDiff: 'git:file-diff',
+  gitTagDetails: 'git:tag-details',
+  gitRepoConfig: 'git:repo-config',
+  gitAction: 'git:action',
+  gitSettingsGet: 'git:settings-get',
+  gitSettingsSet: 'git:settings-set',
+  gitViewPrefsGet: 'git:view-prefs-get',
+  gitViewPrefsSet: 'git:view-prefs-set',
+  gitChanged: 'git:changed'
 } as const

@@ -7,76 +7,83 @@
 ## 设计 Token（仅深色）
 
 **表面 / 结构**
-| 变量 | 值 | 用途 |
-|---|---|---|
-| `--bg-deepest` | `#1E1F22` | 控制台底、最深区、分割线（当深色凹槽） |
-| `--bg-panel` | `#2B2D30` | 左树面板 / 工具栏 / 顶栏 / 输入框 / **弹出菜单** / **对话框（ConfigDialog）**背景（与列表一致） |
-| `--bg-row-hover` | `#393B40` | 树行 / 触发行 hover（较深） |
-| `--bg-button-hover` | `#515257` | 行内图标按钮 hover 底（较浅，与行 hover 拉开对比） |
-| `--bg-caret-row` | `#26282E` | 控制台当前行（可选） |
+
+| 变量                | 值        | 用途                                                                                            |
+| ------------------- | --------- | ----------------------------------------------------------------------------------------------- |
+| `--bg-deepest`      | `#1E1F22` | 控制台底、最深区、分割线（当深色凹槽）                                                          |
+| `--bg-panel`        | `#2B2D30` | 左树面板 / 工具栏 / 顶栏 / 输入框 / **弹出菜单** / **对话框（ConfigDialog）**背景（与列表一致） |
+| `--bg-row-hover`    | `#393B40` | 树行 / 触发行 hover（较深）                                                                     |
+| `--bg-button-hover` | `#515257` | 行内图标按钮 hover 底（较浅，与行 hover 拉开对比）                                              |
+| `--bg-caret-row`    | `#26282E` | 控制台当前行（可选）                                                                            |
 
 **文字 / 图标**
-| 变量 | 值 | 用途 |
-|---|---|---|
-| `--fg-primary` | `#DFE1E5` | 主文字 |
-| `--fg-icon` | `#CED0D6` | 主图标 |
-| `--fg-muted` | `#868A91` | 分组标题（候补 / 我的配置）、灰字说明 |
-| `--fg-disabled` | `#6F737A` | 禁用 / 失效引用 |
-| `--fg-dialog-title` | `#A7A8A9` | 弹窗标题 |
+
+| 变量                | 值        | 用途                                  |
+| ------------------- | --------- | ------------------------------------- |
+| `--fg-primary`      | `#DFE1E5` | 主文字                                |
+| `--fg-icon`         | `#CED0D6` | 主图标                                |
+| `--fg-muted`        | `#868A91` | 分组标题（候补 / 我的配置）、灰字说明 |
+| `--fg-disabled`     | `#6F737A` | 禁用 / 失效引用                       |
+| `--fg-dialog-title` | `#A7A8A9` | 弹窗标题                              |
 
 **边框 / 选中 / 强调**
-| 变量 | 值 | 用途 |
-|---|---|---|
-| `--border-input` | `#4F5157` | input / select / dialog 描边 |
-| `--separator` | `#1E1F22` | 面板间 1px 分隔 |
-| `--selection-row` | `#2D436E` | 选中行圆角填充 |
-| `--selection-row-hover` | `#35538F` | 选中（蓝底）行上按钮的 hover 底（非灰） |
-| `--accent` | `#3574F0` | 焦点环 / 强调（New UI 主蓝，⚠ 推导，非 .icls） |
-| `--link` | `#548AF7` | 链接（.icls HYPERLINK） |
+
+| 变量                    | 值        | 用途                                           |
+| ----------------------- | --------- | ---------------------------------------------- |
+| `--border-input`        | `#4F5157` | input / select / dialog 描边                   |
+| `--separator`           | `#1E1F22` | 面板间 1px 分隔                                |
+| `--selection-row`       | `#2D436E` | 选中行圆角填充                                 |
+| `--selection-row-hover` | `#35538F` | 选中（蓝底）行上按钮的 hover 底（非灰）        |
+| `--accent`              | `#3574F0` | 焦点环 / 强调（New UI 主蓝，⚠ 推导，非 .icls） |
+| `--link`                | `#548AF7` | 链接（.icls HYPERLINK）                        |
 
 **运行 / 停止按钮**
-| 变量 | 值 | 用途 |
-|---|---|---|
-| `--run-glyph` | `#5FAD65` | 空闲态绿三角 |
-| `--run-active-bg` | `#57965D` | 运行中（重新运行）实心底 |
-| `--run-active-bg-hover` | `#4E8752` | 运行中 hover |
-| `--stop-active-bg` | `#C94F4F` | 运行中停止按钮实心底 |
-| `--stop-active-bg-hover` | `#B54747` | 停止 hover |
+
+| 变量                     | 值        | 用途                     |
+| ------------------------ | --------- | ------------------------ |
+| `--run-glyph`            | `#5FAD65` | 空闲态绿三角             |
+| `--run-active-bg`        | `#57965D` | 运行中（重新运行）实心底 |
+| `--run-active-bg-hover`  | `#4E8752` | 运行中 hover             |
+| `--stop-active-bg`       | `#C94F4F` | 运行中停止按钮实心底     |
+| `--stop-active-bg-hover` | `#B54747` | 停止 hover               |
 
 **状态点**
-| 变量 | 值 | 状态 |
-|---|---|---|
-| `--status-idle` | `#868A91` | 空闲 / 从未运行 |
-| `--status-running` | `#5FAD65` | 运行中 |
+
+| 变量               | 值        | 状态               |
+| ------------------ | --------- | ------------------ |
+| `--status-idle`    | `#868A91` | 空闲 / 从未运行    |
+| `--status-running` | `#5FAD65` | 运行中             |
 | `--status-success` | `#57965D` | 成功退出（exit 0） |
-| `--status-failed` | `#C94F4F` | 失败退出（非 0） |
+| `--status-failed`  | `#C94F4F` | 失败退出（非 0）   |
 
 **滚动条（webkit）**
-| 变量 | 值 | 用途 |
-|---|---|---|
-| `--scrollbar-thumb` | `#404043` | 全局细滚动条滑块（透明轨道） |
-| `--scrollbar-thumb-hover` | `#626365` | 滑块 hover 变亮 |
+
+| 变量                      | 值        | 用途                         |
+| ------------------------- | --------- | ---------------------------- |
+| `--scrollbar-thumb`       | `#404043` | 全局细滚动条滑块（透明轨道） |
+| `--scrollbar-thumb-hover` | `#626365` | 滑块 hover 变亮              |
 
 **控制台（xterm 主题，取自 `Dark.icls`）**
-| 键 | 值 | 来源 |
-|---|---|---|
+
+| 键         | 值        | 来源                   |
+| ---------- | --------- | ---------------------- |
 | background | `#1E1F22` | CONSOLE_BACKGROUND_KEY |
-| foreground | `#BCBEC4` | CONSOLE_NORMAL_OUTPUT |
-| cursor | `#CED0D6` | CARET_COLOR |
-| selection | `#2D436E` | UI 选中蓝 |
+| foreground | `#BCBEC4` | CONSOLE_NORMAL_OUTPUT  |
+| cursor     | `#CED0D6` | CARET_COLOR            |
+| selection  | `#2D436E` | UI 选中蓝              |
 
 ANSI 16 色（取自 JetBrains 终端真实 Console Colors 调色板）：
 
-| | normal | bright |
-|---|---|---|
-| black | `#000000` | `#595959` |
-| red | `#F0524F` | `#FF4050` |
-| green | `#5C962C` | `#4FC414` |
-| yellow | `#A68A0D` | `#E5BF00` |
-| blue | `#3993D4` | `#1FB0FF` |
+|         | normal    | bright    |
+| ------- | --------- | --------- |
+| black   | `#000000` | `#595959` |
+| red     | `#F0524F` | `#FF4050` |
+| green   | `#5C962C` | `#4FC414` |
+| yellow  | `#A68A0D` | `#E5BF00` |
+| blue    | `#3993D4` | `#1FB0FF` |
 | magenta | `#A771BF` | `#ED7EED` |
-| cyan | `#00A3A3` | `#00E5E5` |
-| white | `#808080` | `#FFFFFF` |
+| cyan    | `#00A3A3` | `#00E5E5` |
+| white   | `#808080` | `#FFFFFF` |
 
 ## 排版 / 密度 / 形状
 
@@ -90,7 +97,9 @@ ANSI 16 色（取自 JetBrains 终端真实 Console Colors 调色板）：
 
 ## 图标
 
-Lucide（随 shadcn）：`Play`(运行) · `RotateCw`(重新运行) · `Square`(停止) · `MoreVertical`(更多⋮) · `Pencil`(编辑) · `Trash2`(删除) · `ChevronRight`(树展开 / 弹层箭头) · `FolderPlus`(添加项目) · `Plus`(新建命令 / 新建终端) · `Terminal`(终端 Tab) · `Search`/`ChevronUp`/`ChevronDown`/`X`(终端搜索框 / 关闭 Tab)。运行三角以 `--run-glyph` 上色。
+Lucide（随 shadcn）：`Play`(运行) · `RotateCw`(重新运行 / Git 刷新) · `Square`(停止) · `MoreVertical`(更多⋮) · `Pencil`(编辑) · `Trash2`(删除) · `ChevronRight`(树展开 / 弹层箭头) · `FolderPlus`(添加项目) · `Plus`(新建命令 / 新建终端) · `Terminal`(终端 Tab) · `Search`/`ChevronUp`/`ChevronDown`/`X`(终端搜索框 / 关闭 Tab)。运行三角以 `--run-glyph` 上色。
+
+Git 图谱专用：`GitBranch`(Git Tab) · `CloudDownload`(从远程获取) · `Settings`(仓库设置) · `LoaderCircle`(加载 / 动作进行中) · `TriangleAlert`(操作失败)。
 
 ## 布局
 
@@ -124,20 +133,38 @@ Lucide（随 shadcn）：`Play`(运行) · `RotateCw`(重新运行) · `Square`(
 
 ## Tab 栏（以项目为维度）
 
-右控制台顶部的 Tab 栏承载**当前项目**的全部 Tab——**一个 Tab = 一个活的会话**（Run Session 或 Terminal）。高 40px `h-10`、底 `--bg-panel`，与左标题栏同高同色；术语见 CONTEXT.md、取舍见 ADR-0003（含修订）：
+右控制台顶部的 Tab 栏承载**当前项目**的全部 Tab。除**常驻首位的 Git Tab**外，其余每个 Tab = 一个活的会话（Run Session 或 Terminal）。高 40px `h-10`、底 `--bg-panel`，与左标题栏同高同色；术语见 CONTEXT.md、取舍见 ADR-0003（含修订）、ADR-0005（Git Tab 破例）：
 
+- **Git Tab**：**每项目常驻第一个、不可关闭**（无 `×`）。`GitBranch` 图标 16px + 「Git」（14px）；左右内边距对称（`pl-2.5 pr-2.5`，因无 `×`）。选中态与 hover 同其它 Tab。它不是会话——数据状态存独立 git store，切走仅隐藏不卸载、首次可见才拉数据。
 - **运行会话 Tab**：**每条有会话的配置一个**（运行中或已退出未关闭）。状态点 + 配置名（14px）；`×` 常驻（背景仅 hover，圆形、颜色过渡）——运行中＝**停止并关闭**（温和停止，不二次确认），已退出＝关闭并弃输出（树上状态点回灰）。**顺序跟随树中配置顺序**；重跑复用原 Tab（单实例语义不变）。
 - **终端 Tab（Terminal）**：`Terminal` 图标 16px + 名称；`×` 同上（关闭即杀 shell）。默认名「终端 / 终端 (2) …」按项目内序号，**双击可改名**（仅内存态，重启不留）。**组内支持拖拽排序**（仅水平、钳制在终端组内，不与运行会话组混排；顺序纯内存）。整组排在运行会话组之后。
 - **末尾 `+`**（`Plus`，tooltip「新建终端」）：在当前项目根目录起一个交互 `$SHELL` 的新终端 Tab 并聚焦。
 - **选中态** 3px `--primary` 主色下描边、**hover** `--bg-row-hover`；Tab 过多时横向溢出、走全局细滚动条。
 - 每个 Tab 常驻各自的 xterm 实例（切走仅隐藏、不卸载，跨项目亦然），故后台会话仍在跑、滚动历史与现场保留；切回某项目恢复其激活 Tab。
-- **激活解析**（Console / Tab 循环 / 关闭快捷键共用一套规则）：每项目记「激活的 Tab」。**点配置** → 有会话聚焦其 Tab、没跑过**不动当前激活 Tab**；**运行 / 重跑** → 聚焦其 Tab 并聚焦终端；**点项目行** → 保持该项目原激活 Tab；**点 Tab** → 只切视图、**不改树选择**（树选择与 Tab 激活解耦）。关闭激活 Tab → 按 Tab 顺序落到左邻（其次右邻，一个不剩则占位）。首次进入某项目回落首个运行会话 Tab、再回落首个终端；占位仅当「一个 Tab 都没有」。
+- **激活解析**（Console / Tab 循环 / 关闭快捷键共用一套规则）：每项目记「激活的 Tab」。Tab 顺序 = Git Tab + 运行会话（树序）+ 终端。**点配置** → 有会话聚焦其 Tab、没跑过**不动当前激活 Tab**；**运行 / 重跑** → 聚焦其 Tab 并聚焦终端；**点项目行** → 保持该项目原激活 Tab；**点 Tab** → 只切视图、**不改树选择**（树选择与 Tab 激活解耦）。关闭激活 Tab → 按 Tab 顺序落到左邻（其次右邻）。首次进入某项目回落首个运行会话 Tab、再回落首个终端、最终回落 **Git Tab**——有项目即无占位态（Git Tab 常驻）。
 
 **当前项目与选中**：左树**项目行与配置行是同一层级的互斥选中**——单击项目行＝选中「项目本身」（右侧切到它的 Tab 栏、项目行以 `--selection-row` 高亮、清空配置选中）；单击配置行＝选中该配置（只高亮配置行，不连带高亮其项目行）。**折叠 / 展开改为只点左侧箭头**触发。新建 / 点选某终端也会把其项目设为当前。项目行上的「新建命令 / 更多」按钮，其 hover 底色跟随行态（选中蓝底行用 `--selection-row-hover`）。空项目（无可运行项）亦可点行进入并新建终端。
 
-**终端交互**：终端**始终可交互**（不像运行会话退出后转只读）；切到 / 新建即自动聚焦、可直接输入；shell 自行结束（`exit` / Ctrl-D / 崩溃）即**自动关闭**该 Tab。xterm 能力（Cmd/Ctrl+F 搜索、链接点击、WebGL、Unicode 11）运行会话与终端一致。**快捷键**：`Cmd/Ctrl+T` 在当前项目新建终端、`Cmd/Ctrl+W` 关闭当前激活的 Tab（运行会话或终端；运行中温和停止）、`Ctrl+Tab` / `Ctrl+Shift+Tab` 在当前项目的全部 Tab 间循环。
+**终端交互**：终端**始终可交互**（不像运行会话退出后转只读）；切到 / 新建即自动聚焦、可直接输入；shell 自行结束（`exit` / Ctrl-D / 崩溃）即**自动关闭**该 Tab。xterm 能力（Cmd/Ctrl+F 搜索、链接点击、WebGL、Unicode 11）运行会话与终端一致。**快捷键**：`Cmd/Ctrl+T` 在当前项目新建终端、`Cmd/Ctrl+W` 关闭当前激活的 Tab（运行会话或终端；运行中温和停止；Git Tab 无操作）、`Ctrl+Tab` / `Ctrl+Shift+Tab` 在当前项目的全部 Tab 间循环。
+
+## Git 图谱（Git Tab）
+
+移植自 vscode-git-graph，观感套进本工作区的深色（Darcula）体系；术语见 CONTEXT.md（Git Tab），产品范围见 `docs/prd/git-graph.md`。
+
+- **顶部工具栏**（高 40px、底 `--bg-panel`，同 Tab 栏）：分支筛选下拉 + 「显示远程分支」勾选 + 右侧图标钮组（`CloudDownload` 获取 / `RotateCw` 刷新 / `Search` 查找 / `Settings` 仓库设置）。获取钮仅在有远程时出现。
+- **提交表格**：紧凑行高 24px（图谱网格 `grid.y`）、13px。列 = 图谱 / 描述 / 日期 / 作者 / 提交哈希（8 位缩写，`font-mono`）。图谱列宽随分支线内容同步、上限视图 1/3，超出用 SVG 右缘 12px 渐隐。
+- **分支线配色**：12 色循环调色板 `--git-graph-color0..11`（沿用参考默认值）；行级 `data-color="i"` 注入 `--git-graph-color`，圆点/标签/HEAD 空心圆引用它。未提交更改行与其线为灰 `--git-uncommitted`。
+- **引用标签顺序**：stash → 当前分支（提前）→ 其余本地分支 → 远程分支；tag 独立一组。当前提交行加粗、HEAD 圆点空心。已合并进 HEAD 的 merge commit 半透明（mute）。
+- **详情面板**：吊底停靠（默认高 250px、顶边可拖 [100,600]），左右分栏可拖（比例 [0.2,0.8]）。左 = 提交/贮藏元信息（hash 可复制、父提交可跳、`mailto`/URL/issue 链接）、右 = 文件变更树（单链文件夹压缩、状态色 A/U 绿 · M/R 蓝 · D 红、`+N -M`）。
+- **Diff 面板**：应用内 unified diff，`absolute` 覆盖表格+详情。hunk 头底 `--diff-hunk-header-bg`、新增行 `--diff-add-bg`、删除行 `--diff-del-bg`、双栏行号 `tabular-nums`、`font-mono` 横向滚动不折行；二进制/超大（>2 万行）兜底，120ms 延迟加载态。
+- **查找**：`Cmd/Ctrl+F` 右上浮层（样式同终端搜索框），命中行高亮 `--find-match-bg`、当前项 `--find-match-active-bg`（取自 Shell.icls SEARCH_RESULT 绿）。
+- **右键菜单 / 对话框**：Base UI Menu（鼠标坐标虚拟 anchor）+ ConfigDialog 同款遮罩弹窗（`w-[440px] bg-panel`）；危险操作先确认，追问链（强删 / 重名替换 / 推标签预警）对齐参考。动作进行中遮罩（可隐藏继续看图）、失败转错误框。交互式变基在项目 Terminal Tab 里启动。
+- **键盘**：`Esc` 分层关闭（diff → 详情 → 菜单 → 对话框 → 查找）、`Cmd/Ctrl+R` 软刷新、`Cmd/Ctrl+F` 查找；焦点在输入控件时让位。
+- **链接放行**：详情里的链接经 `shell.openExternal`，放行 `http/https/mailto`。
+- **图标**：见「图标」节的「Git 图谱专用」一行。
 
 ## 待校准
 
 - ANSI 仅 `black`（`#27282E`）为**推导**（Shell.icls 无精确来源），其余已由导出逐项核验；`--accent`（`#3574F0`）为推导。
 - UI 主题（树选中蓝、按钮绿）来自手取；如需绝对像素级，可后续从 New UI 的 `theme.json` 再校一遍。
+- Git 图谱的 diff 配色（`--diff-add-bg` / `--diff-del-bg` / `--diff-*-word-bg` / `--diff-hunk-header-bg`）为 Darcula 系**推导**，未从 `.icls` 逐项核验；`--git-graph-color0..11` 沿用 vscode-git-graph 默认调色板，未按本工作区重新配色。

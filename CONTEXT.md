@@ -23,6 +23,9 @@ _Avoid_: Run, Process, Instance, Job
 **Terminal（终端）**：项目下的一个自由交互 shell 会话——在项目根目录起一个 `$SHELL`，可随意敲命令，**不绑定任何 Run Configuration / Discovered Script**。纯内存、不持久化；shell 进程结束即销毁。与 **Run Session** 并列但语义不同：Run Session 是"某条配置的一次执行"，Terminal 是"项目下的一个自由 shell"。一个项目可同时拥有任意多个 Terminal。
 _Avoid_: Shell（裸用）, 控制台
 
+**Git Tab（Git 标签页）**：项目的 Git 图谱视图——展示该项目仓库的提交历史图、引用与详情，并可从中执行 git 操作。每项目**恒有一个**、常驻 Tab 栏最前、不可关闭；它不是会话（无进程、无输出流），是 Tab 模型中唯一的非会话 Tab。项目不是 git 仓库时显示兜底提示。
+_Avoid_: Git 面板, 图谱 Tab, 仓库视图
+
 ### 关系
 
 - 一个 **Project** 拥有 0..N 个 **Discovered Script**（实时派生）和 0..N 个 **Run Configuration**（已保存）。
@@ -32,6 +35,7 @@ _Avoid_: Shell（裸用）, 控制台
 - 一条 **Run Configuration** 至多对应一个活跃的 **Run Session**；不同配置的 Run Session 可并发存在。
 - 一个 **Project** 拥有 0..N 个 **Terminal**（cwd 为项目根、不绑定任何 Run Configuration、随其 shell 退出而销毁）。
 - **Terminal** 与 **Run Session** 都是"活的会话"，但 Terminal 不由任何配置派生、彼此独立——不做单实例去重，同一项目可并存任意多个。
+- 一个 **Project** 恒有一个 **Git Tab**（非会话、不可关闭、常驻其 Tab 栏最前）；它与 Run Session / Terminal 的 Tab 共用激活与循环规则。
 
 ## Example dialogue
 

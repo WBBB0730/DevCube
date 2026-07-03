@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import {
   ChevronDown,
   ChevronUp,
+  GitBranch,
   Play,
   Plus,
   Search,
@@ -32,9 +33,11 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { SessionOutput, SessionStatus } from '@shared/types'
+import { gitTabKey } from '@shared/runnable'
 import { useApp, resolveTabs, type RunTabInfo, type TerminalTab } from '@renderer/store'
 import { cn } from '@renderer/lib/utils'
 import { xtermTheme } from '@renderer/lib/xterm-theme'
+import { GitPane } from '@renderer/components/git/GitPane'
 
 // 常驻 xterm 会各持一个 WebGL 上下文；浏览器/Electron 对同页上下文数有硬上限（约 16）。
 // 给全局加载数封顶，超出的终端回退默认渲染，避免挤掉后台终端的上下文造成静默降级。
@@ -67,7 +70,7 @@ export function Console(): React.JSX.Element {
   }
 
   // 与 cycleTab / 关闭快捷键共用同一解析规则（见 store.resolveTabs）。
-  const { runTabs, termTabs, activeKey } = resolveTabs(
+  const { gitKey, runTabs, termTabs, activeKey } = resolveTabs(
     { tree, sessions, terminals, activeTabByProject },
     currentProjectPath
   )
@@ -80,11 +83,22 @@ export function Console(): React.JSX.Element {
     <div className="flex h-full min-w-0 flex-1 flex-col bg-deepest">
       <TabBar
         projectPath={currentProjectPath}
+        gitKey={gitKey}
         runTabs={runTabs}
         termTabs={termTabs}
         activeKey={activeKey}
       />
       <div className="relative min-h-0 flex-1">
+        {/* Git 面板：每个项目常驻一个（切走仅隐藏；首次可见才拉数据，见 GitPane）。 */}
+        {tree.map((n) => {
+          const gk = gitTabKey(n.project.path)
+          const visible = n.project.path === currentProjectPath && gk === activeKey
+          return (
+            <div key={gk} className={cn('absolute inset-0', !visible && 'hidden')}>
+              <GitPane projectPath={n.project.path} visible={visible} />
+            </div>
+          )
+        })}
         {runSessionKeys.map((k) => {
           const visible = k === activeKey
           return (
@@ -101,7 +115,6 @@ export function Console(): React.JSX.Element {
             </div>
           )
         })}
-        {activeKey === null && <Placeholder />}
       </div>
     </div>
   )
@@ -144,14 +157,16 @@ const restrictToHorizontalWithinList: Modifier = ({
 
 function TabBar({
   projectPath,
+  gitKey,
   runTabs,
   termTabs,
   activeKey
 }: {
   projectPath: string
+  gitKey: string
   runTabs: RunTabInfo[]
   termTabs: TerminalTab[]
-  activeKey: string | null
+  activeKey: string
 }): React.JSX.Element {
   const newTerminal = useApp((s) => s.newTerminal)
   const reorderTerminals = useApp((s) => s.reorderTerminals)
@@ -169,6 +184,8 @@ function TabBar({
 
   return (
     <div className="flex h-10 shrink-0 items-center overflow-x-auto bg-panel px-2">
+      {/* Git Tab：每项目常驻第一个、不可关闭（ADR-0005）。 */}
+      <GitTabItem gitKey={gitKey} projectPath={projectPath} active={gitKey === activeKey} />
       {/* 运行会话 Tab：每条有会话的配置一个，顺序跟随树中配置顺序。 */}
       {runTabs.map((t) => (
         <RunTabItem key={t.key} tab={t} active={t.key === activeKey} projectPath={projectPath} />
@@ -199,6 +216,29 @@ function TabBar({
       >
         <Plus className="size-4" />
       </button>
+    </div>
+  )
+}
+
+// Git Tab：图标 + 「Git」，无关闭键（左右内边距对称 pl-2.5/pr-2.5，其余 Tab 右侧有 × 故 pr-2）。
+function GitTabItem({
+  gitKey,
+  projectPath,
+  active
+}: {
+  gitKey: string
+  projectPath: string
+  active: boolean
+}): React.JSX.Element {
+  const activateTab = useApp((s) => s.activateTab)
+  return (
+    <div
+      className={cn(TAB, 'pr-2.5')}
+      style={active ? TAB_ACTIVE : undefined}
+      onClick={() => activateTab(projectPath, gitKey)}
+    >
+      <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="text-foreground">Git</span>
     </div>
   )
 }

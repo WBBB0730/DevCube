@@ -6,6 +6,7 @@ import { initStore } from './store'
 import { registerIpc } from './ipc'
 import { killAllSessions } from './runner'
 import { closeAllWatchers } from './watcher'
+import { closeAllGitWatchers } from './git-watcher'
 
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -70,6 +71,7 @@ app.on('window-all-closed', () => {
   // macOS 关窗不退出：保留运行中的会话进程，重开窗口后仍能恢复运行状态。
   // 真正退出时由 before-quit 统一杀进程树；非 mac 下面的 app.quit() 会触发它。
   closeAllWatchers()
+  closeAllGitWatchers()
   if (process.platform !== 'darwin') {
     app.quit()
   }

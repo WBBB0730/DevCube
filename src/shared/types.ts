@@ -1,5 +1,8 @@
 // Run —— main / preload / renderer 三端共享的域模型与 IPC 契约。
 // 术语见 CONTEXT.md：Project / Discovered Script / Run Configuration（引用型·命令型）/ Run Session。
+// Git 图谱（Git Tab）的域模型与 API 在 ./git.ts，经 GitAPI 并入 RunAPI。
+
+import type { GitAPI, GitRepoSettings, GitViewPrefs } from './git'
 
 export type PackageManager = 'pnpm' | 'yarn' | 'npm' | 'bun'
 
@@ -47,6 +50,10 @@ export type RunConfig = ReferencedRunConfig | CommandRunConfig
 export interface PersistedState {
   projects: Project[]
   configs: RunConfig[]
+  /** 每项目 git 设置（键 = 项目绝对路径；存的是覆写快照，读取时与默认值合并） */
+  gitSettings: Record<string, GitRepoSettings>
+  /** 跨项目 git 视图偏好（查找选项、「不再提示」标记） */
+  gitViewPrefs: GitViewPrefs
 }
 
 /** 一个项目在聚合面板里的完整视图。 */
@@ -103,8 +110,8 @@ export interface TerminalInfo {
   projectPath: string
 }
 
-/** preload 经 contextBridge 暴露给渲染端的 API。随 slice 逐步实现。 */
-export interface RunAPI {
+/** preload 经 contextBridge 暴露给渲染端的 API。随 slice 逐步实现；Git 部分见 GitAPI。 */
+export interface RunAPI extends GitAPI {
   // —— 项目 / 树（slice 1） ——
   getTree(): Promise<ProjectNode[]>
   /** 打开系统文件夹选择器新增项目；返回更新后的树（用户取消则返回原树） */
@@ -146,6 +153,8 @@ export interface RunAPI {
   // —— 外链 ——
   /** 在系统默认浏览器打开 http/https 链接（终端可点击链接） */
   openExternal(url: string): Promise<void>
+  /** 用系统默认应用打开本地文件（Git 详情面板「打开文件」） */
+  openPath(path: string): Promise<void>
 
   // —— 事件订阅（返回取消函数） ——
   onTreeChanged(cb: (tree: ProjectNode[]) => void): () => void

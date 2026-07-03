@@ -2,6 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import { IPC } from '../shared/ipc'
 import type { CommandRunConfig, RunAPI, RunTarget } from '../shared/types'
+import type { GitAction, GitDetailsRequest, GitDiffRequest, GitLoadOptions } from '../shared/git'
 
 function subscribe<T>(channel: string, cb: (arg: T) => void): () => void {
   const listener = (_e: unknown, arg: T): void => cb(arg)
@@ -36,6 +37,25 @@ const api: RunAPI = {
     ipcRenderer.invoke(IPC.scriptPromote, projectPath, scriptName),
 
   openExternal: (url) => ipcRenderer.invoke(IPC.openExternal, url),
+  openPath: (path) => ipcRenderer.invoke(IPC.openPath, path),
+
+  gitLoad: (projectPath, options: GitLoadOptions) =>
+    ipcRenderer.invoke(IPC.gitLoad, projectPath, options),
+  gitDetails: (projectPath, request: GitDetailsRequest) =>
+    ipcRenderer.invoke(IPC.gitDetails, projectPath, request),
+  gitFileDiff: (projectPath, request: GitDiffRequest) =>
+    ipcRenderer.invoke(IPC.gitFileDiff, projectPath, request),
+  gitTagDetails: (projectPath, tagName) =>
+    ipcRenderer.invoke(IPC.gitTagDetails, projectPath, tagName),
+  gitRepoConfig: (projectPath) => ipcRenderer.invoke(IPC.gitRepoConfig, projectPath),
+  gitAction: (projectPath, action: GitAction) =>
+    ipcRenderer.invoke(IPC.gitAction, projectPath, action),
+  gitGetSettings: (projectPath) => ipcRenderer.invoke(IPC.gitSettingsGet, projectPath),
+  gitSetSettings: (projectPath, patch) =>
+    ipcRenderer.invoke(IPC.gitSettingsSet, projectPath, patch),
+  gitGetViewPrefs: () => ipcRenderer.invoke(IPC.gitViewPrefsGet),
+  gitSetViewPrefs: (patch) => ipcRenderer.invoke(IPC.gitViewPrefsSet, patch),
+  onGitChanged: (cb) => subscribe(IPC.gitChanged, cb),
 
   onTreeChanged: (cb) => subscribe(IPC.treeChanged, cb),
   onSessionOutput: (cb) => subscribe(IPC.sessionOutput, cb),

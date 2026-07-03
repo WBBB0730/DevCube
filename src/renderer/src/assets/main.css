@@ -36,6 +36,30 @@
   --scrollbar-thumb: #404043;
   --scrollbar-thumb-hover: #626365;
 
+  /* —— Git 图谱（DESIGN.md · Git Graph；调色板沿用 vscode-git-graph 默认） —— */
+  --git-graph-color0: #0085d9;
+  --git-graph-color1: #d9008f;
+  --git-graph-color2: #00d90a;
+  --git-graph-color3: #d98500;
+  --git-graph-color4: #a300d9;
+  --git-graph-color5: #ff0000;
+  --git-graph-color6: #00d9cc;
+  --git-graph-color7: #e138e8;
+  --git-graph-color8: #85d900;
+  --git-graph-color9: #dc5b23;
+  --git-graph-color10: #6f24d6;
+  --git-graph-color11: #ffcc00;
+  /* 未提交更改（灰）与 diff 面板配色（Darcula 系，⚠ 待校准） */
+  --git-uncommitted: #808080;
+  --diff-add-bg: #294436;
+  --diff-del-bg: #3f2c2e;
+  --diff-add-word-bg: #375239;
+  --diff-del-word-bg: #553a3d;
+  --diff-hunk-header-bg: #2b2d30;
+  /* 提交查找命中高亮（取自终端搜索同源的 Shell.icls SEARCH_RESULT 绿） */
+  --find-match-bg: #2d543f;
+  --find-match-active-bg: #3d7a49;
+
   /* —— shadcn 语义 token → 映射到 JetBrains —— */
   --radius: 0.25rem;
   --background: #2b2d30;

@@ -3,6 +3,15 @@ import { IPC } from '../shared/ipc'
 import { configKey } from '../shared/runnable'
 import type { CommandRunConfig, RunTarget } from '../shared/types'
 import {
+  resolveRepoSettings,
+  type GitAction,
+  type GitDetailsRequest,
+  type GitDiffRequest,
+  type GitLoadOptions,
+  type GitRepoSettings,
+  type GitViewPrefs
+} from '../shared/git'
+import {
   createCommandConfig,
   deleteConfig,
   promoteScript,
@@ -25,9 +34,21 @@ import {
   stop,
   writeStdin
 } from './runner'
-import { getConfigs, getProjects } from './store'
+import {
+  deleteGitSettings,
+  getConfigs,
+  getGitSettings,
+  getGitViewPrefs,
+  getProjects,
+  setGitSettings,
+  setGitViewPrefs
+} from './store'
 import { buildTree } from './tree'
 import { syncWatchers } from './watcher'
+import { getDetails, getFileDiff, getRepoConfig, getTagDetails, loadRepo } from './git-data'
+import { runGitAction } from './git-actions'
+import { syncGitWatchers } from './git-watcher'
+import { clearRepoRootCache, resolveRepoRoot } from './git-exec'
 
 let mainWindow: BrowserWindow | null = null
 let registered = false
@@ -37,6 +58,24 @@ export function emitTree(): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(IPC.treeChanged, buildTree())
   }
+}
+
+/** 某项目的仓库内容变化（.git 变动 / git 动作完成）：通知渲染端软刷新其图谱。 */
+function emitGitChanged(projectPath: string): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(IPC.gitChanged, projectPath)
+  }
+}
+
+// git 监听集合与项目集合对齐：先解析各项目的仓库根（非仓库为 null，watcher 会跳过）。
+async function refreshGitWatchers(): Promise<void> {
+  const projects = await Promise.all(
+    getProjects().map(async (p) => ({
+      projectPath: p.path,
+      repoRoot: await resolveRepoRoot(p.path)
+    }))
+  )
+  syncGitWatchers(projects, emitGitChanged)
 }
 
 function debounce(fn: () => void, ms: number): () => void {
@@ -58,6 +97,7 @@ function refreshWatchers(): void {
     getProjects().map((p) => p.path),
     onWatchEvent
   )
+  void refreshGitWatchers()
 }
 
 export function registerIpc(win: BrowserWindow): void {
@@ -93,6 +133,8 @@ export function registerIpc(win: BrowserWindow): void {
     }
     disposeTerminalsForProject(path) // 一并杀掉并清除它名下的全部 Terminal
     removeProject(path)
+    deleteGitSettings(path) // 连同它的 git 设置与仓库根缓存
+    clearRepoRootCache(path)
     refreshWatchers()
     return buildTree()
   })
@@ -149,8 +191,43 @@ export function registerIpc(win: BrowserWindow): void {
   })
 
   // —— 外链 ——
-  // 终端里点击链接 → 系统默认浏览器；仅放行 http/https，杜绝 file:// 等其他协议。
+  // 终端/详情里点击链接 → 系统默认浏览器；放行 http/https 与 mailto（作者邮箱），杜绝 file:// 等其他协议。
   ipcMain.handle(IPC.openExternal, (_e, url: string) => {
-    if (/^https?:\/\//i.test(url)) shell.openExternal(url)
+    if (/^(https?|mailto):/i.test(url)) shell.openExternal(url)
   })
+  // Git 详情面板「打开文件」→ 系统默认应用；只放行登记项目内的绝对路径。
+  ipcMain.handle(IPC.openPath, (_e, path: string) => {
+    if (getProjects().some((p) => path.startsWith(p.path + '/') || path === p.path)) {
+      void shell.openPath(path)
+    }
+  })
+
+  // —— Git 图谱 ——
+  // 读操作：每项目设置在 handler 层解析成有效值传入（git-data 不依赖 store，便于测试）。
+  ipcMain.handle(IPC.gitLoad, (_e, projectPath: string, options: GitLoadOptions) =>
+    loadRepo(projectPath, options, resolveRepoSettings(getGitSettings(projectPath)))
+  )
+  ipcMain.handle(IPC.gitDetails, (_e, projectPath: string, request: GitDetailsRequest) =>
+    getDetails(projectPath, request, true)
+  )
+  ipcMain.handle(IPC.gitFileDiff, (_e, projectPath: string, request: GitDiffRequest) =>
+    getFileDiff(projectPath, request)
+  )
+  ipcMain.handle(IPC.gitTagDetails, (_e, projectPath: string, tagName: string) =>
+    getTagDetails(projectPath, tagName)
+  )
+  ipcMain.handle(IPC.gitRepoConfig, (_e, projectPath: string) => getRepoConfig(projectPath))
+  // 写操作：单通道判别联合。完成后无论成败都推 git:changed（部分成功也要刷新）。
+  ipcMain.handle(IPC.gitAction, async (_e, projectPath: string, action: GitAction) => {
+    const result = await runGitAction(projectPath, action)
+    emitGitChanged(projectPath)
+    return result
+  })
+  // 设置与视图偏好：写返回权威快照。
+  ipcMain.handle(IPC.gitSettingsGet, (_e, projectPath: string) => getGitSettings(projectPath))
+  ipcMain.handle(IPC.gitSettingsSet, (_e, projectPath: string, patch: Partial<GitRepoSettings>) =>
+    setGitSettings(projectPath, patch)
+  )
+  ipcMain.handle(IPC.gitViewPrefsGet, () => getGitViewPrefs())
+  ipcMain.handle(IPC.gitViewPrefsSet, (_e, patch: Partial<GitViewPrefs>) => setGitViewPrefs(patch))
 }
