@@ -5,3 +5,6 @@ out
 .eslintcache
 *.log*
 .idea
+
+# TS 增量构建缓存
+*.tsbuildinfo
