@@ -1,6 +1,6 @@
 # 运行配置集中存储于应用 userData，而非写入各项目仓库
 
-Runlet 是个人的多项目聚合器，运行配置属于"用户的工作台"而非某个仓库的资产。因此把项目列表与 Run Configuration 集中存在 Electron `userData` 的一份 JSON 里，不在任何项目文件夹内落盘。Discovered Script 与 Run Session 不持久化。
+DevCube 是个人的多项目聚合器，运行配置属于"用户的工作台"而非某个仓库的资产。因此把项目列表与 Run Configuration 集中存在 Electron `userData` 的一份 JSON 里，不在任何项目文件夹内落盘。Discovered Script 与 Run Session 不持久化。
 
 ## Considered Options
 

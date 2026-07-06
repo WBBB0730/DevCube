@@ -46,7 +46,7 @@ export function getFindError(query: string, opts: FindOptions): string | null {
 }
 
 /**
- * 计算命中提交（按表格行序返回 hash 列表）。命中范围（§3.3 收敛到 Runlet 现有列）：
+ * 计算命中提交（按表格行序返回 hash 列表）。命中范围（§3.3 收敛到 DevCube 现有列）：
  * 提交消息 / 作者名 / 邮箱 / 完整 hash 前缀或 8 位缩写 / 本地分支名 / 远程分支名 /
  * tag 名 / stash selector。跳过未提交更改行；正则非法或产生零长度匹配时返回 []。
  */

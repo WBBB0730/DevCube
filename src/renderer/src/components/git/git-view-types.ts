@@ -36,6 +36,8 @@ export type GitMenuTarget =
     }
   /** 提交面板（未提交行详情）文件行的 … 菜单 / 右键 */
   | { kind: 'uncommitted-file'; file: GitFileChange; section: 'staged' | 'unstaged' }
+  /** 提交面板文件树多选批量操作（右键选区，files 为选区解析出的文件集合，同段） */
+  | { kind: 'uncommitted-files'; files: GitFileChange[]; section: 'staged' | 'unstaged' }
 
 export interface GitContextMenuState {
   /** 鼠标坐标（相对视口），菜单以虚拟 anchor 定位 */
@@ -81,10 +83,10 @@ export type GitDialogRequest =
   | { kind: 'tag-details'; name: string }
   /** CDV 文件行「将文件重置到此版本」 */
   | { kind: 'reset-file'; hash: string; filePath: string }
-  /** 提交面板文件行「撤销更改…」（未暂存段，工作区恢复为 index） */
-  | { kind: 'discard-file'; path: string }
-  /** 提交面板文件行「删除文件…」（未跟踪文件，从磁盘删除） */
-  | { kind: 'delete-untracked-file'; path: string }
+  /** 提交面板文件行「撤销更改…」（未暂存段，工作区恢复为 index；单选传一项、多选传多项） */
+  | { kind: 'discard-file'; paths: string[] }
+  /** 提交面板文件行「删除文件…」（未跟踪文件，从磁盘删除；单选传一项、多选传多项） */
+  | { kind: 'delete-untracked-file'; paths: string[] }
 
 // —— 详情面板 / diff 面板 ——
 

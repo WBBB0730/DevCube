@@ -228,6 +228,7 @@ function menuTargetAlive(
       return has(target.hash)
     case 'uncommitted':
     case 'uncommitted-file': // 提交面板文件行菜单：与未提交行同一存活条件（面板本身随行消失而关）
+    case 'uncommitted-files': // 提交面板批量菜单：同未提交行存活条件
       return commits.length > 0 && commits[0].hash === UNCOMMITTED
     case 'file':
       // fromHash 可能是未加载窗口之外的父提交，只校验 toHash（菜单从属的详情面板同样按它收敛）
@@ -451,14 +452,16 @@ export const useGit = create<GitStoreState>((set, get) => {
         loadError: null,
         ...reconcileOpenUi(cur, commits)
       })
-      // 展开详情含未提交侧时，工作区内容可能已变：后台刷新详情数据（不闪 loading）
+      // 展开详情含未提交侧时，工作区内容可能已变：刷新详情数据（不闪 loading）。此处 await
+      // 而非 void——让暂存/提交等静默动作的软刷新在两段列表落地后才返回，调用方（提交面板的
+      // 乐观勾选）据此可靠收口乐观态、不回弹；.catch 兜底防 refetch 意外 reject 污染 load。
       const after = gitState(get(), projectPath).expanded
       if (
         after &&
         !after.loading &&
         (after.hash === UNCOMMITTED || after.compareWith === UNCOMMITTED)
       ) {
-        void refetchExpanded(projectPath)
+        await refetchExpanded(projectPath).catch(() => {})
       }
       // config 已经拉过的项目顺带后台保鲜（工具栏拉取按钮的 upstream 判断依赖它；
       // 上游关系可能被动作改写，如 push --set-upstream）
@@ -721,7 +724,9 @@ export const useGit = create<GitStoreState>((set, get) => {
       const run = prev.then(async (): Promise<GitActionResult> => {
         let result: GitActionResult
         try {
-          result = await window.api.gitAction(projectPath, action)
+          // silent：静默动作自己在下方 await load 软刷新，让主进程别再推 git:changed，
+          // 否则 onGitChanged 会发起并发 load 与这次 load 抢代际号，使乐观勾选偶发闪现
+          result = await window.api.gitAction(projectPath, action, { silent: true })
         } catch {
           // invoke 通道异常兜底（主进程 handler 约定不 reject，此处仅防御）
           result = { status: 'error', errors: ['IPC 调用失败'] }

@@ -1,7 +1,7 @@
 // 分支筛选多选下拉（toolbar-widgets §1.3 / §2）：触发行显示当前筛选，浮层含过滤输入框、
 // 「全部分支」「当前分支」与分支列表。选中语义照参考实现 dropdown.ts：「全部分支」与具体项互斥、
 // 全不选回落全部分支、双击「全部分支」反选全部；每次选中变化立即 setBranchFilter（store 硬刷新）。
-// 「全部分支」在参考实现中 value 是空串，Runlet store 用 branchFilter=null 表达；「当前分支」用
+// 「全部分支」在参考实现中 value 是空串，DevCube store 用 branchFilter=null 表达；「当前分支」用
 // 哨兵 ['HEAD'] 表达（HEAD 由 git log 动态解析，checkout 后自动跟随），均仅此组件内换算。
 import { useRef, useState } from 'react'
 import { Check, ChevronDown } from 'lucide-react'

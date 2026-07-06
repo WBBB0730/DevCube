@@ -1,5 +1,5 @@
-appId: com.wbbb.runlet
-productName: Runlet
+appId: com.wbbb.devcube
+productName: DevCube
 directories:
   buildResources: build
 files:
@@ -12,7 +12,7 @@ files:
 asarUnpack:
   - resources/**
 win:
-  executableName: runlet
+  executableName: devcube
 nsis:
   artifactName: ${name}-${version}-setup.${ext}
   shortcutName: ${productName}

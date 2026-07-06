@@ -26,6 +26,7 @@ import { dropCommitPossible } from '@renderer/lib/git-graph'
 import { gitState, useGit } from '@renderer/git-store'
 import { cn } from '@renderer/lib/utils'
 import { toggleBranch } from './GitBranchDropdown'
+import { pathspecOf } from './git-details'
 import { abbrevHash } from './git-format'
 import type { GitDialogRequest, GitMenuTarget } from './git-view-types'
 
@@ -101,6 +102,8 @@ export function buildMenuItems(
       return fileMenu(target, ctx)
     case 'uncommitted-file':
       return uncommittedFileMenu(target, ctx)
+    case 'uncommitted-files':
+      return uncommittedFilesMenu(target, ctx)
   }
 }
 
@@ -396,8 +399,11 @@ function fileMenu(
 ): (GitMenuItem | 'divider')[] {
   const { actions } = ctx
   const { file, fromHash, toHash, isUncommitted } = target
-  // 可打开 diff：未跟踪恒可（主进程合成新增 hunk），其余需有行数（二进制为 null）
-  const diffable = file.type === 'U' || (file.additions !== null && file.deletions !== null)
+  // 可打开 diff：未跟踪恒可（主进程合成新增 hunk），其余需有行数（二进制为 null）；
+  // 目录型未跟踪条目（嵌套仓库 / 折叠目录）无单文件内容可比，排除（与 diffPossible 口径一致）
+  const diffable =
+    file.isDir !== true &&
+    (file.type === 'U' || (file.additions !== null && file.deletions !== null))
   // 非比较模式推断：详情面板的端点满足 from===to（根提交/stash 第三父）或 from 是 to 的父提交；
   // 目标契约不带比较标记，此为等价近似——「比较直接父子提交」会被视作详情模式，
   // 此时「重置到此版本」语义仍然正确，无害。
@@ -461,21 +467,20 @@ function uncommittedFileMenu(
   const { file, section } = target
   const items: (GitMenuItem | 'divider')[] = []
   if (section === 'staged') {
-    // R 需要同时传旧 / 新两个路径（reset 的 pathspec 覆盖重命名两端）
-    const paths = file.type === 'R' ? [file.oldFilePath, file.newFilePath] : [file.newFilePath]
     items.push({
       title: '取消暂存',
-      onClick: () => actions.runQuietAction({ kind: 'unstage-paths', paths })
+      onClick: () => actions.runQuietAction({ kind: 'unstage-paths', paths: pathspecOf(file) })
     })
   } else if (file.type === 'U') {
     items.push({
       title: '删除文件…',
-      onClick: () => actions.openDialog({ kind: 'delete-untracked-file', path: file.newFilePath })
+      onClick: () =>
+        actions.openDialog({ kind: 'delete-untracked-file', paths: [file.newFilePath] })
     })
   } else {
     items.push({
       title: '撤销更改…',
-      onClick: () => actions.openDialog({ kind: 'discard-file', path: file.newFilePath })
+      onClick: () => actions.openDialog({ kind: 'discard-file', paths: [file.newFilePath] })
     })
   }
   if (file.type !== 'D') {
@@ -502,6 +507,47 @@ function uncommittedFileMenu(
       onClick: () => actions.copyText(file.newFilePath, '文件路径')
     }
   )
+  return items
+}
+
+/**
+ * 提交面板文件树多选批量菜单：已暂存段「取消暂存所选」；未暂存段「暂存所选」+ 按类型分流的
+ * 「撤销所选更改」（跟踪文件）/「删除所选未跟踪文件」（未跟踪，均先弹危险确认）。
+ * 未暂存段无重命名（R 仅在已暂存），故撤销 / 删除按 newFilePath 逐文件传路径。
+ */
+function uncommittedFilesMenu(
+  target: Extract<GitMenuTarget, { kind: 'uncommitted-files' }>,
+  ctx: GitMenuContext
+): (GitMenuItem | 'divider')[] {
+  const { actions } = ctx
+  const { files, section } = target
+  const items: (GitMenuItem | 'divider')[] = []
+  if (section === 'staged') {
+    items.push({
+      title: `取消暂存所选 (${files.length})`,
+      onClick: () =>
+        actions.runQuietAction({ kind: 'unstage-paths', paths: files.flatMap(pathspecOf) })
+    })
+    return items
+  }
+  items.push({
+    title: `暂存所选 (${files.length})`,
+    onClick: () => actions.runQuietAction({ kind: 'stage-paths', paths: files.flatMap(pathspecOf) })
+  })
+  const discardPaths = files.filter((f) => f.type !== 'U').map((f) => f.newFilePath)
+  const deletePaths = files.filter((f) => f.type === 'U').map((f) => f.newFilePath)
+  if (discardPaths.length > 0) {
+    items.push({
+      title: `撤销所选更改 (${discardPaths.length})…`,
+      onClick: () => actions.openDialog({ kind: 'discard-file', paths: discardPaths })
+    })
+  }
+  if (deletePaths.length > 0) {
+    items.push({
+      title: `删除所选未跟踪文件 (${deletePaths.length})…`,
+      onClick: () => actions.openDialog({ kind: 'delete-untracked-file', paths: deletePaths })
+    })
+  }
   return items
 }
 

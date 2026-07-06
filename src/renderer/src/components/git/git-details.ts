@@ -135,6 +135,25 @@ export function flattenFileTree(root: FileTreeFolder, closed: ReadonlySet<string
   return rows
 }
 
+/** 文件的 pathspec：重命名（R）需同时覆盖旧 / 新两端（git add / reset），其余仅新路径。 */
+export function pathspecOf(file: GitFileChange): string[] {
+  return file.type === 'R' ? [file.oldFilePath, file.newFilePath] : [file.newFilePath]
+}
+
+/**
+ * 把文件树选区解析成去重文件列表：选区 key 为文件行的 newFilePath 或目录行的 folderPath 混合，
+ * 每个 key 匹配「自身即该文件」或「以 key + '/' 为前缀（目录下全部文件）」的文件。
+ * 按 files 原序输出（同段内 newFilePath 唯一，目录与其内文件同选也不重复）。
+ */
+export function filesInSelection(
+  files: readonly GitFileChange[],
+  selectedKeys: ReadonlySet<string>
+): GitFileChange[] {
+  return files.filter((f) =>
+    [...selectedKeys].some((key) => f.newFilePath === key || f.newFilePath.startsWith(`${key}/`))
+  )
+}
+
 /** 文件行 tooltip（§7.4）：可点性提示 • 状态文案，rename 附「旧 → 新」。 */
 export function fileRowTitle(file: GitFileChange): string {
   const click = diffPossible(file) ? '点击查看差异' : '无法查看差异（这是一个二进制文件）'

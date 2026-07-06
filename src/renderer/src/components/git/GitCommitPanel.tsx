@@ -4,15 +4,8 @@
 // unstage、区头 = 全部；同一文件可同时出现在两段——已暂存是暂存那一刻的快照）。
 // 两个组件由 GitCommitDetails 的左右栏分别挂载；暂存类操作走 runQuietAction 静默即时
 // （无进行中遮罩，PRD「静默即时」），错误由 GitDialogs 的错误框统一呈现。
-import { useMemo, useState } from 'react'
-import {
-  ChevronDown,
-  ChevronRight,
-  Ellipsis,
-  File as FileIcon,
-  Folder,
-  FolderOpen
-} from 'lucide-react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { ChevronRight, Ellipsis, File as FileIcon, Folder } from 'lucide-react'
 import type { GitFileChange } from '@shared/git'
 import { gitState, useGit } from '@renderer/git-store'
 import { cn } from '@renderer/lib/utils'
@@ -23,12 +16,29 @@ import {
   buildFileTree,
   diffPossible,
   fileRowTitle,
+  filesInSelection,
   flattenFileTree,
-  uncommittedDiffEndpoints
+  pathspecOf,
+  uncommittedDiffEndpoints,
+  type FileTreeRow
 } from './git-details'
+import { StickyTree, ROW_HEIGHT, type FolderRow, type FileRow } from './GitFileTree'
 
 /** selector 稳定空引用：uncommitted 未落地时避免每次返回新数组触发无谓重渲染。 */
 const EMPTY_FILES: GitFileChange[] = []
+
+/** 非活跃段的选区恒为空集：稳定引用，避免 FileSection 每次渲染新建 Set。 */
+const EMPTY_KEYS: ReadonlySet<string> = new Set()
+
+/**
+ * 文件树选区（提交面板多选，ADR-0006）：活跃段 + 选中行 key 集 + shift 范围选锚点。
+ * key = 文件行的 newFilePath 或目录行的 folderPath；跨段互斥，只保留一份、切段即清空。
+ */
+type SectionSelection = {
+  section: 'staged' | 'unstaged'
+  keys: ReadonlySet<string>
+  anchor: string | null
+}
 
 // —— 左栏：提交表单 ——
 
@@ -171,62 +181,122 @@ export function UncommittedFileSections({
     (s) => gitState(s, projectPath).expanded?.uncommitted?.unstaged ?? EMPTY_FILES
   )
   /**
-   * 乐观移动：点勾后立刻把文件挪到目标段（行位置与复选框态一起即时变），git 处理完（finally）
-   * 撤销覆盖、交还真实数据；失败也撤销（文件退回原段）。
+   * 乐观勾选（不移段）：点勾后把这些文件的 newFilePath 记入 pending（值 = 目标段），复选框
+   * 原地按目标态翻转、文件留在原段；期间面板锁定（locked）。真实两段数据反映该变更后由下方
+   * 逐文件对账清除，判据成立前复选框不回弹故无闪烁；失败则显式清除以还原复选框并解锁。
    */
-  const [moves, setMoves] = useState<
-    Map<string, { file: GitFileChange; to: 'staged' | 'unstaged' }>
-  >(new Map())
-
-  // 应用乐观移动派生某段的显示文件：无 move 时返回原数组（稳定引用，避免无谓重渲染）
-  const derive = (raw: GitFileChange[], section: 'staged' | 'unstaged'): GitFileChange[] => {
-    if (moves.size === 0) return raw
-    const entries = [...moves.values()]
-    const movedAway = new Set(
-      entries.filter((m) => m.to !== section).map((m) => m.file.newFilePath)
-    )
-    const kept = raw.filter((f) => !movedAway.has(f.newFilePath))
-    const movedIn = entries
-      .filter((m) => m.to === section && !kept.some((k) => k.newFilePath === m.file.newFilePath))
-      .map((m) => m.file)
-    return movedAway.size === 0 && movedIn.length === 0 ? raw : [...kept, ...movedIn]
+  const [pending, setPending] = useState<Map<string, 'staged' | 'unstaged'>>(new Map())
+  /** 文件树选区（跨两段互斥，只保留一份）：切段即清空；批量 / 勾选致列表变动后清空。 */
+  const [selection, setSelection] = useState<SectionSelection | null>(null)
+  // 两段列表落地新引用（软刷新后文件移段 / 消失）即清空选区并对账 pending：旧 key 已失效。
+  // 渲染期比对上一份引用（React「渲染中调整 state」模式，非 effect，避免级联渲染告警）。
+  const [prevLists, setPrevLists] = useState({ staged: rawStaged, unstaged: rawUnstaged })
+  if (prevLists.staged !== rawStaged || prevLists.unstaged !== rawUnstaged) {
+    setPrevLists({ staged: rawStaged, unstaged: rawUnstaged })
+    setSelection(null)
+    // 逐文件对账：真实数据已反映该 pending 项即清除（暂存 = 已进暂存段且离未暂存段；
+    // 取消暂存 = 已离暂存段）。判据成立前不清、复选框不回弹，故无闪烁；pending 清空即解锁。
+    if (pending.size > 0) {
+      const stagedSet = new Set(rawStaged.map((f) => f.newFilePath))
+      const unstagedSet = new Set(rawUnstaged.map((f) => f.newFilePath))
+      const next = new Map(pending)
+      let changed = false
+      for (const [key, to] of pending) {
+        const done =
+          to === 'staged' ? stagedSet.has(key) && !unstagedSet.has(key) : !stagedSet.has(key)
+        if (done) {
+          next.delete(key)
+          changed = true
+        }
+      }
+      if (changed) setPending(next)
+    }
   }
+  /** pending 非空 = 有暂存操作在途：锁定暂存类控件（复选框 / 区头「全部」）禁止操作。 */
+  const locked = pending.size > 0
+  /** 某段报告新选区：空集归一为 null（无选中），非空则记为该段的活跃选区。 */
+  const selectInSection =
+    (section: 'staged' | 'unstaged') =>
+    (keys: ReadonlySet<string>, anchor: string | null): void =>
+      setSelection(keys.size === 0 ? null : { section, keys, anchor })
 
-  const toggleFile = async (file: GitFileChange, from: 'staged' | 'unstaged'): Promise<void> => {
+  /**
+   * 对一批文件乐观勾选 + 一次 runQuietAction（单文件 / 目录 / 联合选区 / 区头「全部」共用）。
+   * all=true 时 git 侧用空 paths（add -A / reset 全部，避免几百路径撑爆命令行），乐观 pending
+   * 仍按传入的整段文件逐一记录。成功后由对账清 pending；失败在此显式清除还原复选框并解锁。
+   */
+  const runToggle = async (
+    targets: GitFileChange[],
+    from: 'staged' | 'unstaged',
+    all: boolean
+  ): Promise<void> => {
+    if (targets.length === 0) return
     const to = from === 'staged' ? 'unstaged' : 'staged'
-    const key = file.newFilePath
-    setMoves((prev) => new Map(prev).set(key, { file, to }))
-    try {
-      await useGit.getState().runQuietAction(projectPath, {
-        kind: from === 'staged' ? 'unstage-paths' : 'stage-paths',
-        // R 需要同时传旧 / 新两个路径（pathspec 覆盖重命名两端）
-        paths: file.type === 'R' ? [file.oldFilePath, file.newFilePath] : [file.newFilePath]
-      })
-    } finally {
-      setMoves((prev) => {
+    setPending((prev) => {
+      const next = new Map(prev)
+      for (const f of targets) next.set(f.newFilePath, to)
+      return next
+    })
+    const result = await useGit.getState().runQuietAction(projectPath, {
+      kind: from === 'staged' ? 'unstage-paths' : 'stage-paths',
+      // R 需要同时传旧 / 新两个路径（pathspec 覆盖重命名两端）；all=空 = 全部
+      paths: all ? [] : targets.flatMap(pathspecOf)
+    })
+    if (result.status !== 'ok') {
+      setPending((prev) => {
         const next = new Map(prev)
-        next.delete(key)
+        for (const f of targets) next.delete(f.newFilePath)
         return next
       })
     }
   }
 
+  /** 两段起点锚 ref：点标题经锚 scrollIntoView 定位（标题恒 sticky，直接滚它不动）。 */
+  const stagedAnchorRef = useRef<HTMLDivElement>(null)
+  const unstagedAnchorRef = useRef<HTMLDivElement>(null)
+  const scrollToSection = (section: 'staged' | 'unstaged'): void => {
+    const el = section === 'staged' ? stagedAnchorRef.current : unstagedAnchorRef.current
+    el?.scrollIntoView({ block: 'start' })
+  }
+
+  // 根层是唯一滚动容器（h-full overflow-auto）；两段标题以「全部内容」为约束框做双向 sticky：
+  // 已暂存钉顶、未暂存未到时钉底预告 / 滚到时钉在已暂存下方，故两段标题恒可见，目录在其下逐级
+  // 吸顶。点标题经锚 scrollIntoView 跳到对应段；末尾留白条给底部一点 padding。
   return (
-    <div>
+    <div className="h-full overflow-auto">
       <FileSection
         projectPath={projectPath}
         section="staged"
-        files={derive(rawStaged, 'staged')}
-        onToggleFile={toggleFile}
+        files={rawStaged}
+        pending={pending}
+        locked={locked}
+        onToggle={(targets, section) => void runToggle(targets, section, false)}
+        onToggleAll={() => void runToggle(rawStaged, 'staged', true)}
+        selectedKeys={selection?.section === 'staged' ? selection.keys : EMPTY_KEYS}
+        anchor={selection?.section === 'staged' ? selection.anchor : null}
+        onSelect={selectInSection('staged')}
+        anchorRef={stagedAnchorRef}
+        onHeaderClick={() => scrollToSection('staged')}
       />
       {/* 两段间 1px 分隔 */}
       <div className="my-1 h-px bg-[var(--separator)]" />
       <FileSection
         projectPath={projectPath}
         section="unstaged"
-        files={derive(rawUnstaged, 'unstaged')}
-        onToggleFile={toggleFile}
+        files={rawUnstaged}
+        pending={pending}
+        locked={locked}
+        onToggle={(targets, section) => void runToggle(targets, section, false)}
+        onToggleAll={() => void runToggle(rawUnstaged, 'unstaged', true)}
+        selectedKeys={selection?.section === 'unstaged' ? selection.keys : EMPTY_KEYS}
+        anchor={selection?.section === 'unstaged' ? selection.anchor : null}
+        onSelect={selectInSection('unstaged')}
+        anchorRef={unstagedAnchorRef}
+        onHeaderClick={() => scrollToSection('unstaged')}
       />
+      {/* 底部留白条：sticky 钉底 + bg-deepest 遮挡——既给内容留 8px 底距，又盖住未暂存标题
+          bottom-2 悬起后其下 8px 缝里滚过的行（否则间距内会漏出内容）。 */}
+      <div className="sticky bottom-0 z-30 h-2 bg-deepest" aria-hidden />
     </div>
   )
 }
@@ -240,25 +310,62 @@ function FileSection({
   projectPath,
   section,
   files,
-  onToggleFile
+  pending,
+  locked,
+  onToggle,
+  onToggleAll,
+  selectedKeys,
+  anchor,
+  onSelect,
+  anchorRef,
+  onHeaderClick
 }: {
   projectPath: string
   section: 'staged' | 'unstaged'
   files: GitFileChange[]
-  /** 勾选/取消单文件：交由父组件做乐观移动 + git（本段只负责触发） */
-  onToggleFile: (file: GitFileChange, section: 'staged' | 'unstaged') => void
+  /** 乐观勾选态：newFilePath → 目标段；含此文件即复选框按目标态原地翻转（不移段） */
+  pending: ReadonlyMap<string, 'staged' | 'unstaged'>
+  /** 有暂存操作在途：禁用本段所有暂存类控件（复选框 / 区头「全部」） */
+  locked: boolean
+  /** 勾选/取消一批文件（单文件 / 目录 / 联合选区）：交由父组件做乐观勾选 + git */
+  onToggle: (targets: GitFileChange[], section: 'staged' | 'unstaged') => void
+  /** 区头「全部」：暂存 / 取消暂存整段（git 侧走空 paths，父组件按整段做乐观勾选） */
+  onToggleAll: () => void
+  /** 本段当前选中的行 key 集（文件 newFilePath 或目录 folderPath）；非活跃段为空集 */
+  selectedKeys: ReadonlySet<string>
+  /** shift 范围选锚点行 key；null = 无锚点 */
+  anchor: string | null
+  /** 选区变化上报父组件（父负责套上本段身份、维持跨段互斥） */
+  onSelect: (keys: ReadonlySet<string>, anchor: string | null) => void
+  /** 段起点锚 ref：父组件据此 scrollIntoView 到本段（标题恒 sticky，须靠锚定位） */
+  anchorRef: React.Ref<HTMLDivElement>
+  /** 点标题：滚动到本段 */
+  onHeaderClick: () => void
 }): React.JSX.Element {
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set())
+  /** 整段折叠态（标题行即本段顶级目录）：默认展开，折叠时段内容整体隐藏。 */
+  const [sectionOpen, setSectionOpen] = useState(true)
   const tree = useMemo(() => buildFileTree(files), [files])
   const rows = useMemo(() => flattenFileTree(tree, closed), [tree, closed])
   const isStaged = section === 'staged'
+  /** 复选框有效勾选态：pending 中的文件按目标段翻转，否则按所在段（isStaged）。 */
+  const fileChecked = (file: GitFileChange): boolean => {
+    const to = pending.get(file.newFilePath)
+    return to ? to === 'staged' : isStaged
+  }
+  /** 文件夹勾选态：其下文件全部有效勾选为真才勾（无 pending 时恒等于 isStaged，短路）。 */
+  const folderChecked = (folderPath: string): boolean => {
+    if (pending.size === 0) return isStaged
+    const dirFiles = filesInSelection(files, new Set([folderPath]))
+    return dirFiles.length > 0 && dirFiles.every(fileChecked)
+  }
   // 本段的 diff 端点（已暂存 HEAD↔index / 未暂存 index↔工作区）
   const { fromHash: secFrom, toHash: secTo } = uncommittedDiffEndpoints(section)
-  // 当前打开 diff 的文件身份（端点 + 路径）：据此高亮本段中被选中的文件行
-  const selectedKey = useGit((s) => {
-    const d = gitState(s, projectPath).diffView
-    return d !== null ? `${d.fromHash}|${d.toHash}|${d.file.newFilePath}` : null
-  })
+  // 本段选区解析出的文件（联合勾选：点选区内某行的复选框 → 对整批生效）
+  const selFiles = useMemo(() => filesInSelection(files, selectedKeys), [files, selectedKeys])
+  /** 本段标题上方的 sticky 标题数（含自身）：已暂存 1、未暂存 2（其上还有已暂存标题）。
+   *  段内目录的吸顶 top 与层叠 z 都据它下推，故未暂存段目录钉在两条标题之下。 */
+  const headerLevels = isStaged ? 1 : 2
 
   const toggleFolder = (folderPath: string): void => {
     setClosed((prev) => {
@@ -269,31 +376,83 @@ function FileSection({
     })
   }
 
-  /** R 需要同时传旧 / 新两个路径（git add / reset 的 pathspec 覆盖重命名两端）。 */
-  const pathsOf = (file: GitFileChange): string[] =>
-    file.type === 'R' ? [file.oldFilePath, file.newFilePath] : [file.newFilePath]
-
-  /** 区头「全部」开关：空数组 = 全部（add -A / reset）。 */
-  const toggleAll = (): void => {
-    void useGit.getState().runQuietAction(projectPath, {
-      kind: isStaged ? 'unstage-paths' : 'stage-paths',
-      paths: []
-    })
-  }
-
-  /** 目录行复选框：暂存 / 取消暂存该目录下的全部文件（本段内文件同暂存态，无三态）。 */
-  const toggleFolder2 = (folderPath: string): void => {
-    const prefix = `${folderPath}/`
-    const paths = files.filter((f) => f.newFilePath.startsWith(prefix)).flatMap(pathsOf)
-    if (paths.length === 0) return
-    void useGit.getState().runQuietAction(projectPath, {
-      kind: isStaged ? 'unstage-paths' : 'stage-paths',
-      paths
-    })
-  }
-
   const openFileDiff = (file: GitFileChange): void => {
     void useGit.getState().openDiff(projectPath, file, secFrom, secTo)
+  }
+
+  /** 行的稳定选中 key：目录用 folderPath、文件用 newFilePath（同段内互不冲突）。 */
+  const rowKey = (row: FileTreeRow): string =>
+    row.kind === 'folder' ? row.folderPath : files[row.index].newFilePath
+
+  /**
+   * 行点击选中（文件管理器式）：shift = 从锚点到当前的连续可见区间（替换、锚点不变）；
+   * cmd/ctrl = 加减选该行并成为新锚点；普通单击 = 单选该行、文件行同时打开 diff。
+   */
+  const selectRow = (e: React.MouseEvent, row: FileTreeRow): void => {
+    const key = rowKey(row)
+    if (e.shiftKey && anchor !== null) {
+      const keyList = rows.map(rowKey)
+      const from = keyList.indexOf(anchor)
+      const to = keyList.indexOf(key)
+      if (from !== -1 && to !== -1) {
+        const [lo, hi] = from <= to ? [from, to] : [to, from]
+        onSelect(new Set(keyList.slice(lo, hi + 1)), anchor)
+        return
+      }
+    }
+    if (e.metaKey || e.ctrlKey) {
+      const next = new Set(selectedKeys)
+      if (next.has(key)) next.delete(key)
+      else next.add(key)
+      onSelect(next, key)
+      return
+    }
+    onSelect(new Set([key]), key)
+    if (row.kind === 'file') {
+      const file = files[row.index]
+      if (diffPossible(file)) openFileDiff(file)
+    }
+  }
+
+  /**
+   * 右键出菜单：右键选区外的行先把选区重置为该行（对齐文件管理器）。选区解析出单个文件且
+   * 右键的是文件行 → 单文件菜单；否则（多文件 / 目录）→ 批量菜单。
+   */
+  const openRowMenu = (e: React.MouseEvent, row: FileTreeRow): void => {
+    e.preventDefault()
+    e.stopPropagation()
+    const key = rowKey(row)
+    const keys = selectedKeys.has(key) ? selectedKeys : new Set([key])
+    if (!selectedKeys.has(key)) onSelect(keys, key)
+    const selFiles = filesInSelection(files, keys)
+    if (selFiles.length === 0) return
+    useGit.getState().openContextMenu(projectPath, {
+      x: e.clientX,
+      y: e.clientY,
+      target:
+        selFiles.length === 1 && row.kind === 'file'
+          ? { kind: 'uncommitted-file', file: selFiles[0], section }
+          : { kind: 'uncommitted-files', files: selFiles, section }
+    })
+  }
+
+  /** 区头「全部」开关：交父组件乐观勾选整段并走空 paths（add -A / reset）。 */
+  const toggleAll = (): void => {
+    onToggleAll()
+  }
+
+  /** 文件行复选框：在选区内则对整个选区联合切换，否则只切该文件（都走父组件乐观移动）。 */
+  const toggleFileStage = (file: GitFileChange): void => {
+    const inSel = selFiles.some((f) => f.newFilePath === file.newFilePath)
+    onToggle(inSel ? selFiles : [file], section)
+  }
+
+  /** 目录行复选框：目录在选区内则对整个选区联合切换，否则切该目录下全部文件。 */
+  const toggleFolderStage = (folderPath: string): void => {
+    const dirFiles = selectedKeys.has(folderPath)
+      ? selFiles
+      : filesInSelection(files, new Set([folderPath]))
+    onToggle(dirFiles, section)
   }
 
   const openMenu = (x: number, y: number, file: GitFileChange): void => {
@@ -304,134 +463,187 @@ function FileSection({
     })
   }
 
-  return (
-    <div>
-      {/* 区头：全部开关 + 标题 + 计数（观感对齐仓库设置面板的 Section 小标题） */}
-      <label
+  // 目录行：sticky 逐级吸顶（吸顶 top / z 按 stickyLevel 下推，让位上方标题）；圆角块观感对齐
+  // 配置行，bg-deepest 兜底供 sticky 时盖住滚过的下方行；箭头旋转过渡、文件夹图标恒定不换。
+  const renderFolder = (row: FolderRow): ReactNode => {
+    const isSelected = selectedKeys.has(row.folderPath)
+    const vDepth = row.depth + 1 // 缩进层级（标题占顶层，内容整体缩进一级）
+    const stickyLevel = row.depth + headerLevels // 吸顶层数（含上方标题）：决定 top 与 z
+    return (
+      <div
         className={cn(
-          'flex h-7 select-none items-center gap-1.5 px-2 text-[12px] font-medium text-muted-foreground',
-          files.length > 0 && 'cursor-pointer'
+          'sticky mx-1 flex h-[22px] cursor-pointer select-none items-center gap-1.5 rounded pr-2 text-[13px] transition-colors',
+          isSelected ? 'bg-[var(--selection-row)]' : 'bg-deepest hover:bg-[var(--bg-row-hover)]'
         )}
+        style={{
+          top: stickyLevel * ROW_HEIGHT,
+          zIndex: 30 - stickyLevel,
+          paddingLeft: 8 + vDepth * 16
+        }}
+        onClick={(e) => selectRow(e, row)}
+        onDoubleClick={() => toggleFolder(row.folderPath)}
+        onContextMenu={(e) => openRowMenu(e, row)}
       >
-        <Checkbox
-          // 已暂存区头 = 「有内容即勾满，点击全取消」；未暂存区头 = 恒未勾，点击全部暂存
-          checked={isStaged ? files.length > 0 : false}
-          disabled={files.length === 0}
-          onCheckedChange={() => toggleAll()}
-        />
+        {/* chevron 单独响应开合：stopPropagation 防止连带触发选中 */}
+        <span
+          className="flex shrink-0"
+          onClick={(e) => {
+            e.stopPropagation()
+            toggleFolder(row.folderPath)
+          }}
+        >
+          <ChevronRight
+            className={cn(
+              'size-3.5 text-[color:var(--fg-icon)] transition-transform',
+              row.open && 'rotate-90'
+            )}
+          />
+        </span>
+        {/* 复选框放在箭头之后；包一层 stopPropagation 防止点勾连带触发选中 */}
+        <span className="flex shrink-0" onClick={(e) => e.stopPropagation()}>
+          <Checkbox
+            checked={folderChecked(row.folderPath)}
+            disabled={locked}
+            onCheckedChange={() => toggleFolderStage(row.folderPath)}
+          />
+        </span>
+        <Folder className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
+        <span
+          className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
+          style={isSelected ? { color: 'var(--fg-primary)' } : undefined}
+        >
+          {row.name}
+        </span>
+      </div>
+    )
+  }
+
+  const renderFile = (row: FileRow): ReactNode => {
+    const file = files[row.index]
+    const colour = FILE_STATUS_COLOR[file.type]
+    const isSelected = selectedKeys.has(file.newFilePath)
+    const vDepth = row.depth + 1
+    return (
+      <div
+        key={`f-${row.index}`}
+        title={fileRowTitle(file)}
+        className={cn(
+          // mx-1 + rounded：行背景内缩成圆角块，观感对齐最左配置行
+          'group mx-1 flex h-[22px] cursor-pointer items-center gap-1.5 rounded pr-2 text-[13px] transition-colors',
+          // 选中行高亮（蓝底固定，不随 hover 变色，同左侧项目树）
+          isSelected ? 'bg-[var(--selection-row)]' : 'hover:bg-[var(--bg-row-hover)]'
+        )}
+        // checkbox 与文件夹行对齐置首位，其后补 chevron 列占位让文件图标与文件夹图标对齐
+        style={{ paddingLeft: 8 + vDepth * 16 }}
+        onClick={(e) => selectRow(e, row)}
+        onContextMenu={(e) => openRowMenu(e, row)}
+      >
+        {/* chevron 列占位（对齐文件夹箭头）；复选框放其后、紧挨文件名 */}
+        <span className="size-3.5 shrink-0" />
+        {/* 包一层 stopPropagation 防止点勾连带选中 / 打开 diff；勾选态随乐观勾选即时翻转 */}
+        <span className="flex shrink-0" onClick={(e) => e.stopPropagation()}>
+          <Checkbox
+            checked={fileChecked(file)}
+            disabled={locked}
+            onCheckedChange={() => toggleFileStage(file)}
+          />
+        </span>
+        <FileIcon className="size-3.5 shrink-0" style={{ color: colour }} />
+        <span
+          className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+          // 选中行文字变白（#DFE1E5），压过状态色以在蓝底上清晰
+          style={{ color: isSelected ? 'var(--fg-primary)' : colour }}
+        >
+          {row.name}
+        </span>
+        {(file.type === 'M' || file.type === 'R') &&
+          file.additions !== null &&
+          file.deletions !== null && (
+            <span className="shrink-0 text-[12px]">
+              <span className="text-status-success" title={`${file.additions} 处添加`}>
+                +{file.additions}
+              </span>
+              <span className="ml-1 text-status-failed" title={`${file.deletions} 处删除`}>
+                -{file.deletions}
+              </span>
+            </span>
+          )}
+        {/* 行尾 … 菜单钮：默认隐藏、行 hover 才浮出（避免每行常驻噪点） */}
+        <button
+          type="button"
+          title="更多操作"
+          className="ml-auto flex size-6 shrink-0 items-center justify-center rounded opacity-0 transition-colors hover:bg-[var(--bg-button-hover)] group-hover:opacity-100"
+          onClick={(e) => {
+            e.stopPropagation()
+            const rect = e.currentTarget.getBoundingClientRect()
+            openMenu(rect.left, rect.bottom, file) // 菜单锚在按钮左下角
+          }}
+        >
+          <Ellipsis className="size-3.5 text-[color:var(--fg-icon)]" />
+        </button>
+      </div>
+    )
+  }
+
+  return (
+    <>
+      {/* 段起点锚（0 高、非 sticky）：点标题经它 scrollIntoView 跳到本段——标题恒 sticky、直接
+          滚它不动，故靠锚定位；锚在标题前，滚到后标题即钉在对应位置。 */}
+      <div ref={anchorRef} aria-hidden />
+      {/* 标题行 = 本段顶级目录：双向 sticky —— 已暂存钉顶（top-0）；未暂存 top-[22px] + bottom-2
+          （未到时钉底预告，留出和底部留白条一致的 8px 间距；滚到时钉在已暂存下方），故两段标题
+          恒可见。单击滚到本段、双击 / 箭头折叠；「全部」复选框独立 stopPropagation。bg-deepest 盖住滚过的行。 */}
+      <div
+        className={cn(
+          'z-30 mx-1 flex h-[22px] cursor-pointer select-none items-center gap-1.5 rounded bg-deepest pr-2 text-[13px] font-medium text-muted-foreground transition-colors hover:bg-[var(--bg-row-hover)]',
+          isStaged ? 'sticky top-0' : 'sticky bottom-2 top-[22px]'
+        )}
+        style={{ paddingLeft: 8 }}
+        title="点击跳到此段"
+        onClick={onHeaderClick}
+        onDoubleClick={() => setSectionOpen((v) => !v)}
+      >
+        {/* chevron 单独响应折叠：stopPropagation 防止连带触发跳转 */}
+        <span
+          className="flex shrink-0"
+          onClick={(e) => {
+            e.stopPropagation()
+            setSectionOpen((v) => !v)
+          }}
+        >
+          <ChevronRight
+            className={cn(
+              'size-3.5 text-[color:var(--fg-icon)] transition-transform',
+              sectionOpen && 'rotate-90'
+            )}
+          />
+        </span>
+        {/* 「全部」复选框：显示逻辑同目录——本段文件全部有效勾选才勾（stopPropagation 防跳转） */}
+        <span className="flex shrink-0" onClick={(e) => e.stopPropagation()}>
+          <Checkbox
+            checked={files.length > 0 && files.every(fileChecked)}
+            disabled={files.length === 0 || locked}
+            onCheckedChange={() => toggleAll()}
+          />
+        </span>
         <span>
           {isStaged ? '已暂存文件' : '未暂存文件'} ({files.length})
         </span>
-      </label>
-      {files.length === 0 ? (
-        // 空段：区头保留（checkbox disabled），段内一行占位（缩进对齐文件行）
-        <div
-          className="flex h-[22px] items-center pr-2 text-[13px] text-muted-foreground"
-          style={{ paddingLeft: 8 + 18 }}
-        >
-          {isStaged ? '无已暂存文件' : '无未暂存文件'}
-        </div>
-      ) : (
-        rows.map((row) => {
-          if (row.kind === 'folder') {
-            return (
-              <div
-                key={`d-${row.folderPath}`}
-                className="flex h-[22px] cursor-pointer items-center gap-1.5 pr-2 text-[13px] transition-colors hover:bg-[var(--bg-row-hover)]"
-                style={{ paddingLeft: 8 + row.depth * 16 }}
-                onClick={() => toggleFolder(row.folderPath)}
-              >
-                {row.open ? (
-                  <ChevronDown className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
-                ) : (
-                  <ChevronRight className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
-                )}
-                {/* 复选框放在箭头之后；包一层 stopPropagation 防止点勾连带触发折叠 */}
-                <span className="flex shrink-0" onClick={(e) => e.stopPropagation()}>
-                  <Checkbox
-                    checked={isStaged}
-                    onCheckedChange={() => toggleFolder2(row.folderPath)}
-                  />
-                </span>
-                {row.open ? (
-                  <FolderOpen className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
-                ) : (
-                  <Folder className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
-                )}
-                <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-                  {row.name}
-                </span>
-              </div>
-            )
-          }
-          const file = files[row.index]
-          const clickable = diffPossible(file)
-          const colour = FILE_STATUS_COLOR[file.type]
-          const isSelected = selectedKey === `${secFrom}|${secTo}|${file.newFilePath}`
-          return (
-            <div
-              key={`f-${row.index}`}
-              title={fileRowTitle(file)}
-              className={cn(
-                'group flex h-[22px] items-center gap-1.5 pr-2 text-[13px] transition-colors',
-                clickable ? 'cursor-pointer' : 'cursor-default',
-                // 当前打开 diff 的文件行高亮（选中蓝底，hover 用更亮的选中蓝）
-                isSelected
-                  ? 'bg-[var(--selection-row)] hover:bg-[var(--selection-row-hover)]'
-                  : 'hover:bg-[var(--bg-row-hover)]'
-              )}
-              // checkbox 与文件夹行对齐置首位，其后补 chevron 列占位让文件图标与文件夹图标对齐
-              style={{ paddingLeft: 8 + row.depth * 16 }}
-              onClick={() => clickable && openFileDiff(file)}
-              onContextMenu={(e) => {
-                e.preventDefault()
-                e.stopPropagation()
-                openMenu(e.clientX, e.clientY, file)
-              }}
-            >
-              {/* chevron 列占位（对齐文件夹箭头）；复选框放其后、紧挨文件名 */}
-              <span className="size-3.5 shrink-0" />
-              {/* 包一层 stopPropagation 防止点勾连带打开 diff；勾选态随乐观移动即时翻转 */}
-              <span className="flex shrink-0" onClick={(e) => e.stopPropagation()}>
-                <Checkbox checked={isStaged} onCheckedChange={() => onToggleFile(file, section)} />
-              </span>
-              <FileIcon className="size-3.5 shrink-0" style={{ color: colour }} />
-              <span
-                className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
-                // 选中行文字变白（#DFE1E5），压过状态色以在蓝底上清晰
-                style={{ color: isSelected ? 'var(--fg-primary)' : colour }}
-              >
-                {row.name}
-              </span>
-              {(file.type === 'M' || file.type === 'R') &&
-                file.additions !== null &&
-                file.deletions !== null && (
-                  <span className="shrink-0 text-[12px]">
-                    <span className="text-status-success" title={`${file.additions} 处添加`}>
-                      +{file.additions}
-                    </span>
-                    <span className="ml-1 text-status-failed" title={`${file.deletions} 处删除`}>
-                      -{file.deletions}
-                    </span>
-                  </span>
-                )}
-              {/* 行尾 … 菜单钮：默认隐藏、行 hover 才浮出（避免每行常驻噪点） */}
-              <button
-                type="button"
-                title="更多操作"
-                className="ml-auto flex size-6 shrink-0 items-center justify-center rounded opacity-0 transition-colors hover:bg-[var(--bg-button-hover)] group-hover:opacity-100"
-                onClick={(e) => {
-                  e.stopPropagation()
-                  const rect = e.currentTarget.getBoundingClientRect()
-                  openMenu(rect.left, rect.bottom, file) // 菜单锚在按钮左下角
-                }}
-              >
-                <Ellipsis className="size-3.5 text-[color:var(--fg-icon)]" />
-              </button>
-            </div>
-          )
-        })
-      )}
-    </div>
+      </div>
+      {sectionOpen &&
+        (files.length === 0 ? (
+          // 空段占位：pl 对齐顶层行（8 + 一级 16），并补一个 chevron 列占位（size-3.5 + gap），
+          // 使提示文字与顶层文件行 chevron 之后的内容同列
+          <div
+            className="flex h-[22px] items-center gap-1.5 pr-2 text-[13px] text-muted-foreground"
+            style={{ paddingLeft: 8 + 16 }}
+          >
+            <span className="size-3.5 shrink-0" />
+            {isStaged ? '无已暂存文件' : '无未暂存文件'}
+          </div>
+        ) : (
+          <StickyTree rows={rows} renderFolder={renderFolder} renderFile={renderFile} />
+        ))}
+    </>
   )
 }

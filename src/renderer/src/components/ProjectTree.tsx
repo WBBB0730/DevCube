@@ -139,12 +139,13 @@ function ProjectRow({ node }: { node: ProjectNode }): React.JSX.Element {
       <div
         className={cn(
           ROW,
-          'text-foreground',
+          'select-none text-foreground',
           selected ? 'bg-[var(--selection-row)]' : 'hover:bg-[var(--bg-row-hover)]'
         )}
         onClick={() => selectProject(node.project.path)}
+        onDoubleClick={() => setOpen((v) => !v)}
       >
-        {/* 折叠/展开只由箭头触发（整行点击留给「设为当前项目」）。 */}
+        {/* 折叠/展开由箭头或整行双击触发（整行单击留给「设为当前项目」）。 */}
         <button
           type="button"
           title={open ? '折叠' : '展开'}

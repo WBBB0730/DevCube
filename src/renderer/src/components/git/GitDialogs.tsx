@@ -840,7 +840,13 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
       return {
         message: (
           <>
-            确定要撤销 <Em>{req.path}</Em> 的未暂存更改吗？此操作不可撤销。
+            确定要撤销{' '}
+            {req.paths.length === 1 ? (
+              <Em>{req.paths[0]}</Em>
+            ) : (
+              <Em>所选 {req.paths.length} 个文件</Em>
+            )}{' '}
+            的未暂存更改吗？此操作不可撤销。
           </>
         ),
         inputs: [],
@@ -849,7 +855,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
             label: '是，撤销更改',
             onClick: () => {
               env.closeDialog()
-              void env.runQuietAction({ kind: 'discard-file', path: req.path })
+              void env.runQuietAction({ kind: 'discard-file', paths: req.paths })
             }
           }
         ]
@@ -858,7 +864,15 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
       return {
         message: (
           <>
-            确定要删除未跟踪文件 <Em>{req.path}</Em> 吗？该文件将从磁盘删除，此操作不可撤销。
+            确定要删除{' '}
+            {req.paths.length === 1 ? (
+              <>
+                未跟踪文件 <Em>{req.paths[0]}</Em>
+              </>
+            ) : (
+              <Em>所选 {req.paths.length} 个未跟踪文件</Em>
+            )}{' '}
+            吗？{req.paths.length === 1 ? '该文件' : '这些文件'}将从磁盘删除，此操作不可撤销。
           </>
         ),
         inputs: [],
@@ -867,7 +881,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
             label: '是，删除',
             onClick: () => {
               env.closeDialog()
-              void env.runQuietAction({ kind: 'delete-untracked-file', path: req.path })
+              void env.runQuietAction({ kind: 'delete-untracked-file', paths: req.paths })
             }
           }
         ]

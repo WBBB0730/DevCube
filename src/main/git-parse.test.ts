@@ -269,6 +269,21 @@ describe('generateFileChanges', () => {
     expect(changes[1].additions).toBeNull()
     expect(changes[2].additions).toBeNull()
   })
+
+  it('untracked 目录条目（尾斜杠）去斜杠归一并标 isDir，普通文件不带 isDir', () => {
+    const changes = generateFileChanges([], [], { deleted: [], untracked: ['c.ts', 'sub/'] })
+    expect(changes).toEqual([
+      { oldFilePath: 'c.ts', newFilePath: 'c.ts', type: 'U', additions: null, deletions: null },
+      {
+        oldFilePath: 'sub',
+        newFilePath: 'sub',
+        type: 'U',
+        additions: null,
+        deletions: null,
+        isDir: true
+      }
+    ])
+  })
 })
 
 describe('assembleCommits', () => {

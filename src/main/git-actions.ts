@@ -131,14 +131,16 @@ export function buildUnstagePathsArgs(action: ActionOf<'unstage-paths'>): string
 
 /** discard-file：把工作区恢复为 index 内容（不带提交参数；区别于 reset-file 的「从提交恢复」）。 */
 export function buildDiscardFileArgs(action: ActionOf<'discard-file'>): string[][] {
-  return [['checkout', '--', action.path]]
+  return [['checkout', '--', ...action.paths]]
 }
 
-/** delete-untracked-file：从磁盘删除单个未跟踪文件。 */
+/** delete-untracked-file：从磁盘删除未跟踪文件。 */
 export function buildDeleteUntrackedFileArgs(
   action: ActionOf<'delete-untracked-file'>
 ): string[][] {
-  return [['clean', '-f', '--', action.path]]
+  // -d 让未跟踪目录条目（git 折叠目录 / 嵌套仓库整体条目）也能删除；不加 -ff，故嵌套 git
+  // 仓库受 git 保护、被安全跳过而非误删（可能含未推送提交），需用户自行处理
+  return [['clean', '-fd', '--', ...action.paths]]
 }
 
 /** commit：恒带 -m（否则 git 会尝试打开编辑器导致进程挂起）；消息内嵌换行由 argv 原样传递。 */

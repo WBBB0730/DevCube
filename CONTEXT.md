@@ -1,4 +1,4 @@
-# Runlet
+# DevCube
 
 一个以项目为维度的通用运行器：在单个面板里聚合多个项目，浏览并运行它们的命令、查看输出。它把 WebStorm 右上角的"运行配置 + 运行按钮 + 控制台"从"一窗口一项目"搬到"单面板、多项目并列"的桌面工具里。
 
@@ -39,7 +39,7 @@ _Avoid_: 工作区行, WIP 行, 暂存行
 - 一个 **Project** 拥有 0..N 个 **Terminal**（cwd 为项目根、不绑定任何 Run Configuration、随其 shell 退出而销毁）。
 - **Terminal** 与 **Run Session** 都是"活的会话"，但 Terminal 不由任何配置派生、彼此独立——不做单实例去重，同一项目可并存任意多个。
 - 一个 **Project** 恒有一个 **Git Tab**（非会话、不可关闭、常驻其 Tab 栏最前）；它与 Run Session / Terminal 的 Tab 共用激活与循环规则。
-- 一个 **Git Tab** 的图谱含 0..1 个 **未提交更改行**（工作区有改动才合成）；它是该项目在 Runlet 内的提交入口。
+- 一个 **Git Tab** 的图谱含 0..1 个 **未提交更改行**（工作区有改动才合成）；它是该项目在 DevCube 内的提交入口。
 
 ## Example dialogue
 

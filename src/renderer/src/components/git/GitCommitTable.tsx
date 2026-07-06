@@ -34,7 +34,7 @@ const DATA_COLOR_CSS = Array.from(
 const TH =
   'overflow-hidden whitespace-nowrap border-b border-[color:var(--border-input)] px-3 py-1.5 text-left text-[12px] font-normal leading-[18px] text-muted-foreground'
 const TD = 'overflow-hidden text-ellipsis whitespace-nowrap px-1 text-[13px] leading-6'
-// refs 标签外壳：18px 高、圆角 4px、图标块反白挖空（graph-table §10 映射到 Runlet token）
+// refs 标签外壳：18px 高、圆角 4px、图标块反白挖空（graph-table §10 映射到 DevCube token）
 const REF =
   'mr-[5px] inline-flex h-[18px] shrink-0 cursor-default items-center overflow-hidden rounded border border-[color:var(--border-input)] bg-panel text-[12px] leading-[18px]'
 const REF_ICON = 'flex h-full w-[18px] shrink-0 items-center justify-center'
@@ -472,7 +472,7 @@ const CommitRow = memo(function CommitRow({
       className={cn(
         'cursor-pointer transition-colors',
         detailsOpen
-          ? 'bg-[var(--selection-row)] hover:bg-[var(--selection-row-hover)]'
+          ? 'bg-[var(--selection-row)]'
           : cn(
               findActive
                 ? 'bg-[var(--find-match-active-bg)]'

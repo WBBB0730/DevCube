@@ -393,13 +393,18 @@ export function generateFileChanges(
       }
     }
     for (const filePath of status.untracked) {
-      // untracked 永不出现在 diff 输出里，一律追加
+      // untracked 永不出现在 diff 输出里，一律追加。带尾斜杠 = git 折叠的未跟踪目录 /
+      // 嵌套仓库整体条目：去尾斜杠归一成一个可勾选叶子，并标 isDir（不可 diff），
+      // 否则尾斜杠会让 buildFileTree 只建空目录、无文件叶子（未暂存区只见目录、无法勾选）。
+      const isDir = filePath.endsWith('/')
+      const path = isDir ? filePath.slice(0, -1) : filePath
       fileChanges.push({
-        oldFilePath: filePath,
-        newFilePath: filePath,
+        oldFilePath: path,
+        newFilePath: path,
         type: 'U',
         additions: null,
-        deletions: null
+        deletions: null,
+        ...(isDir ? { isDir: true } : {})
       })
     }
   }

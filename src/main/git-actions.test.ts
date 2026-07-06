@@ -343,17 +343,29 @@ describe('buildUnstagePathsArgs', () => {
 
 describe('buildDiscardFileArgs', () => {
   it('不带提交参数，从 index 恢复工作区（区别于 reset-file 的从提交恢复）', () => {
-    expect(buildDiscardFileArgs({ kind: 'discard-file', path: 'src/a b.ts' })).toEqual([
+    expect(buildDiscardFileArgs({ kind: 'discard-file', paths: ['src/a b.ts'] })).toEqual([
       ['checkout', '--', 'src/a b.ts']
+    ])
+  })
+
+  it('多文件一条 checkout 覆盖全部路径', () => {
+    expect(buildDiscardFileArgs({ kind: 'discard-file', paths: ['a.ts', 'b.ts'] })).toEqual([
+      ['checkout', '--', 'a.ts', 'b.ts']
     ])
   })
 })
 
 describe('buildDeleteUntrackedFileArgs', () => {
-  it('用 clean -f 删除单个未跟踪文件', () => {
+  it('用 clean -fd 删除单个未跟踪文件（-d 覆盖未跟踪目录条目）', () => {
     expect(
-      buildDeleteUntrackedFileArgs({ kind: 'delete-untracked-file', path: 'new file.txt' })
-    ).toEqual([['clean', '-f', '--', 'new file.txt']])
+      buildDeleteUntrackedFileArgs({ kind: 'delete-untracked-file', paths: ['new file.txt'] })
+    ).toEqual([['clean', '-fd', '--', 'new file.txt']])
+  })
+
+  it('多文件一条 clean 删除全部路径', () => {
+    expect(
+      buildDeleteUntrackedFileArgs({ kind: 'delete-untracked-file', paths: ['x.log', 'y.log'] })
+    ).toEqual([['clean', '-fd', '--', 'x.log', 'y.log']])
   })
 })
 

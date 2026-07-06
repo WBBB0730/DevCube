@@ -34,7 +34,7 @@ function App(): React.JSX.Element {
 
   // 窗口标题跟随当前选中的项目（主进程未固定 title、未拦 page-title-updated，document.title 会自动反映）。
   useEffect(() => {
-    document.title = projectName ? `${projectName} — Runlet` : 'Runlet'
+    document.title = projectName ? `${projectName} — DevCube` : 'DevCube'
   }, [projectName])
 
   useEffect(() => {

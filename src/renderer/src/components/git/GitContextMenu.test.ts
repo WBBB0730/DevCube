@@ -362,7 +362,7 @@ describe('buildMenuItems', () => {
       '复制文件相对路径'
     ])
     click(items, '删除文件…')
-    expect(rec.opened).toEqual([{ kind: 'delete-untracked-file', path: 'n.ts' }])
+    expect(rec.opened).toEqual([{ kind: 'delete-untracked-file', paths: ['n.ts'] }])
   })
 
   it('提交面板未暂存段菜单：已删除文件首项为「撤销更改…」且不给「打开文件」', () => {
@@ -375,7 +375,45 @@ describe('buildMenuItems', () => {
     const items = buildMenuItems(target, rec.ctx)
     expect(titles(items)).toEqual(['撤销更改…', '复制文件绝对路径', '复制文件相对路径'])
     click(items, '撤销更改…')
-    expect(rec.opened).toEqual([{ kind: 'discard-file', path: 'd.ts' }])
+    expect(rec.opened).toEqual([{ kind: 'discard-file', paths: ['d.ts'] }])
+  })
+
+  it('提交面板已暂存段批量菜单：取消暂存所选，R 文件展开旧 / 新双路径', () => {
+    const rec = linearCtx()
+    const target: GitMenuTarget = {
+      kind: 'uncommitted-files',
+      files: [
+        { oldFilePath: 'a.ts', newFilePath: 'a.ts', type: 'M', additions: 1, deletions: 0 },
+        { oldFilePath: 'x.ts', newFilePath: 'y.ts', type: 'R', additions: 0, deletions: 0 }
+      ],
+      section: 'staged'
+    }
+    const items = buildMenuItems(target, rec.ctx)
+    expect(titles(items)).toEqual(['取消暂存所选 (2)'])
+    click(items, '取消暂存所选 (2)')
+    expect(rec.quiet).toEqual([{ kind: 'unstage-paths', paths: ['a.ts', 'x.ts', 'y.ts'] }])
+  })
+
+  it('提交面板未暂存段批量菜单：混选给暂存 / 撤销 / 删除三项，按类型分流路径', () => {
+    const rec = linearCtx()
+    const target: GitMenuTarget = {
+      kind: 'uncommitted-files',
+      files: [
+        { oldFilePath: 'm.ts', newFilePath: 'm.ts', type: 'M', additions: 1, deletions: 1 },
+        { oldFilePath: 'u.ts', newFilePath: 'u.ts', type: 'U', additions: null, deletions: null }
+      ],
+      section: 'unstaged'
+    }
+    const items = buildMenuItems(target, rec.ctx)
+    expect(titles(items)).toEqual(['暂存所选 (2)', '撤销所选更改 (1)…', '删除所选未跟踪文件 (1)…'])
+    click(items, '暂存所选 (2)')
+    expect(rec.quiet).toEqual([{ kind: 'stage-paths', paths: ['m.ts', 'u.ts'] }])
+    click(items, '撤销所选更改 (1)…')
+    click(items, '删除所选未跟踪文件 (1)…')
+    expect(rec.opened).toEqual([
+      { kind: 'discard-file', paths: ['m.ts'] },
+      { kind: 'delete-untracked-file', paths: ['u.ts'] }
+    ])
   })
 })
 

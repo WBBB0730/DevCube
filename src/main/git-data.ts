@@ -45,7 +45,7 @@ import type {
 // —— 常量 ——
 // --format 模板与 EOL 正则统一引自 git-parse（GIT_FORMAT_*），保证组命令与解析两侧字段序不漂移。
 
-// Runlet 未开放为设置项的原版全局配置，固定为参考实现的默认值（data-read.md §0 表）
+// DevCube 未开放为设置项的原版全局配置，固定为参考实现的默认值（data-read.md §0 表）
 /** 展示 origin/HEAD 这类 remote HEAD ref。 */
 const SHOW_REMOTE_HEADS = true
 /** 合成「未提交的更改」虚拟行。 */

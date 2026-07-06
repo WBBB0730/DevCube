@@ -49,8 +49,8 @@ const api: RunAPI = {
   gitTagDetails: (projectPath, tagName) =>
     ipcRenderer.invoke(IPC.gitTagDetails, projectPath, tagName),
   gitRepoConfig: (projectPath) => ipcRenderer.invoke(IPC.gitRepoConfig, projectPath),
-  gitAction: (projectPath, action: GitAction) =>
-    ipcRenderer.invoke(IPC.gitAction, projectPath, action),
+  gitAction: (projectPath, action: GitAction, opts?: { silent?: boolean }) =>
+    ipcRenderer.invoke(IPC.gitAction, projectPath, action, opts),
   gitGetSettings: (projectPath) => ipcRenderer.invoke(IPC.gitSettingsGet, projectPath),
   gitSetSettings: (projectPath, patch) =>
     ipcRenderer.invoke(IPC.gitSettingsSet, projectPath, patch),

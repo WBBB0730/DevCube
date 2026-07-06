@@ -5,16 +5,8 @@
 // 不持久化）；左右分栏比例与文件夹开合同为组件内 state（换展开目标即重置）。
 // 未提交普通模式即提交面板（ADR-0006）：左栏 CommitForm、右栏 UncommittedFileSections。
 // Esc 关闭由 GitPane 统一处理。
-import { useMemo, useRef, useState } from 'react'
-import {
-  ChevronDown,
-  ChevronRight,
-  File as FileIcon,
-  Folder,
-  FolderOpen,
-  LoaderCircle,
-  X
-} from 'lucide-react'
+import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { ChevronRight, File as FileIcon, Folder, LoaderCircle, X } from 'lucide-react'
 import { UNCOMMITTED, type GitFileChange } from '@shared/git'
 import { gitState, useGit } from '@renderer/git-store'
 import { cn } from '@renderer/lib/utils'
@@ -29,6 +21,7 @@ import {
   resolveDiffEndpoints,
   tokenizeBody
 } from './git-details'
+import { StickyTree, ROW_HEIGHT, type FolderRow, type FileRow } from './GitFileTree'
 import { CommitForm, UncommittedFileSections } from './GitCommitPanel'
 import type { GitExpandedState } from './git-view-types'
 
@@ -36,7 +29,7 @@ const MIN_HEIGHT = 100
 const MAX_HEIGHT = 600
 const DEFAULT_HEIGHT = 250
 /** 提交面板（未提交普通模式）的默认高：需要装下提交表单，比普通详情高一档。 */
-const COMMIT_PANEL_HEIGHT = 320
+const COMMIT_PANEL_HEIGHT = 392
 
 /** 字段名列（左栏摘要的 grid 第一列）。 */
 const FIELD = 'whitespace-nowrap text-muted-foreground'
@@ -210,10 +203,15 @@ export function GitCommitDetails({
           />
           {/* 右栏：文件树。key 绑定展开目标：切换提交即重置开合状态，同目标刷新则保留；
               提交面板模式换成两段文件树（目标恒为 '*'，开合状态在组件内自然保留） */}
-          <div className="min-w-0 flex-1 overflow-auto py-1">
-            {isCommitPanel ? (
+          {/* 两种文件树都用 StickyTree 的嵌套 sticky 逐级吸顶（目录头随滚动钉在容器顶）：
+              提交面板自持滚动容器（UncommittedFileSections 内 h-full overflow-auto），此处只给
+              高度约束；详情树的滚动容器 = 下面这层 overflow-auto，sticky 即相对它定位。 */}
+          {isCommitPanel ? (
+            <div className="min-w-0 flex-1 overflow-hidden">
               <UncommittedFileSections projectPath={projectPath} />
-            ) : (
+            </div>
+          ) : (
+            <div className="min-w-0 flex-1 overflow-auto pb-2">
               <FileTreePane
                 key={`${exp.hash}|${exp.compareWith ?? ''}`}
                 projectPath={projectPath}
@@ -221,8 +219,8 @@ export function GitCommitDetails({
                 files={files ?? []}
                 rowIndexOf={rowIndexOf}
               />
-            )}
-          </div>
+            </div>
+          )}
         </div>
       )}
     </div>
@@ -421,78 +419,75 @@ function FileTreePane({
     })
   }
 
-  return (
-    <div>
-      {rows.map((row) => {
-        if (row.kind === 'folder') {
-          return (
-            <div
-              key={`d-${row.folderPath}`}
-              className="flex h-[22px] cursor-pointer items-center gap-1 pr-2 text-[13px] transition-colors hover:bg-[var(--bg-row-hover)]"
-              style={{ paddingLeft: 8 + row.depth * 16 }}
-              onClick={() => toggle(row.folderPath)}
-            >
-              {row.open ? (
-                <ChevronDown className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
-              ) : (
-                <ChevronRight className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
-              )}
-              {row.open ? (
-                <FolderOpen className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
-              ) : (
-                <Folder className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
-              )}
-              <span className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap">
-                {row.name}
-              </span>
-            </div>
-          )
-        }
-        const file = files[row.index]
-        const clickable = diffPossible(file)
-        const colour = FILE_STATUS_COLOR[file.type]
-        const { fromHash: dFrom, toHash: dTo } = resolveDiffEndpoints(file, exp, rowIndexOf)
-        const isSelected = selectedKey === `${dFrom}|${dTo}|${file.newFilePath}`
-        return (
-          <div
-            key={`f-${row.index}`}
-            title={fileRowTitle(file)}
-            className={cn(
-              'flex h-[22px] items-center gap-1.5 pr-2 text-[13px] transition-colors',
-              clickable ? 'cursor-pointer' : 'cursor-default',
-              // 当前打开 diff 的文件行高亮（选中蓝底，hover 用更亮的选中蓝）
-              isSelected
-                ? 'bg-[var(--selection-row)] hover:bg-[var(--selection-row-hover)]'
-                : 'hover:bg-[var(--bg-row-hover)]'
-            )}
-            // 额外 +18px 缩进：与文件夹行的 chevron 区对齐
-            style={{ paddingLeft: 8 + row.depth * 16 + 18 }}
-            onClick={() => clickable && openFileDiff(file)}
-            onContextMenu={(e) => onFileMenu(e, file)}
-          >
-            <FileIcon className="size-3.5 shrink-0" style={{ color: colour }} />
-            <span
-              className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
-              // 选中行文字变白（#DFE1E5），压过状态色以在蓝底上清晰
-              style={{ color: isSelected ? 'var(--fg-primary)' : colour }}
-            >
-              {row.name}
-            </span>
-            {(file.type === 'M' || file.type === 'R') &&
-              file.additions !== null &&
-              file.deletions !== null && (
-                <span className="shrink-0 text-[12px]">
-                  <span className="text-status-success" title={`${file.additions} 处添加`}>
-                    +{file.additions}
-                  </span>
-                  <span className="ml-1 text-status-failed" title={`${file.deletions} 处删除`}>
-                    -{file.deletions}
-                  </span>
-                </span>
-              )}
-          </div>
-        )
-      })}
+  // 目录行：sticky 逐级吸顶（top / z 随 depth 递进，bg-deepest 盖住滚过的下方行）；
+  // 箭头旋转过渡，文件夹图标恒定不随开合切换。
+  const renderFolder = (row: FolderRow): ReactNode => (
+    <div
+      className="sticky mx-1 flex h-[22px] cursor-pointer select-none items-center gap-1.5 rounded bg-deepest pr-2 text-[13px] transition-colors hover:bg-[var(--bg-row-hover)]"
+      style={{
+        top: row.depth * ROW_HEIGHT,
+        zIndex: 20 - row.depth,
+        paddingLeft: 8 + row.depth * 16
+      }}
+      onClick={() => toggle(row.folderPath)}
+    >
+      <ChevronRight
+        className={cn(
+          'size-3.5 shrink-0 text-[color:var(--fg-icon)] transition-transform',
+          row.open && 'rotate-90'
+        )}
+      />
+      <Folder className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
+      <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+        {row.name}
+      </span>
     </div>
   )
+
+  const renderFile = (row: FileRow): ReactNode => {
+    const file = files[row.index]
+    const clickable = diffPossible(file)
+    const colour = FILE_STATUS_COLOR[file.type]
+    const { fromHash: dFrom, toHash: dTo } = resolveDiffEndpoints(file, exp, rowIndexOf)
+    const isSelected = selectedKey === `${dFrom}|${dTo}|${file.newFilePath}`
+    return (
+      <div
+        key={`f-${row.index}`}
+        title={fileRowTitle(file)}
+        className={cn(
+          'mx-1 flex h-[22px] items-center gap-1.5 rounded pr-2 text-[13px] transition-colors',
+          clickable ? 'cursor-pointer' : 'cursor-default',
+          // 当前打开 diff 的文件行高亮（选中蓝底固定，不随 hover 变色，同左侧项目树）
+          isSelected ? 'bg-[var(--selection-row)]' : 'hover:bg-[var(--bg-row-hover)]'
+        )}
+        // 额外 +18px 缩进：与文件夹行的 chevron 区对齐
+        style={{ paddingLeft: 8 + row.depth * 16 + 18 }}
+        onClick={() => clickable && openFileDiff(file)}
+        onContextMenu={(e) => onFileMenu(e, file)}
+      >
+        <FileIcon className="size-3.5 shrink-0" style={{ color: colour }} />
+        <span
+          className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+          // 选中行文字变白（#DFE1E5），压过状态色以在蓝底上清晰
+          style={{ color: isSelected ? 'var(--fg-primary)' : colour }}
+        >
+          {row.name}
+        </span>
+        {(file.type === 'M' || file.type === 'R') &&
+          file.additions !== null &&
+          file.deletions !== null && (
+            <span className="shrink-0 text-[12px]">
+              <span className="text-status-success" title={`${file.additions} 处添加`}>
+                +{file.additions}
+              </span>
+              <span className="ml-1 text-status-failed" title={`${file.deletions} 处删除`}>
+                -{file.deletions}
+              </span>
+            </span>
+          )}
+      </div>
+    )
+  }
+
+  return <StickyTree rows={rows} renderFolder={renderFolder} renderFile={renderFile} />
 }

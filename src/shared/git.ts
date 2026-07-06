@@ -94,6 +94,11 @@ export interface GitFileChange {
   /** null：无数据（U / 合成的 D）或二进制文件 */
   additions: number | null
   deletions: number | null
+  /**
+   * true：未跟踪的目录整体条目（嵌套 git 仓库 / git 折叠的未跟踪目录，git status 只报目录不列内部）。
+   * 在文件树里作为一个可勾选叶子呈现（勾选 = git add 整个目录），但不可打开 diff。
+   */
+  isDir?: boolean
 }
 
 export interface GitCommitDetails {
@@ -368,8 +373,8 @@ export type GitAction =
   // 暂存与提交（提交面板）
   | { kind: 'stage-paths'; paths: string[] } // 暂存；paths 为空数组 = 全部（git add -A）
   | { kind: 'unstage-paths'; paths: string[] } // 取消暂存；空数组 = 全部（git reset -q）
-  | { kind: 'discard-file'; path: string } // 撤销单文件的未暂存更改（工作区恢复为 index）
-  | { kind: 'delete-untracked-file'; path: string } // 从磁盘删除未跟踪文件
+  | { kind: 'discard-file'; paths: string[] } // 撤销文件的未暂存更改（工作区恢复为 index）
+  | { kind: 'delete-untracked-file'; paths: string[] } // 从磁盘删除未跟踪文件
   | { kind: 'commit'; message: string; amend: boolean }
   // 远程同步
   | { kind: 'fetch'; remote: string | null; prune: boolean; pruneTags: boolean }
@@ -466,8 +471,16 @@ export interface GitAPI {
   gitTagDetails(projectPath: string, tagName: string): Promise<GitTagDetailsResult>
   /** 仓库 git 配置（remotes / user / pushDefault），仓库设置面板用 */
   gitRepoConfig(projectPath: string): Promise<GitRepoConfigResult>
-  /** 执行一个写动作；完成后主进程会推 git:changed 触发刷新 */
-  gitAction(projectPath: string, action: GitAction): Promise<GitActionResult>
+  /**
+   * 执行一个写动作；默认完成后主进程推 git:changed 触发刷新。
+   * opts.silent=true 时不推 git:changed——供渲染端自刷新的静默动作（暂存/提交/撤销）用，
+   * 避免与调用方自己的软刷新构成并发 load 竞态（提交面板乐观勾选闪现的根因）。
+   */
+  gitAction(
+    projectPath: string,
+    action: GitAction,
+    opts?: { silent?: boolean }
+  ): Promise<GitActionResult>
   /** 读 / 写每项目 git 设置（写返回更新后的权威快照） */
   gitGetSettings(projectPath: string): Promise<GitRepoSettings>
   gitSetSettings(projectPath: string, patch: Partial<GitRepoSettings>): Promise<GitRepoSettings>

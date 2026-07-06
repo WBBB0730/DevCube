@@ -169,23 +169,37 @@ function makeEnv(): { env: DialogEnv; quiet: GitAction[]; closed: () => number }
 describe('buildSpec：提交面板的危险确认', () => {
   it('discard-file：无输入项，主按钮「是，撤销更改」先关对话框再静默执行', () => {
     const { env, quiet, closed } = makeEnv()
-    const spec = buildSpec({ kind: 'discard-file', path: 'src/a.ts' }, env)
+    const spec = buildSpec({ kind: 'discard-file', paths: ['src/a.ts'] }, env)
     expect(spec).not.toBeNull()
     expect(spec!.inputs).toEqual([])
     expect(spec!.buttons.map((b) => b.label)).toEqual(['是，撤销更改'])
     spec!.buttons[0].onClick({})
     expect(closed()).toBe(1)
-    expect(quiet).toEqual([{ kind: 'discard-file', path: 'src/a.ts' }])
+    expect(quiet).toEqual([{ kind: 'discard-file', paths: ['src/a.ts'] }])
+  })
+
+  it('discard-file：多文件时主动作把整组路径静默传下', () => {
+    const { env, quiet } = makeEnv()
+    const spec = buildSpec({ kind: 'discard-file', paths: ['a.ts', 'b.ts'] }, env)
+    spec!.buttons[0].onClick({})
+    expect(quiet).toEqual([{ kind: 'discard-file', paths: ['a.ts', 'b.ts'] }])
   })
 
   it('delete-untracked-file：无输入项，主按钮「是，删除」先关对话框再静默执行', () => {
     const { env, quiet, closed } = makeEnv()
-    const spec = buildSpec({ kind: 'delete-untracked-file', path: 'tmp/n.log' }, env)
+    const spec = buildSpec({ kind: 'delete-untracked-file', paths: ['tmp/n.log'] }, env)
     expect(spec).not.toBeNull()
     expect(spec!.inputs).toEqual([])
     expect(spec!.buttons.map((b) => b.label)).toEqual(['是，删除'])
     spec!.buttons[0].onClick({})
     expect(closed()).toBe(1)
-    expect(quiet).toEqual([{ kind: 'delete-untracked-file', path: 'tmp/n.log' }])
+    expect(quiet).toEqual([{ kind: 'delete-untracked-file', paths: ['tmp/n.log'] }])
+  })
+
+  it('delete-untracked-file：多文件时主动作把整组路径静默传下', () => {
+    const { env, quiet } = makeEnv()
+    const spec = buildSpec({ kind: 'delete-untracked-file', paths: ['x.log', 'y.log'] }, env)
+    spec!.buttons[0].onClick({})
+    expect(quiet).toEqual([{ kind: 'delete-untracked-file', paths: ['x.log', 'y.log'] }])
   })
 })

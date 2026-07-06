@@ -14,10 +14,12 @@ import {
   countDiffLines,
   diffPossible,
   fileRowTitle,
+  filesInSelection,
   flattenFileTree,
   formatHunkHeader,
   limitDiffHunks,
   normalizeCompare,
+  pathspecOf,
   resolveDiffEndpoints,
   splitDiffRows,
   tokenizeBody,
@@ -35,6 +37,50 @@ function fc(path: string, overrides: Partial<GitFileChange> = {}): GitFileChange
     ...overrides
   }
 }
+
+describe('pathspecOf', () => {
+  it('重命名（R）返回旧 + 新两路径，其余仅新路径', () => {
+    expect(pathspecOf(fc('a.ts'))).toEqual(['a.ts'])
+    expect(pathspecOf(fc('new.ts', { oldFilePath: 'old.ts', type: 'R' }))).toEqual([
+      'old.ts',
+      'new.ts'
+    ])
+  })
+})
+
+describe('filesInSelection', () => {
+  const files = [fc('src/a.ts'), fc('src/util/b.ts'), fc('src/util/c.ts'), fc('README.md')]
+
+  it('文件 key 精确命中自身', () => {
+    expect(filesInSelection(files, new Set(['README.md'])).map((f) => f.newFilePath)).toEqual([
+      'README.md'
+    ])
+  })
+
+  it('目录 key（folderPath）命中其下全部文件', () => {
+    expect(filesInSelection(files, new Set(['src/util'])).map((f) => f.newFilePath)).toEqual([
+      'src/util/b.ts',
+      'src/util/c.ts'
+    ])
+  })
+
+  it('目录与其内文件同选不重复，按 files 原序输出', () => {
+    expect(
+      filesInSelection(files, new Set(['src/util', 'src/util/b.ts', 'src/a.ts'])).map(
+        (f) => f.newFilePath
+      )
+    ).toEqual(['src/a.ts', 'src/util/b.ts', 'src/util/c.ts'])
+  })
+
+  it('前缀相近的目录不误伤（src 不命中 src-gen）', () => {
+    const fs2 = [fc('src/a.ts'), fc('src-gen/x.ts')]
+    expect(filesInSelection(fs2, new Set(['src'])).map((f) => f.newFilePath)).toEqual(['src/a.ts'])
+  })
+
+  it('空选区返回空列表', () => {
+    expect(filesInSelection(files, new Set())).toEqual([])
+  })
+})
 
 describe('diffPossible', () => {
   it('未跟踪文件恒可打开 diff（主进程合成新增 hunk）', () => {

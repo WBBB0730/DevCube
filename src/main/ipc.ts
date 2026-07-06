@@ -223,12 +223,16 @@ export function registerIpc(win: BrowserWindow): void {
     getTagDetails(projectPath, tagName)
   )
   ipcMain.handle(IPC.gitRepoConfig, (_e, projectPath: string) => getRepoConfig(projectPath))
-  // 写操作：单通道判别联合。完成后无论成败都推 git:changed（部分成功也要刷新）。
-  ipcMain.handle(IPC.gitAction, async (_e, projectPath: string, action: GitAction) => {
-    const result = await runGitAction(projectPath, action)
-    emitGitChanged(projectPath)
-    return result
-  })
+  // 写操作：单通道判别联合。完成后无论成败都推 git:changed（部分成功也要刷新）；
+  // opts.silent 时跳过——渲染端自刷新的静默动作（暂存/提交/撤销）避免并发 load 竞态。
+  ipcMain.handle(
+    IPC.gitAction,
+    async (_e, projectPath: string, action: GitAction, opts?: { silent?: boolean }) => {
+      const result = await runGitAction(projectPath, action)
+      if (opts?.silent !== true) emitGitChanged(projectPath)
+      return result
+    }
+  )
   // 设置与视图偏好：写返回权威快照。
   ipcMain.handle(IPC.gitSettingsGet, (_e, projectPath: string) => getGitSettings(projectPath))
   ipcMain.handle(IPC.gitSettingsSet, (_e, projectPath: string, patch: Partial<GitRepoSettings>) =>
