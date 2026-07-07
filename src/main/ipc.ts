@@ -45,7 +45,14 @@ import {
 } from './store'
 import { buildTree } from './tree'
 import { syncWatchers } from './watcher'
-import { getDetails, getFileDiff, getRepoConfig, getTagDetails, loadRepo } from './git-data'
+import {
+  getDetails,
+  getFileDiff,
+  getFileImage,
+  getRepoConfig,
+  getTagDetails,
+  loadRepo
+} from './git-data'
 import { runGitAction } from './git-actions'
 import { syncGitWatchers } from './git-watcher'
 import { clearRepoRootCache, resolveRepoRoot } from './git-exec'
@@ -218,6 +225,9 @@ export function registerIpc(win: BrowserWindow): void {
   )
   ipcMain.handle(IPC.gitFileDiff, (_e, projectPath: string, request: GitDiffRequest) =>
     getFileDiff(projectPath, request)
+  )
+  ipcMain.handle(IPC.gitFileImage, (_e, projectPath: string, request: GitDiffRequest) =>
+    getFileImage(projectPath, request)
   )
   ipcMain.handle(IPC.gitTagDetails, (_e, projectPath: string, tagName: string) =>
     getTagDetails(projectPath, tagName)

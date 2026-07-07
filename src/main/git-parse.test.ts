@@ -14,7 +14,8 @@ import {
   parseStashes,
   parseStatusFilesZ,
   parseTagDetails,
-  parseUnifiedDiff
+  parseFileDiff,
+  countLinesInBuffer
 } from './git-parse'
 import type { GitCommitRecord, GitRefData, GitStash } from './git-parse'
 import { UNCOMMITTED } from '../shared/git'
@@ -424,10 +425,8 @@ describe('parseDetails', () => {
   })
 })
 
-describe('parseUnifiedDiff', () => {
-  const file = { oldFilePath: 'a.ts', newFilePath: 'a.ts', type: 'M' as const }
-
-  it('hunk 头缺省长度按 1 处理，行号按 add/del 推进', () => {
+describe('parseFileDiff', () => {
+  it('普通 diff：原始文本原样透传、binary 为 false', () => {
     const stdout = [
       'diff --git a/a.ts b/a.ts',
       'index 1111111..2222222 100644',
@@ -439,70 +438,45 @@ describe('parseUnifiedDiff', () => {
       '+新行二',
       ''
     ].join('\n')
-    const diff = parseUnifiedDiff(stdout, file)
+    const diff = parseFileDiff(stdout, { oldFilePath: 'a.ts', newFilePath: 'a.ts', type: 'M' })
     expect(diff.binary).toBe(false)
-    expect(diff.hunks).toHaveLength(1)
-    const hunk = diff.hunks[0]
-    expect(hunk.oldStart).toBe(1)
-    expect(hunk.oldLines).toBe(1)
-    expect(hunk.newStart).toBe(1)
-    expect(hunk.newLines).toBe(2)
-    expect(hunk.sectionHeader).toBe('function foo()')
-    expect(hunk.lines).toEqual([
-      { kind: 'del', text: '旧行', oldLineNo: 1, newLineNo: null },
-      { kind: 'add', text: '新行一', oldLineNo: null, newLineNo: 1 },
-      { kind: 'add', text: '新行二', oldLineNo: null, newLineNo: 2 }
-    ])
+    expect(diff.raw).toBe(stdout)
   })
 
-  it('context 行同时推进两侧行号，"\\ No newline at end of file" 附着到上一行', () => {
-    const stdout = [
-      '--- a/a.ts',
-      '+++ b/a.ts',
-      '@@ -10,3 +10,3 @@',
-      ' 上下文',
-      '-旧',
-      '+新',
-      '\\ No newline at end of file',
-      ' 结尾',
-      ''
-    ].join('\n')
-    const lines = parseUnifiedDiff(stdout, file).hunks[0].lines
-    expect(lines[0]).toEqual({ kind: 'context', text: '上下文', oldLineNo: 10, newLineNo: 10 })
-    expect(lines[1]).toEqual({ kind: 'del', text: '旧', oldLineNo: 11, newLineNo: null })
-    expect(lines[2]).toEqual({
-      kind: 'add',
-      text: '新',
-      oldLineNo: null,
-      newLineNo: 11,
-      noEolAtEnd: true
-    })
-    expect(lines[3]).toEqual({ kind: 'context', text: '结尾', oldLineNo: 12, newLineNo: 12 })
-  })
-
-  it('Binary files 差异标记 binary 且 hunks 为空', () => {
+  it('Binary files 差异标记 binary 且 raw 置空', () => {
     const stdout =
       'diff --git a/img.png b/img.png\n' +
       'index 1111111..2222222 100644\n' +
       'Binary files a/img.png and b/img.png differ\n'
-    const diff = parseUnifiedDiff(stdout, {
+    const diff = parseFileDiff(stdout, {
       oldFilePath: 'img.png',
       newFilePath: 'img.png',
       type: 'M'
     })
     expect(diff.binary).toBe(true)
-    expect(diff.hunks).toEqual([])
+    expect(diff.raw).toBe('')
+  })
+})
+
+describe('countLinesInBuffer', () => {
+  it('空内容为 0 行', () => {
+    expect(countLinesInBuffer(new Uint8Array(0))).toBe(0)
   })
 
-  it('diff-tree 回显的提交 hash 行与 header 行被跳过，新侧缺省长度也按 1 处理', () => {
-    const stdout =
-      'abc123\ndiff --git a/a.ts b/a.ts\n--- /dev/null\n+++ b/a.ts\n@@ -0,0 +1 @@\n+新增\n'
-    const diff = parseUnifiedDiff(stdout, { oldFilePath: 'a.ts', newFilePath: 'a.ts', type: 'A' })
-    expect(diff.hunks).toHaveLength(1)
-    expect(diff.hunks[0].newLines).toBe(1)
-    expect(diff.hunks[0].lines).toEqual([
-      { kind: 'add', text: '新增', oldLineNo: null, newLineNo: 1 }
-    ])
+  it('末行有换行符按换行数计', () => {
+    expect(countLinesInBuffer(new TextEncoder().encode('a\nb\n'))).toBe(2)
+  })
+
+  it('末行无换行符也算一行（numstat 口径）', () => {
+    expect(countLinesInBuffer(new TextEncoder().encode('a\nb'))).toBe(2)
+  })
+
+  it('前 8000 字节含 NUL 判为二进制返回 null', () => {
+    expect(countLinesInBuffer(new Uint8Array([104, 0, 105]))).toBeNull()
+  })
+
+  it('UTF-16 风格内容（隔字节 NUL）判为二进制', () => {
+    expect(countLinesInBuffer(new Uint8Array([104, 0, 101, 0, 108, 0]))).toBeNull()
   })
 })
 

@@ -3,6 +3,8 @@
 // 跑进程、串并行与拼装结果；命令口径移植自 vscode-git-graph dataSource.ts（只含读取面）。
 // —— 纯参数构造（build* / assembleRepoConfig）与 IO 分离，供测试。
 
+import { readFile, stat } from 'fs/promises'
+import { join } from 'path'
 import { execGit, findGit, getErrorMessage, isVersionAtLeast, resolveRepoRoot } from './git-exec'
 import {
   assembleCommits,
@@ -21,17 +23,19 @@ import {
   parseNumStatZ,
   parseRefs,
   parseStashes,
+  countLinesInBuffer,
   parseStatusFilesZ,
   parseTagDetails,
-  parseUnifiedDiff
+  parseFileDiff
 } from './git-parse'
 import type { GitRefData, GitStash } from './git-parse'
-import { GIT_INDEX, UNCOMMITTED } from '../shared/git'
+import { GIT_INDEX, UNCOMMITTED, imageMimeOf } from '../shared/git'
 import type {
   GitDetailsRequest,
   GitDetailsResult,
   GitDiffRequest,
   GitDiffResult,
+  GitImageResult,
   GitEffectiveSettings,
   GitFileChange,
   GitLoadOptions,
@@ -479,6 +483,35 @@ export async function loadRepo(
 
 // —— getDetails：提交 / 未提交 / stash 详情与两点比较 ——
 
+/** 未跟踪文件行数补算的大小上限：超过则跳过（保持无统计），防超大文件拖慢未提交刷新。 */
+const UNTRACKED_COUNT_MAX_BYTES = 8 * 1024 * 1024
+
+/**
+ * 给列表中 status 追加的未跟踪（U）文件补行数（additions=行数、deletions=0）：git 不为
+ * untracked 提供 numstat，读工作区文件按 numstat 口径数行；二进制 / 超大 / 读取失败保持
+ * null（沿用「二进制无行数」的既有语义）。isDir 目录条目跳过。就地修改传入列表。
+ */
+async function fillUntrackedLineCounts(root: string, files: GitFileChange[]): Promise<void> {
+  await Promise.all(
+    files
+      .filter((f) => f.type === 'U' && f.isDir !== true && f.additions === null)
+      .map(async (f) => {
+        try {
+          const absPath = join(root, f.newFilePath)
+          const info = await stat(absPath)
+          if (!info.isFile() || info.size > UNTRACKED_COUNT_MAX_BYTES) return
+          const lines = countLinesInBuffer(await readFile(absPath))
+          if (lines !== null) {
+            f.additions = lines
+            f.deletions = 0
+          }
+        } catch {
+          // 读取失败（权限 / 文件已消失）：保持无统计
+        }
+      })
+  )
+}
+
 /** 文件变更列表加载结果（name-status + numstat + 可选 status 三路合成）。 */
 type FileChangesResult = { ok: true; fileChanges: GitFileChange[] } | { ok: false; error: string }
 
@@ -503,14 +536,14 @@ async function loadFileChanges(
   if (!numStatRes.ok) return { ok: false, error: numStatRes.error }
   if (statusRes !== null && !statusRes.ok) return { ok: false, error: statusRes.error }
   const statusFiles = statusRes !== null ? parseStatusFilesZ(statusRes.stdout) : null
-  return {
-    ok: true,
-    fileChanges: generateFileChanges(
-      parseNameStatusZ(nameStatusRes.stdout, diffTree),
-      parseNumStatZ(numStatRes.stdout, diffTree),
-      statusFiles
-    )
-  }
+  const fileChanges = generateFileChanges(
+    parseNameStatusZ(nameStatusRes.stdout, diffTree),
+    parseNumStatZ(numStatRes.stdout, diffTree),
+    statusFiles
+  )
+  // status 追加的未跟踪文件补行数（仅与工作区比较时存在，其余场景空集零开销）
+  await fillUntrackedLineCounts(root, fileChanges)
+  return { ok: true, fileChanges }
 }
 
 /**
@@ -559,18 +592,16 @@ export async function getDetails(
       return { details: null, fileChanges: null, uncommitted: null, error: wtNum.error }
     if (!statusRes.ok)
       return { details: null, fileChanges: null, uncommitted: null, error: statusRes.error }
-    return {
-      details: null,
-      fileChanges: null,
-      uncommitted: assembleUncommitted(
-        stagedNS.stdout,
-        stagedNum.stdout,
-        wtNS.stdout,
-        wtNum.stdout,
-        statusRes.stdout
-      ),
-      error: null
-    }
+    const uncommitted = assembleUncommitted(
+      stagedNS.stdout,
+      stagedNum.stdout,
+      wtNS.stdout,
+      wtNum.stdout,
+      statusRes.stdout
+    )
+    // status 追加的未跟踪文件补行数（只会出现在未暂存段）
+    await fillUntrackedLineCounts(root, uncommitted.unstaged)
+    return { details: null, fileChanges: null, uncommitted, error: null }
   }
   // commit / stash：详情基础（git show --quiet）与文件变更两路（+stash 第三父一路）全部并行
   const fromHash =
@@ -619,9 +650,9 @@ export async function getDetails(
   }
 }
 
-// —— getFileDiff：单文件结构化 unified diff ——
+// —— getFileDiff：单文件 diff（原始 unified diff 文本 + 二进制判定） ——
 
-/** 单文件 diff（data-read.md §8.2）：按场景选命令，stdout 交给 parseUnifiedDiff 出 hunks。 */
+/** 单文件 diff（data-read.md §8.2）：按场景选命令，stdout 原样交给 parseFileDiff（仅判二进制）。 */
 export async function getFileDiff(
   projectPath: string,
   request: GitDiffRequest
@@ -634,13 +665,67 @@ export async function getFileDiff(
   const failed = noIndex ? result.code < 0 || result.code >= 2 : result.code !== 0
   if (failed) return { diff: null, error: getErrorMessage(result) }
   return {
-    diff: parseUnifiedDiff(result.stdout.toString('utf8'), {
+    diff: parseFileDiff(result.stdout.toString('utf8'), {
       oldFilePath: request.oldFilePath,
       newFilePath: request.newFilePath,
       type: request.type
     }),
     error: null
   }
+}
+
+// —— getFileImage：二进制图片的新旧内容（diff 面板预览） ——
+
+/** 图片预览单侧大小上限：超过视为不可预览（该侧为 null），防超大图撑爆 IPC 与内存。 */
+const IMAGE_PREVIEW_MAX_BYTES = 20 * 1024 * 1024
+
+/**
+ * 读一侧图片内容：UNCOMMITTED 读工作区文件、GIT_INDEX 读暂存区快照、其余 `git show <ref>:<path>`。
+ * 对象不存在（新增无旧侧 / 删除无新侧）、超限或读取失败返回 null（侧级容错，不产错误）。
+ */
+async function readImageSide(root: string, ref: string, path: string): Promise<Buffer | null> {
+  if (ref === UNCOMMITTED) {
+    try {
+      const absPath = join(root, path)
+      const info = await stat(absPath)
+      if (!info.isFile() || info.size > IMAGE_PREVIEW_MAX_BYTES) return null
+      return await readFile(absPath)
+    } catch {
+      return null
+    }
+  }
+  const spec = ref === GIT_INDEX ? `:0:${path}` : `${ref}:${path}`
+  const result = await execGit(root, ['show', spec])
+  if (result.code !== 0 || result.stdout.length > IMAGE_PREVIEW_MAX_BYTES) return null
+  return result.stdout
+}
+
+/**
+ * 图片文件的新旧预览数据（data URL）：旧端 = from（「提交自身变更」场景取 hash^，与
+ * buildFileDiffArgs 的旧侧语义一致），新端 = to；两侧独立容错，A/U 无旧侧、D 无新侧
+ * 自然为 null。MIME 按各侧路径扩展名分别解析（覆盖重命名换扩展名的场景）。
+ */
+export async function getFileImage(
+  projectPath: string,
+  request: GitDiffRequest
+): Promise<GitImageResult> {
+  const root = await resolveRepoRoot(projectPath)
+  if (root === null) return { oldDataUrl: null, newDataUrl: null, error: NOT_A_REPO }
+  const oldMime = imageMimeOf(request.oldFilePath)
+  const newMime = imageMimeOf(request.newFilePath)
+  if (oldMime === null && newMime === null) {
+    return { oldDataUrl: null, newDataUrl: null, error: '不是可预览的图片文件' }
+  }
+  const oldRef = request.fromHash === request.toHash ? `${request.fromHash}^` : request.fromHash
+  const [oldBuf, newBuf] = await Promise.all([
+    oldMime !== null ? readImageSide(root, oldRef, request.oldFilePath) : Promise.resolve(null),
+    newMime !== null
+      ? readImageSide(root, request.toHash, request.newFilePath)
+      : Promise.resolve(null)
+  ])
+  const toUrl = (buf: Buffer | null, mime: string | null): string | null =>
+    buf === null || mime === null ? null : `data:${mime};base64,${buf.toString('base64')}`
+  return { oldDataUrl: toUrl(oldBuf, oldMime), newDataUrl: toUrl(newBuf, newMime), error: null }
 }
 
 // —— getTagDetails：annotated tag 的消息 ——

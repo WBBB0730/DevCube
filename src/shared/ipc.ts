@@ -28,6 +28,7 @@ export const IPC = {
   gitLoad: 'git:load',
   gitDetails: 'git:details',
   gitFileDiff: 'git:file-diff',
+  gitFileImage: 'git:file-image',
   gitTagDetails: 'git:tag-details',
   gitRepoConfig: 'git:repo-config',
   gitAction: 'git:action',

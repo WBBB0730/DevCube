@@ -145,7 +145,7 @@ export interface GitDetailsResult {
   error: string | null
 }
 
-// —— 单文件结构化 diff（内置 diff 面板的数据源） ——
+// —— 单文件 diff（内置 diff 面板的数据源：原始 unified diff 文本 + 二进制判定） ——
 
 export interface GitDiffRequest {
   /** 比较基（较老一方）。提交自身变更场景：fromHash === toHash（根提交 / stash 第三父） */
@@ -157,39 +157,46 @@ export interface GitDiffRequest {
   type: GitFileStatus
 }
 
-export interface DiffLine {
-  kind: 'context' | 'add' | 'del'
-  /** 不含首字符标记（+/-/空格） */
-  text: string
-  /** add 行为 null */
-  oldLineNo: number | null
-  /** del 行为 null */
-  newLineNo: number | null
-  /** 该行之后是 "\ No newline at end of file" */
-  noEolAtEnd?: boolean
-}
-
-export interface DiffHunk {
-  oldStart: number
-  oldLines: number
-  newStart: number
-  newLines: number
-  /** @@ 之后的函数上下文，可为 '' */
-  sectionHeader: string
-  lines: DiffLine[]
-}
-
 export interface DiffFileData {
   oldFilePath: string
   newFilePath: string
   type: GitFileStatus
-  /** 二进制文件：hunks 恒为 [] */
+  /** 二进制文件：git 输出 "Binary files … differ"、无 diff 正文，raw 恒为 '' */
   binary: boolean
-  hunks: DiffHunk[]
+  /** git 原始 unified diff 文本（含 header 与全部 hunk），透传给渲染层的 diff 组件 */
+  raw: string
 }
 
 export interface GitDiffResult {
   diff: DiffFileData | null
+  error: string | null
+}
+
+// —— 二进制图片预览（diff 面板对图片文件的新旧预览） ——
+
+/** 浏览器可直接渲染的图片扩展名 → MIME（svg 为文本 diff、不在此列）。 */
+const IMAGE_MIME: Record<string, string> = {
+  png: 'image/png',
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  gif: 'image/gif',
+  webp: 'image/webp',
+  bmp: 'image/bmp',
+  ico: 'image/x-icon',
+  avif: 'image/avif'
+}
+
+/** 路径若是可预览的图片文件则返回其 MIME，否则 null（判定供主进程与渲染端共用）。 */
+export function imageMimeOf(path: string): string | null {
+  const dot = path.lastIndexOf('.')
+  if (dot < 0) return null
+  return IMAGE_MIME[path.slice(dot + 1).toLowerCase()] ?? null
+}
+
+export interface GitImageResult {
+  /** 旧 / 新两侧图片的 data URL；该侧不存在（新增无旧、删除无新）或读取失败为 null */
+  oldDataUrl: string | null
+  newDataUrl: string | null
   error: string | null
 }
 
@@ -465,8 +472,10 @@ export interface GitAPI {
   gitLoad(projectPath: string, options: GitLoadOptions): Promise<GitLoadResult>
   /** 提交 / 未提交 / stash 详情，或两提交比较的文件变更列表 */
   gitDetails(projectPath: string, request: GitDetailsRequest): Promise<GitDetailsResult>
-  /** 单文件结构化 unified diff（内置 diff 面板数据源） */
+  /** 单文件 diff（原始 unified diff 文本 + 二进制判定，内置 diff 面板数据源） */
   gitFileDiff(projectPath: string, request: GitDiffRequest): Promise<GitDiffResult>
+  /** 二进制图片文件的新旧内容（diff 面板预览）；端点语义同 gitFileDiff */
+  gitFileImage(projectPath: string, request: GitDiffRequest): Promise<GitImageResult>
   /** annotated tag 的详情（tagger / 消息） */
   gitTagDetails(projectPath: string, tagName: string): Promise<GitTagDetailsResult>
   /** 仓库 git 配置（remotes / user / pushDefault），仓库设置面板用 */

@@ -2,6 +2,7 @@
 @import 'tw-animate-css';
 @import '@fontsource-variable/inter';
 @import '@fontsource-variable/jetbrains-mono';
+@import '@git-diff-view/react/styles/diff-view.css';
 
 /*
   Run — JetBrains New UI (Darcula) 深色主题。
@@ -166,4 +167,65 @@
   ::-webkit-scrollbar-corner {
     background: transparent;
   }
+}
+
+/* —— Git diff 面板（@git-diff-view/react）——
+   库以「.diff-tailwindcss-wrapper[data-theme] .diff-style-root」定义主题变量，此处用
+   同一选择器按源序后置覆盖（库样式经顶部 @import 先入级联），取值全部引用上方的
+   Darcula token（--diff-* / --bg-* / --fg-*），不引入第二套色源。 */
+.diff-tailwindcss-wrapper[data-theme='dark'] .diff-style-root {
+  --diff-border--: var(--separator);
+  --diff-add-content--: var(--diff-add-bg);
+  --diff-del-content--: var(--diff-del-bg);
+  --diff-add-content-highlight--: var(--diff-add-word-bg);
+  --diff-del-content-highlight--: var(--diff-del-word-bg);
+  --diff-add-lineNumber--: var(--diff-add-bg);
+  --diff-del-lineNumber--: var(--diff-del-bg);
+  --diff-plain-content--: var(--bg-deepest);
+  --diff-plain-lineNumber--: var(--bg-deepest);
+  --diff-plain-lineNumber-color--: var(--fg-muted);
+  --diff-expand-content--: var(--bg-panel);
+  --diff-expand-lineNumber--: var(--bg-panel);
+  --diff-expand-lineNumber-color--: var(--fg-muted);
+  --diff-hunk-content--: var(--diff-hunk-header-bg);
+  --diff-hunk-lineNumber--: var(--diff-hunk-header-bg);
+  --diff-hunk-content-color--: var(--fg-muted);
+  /* 左右对比的空占位：沿用旧实现的「深底再压 15% 黑」观感 */
+  --diff-empty-content--: color-mix(in srgb, black 15%, var(--bg-deepest));
+  /* 库 dark 主题写死 color: white，压回应用正文色 */
+  color: var(--fg-primary);
+}
+
+/* hunk 行（@@ …）紧凑化：无全文时库不渲染展开按钮，但按钮位仍有 28px 高的空占位、
+   内容带 1.5em 左缩进；压平占位、内容顶格，观感对齐普通代码行。 */
+.diff-tailwindcss-wrapper .diff-line-hunk-action > div {
+  min-height: 0;
+}
+.diff-tailwindcss-wrapper .diff-line-hunk-content > div {
+  padding-left: 0;
+}
+
+/* 等宽字体对齐应用规范（JetBrains Mono，@theme 的 --font-mono）：库在滚动容器元素上
+   内联硬编码了 fontFamily（Menlo），必须 !important 才能压过行内样式 */
+.diff-tailwindcss-wrapper,
+.diff-tailwindcss-wrapper .diff-table-scroll-container {
+  font-family: var(--font-mono) !important;
+}
+
+/* —— Diff 面板滚动结构：横向滚动条常驻面板底部 ——
+   库的滚动容器默认与整表同高（横向条藏在表尾，滚到底才可见）；把高度链传导进容器、
+   纵向滚动收进容器内后，横竖滚动条都固定在面板边缘（实测仅此写法有效：外层固定高度 /
+   DiffView 的 style prop 均无效，见 ADR-0007）。split 两栏的纵横滚动由库内置
+   syncScroll（scrollTop + scrollLeft 双向）自动同步，无需自写。 */
+.diff-tailwindcss-wrapper,
+.diff-tailwindcss-wrapper .diff-style-root,
+.diff-tailwindcss-wrapper .diff-view-wrapper,
+.diff-tailwindcss-wrapper .split-diff-view,
+.diff-tailwindcss-wrapper .unified-diff-view {
+  height: 100%;
+}
+.diff-tailwindcss-wrapper .diff-table-scroll-container {
+  max-height: 100%;
+  /* 库以工具类写死 overflow-y: hidden，需 !important 压过 */
+  overflow-y: auto !important;
 }

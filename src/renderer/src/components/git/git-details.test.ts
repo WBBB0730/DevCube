@@ -1,27 +1,16 @@
 // git-details 纯函数测试：文件树构建/压缩/排序、diff 可点性、diff 端点解析、
-// 正文分词（URL 自动链接）、diff 截断与 hunk 头还原（details-diff 规格）。
+// 正文分词（URL 自动链接）（details-diff 规格）。
 import { describe, expect, it } from 'vitest'
+import { GIT_INDEX, UNCOMMITTED, type GitFileChange } from '@shared/git'
 import {
-  GIT_INDEX,
-  UNCOMMITTED,
-  type DiffHunk,
-  type DiffLine,
-  type GitFileChange
-} from '@shared/git'
-import {
-  DIFF_RENDER_LIMIT,
   buildFileTree,
-  countDiffLines,
   diffPossible,
   fileRowTitle,
   filesInSelection,
   flattenFileTree,
-  formatHunkHeader,
-  limitDiffHunks,
   normalizeCompare,
   pathspecOf,
   resolveDiffEndpoints,
-  splitDiffRows,
   tokenizeBody,
   uncommittedDiffEndpoints
 } from './git-details'
@@ -83,16 +72,22 @@ describe('filesInSelection', () => {
 })
 
 describe('diffPossible', () => {
-  it('未跟踪文件恒可打开 diff（主进程合成新增 hunk）', () => {
+  it('未跟踪文件可打开 diff', () => {
     expect(diffPossible(fc('a.bin', { type: 'U', additions: null, deletions: null }))).toBe(true)
   })
 
-  it('二进制文件（行数为 null）不可打开 diff', () => {
-    expect(diffPossible(fc('a.png', { additions: null, deletions: null }))).toBe(false)
+  it('无行数的文件（如二进制）也可打开 diff（是否二进制由点开后判定）', () => {
+    expect(diffPossible(fc('a.png', { additions: null, deletions: null }))).toBe(true)
   })
 
   it('有行数的文本文件可打开 diff', () => {
     expect(diffPossible(fc('a.ts'))).toBe(true)
+  })
+
+  it('未跟踪目录整体条目不可打开 diff', () => {
+    expect(
+      diffPossible(fc('vendor', { type: 'U', additions: null, deletions: null, isDir: true }))
+    ).toBe(false)
   })
 })
 
@@ -101,10 +96,16 @@ describe('fileRowTitle', () => {
     expect(fileRowTitle(fc('a.ts'))).toBe('点击查看差异 • 已修改')
   })
 
-  it('二进制文件提示无法查看差异', () => {
+  it('无行数的文件（如二进制）同样提示点击查看', () => {
     expect(fileRowTitle(fc('a.png', { additions: null, deletions: null }))).toBe(
-      '无法查看差异（这是一个二进制文件） • 已修改'
+      '点击查看差异 • 已修改'
     )
+  })
+
+  it('未跟踪目录整体条目提示无法查看差异', () => {
+    expect(
+      fileRowTitle(fc('vendor', { type: 'U', additions: null, deletions: null, isDir: true }))
+    ).toBe('无法查看差异（这是一个未跟踪目录） • 未跟踪')
   })
 
   it('重命名附注旧路径 → 新路径', () => {
@@ -276,118 +277,5 @@ describe('tokenizeBody', () => {
 
   it('空正文得到空 token 集', () => {
     expect(tokenizeBody('')).toEqual([])
-  })
-})
-
-/** 快捷构造一个 N 行的 hunk。 */
-function hunk(lines: number, sectionHeader = ''): DiffHunk {
-  return {
-    oldStart: 1,
-    oldLines: lines,
-    newStart: 1,
-    newLines: lines,
-    sectionHeader,
-    lines: Array.from({ length: lines }, (_, i) => ({
-      kind: 'context' as const,
-      text: `line ${i}`,
-      oldLineNo: i + 1,
-      newLineNo: i + 1
-    }))
-  }
-}
-
-describe('countDiffLines / limitDiffHunks', () => {
-  it('统计全部 hunk 的行数之和', () => {
-    expect(countDiffLines([hunk(3), hunk(5)])).toBe(8)
-  })
-
-  it('上限落在 hunk 边界内时截其 lines，且不改原对象', () => {
-    const src = [hunk(3), hunk(5)]
-    const out = limitDiffHunks(src, 5)
-    expect(out).toHaveLength(2)
-    expect(out[0].lines).toHaveLength(3)
-    expect(out[1].lines).toHaveLength(2)
-    expect(src[1].lines).toHaveLength(5)
-  })
-
-  it('总行数不超上限时整体保留（hunk 引用不变）', () => {
-    const src = [hunk(3)]
-    expect(limitDiffHunks(src, DIFF_RENDER_LIMIT)[0]).toBe(src[0])
-  })
-
-  it('上限为 0 时得到空集', () => {
-    expect(limitDiffHunks([hunk(3)], 0)).toEqual([])
-  })
-})
-
-describe('formatHunkHeader', () => {
-  it('无上下文时输出「@@ -a,b +c,d @@」', () => {
-    expect(formatHunkHeader(hunk(3))).toBe('@@ -1,3 +1,3 @@')
-  })
-
-  it('有函数上下文时附在 @@ 之后', () => {
-    expect(formatHunkHeader(hunk(3, 'function foo()'))).toBe('@@ -1,3 +1,3 @@ function foo()')
-  })
-})
-
-describe('splitDiffRows', () => {
-  const ctx = (text: string, o: number, n: number): DiffLine => ({
-    kind: 'context',
-    text,
-    oldLineNo: o,
-    newLineNo: n
-  })
-  const del = (text: string, o: number): DiffLine => ({
-    kind: 'del',
-    text,
-    oldLineNo: o,
-    newLineNo: null
-  })
-  const add = (text: string, n: number): DiffLine => ({
-    kind: 'add',
-    text,
-    oldLineNo: null,
-    newLineNo: n
-  })
-
-  it('context 两侧同显', () => {
-    expect(splitDiffRows([ctx('a', 1, 1)])).toEqual([
-      { left: ctx('a', 1, 1), right: ctx('a', 1, 1) }
-    ])
-  })
-
-  it('等长 del/add 两两配对（del 在左、add 在右）', () => {
-    expect(splitDiffRows([del('x', 1), add('y', 1)])).toEqual([
-      { left: del('x', 1), right: add('y', 1) }
-    ])
-  })
-
-  it('del 多于 add：多出的 del 右侧留空', () => {
-    expect(splitDiffRows([del('a', 1), del('b', 2), add('c', 1)])).toEqual([
-      { left: del('a', 1), right: add('c', 1) },
-      { left: del('b', 2), right: null }
-    ])
-  })
-
-  it('add 多于 del：多出的 add 左侧留空', () => {
-    expect(splitDiffRows([del('a', 1), add('b', 1), add('c', 2)])).toEqual([
-      { left: del('a', 1), right: add('b', 1) },
-      { left: null, right: add('c', 2) }
-    ])
-  })
-
-  it('纯新增（无 del）左侧全空', () => {
-    expect(splitDiffRows([add('a', 1), add('b', 2)])).toEqual([
-      { left: null, right: add('a', 1) },
-      { left: null, right: add('b', 2) }
-    ])
-  })
-
-  it('context 分隔的两段各自配对', () => {
-    expect(splitDiffRows([del('a', 1), add('b', 1), ctx('c', 2, 2), del('d', 3)])).toEqual([
-      { left: del('a', 1), right: add('b', 1) },
-      { left: ctx('c', 2, 2), right: ctx('c', 2, 2) },
-      { left: del('d', 3), right: null }
-    ])
   })
 })

@@ -46,6 +46,8 @@ const api: RunAPI = {
     ipcRenderer.invoke(IPC.gitDetails, projectPath, request),
   gitFileDiff: (projectPath, request: GitDiffRequest) =>
     ipcRenderer.invoke(IPC.gitFileDiff, projectPath, request),
+  gitFileImage: (projectPath, request: GitDiffRequest) =>
+    ipcRenderer.invoke(IPC.gitFileImage, projectPath, request),
   gitTagDetails: (projectPath, tagName) =>
     ipcRenderer.invoke(IPC.gitTagDetails, projectPath, tagName),
   gitRepoConfig: (projectPath) => ipcRenderer.invoke(IPC.gitRepoConfig, projectPath),

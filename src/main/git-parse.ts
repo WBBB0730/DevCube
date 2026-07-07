@@ -5,7 +5,6 @@
 import { UNCOMMITTED } from '../shared/git'
 import type {
   DiffFileData,
-  DiffHunk,
   GitCommit,
   GitCommitDetails,
   GitFileChange,
@@ -570,82 +569,42 @@ export function parseDetails(stdout: string): Omit<GitCommitDetails, 'fileChange
   }
 }
 
-// —— §8.2 单文件结构化 unified diff ——
+// —— §8.2 单文件 diff（原始文本透传 + 二进制判定） ——
 
 /** hunk 头：@@ -old[,n] +new[,n] @@[ 节头]；",n" 缺省表示 1。 */
-const HUNK_HEADER_REGEX = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@(?: (.*))?$/
-
 /** 二进制文件差异的正文标记（如 "Binary files a/x and b/x differ"）。 */
 const BINARY_DIFF_REGEX = /^Binary files .* differ$/
 
 /**
- * 逐行状态机解析 unified diff（data-read.md §8.2）：header 行跳过、hunk 头正则含缺省 ",1"、
- * 行号按 context/add/del 推进、"\ No newline at end of file" 附着到上一行、Binary files 检测。
- * 文件路径与状态由调用方提供（§7 已解析出 GitFileChange），diff 正文只贡献 hunks。
+ * 单文件 diff（data-read.md §8.2）：git 原始 unified diff 文本原样透传给渲染层的 diff 组件，
+ * 仅在此判定二进制（git 输出 "Binary files … differ"、无 diff 正文，此时 raw 置空）。
+ * 文件路径与状态由调用方提供（§7 已解析出 GitFileChange）。
  */
-export function parseUnifiedDiff(
+export function parseFileDiff(
   stdout: string,
   file: { oldFilePath: string; newFilePath: string; type: GitFileStatus }
 ): DiffFileData {
-  const hunks: DiffHunk[] = []
-  let current: DiffHunk | null = null
-  let oldLineNo = 0
-  let newLineNo = 0
-  for (const line of stdout.split(EOL_REGEX)) {
-    const header = line.match(HUNK_HEADER_REGEX)
-    if (header !== null) {
-      current = {
-        oldStart: parseInt(header[1], 10),
-        oldLines: header[2] !== undefined ? parseInt(header[2], 10) : 1,
-        newStart: parseInt(header[3], 10),
-        newLines: header[4] !== undefined ? parseInt(header[4], 10) : 1,
-        sectionHeader: header[5] ?? '',
-        lines: []
-      }
-      oldLineNo = current.oldStart
-      newLineNo = current.newStart
-      hunks.push(current)
-      continue
-    }
-    if (current === null) {
-      // hunk 外：diff --git / index / --- / +++ / diff-tree 回显的提交 hash 等 header 行
-      if (BINARY_DIFF_REGEX.test(line)) {
-        return { ...file, binary: true, hunks: [] }
-      }
-      continue
-    }
-    const marker = line[0]
-    if (marker === ' ') {
-      current.lines.push({
-        kind: 'context',
-        text: line.substring(1),
-        oldLineNo: oldLineNo++,
-        newLineNo: newLineNo++
-      })
-    } else if (marker === '+') {
-      current.lines.push({
-        kind: 'add',
-        text: line.substring(1),
-        oldLineNo: null,
-        newLineNo: newLineNo++
-      })
-    } else if (marker === '-') {
-      current.lines.push({
-        kind: 'del',
-        text: line.substring(1),
-        oldLineNo: oldLineNo++,
-        newLineNo: null
-      })
-    } else if (marker === '\\') {
-      // "\ No newline at end of file"：附着到上一行
-      const last = current.lines[current.lines.length - 1]
-      if (last !== undefined) last.noEolAtEnd = true
-    } else {
-      // 不认识的行（理论上是下一个文件的 header 或结尾空行）：当前 hunk 结束
-      current = null
-    }
-  }
-  return { ...file, binary: false, hunks }
+  const binary = stdout.split(EOL_REGEX).some((line) => BINARY_DIFF_REGEX.test(line))
+  return { ...file, binary, raw: binary ? '' : stdout }
+}
+
+// —— 未跟踪文件行数（git 不为 untracked 提供 numstat，读工作区文件补算） ——
+
+/** 二进制探测窗口：与 git 的启发式一致，前 8000 字节内含 NUL 即视为二进制。 */
+const BINARY_PROBE_BYTES = 8000
+
+/**
+ * 数一段文件内容的行数（numstat 口径：末行无换行符也算一行；空内容为 0 行）；
+ * 前 8000 字节含 NUL 判为二进制返回 null（对齐 git numstat 输出 "-\t-" 的语义）。
+ */
+export function countLinesInBuffer(buf: Uint8Array): number | null {
+  if (buf.length === 0) return 0
+  const probeEnd = Math.min(buf.length, BINARY_PROBE_BYTES)
+  for (let i = 0; i < probeEnd; i++) if (buf[i] === 0) return null
+  let lines = 0
+  for (let i = 0; i < buf.length; i++) if (buf[i] === 10) lines++
+  if (buf[buf.length - 1] !== 10) lines++ // 末行无换行符
+  return lines
 }
 
 // —— §9.5 config --list -z ——

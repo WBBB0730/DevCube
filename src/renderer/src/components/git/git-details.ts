@@ -6,8 +6,6 @@
 import {
   GIT_INDEX,
   UNCOMMITTED,
-  type DiffHunk,
-  type DiffLine,
   type GitCommitStash,
   type GitFileChange,
   type GitFileStatus
@@ -33,9 +31,12 @@ export const FILE_STATUS_COLOR: Record<GitFileStatus, string> = {
   D: 'var(--status-failed)'
 }
 
-/** 该文件行能否打开 diff：未跟踪恒可（主进程合成新增 hunk），其余需有行数（二进制为 null）。 */
+/**
+ * 该文件行能否打开 diff：未跟踪目录整体条目（isDir）没有 diff 可看，其余一律可点——
+ * 是否二进制由点开后的单文件 diff 判定（面板内展示「二进制文件不支持对比」），列表阶段不预判。
+ */
 export function diffPossible(file: GitFileChange): boolean {
-  return file.type === 'U' || file.additions !== null
+  return file.isDir !== true
 }
 
 // —— 文件树（details-diff §7.1–7.3） ——
@@ -156,7 +157,7 @@ export function filesInSelection(
 
 /** 文件行 tooltip（§7.4）：可点性提示 • 状态文案，rename 附「旧 → 新」。 */
 export function fileRowTitle(file: GitFileChange): string {
-  const click = diffPossible(file) ? '点击查看差异' : '无法查看差异（这是一个二进制文件）'
+  const click = diffPossible(file) ? '点击查看差异' : '无法查看差异（这是一个未跟踪目录）'
   const status =
     file.type === 'R'
       ? `${FILE_STATUS_LABEL.R} (${file.oldFilePath} → ${file.newFilePath})`
@@ -262,68 +263,4 @@ export function tokenizeBody(body: string): BodyToken[] {
   }
   pushText(body.slice(last))
   return tokens
-}
-
-// —— diff 面板辅助（§10.4 渲染端截断 + hunk 头还原） ——
-
-/** 超大 diff 的渲染截断阈值（行）：超过先渲染前 N 行并给「仍要全部渲染」入口。 */
-export const DIFF_RENDER_LIMIT = 20000
-
-/** 全部 hunk 的 diff 行总数。 */
-export function countDiffLines(hunks: readonly DiffHunk[]): number {
-  return hunks.reduce((n, h) => n + h.lines.length, 0)
-}
-
-/** 按行数上限截取 hunks；跨越边界的 hunk 截其 lines（不改原对象）。 */
-export function limitDiffHunks(hunks: readonly DiffHunk[], maxLines: number): DiffHunk[] {
-  const out: DiffHunk[] = []
-  let remaining = maxLines
-  for (const h of hunks) {
-    if (remaining <= 0) break
-    if (h.lines.length <= remaining) {
-      out.push(h)
-      remaining -= h.lines.length
-    } else {
-      out.push({ ...h, lines: h.lines.slice(0, remaining) })
-      remaining = 0
-    }
-  }
-  return out
-}
-
-/** 结构化 hunk → 展示原样的头行文本「@@ -a,b +c,d @@ 上下文」。 */
-export function formatHunkHeader(h: DiffHunk): string {
-  const head = `@@ -${h.oldStart},${h.oldLines} +${h.newStart},${h.newLines} @@`
-  return h.sectionHeader === '' ? head : `${head} ${h.sectionHeader}`
-}
-
-/** 左右对比 diff 的一行：left = 旧侧（context / del / null 占位），right = 新侧（context / add / null）。 */
-export interface SplitDiffRow {
-  left: DiffLine | null
-  right: DiffLine | null
-}
-
-/**
- * 把一个 hunk 的行序列配对成左右对比行（unified → side-by-side）：
- * context 两侧同显；一段连续的 del 与紧随其后的 add 按序两两配对（del 在左、add 在右），
- * 多出的一侧与 null 配对（另一侧留空占位）。纯函数，供 GitDiffView 与单测。
- */
-export function splitDiffRows(lines: readonly DiffLine[]): SplitDiffRow[] {
-  const rows: SplitDiffRow[] = []
-  let i = 0
-  while (i < lines.length) {
-    if (lines[i].kind === 'context') {
-      rows.push({ left: lines[i], right: lines[i] })
-      i++
-      continue
-    }
-    // 收集一段连续的 del，再收集紧随的 add，按行序两两配对
-    const dels: DiffLine[] = []
-    const adds: DiffLine[] = []
-    while (i < lines.length && lines[i].kind === 'del') dels.push(lines[i++])
-    while (i < lines.length && lines[i].kind === 'add') adds.push(lines[i++])
-    const n = Math.max(dels.length, adds.length)
-    for (let j = 0; j < n; j++) rows.push({ left: dels[j] ?? null, right: adds[j] ?? null })
-  }
-  return rows
 }
