@@ -37,6 +37,7 @@ describe('buildLogArgs', () => {
       '--max-count=301',
       `--format=${GIT_FORMAT_LOG}`,
       '--date-order',
+      '--ignore-missing',
       '--branches',
       '--tags',
       '--remotes',
@@ -69,6 +70,14 @@ describe('buildLogArgs', () => {
     expect(args).not.toContain('--remotes')
     expect(args).toContain('--glob=refs/remotes/origin')
     expect(args).not.toContain('--glob=refs/remotes/upstream')
+  })
+
+  it('includeHead=false（HEAD 未出生的重试）：不加 HEAD，其余照旧', () => {
+    const args = buildLogArgs({ maxCommits: 300, branches: null }, SETTINGS, [], ['origin'], false)
+    expect(args).not.toContain('HEAD')
+    expect(args).toContain('--branches')
+    expect(args).toContain('--remotes')
+    expect(args[args.length - 1]).toBe('--')
   })
 
   it('stash 基点去重后作为起点 revision 追加在 HEAD 之前', () => {

@@ -118,6 +118,8 @@ export interface RunAPI extends GitAPI {
   addProject(): Promise<ProjectNode[]>
   /** 拖入文件夹路径新增项目 */
   addProjectByPath(path: string): Promise<ProjectNode[]>
+  /** 打开系统保存面板新建项目文件夹并登记；返回更新后的树（用户取消则返回原树） */
+  createProject(): Promise<ProjectNode[]>
   removeProject(path: string): Promise<ProjectNode[]>
 
   // —— 运行时（slice 3+） ——

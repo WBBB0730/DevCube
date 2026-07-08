@@ -155,6 +155,14 @@ export function filesInSelection(
   )
 }
 
+/**
+ * 提交面板「推送」勾选可用性：有当前分支，或空仓库（无 HEAD——首次提交会让分支出生，
+ * 提交成功后再弹推送对话框）；detached HEAD（无当前分支但有 HEAD）提交完仍无分支可推，禁用。
+ */
+export function canPushAfterCommit(currentBranch: string | null, headHash: string | null): boolean {
+  return currentBranch !== null || headHash === null
+}
+
 /** 文件行 tooltip（§7.4）：可点性提示 • 状态文案，rename 附「旧 → 新」。 */
 export function fileRowTitle(file: GitFileChange): string {
   const click = diffPossible(file) ? '点击查看差异' : '无法查看差异（这是一个未跟踪目录）'
@@ -203,6 +211,8 @@ export function resolveDiffEndpoints(
     }
     return { fromHash: exp.stash.baseHash, toHash: exp.hash }
   }
+  // 防御分支，正常不可达：未提交行详情（非比较）恒走提交面板，文件点击用
+  // uncommittedDiffEndpoints。'HEAD' 端点依赖 HEAD 已出生，若未来复用需先兜住空仓库
   if (exp.hash === UNCOMMITTED) return { fromHash: 'HEAD', toHash: UNCOMMITTED }
   return { fromHash: exp.hash, toHash: exp.hash }
 }

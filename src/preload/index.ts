@@ -14,6 +14,7 @@ const api: RunAPI = {
   getTree: () => ipcRenderer.invoke(IPC.treeGet),
   addProject: () => ipcRenderer.invoke(IPC.projectAdd),
   addProjectByPath: (path) => ipcRenderer.invoke(IPC.projectAddByPath, path),
+  createProject: () => ipcRenderer.invoke(IPC.projectCreate),
   removeProject: (path) => ipcRenderer.invoke(IPC.projectRemove, path),
 
   run: (target: RunTarget) => ipcRenderer.invoke(IPC.run, target),
@@ -59,6 +60,8 @@ const api: RunAPI = {
   gitGetViewPrefs: () => ipcRenderer.invoke(IPC.gitViewPrefsGet),
   gitSetViewPrefs: (patch) => ipcRenderer.invoke(IPC.gitViewPrefsSet, patch),
   onGitChanged: (cb) => subscribe(IPC.gitChanged, cb),
+  gitRevalidate: (projectPath) => ipcRenderer.invoke(IPC.gitRevalidate, projectPath),
+  gitDefaultBranch: (projectPath) => ipcRenderer.invoke(IPC.gitDefaultBranch, projectPath),
 
   onTreeChanged: (cb) => subscribe(IPC.treeChanged, cb),
   onSessionOutput: (cb) => subscribe(IPC.sessionOutput, cb),

@@ -323,6 +323,41 @@ describe('assembleCommits', () => {
     expect(result.commits.map((c) => c.hash)).toEqual(['a'])
   })
 
+  it('unbornHead（空仓库）有变更时合成未提交行为唯一一行，parents 为空', () => {
+    const result = assembleCommits([], emptyRefs, [], [], {
+      ...opts,
+      uncommittedChanges: 2,
+      unbornHead: true
+    })
+    expect(result.commits).toHaveLength(1)
+    expect(result.commits[0].hash).toBe(UNCOMMITTED)
+    expect(result.commits[0].parents).toEqual([])
+    expect(result.commits[0].message).toBe('未提交的更改 (2)')
+  })
+
+  it('unbornHead 无变更时不合成未提交行', () => {
+    const result = assembleCommits([], emptyRefs, [], [], { ...opts, unbornHead: true })
+    expect(result.commits).toEqual([])
+  })
+
+  it('unbornHead 且列表非空（fetch 到远程提交 / orphan 检出）时未提交行插最前且不锚定提交', () => {
+    const result = assembleCommits([record('a', [], 1)], emptyRefs, [], [], {
+      ...opts,
+      uncommittedChanges: 3,
+      unbornHead: true
+    })
+    expect(result.commits.map((c) => c.hash)).toEqual([UNCOMMITTED, 'a'])
+    expect(result.commits[0].parents).toEqual([])
+  })
+
+  it('未声明 unbornHead 时 HEAD 为 null 不合成未提交行（主路径防御）', () => {
+    const result = assembleCommits([record('a', [], 1)], emptyRefs, [], [], {
+      ...opts,
+      uncommittedChanges: 3
+    })
+    expect(result.commits.map((c) => c.hash)).toEqual(['a'])
+  })
+
   it('stash 按 baseHash 插到其 base 之前，同一 base 的多个 stash 新的在上', () => {
     const records = [record('a', ['b'], 4), record('b', [], 1)]
     const stashes = [stashOn('s1', 'b', 2), stashOn('s2', 'b', 3)]

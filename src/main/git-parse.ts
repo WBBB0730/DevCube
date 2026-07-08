@@ -429,7 +429,13 @@ export function assembleCommits(
   refData: GitRefData,
   stashes: GitStash[],
   remotes: string[],
-  opts: { maxCommits: number; showTags: boolean; uncommittedChanges: number }
+  opts: {
+    maxCommits: number
+    showTags: boolean
+    uncommittedChanges: number
+    /** HEAD 未出生（空仓库 / orphan 检出）：未提交行不锚定 HEAD、parents 为空 */
+    unbornHead?: boolean
+  }
 ): { commits: GitCommit[]; moreCommitsAvailable: boolean; tags: string[] } {
   // 1. 哨兵：请求了 maxCommits + 1 条，拿满说明还有更多，弹掉最后一条哨兵
   const moreCommitsAvailable = records.length === opts.maxCommits + 1
@@ -441,25 +447,27 @@ export function assembleCommits(
     remotes: [],
     stash: null
   }))
-  // 2. 合成「未提交的更改」虚拟行：有变更且 HEAD 在本次加载的提交里才有意义
+  // 2. 合成「未提交的更改」虚拟行：有变更且 HEAD 在本次加载的提交里才有意义；
+  //    HEAD 未出生（unbornHead：空仓库 / orphan 检出）也合成——它是首次提交的入口，
+  //    不锚定任何提交（parents 为空如根提交），列表非空（fetch 到的远程提交）时同样插最前
   const headHash = refData.head
-  if (
-    opts.uncommittedChanges > 0 &&
-    headHash !== null &&
-    commits.some((commit) => commit.hash === headHash)
-  ) {
-    commits.unshift({
-      hash: UNCOMMITTED,
-      parents: [headHash],
-      author: '*',
-      email: '',
-      date: Math.round(Date.now() / 1000),
-      message: `未提交的更改 (${opts.uncommittedChanges})`,
-      heads: [],
-      tags: [],
-      remotes: [],
-      stash: null
-    })
+  if (opts.uncommittedChanges > 0) {
+    const onLoadedHead = headHash !== null && commits.some((commit) => commit.hash === headHash)
+    const unborn = opts.unbornHead === true && headHash === null
+    if (onLoadedHead || unborn) {
+      commits.unshift({
+        hash: UNCOMMITTED,
+        parents: headHash !== null ? [headHash] : [],
+        author: '*',
+        email: '',
+        date: Math.round(Date.now() / 1000),
+        message: `未提交的更改 (${opts.uncommittedChanges})`,
+        heads: [],
+        tags: [],
+        remotes: [],
+        stash: null
+      })
+    }
   }
   // 3. 提交下标索引
   let commitLookup: Record<string, number> = {}

@@ -106,7 +106,15 @@ type DialogInputSpec =
       placeholder?: string
       info?: string
     }
-  | { type: 'text-ref'; key: string; label: string; default: string; info?: string }
+  | {
+      type: 'text-ref'
+      key: string
+      label: string
+      default: string
+      info?: string
+      /** 允许留空（不禁用主按钮）；非法字符校验照常。初始化对话框的分支名字段用 */
+      allowEmpty?: boolean
+    }
   | {
       type: 'select'
       key: string
@@ -203,6 +211,48 @@ function currentBranchText(currentBranch: string | null): React.ReactNode {
 // eslint-disable-next-line react-refresh/only-export-components -- 纯函数与组件同文件导出（供单测）
 export function buildSpec(req: GitDialogRequest, env: DialogEnv): DialogSpec | null {
   switch (req.kind) {
+    case 'init':
+      // 初始化 Git 仓库（非仓库兜底态入口）：两个字段均可留空——分支名清空 = 裸 git init
+      // （尊重 init.defaultBranch），远程地址留空 = 不加远程；填了远程则 init 后自动 fetch
+      return {
+        message: <>在此项目初始化 Git 仓库：</>,
+        inputs: [
+          {
+            type: 'text-ref',
+            key: 'branch',
+            label: '初始分支',
+            default: req.defaultBranch,
+            allowEmpty: true,
+            info: '留空使用 Git 默认分支名。'
+          },
+          {
+            type: 'text',
+            key: 'remote',
+            label: '远程地址',
+            default: '',
+            placeholder: '可留空',
+            info: '将添加为远程 origin 并自动获取一次。'
+          }
+        ],
+        buttons: [
+          {
+            label: '确定',
+            onClick: (v) => {
+              const branch = (v.branch as string).trim()
+              const remote = (v.remote as string).trim()
+              dispatch(
+                env,
+                {
+                  kind: 'init',
+                  branchName: branch === '' ? null : branch,
+                  remoteUrl: remote === '' ? null : remote
+                },
+                '正在初始化仓库'
+              )
+            }
+          }
+        ]
+      }
     case 'rename-branch': // D1
       return {
         message: (
@@ -1592,10 +1642,15 @@ function DialogForm({
   const setValue = (key: string, value: string | string[] | boolean): void =>
     setValues((v) => ({ ...v, [key]: value }))
 
-  // TextRef 校验（§1.2）：空 = noInput、命中非法字符正则 = inputInvalid，均禁用主按钮
-  const refInputs = spec.inputs.filter((i) => i.type === 'text-ref')
+  // TextRef 校验（§1.2）：空 = noInput（allowEmpty 除外）、命中非法字符正则 = inputInvalid，
+  // 均禁用主按钮
+  const refInputs = spec.inputs.filter(
+    (i): i is Extract<DialogInputSpec, { type: 'text-ref' }> => i.type === 'text-ref'
+  )
   const hasInvalid = refInputs.some((i) => isRefInvalid((values[i.key] as string) ?? ''))
-  const hasEmpty = refInputs.some((i) => ((values[i.key] as string) ?? '') === '')
+  const hasEmpty = refInputs.some(
+    (i) => i.allowEmpty !== true && ((values[i.key] as string) ?? '') === ''
+  )
   const valid = !hasInvalid && !hasEmpty
 
   // Escape 兜底：焦点在对话框输入控件里时 GitPane 的 capture 监听会让位，这里补一份

@@ -41,11 +41,36 @@ import {
   buildStashPushArgs,
   buildUnsetConfigArgs,
   buildUnstagePathsArgs,
+  buildInitArgs,
   buildVersionGateError,
   findRemotesMissingCommit,
   parseGitVersion,
   toActionResult
 } from './git-actions'
+
+describe('buildInitArgs', () => {
+  it('两个字段都空时只有一条裸 init（尊重 init.defaultBranch）', () => {
+    expect(buildInitArgs({ kind: 'init', branchName: null, remoteUrl: null })).toEqual([['init']])
+  })
+  it('填了分支名时 init -b（所见即所得）', () => {
+    expect(buildInitArgs({ kind: 'init', branchName: 'main', remoteUrl: null })).toEqual([
+      ['init', '-b', 'main']
+    ])
+  })
+  it('填了远程地址时串联 remote add origin（fetch 不在序列内，失败不算 init 失败）', () => {
+    expect(
+      buildInitArgs({ kind: 'init', branchName: null, remoteUrl: 'git@host:a/b.git' })
+    ).toEqual([['init'], ['remote', 'add', 'origin', 'git@host:a/b.git']])
+  })
+  it('分支名与远程地址都填时按 init -b → remote add 顺序', () => {
+    expect(
+      buildInitArgs({ kind: 'init', branchName: 'trunk', remoteUrl: 'https://host/a/b.git' })
+    ).toEqual([
+      ['init', '-b', 'trunk'],
+      ['remote', 'add', 'origin', 'https://host/a/b.git']
+    ])
+  })
+})
 
 describe('buildCheckoutBranchArgs', () => {
   it('检出已有本地分支时只有分支名', () => {
@@ -389,14 +414,19 @@ describe('buildCommitArgs', () => {
 
 describe('buildFetchArgs', () => {
   it('remote 为 null 时抓取全部（--all）', () => {
-    expect(buildFetchArgs({ kind: 'fetch', remote: null, prune: false, pruneTags: false })).toEqual(
-      [['fetch', '--all']]
-    )
+    expect(
+      buildFetchArgs({ kind: 'fetch', remote: null, prune: false, pruneTags: false }, false)
+    ).toEqual([['fetch', '--all']])
   })
   it('指定远程并按序追加 --prune 与 --prune-tags', () => {
     expect(
-      buildFetchArgs({ kind: 'fetch', remote: 'origin', prune: true, pruneTags: true })
+      buildFetchArgs({ kind: 'fetch', remote: 'origin', prune: true, pruneTags: true }, false)
     ).toEqual([['fetch', 'origin', '--prune', '--prune-tags']])
+  })
+  it('atomic（git ≥ 2.31）时紧跟 remote 追加 --atomic，引用更新事务化', () => {
+    expect(
+      buildFetchArgs({ kind: 'fetch', remote: 'origin', prune: true, pruneTags: false }, true)
+    ).toEqual([['fetch', 'origin', '--atomic', '--prune']])
   })
 })
 

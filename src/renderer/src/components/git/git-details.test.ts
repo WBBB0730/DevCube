@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vitest'
 import { GIT_INDEX, UNCOMMITTED, type GitFileChange } from '@shared/git'
 import {
   buildFileTree,
+  canPushAfterCommit,
   diffPossible,
   fileRowTitle,
   filesInSelection,
@@ -26,6 +27,18 @@ function fc(path: string, overrides: Partial<GitFileChange> = {}): GitFileChange
     ...overrides
   }
 }
+
+describe('canPushAfterCommit', () => {
+  it('有当前分支时可推送', () => {
+    expect(canPushAfterCommit('main', 'abc')).toBe(true)
+  })
+  it('空仓库（无 HEAD）可推送：首次提交让分支出生后再弹推送对话框', () => {
+    expect(canPushAfterCommit(null, null)).toBe(true)
+  })
+  it('detached HEAD（无当前分支但有 HEAD）不可推送', () => {
+    expect(canPushAfterCommit(null, 'abc')).toBe(false)
+  })
+})
 
 describe('pathspecOf', () => {
   it('重命名（R）返回旧 + 新两路径，其余仅新路径', () => {

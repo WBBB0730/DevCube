@@ -134,6 +134,7 @@ interface AppState {
   init: () => Promise<void>
   addProject: () => Promise<void>
   addProjectByPath: (path: string) => Promise<void>
+  createProject: () => Promise<void>
   removeProject: (path: string) => Promise<void>
   run: (target: RunTarget, key: string, projectPath: string) => Promise<void>
   stop: (key: string) => Promise<void>
@@ -229,6 +230,7 @@ export const useApp = create<AppState>((set, get) => ({
   },
   addProject: async () => set({ tree: await window.api.addProject() }),
   addProjectByPath: async (path) => set({ tree: await window.api.addProjectByPath(path) }),
+  createProject: async () => set({ tree: await window.api.createProject() }),
   removeProject: async (path) => {
     const tree = await window.api.removeProject(path)
     // 该项目的会话/终端已由 main 销毁（逐个 sessionRemoved）；这里清掉指向它的当前项目与激活项。

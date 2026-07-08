@@ -72,6 +72,7 @@ export function ProjectTree(): React.JSX.Element {
   const tree = useApp((s) => s.tree)
   const addProject = useApp((s) => s.addProject)
   const addProjectByPath = useApp((s) => s.addProjectByPath)
+  const createProject = useApp((s) => s.createProject)
 
   return (
     <div
@@ -86,22 +87,26 @@ export function ProjectTree(): React.JSX.Element {
     >
       <header className="flex h-10 items-center justify-between pl-3 pr-2 text-muted-foreground">
         <span className="text-[12px] font-medium uppercase tracking-wide">项目</span>
-        <button
-          type="button"
-          title="添加项目"
-          onClick={addProject}
-          className={cn(
-            BTN,
-            'text-muted-foreground hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
-          )}
-        >
-          <FolderPlus className="size-4" />
-        </button>
+        <DropdownMenu>
+          <DropdownMenuTrigger
+            title="新建 / 添加项目"
+            className={cn(
+              BTN,
+              'text-muted-foreground hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
+            )}
+          >
+            <FolderPlus className="size-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent>
+            <DropdownMenuItem onClick={createProject}>新建项目…</DropdownMenuItem>
+            <DropdownMenuItem onClick={addProject}>添加现有项目…</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
       </header>
       <div className="flex-1 overflow-auto px-1.5 pb-1.5">
         {tree.length === 0 ? (
           <p className="px-3 py-6 text-center text-xs text-muted-foreground">
-            拖入文件夹，或点上方 +
+            拖入文件夹，或点上方 + 新建 / 添加项目
           </p>
         ) : (
           tree.map((node) => <ProjectRow key={node.project.path} node={node} />)

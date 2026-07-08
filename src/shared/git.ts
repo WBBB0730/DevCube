@@ -347,6 +347,9 @@ export type GitRebaseOn = 'branch' | 'commit'
  * 交互式 rebase 不在此列（渲染端映射到 Terminal 里执行）。
  */
 export type GitAction =
+  // 初始化（唯一合法作用于非仓库的动作；branchName null = 裸 git init，remoteUrl 非 null 时
+  // 串联 remote add origin + fetch origin，fetch 失败不算 init 失败）
+  | { kind: 'init'; branchName: string | null; remoteUrl: string | null }
   // 分支
   | { kind: 'checkout-branch'; branch: string; remoteBranch: string | null }
   | { kind: 'create-branch'; hash: string; name: string; checkout: boolean; force: boolean }
@@ -498,4 +501,11 @@ export interface GitAPI {
   gitSetViewPrefs(patch: Partial<GitViewPrefs>): Promise<GitViewPrefs>
   /** 仓库内容变化（.git 变动 / 动作完成）：渲染端应重新 gitLoad 该项目 */
   onGitChanged(cb: (projectPath: string) => void): () => void
+  /**
+   * 重验项目的仓库根（绕过缓存）：init / .git 删除后状态跟进的手动入口
+   * （Git Tab 变为可见、非仓库态点刷新）。变化时主进程对齐 watcher 并推 git:changed。
+   */
+  gitRevalidate(projectPath: string): Promise<boolean>
+  /** 当前生效的 init.defaultBranch（未配置回落 'main'），初始化对话框预填用 */
+  gitDefaultBranch(projectPath: string): Promise<string>
 }

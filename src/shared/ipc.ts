@@ -4,6 +4,7 @@ export const IPC = {
   treeChanged: 'tree:changed',
   projectAdd: 'project:add',
   projectAddByPath: 'project:add-by-path',
+  projectCreate: 'project:create',
   projectRemove: 'project:remove',
   run: 'session:run',
   stop: 'session:stop',
@@ -36,5 +37,7 @@ export const IPC = {
   gitSettingsSet: 'git:settings-set',
   gitViewPrefsGet: 'git:view-prefs-get',
   gitViewPrefsSet: 'git:view-prefs-set',
-  gitChanged: 'git:changed'
+  gitChanged: 'git:changed',
+  gitRevalidate: 'git:revalidate',
+  gitDefaultBranch: 'git:default-branch'
 } as const

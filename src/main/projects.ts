@@ -1,5 +1,5 @@
 import { dialog } from 'electron'
-import { statSync } from 'fs'
+import { mkdirSync, statSync } from 'fs'
 import { basename } from 'path'
 import { getConfigs, getProjects, setConfigs, setProjects } from './store'
 
@@ -21,6 +21,26 @@ export async function pickAndAddProject(): Promise<void> {
   const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
   if (result.canceled || result.filePaths.length === 0) return
   addProjectByPath(result.filePaths[0])
+}
+
+/**
+ * 打开系统保存面板新建项目文件夹并登记（「新建项目…」）。用户取消则不变；
+ * 所填路径已存在同名目录时不删不动，直接登记（等同添加现有项目）。
+ */
+export async function createAndAddProject(): Promise<void> {
+  const result = await dialog.showSaveDialog({
+    title: '新建项目',
+    buttonLabel: '创建',
+    nameFieldLabel: '项目名称',
+    properties: ['createDirectory', 'showOverwriteConfirmation']
+  })
+  if (result.canceled || result.filePath === undefined || result.filePath === '') return
+  try {
+    mkdirSync(result.filePath, { recursive: true }) // 已存在同名目录时幂等
+  } catch {
+    return // 创建失败（权限 / 同名文件占位等）：不登记
+  }
+  addProjectByPath(result.filePath)
 }
 
 /** 移除项目，并连带删除其名下的所有 Run Configuration。 */

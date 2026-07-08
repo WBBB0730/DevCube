@@ -19,7 +19,7 @@ import {
   reorderConfigs,
   updateCommandConfig
 } from './configs'
-import { addProjectByPath, pickAndAddProject, removeProject } from './projects'
+import { addProjectByPath, createAndAddProject, pickAndAddProject, removeProject } from './projects'
 import {
   closeSession,
   disposeSession,
@@ -55,7 +55,7 @@ import {
 } from './git-data'
 import { runGitAction } from './git-actions'
 import { syncGitWatchers } from './git-watcher'
-import { clearRepoRootCache, resolveRepoRoot } from './git-exec'
+import { clearRepoRootCache, execGit, resolveRepoRoot, revalidateRepoRoot } from './git-exec'
 
 let mainWindow: BrowserWindow | null = null
 let registered = false
@@ -74,7 +74,7 @@ function emitGitChanged(projectPath: string): void {
   }
 }
 
-// git 监听集合与项目集合对齐：先解析各项目的仓库根（非仓库为 null，watcher 会跳过）。
+// git 监听集合与项目集合对齐：先解析各项目的仓库根（非仓库为 null → 探测形态 watcher）。
 async function refreshGitWatchers(): Promise<void> {
   const projects = await Promise.all(
     getProjects().map(async (p) => ({
@@ -82,7 +82,16 @@ async function refreshGitWatchers(): Promise<void> {
       repoRoot: await resolveRepoRoot(p.path)
     }))
   )
-  syncGitWatchers(projects, emitGitChanged)
+  syncGitWatchers(projects, onGitWatcherChange)
+}
+
+// watcher 防抖回调：先重验仓库根（init / .git 删除后缓存失真），变化则对齐 watcher 形态，
+// 再通知渲染端。不变时重验只多一个 rev-parse 进程（防抖收敛后频率很低）。
+function onGitWatcherChange(projectPath: string): void {
+  void revalidateRepoRoot(projectPath).then(async ({ changed }) => {
+    if (changed) await refreshGitWatchers()
+    emitGitChanged(projectPath)
+  })
 }
 
 function debounce(fn: () => void, ms: number): () => void {
@@ -129,6 +138,12 @@ export function registerIpc(win: BrowserWindow): void {
 
   ipcMain.handle(IPC.projectAddByPath, (_e, path: string) => {
     addProjectByPath(path)
+    refreshWatchers()
+    return buildTree()
+  })
+
+  ipcMain.handle(IPC.projectCreate, async () => {
+    await createAndAddProject()
     refreshWatchers()
     return buildTree()
   })
@@ -239,10 +254,31 @@ export function registerIpc(win: BrowserWindow): void {
     IPC.gitAction,
     async (_e, projectPath: string, action: GitAction, opts?: { silent?: boolean }) => {
       const result = await runGitAction(projectPath, action)
+      if (action.kind === 'init') {
+        // init 会改变仓库根（非仓库 → 仓库）：显式重验 + 对齐 watcher 形态。不能依赖探测
+        // watcher 的事件——动作执行期间（含余震窗口）watcher 静音，事件会被丢弃
+        await revalidateRepoRoot(projectPath)
+        await refreshGitWatchers()
+      }
       if (opts?.silent !== true) emitGitChanged(projectPath)
       return result
     }
   )
+  // 重验仓库根（Git Tab 变为可见 / 非仓库态点刷新）：变化则对齐 watcher 并推 git:changed
+  ipcMain.handle(IPC.gitRevalidate, async (_e, projectPath: string) => {
+    const { changed } = await revalidateRepoRoot(projectPath)
+    if (changed) {
+      await refreshGitWatchers()
+      emitGitChanged(projectPath)
+    }
+    return changed
+  })
+  // 当前生效的 init.defaultBranch（初始化对话框预填）：未配置回落 'main'
+  ipcMain.handle(IPC.gitDefaultBranch, async (_e, projectPath: string) => {
+    const result = await execGit(projectPath, ['config', '--get', 'init.defaultBranch'])
+    const value = result.code === 0 ? result.stdout.toString('utf8').trim() : ''
+    return value === '' ? 'main' : value
+  })
   // 设置与视图偏好：写返回权威快照。
   ipcMain.handle(IPC.gitSettingsGet, (_e, projectPath: string) => getGitSettings(projectPath))
   ipcMain.handle(IPC.gitSettingsSet, (_e, projectPath: string, patch: Partial<GitRepoSettings>) =>

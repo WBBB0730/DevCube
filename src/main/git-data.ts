@@ -62,12 +62,17 @@ const NOT_A_REPO = '该目录不在 Git 仓库内'
 
 // —— 纯参数构造（供测试） ——
 
-/** 构造 git log 参数（data-read.md §6.1 / toolbar-widgets.md §1.8）。 */
+/**
+ * 构造 git log 参数（data-read.md §6.1 / toolbar-widgets.md §1.8）。
+ * includeHead=false 供 HEAD 未出生（空仓库 / orphan 检出）时的重试：此时 HEAD 不可解析，
+ * 只列 refs 可见的提交（如 fetch 到的远程分支）。
+ */
 export function buildLogArgs(
   options: GitLoadOptions,
   settings: GitEffectiveSettings,
   stashBaseHashes: string[],
-  remotes: string[]
+  remotes: string[],
+  includeHead = true
 ): string[] {
   const args = [
     '-c',
@@ -76,7 +81,9 @@ export function buildLogArgs(
     'log',
     `--max-count=${options.maxCommits + 1}`, // 多请求 1 条做「还有更多」哨兵
     `--format=${GIT_FORMAT_LOG}`,
-    `--${settings.commitOrdering}-order`
+    `--${settings.commitOrdering}-order`,
+    // 损坏引用（指向缺失对象，如 fetch 中断的残留）静默跳过而非 fatal，图谱照常可用
+    '--ignore-missing'
   ]
   if (settings.onlyFollowFirstParent) args.push('--first-parent')
   if (options.branches !== null) {
@@ -97,7 +104,7 @@ export function buildLogArgs(
     }
     // stash 基点作为起点 revision：保证「只被 stash 引用的提交」也出现在图里
     for (const hash of [...new Set(stashBaseHashes)]) args.push(hash)
-    args.push('HEAD') // detached HEAD 也可见
+    if (includeHead) args.push('HEAD') // detached HEAD 也可见
   }
   args.push('--') // 防 revision 与路径歧义
   return args
@@ -353,6 +360,22 @@ async function loadStashes(root: string, showStashes: boolean): Promise<GitStash
   return parseStashes(result.stdout)
 }
 
+/** HEAD 是否已出生（可解析到提交）：-q --verify 保证静默且输出即 hash。 */
+function verifyHeadArgs(): string[] {
+  return ['rev-parse', '-q', '--verify', 'HEAD']
+}
+
+/**
+ * show-ref 不可用时的降级 refData：单取 HEAD 提交 hash（unborn / 解析失败为 null），
+ * ref 标签留空。show-ref 在空仓库以退出码 1 失败、在存在损坏引用（指向缺失对象）时
+ * fatal——两种情况 log 侧都有各自的容错（unborn 路径 / --ignore-missing），图谱与
+ * 未提交行照常，仅缺分支 / 标签标注。
+ */
+async function fallbackRefData(root: string): Promise<GitRefData> {
+  const result = await runGit(root, verifyHeadArgs())
+  return { head: result.ok ? result.stdout.trim() : null, heads: [], tags: [], remotes: [] }
+}
+
 // —— loadRepo：一次完整加载 ——
 
 /** 空骨架上打补丁生成 GitLoadResult，收敛各失败分支的返回。 */
@@ -373,6 +396,74 @@ function loadResult(patch: Partial<GitLoadResult>): GitLoadResult {
 }
 
 /**
+ * HEAD 未出生（空仓库 / orphan 检出）的加载路径：log 不带 HEAD（fetch 到的远程分支
+ * 提交照常入图）+ show-ref + 未提交计数三路并行，未提交行以 unbornHead 口径合成（相对空树、
+ * parents 为空），承担首次提交入口。isEmptyRepo = 确实一条提交都没有。
+ */
+async function loadUnbornHead(
+  root: string,
+  options: GitLoadOptions,
+  settings: GitEffectiveSettings,
+  stashes: GitStash[],
+  remotes: string[],
+  branches: string[],
+  currentBranch: string | null
+): Promise<GitLoadResult> {
+  const [logRes, refRes, statusRes] = await Promise.all([
+    runGit(
+      root,
+      buildLogArgs(
+        options,
+        settings,
+        stashes.map((s) => s.baseHash),
+        remotes,
+        false
+      )
+    ),
+    runGit(root, buildShowRefArgs(settings.showRemoteBranches)),
+    SHOW_UNCOMMITTED_CHANGES
+      ? runGit(root, ['status', '--untracked-files=all', '--porcelain'])
+      : Promise.resolve(null)
+  ])
+  if (!logRes.ok) {
+    return loadResult({ isRepo: true, branches, currentBranch, remotes, error: logRes.error })
+  }
+  if (statusRes !== null && !statusRes.ok) {
+    return loadResult({ isRepo: true, branches, currentBranch, remotes, error: statusRes.error })
+  }
+  const records = parseLog(logRes.stdout)
+  // show-ref 失败（空仓库无任何 ref / 存在损坏引用）：降级路径与主路径同款，
+  // HEAD 未出生时 rev-parse 解析不出，head 自然为 null
+  const refData: GitRefData = refRes.ok
+    ? parseRefs(refRes.stdout, settings.hideRemotes, SHOW_REMOTE_HEADS)
+    : await fallbackRefData(root)
+  const { commits, moreCommitsAvailable, tags } = assembleCommits(
+    records,
+    refData,
+    stashes,
+    remotes,
+    {
+      maxCommits: options.maxCommits,
+      showTags: settings.showTags,
+      uncommittedChanges: statusRes !== null ? countPorcelainStatus(statusRes.stdout) : 0,
+      unbornHead: true
+    }
+  )
+  return {
+    isRepo: true,
+    isEmptyRepo: records.length === 0,
+    branches,
+    currentBranch,
+    remotes,
+    commits,
+    headHash: null,
+    tags,
+    moreCommitsAvailable,
+    error: null
+  }
+}
+
+/**
  * 加载某项目的完整图谱数据（data-read.md §3-§6）：
  * 仓库根 → 并行取分支/远程/贮藏 → 并行取 log/show-ref → 未提交计数 → assembleCommits 收口。
  */
@@ -388,14 +479,16 @@ export async function loadRepo(
     if (probe.code !== 0) return loadResult({ error: getErrorMessage(probe) })
     return loadResult({})
   }
-  // 第一步：分支 / 远程 / 贮藏并行（stash 失败吞成 []，其余任一失败整体报错）
+  // 第一步：分支 / 远程 / 贮藏 / HEAD 出生探测 并行（stash 失败吞成 []，HEAD 探测失败
+  // 即未出生；其余任一失败整体报错）
   const branchArgs = settings.showRemoteBranches
     ? ['branch', '-a', '--no-color']
     : ['branch', '--no-color']
-  const [branchRes, remoteRes, stashes] = await Promise.all([
+  const [branchRes, remoteRes, stashes, headRes] = await Promise.all([
     runGit(root, branchArgs),
     runGit(root, ['remote']),
-    loadStashes(root, settings.showStashes)
+    loadStashes(root, settings.showStashes),
+    runGit(root, verifyHeadArgs())
   ])
   if (!branchRes.ok) return loadResult({ isRepo: true, error: branchRes.error })
   if (!remoteRes.ok) return loadResult({ isRepo: true, error: remoteRes.error })
@@ -405,6 +498,13 @@ export async function loadRepo(
     SHOW_REMOTE_HEADS
   )
   const remotes = splitLines(remoteRes.stdout)
+  // HEAD 未出生（空仓库 / orphan 检出）：log 的 HEAD revision 不可解析，走专用路径。
+  // 显式探测而非匹配 log 的错误文案——log 已带 --ignore-missing，不可解析的 HEAD 会被
+  // 静默跳过而非报错，错误文案判定（原实现的做法）在此已不成立。
+  // options.branches 非 null（指定分支筛选）时 log 参数本就不含 HEAD，照走主路径。
+  if (options.branches === null && !headRes.ok) {
+    return loadUnbornHead(root, options, settings, stashes, remotes, branches, currentBranch)
+  }
   // 第二步：log 与 show-ref 并行
   const [logRes, refRes] = await Promise.all([
     runGit(
@@ -419,24 +519,12 @@ export async function loadRepo(
     runGit(root, buildShowRefArgs(settings.showRemoteBranches))
   ])
   if (!logRes.ok) {
-    // 空仓库：log 以 bad revision 'HEAD' 失败且分支列表为空 → 空仓库态而非报错（data-read.md §6.5）。
-    // 必须同时校验错误含 "bad revision 'HEAD'"，否则 detached HEAD 等导致 log 失败、分支恰为空时
-    // 会误判空仓库、吞掉真实错误（对齐原实现 web/main.ts processLoadCommitsResponse）。
-    if (branches.length === 0 && logRes.error.includes("bad revision 'HEAD'")) {
-      return loadResult({ isRepo: true, isEmptyRepo: true, remotes })
-    }
     return loadResult({ isRepo: true, branches, currentBranch, remotes, error: logRes.error })
   }
   const records = parseLog(logRes.stdout)
-  let refData: GitRefData
-  if (refRes.ok) {
-    refData = parseRefs(refRes.stdout, settings.hideRemotes, SHOW_REMOTE_HEADS)
-  } else if (records.length === 0) {
-    // show-ref 在空仓库以退出码 1 失败：log 也无提交时用空 refData 兜底继续
-    refData = { head: null, heads: [], tags: [], remotes: [] }
-  } else {
-    return loadResult({ isRepo: true, branches, currentBranch, remotes, error: refRes.error })
-  }
+  const refData: GitRefData = refRes.ok
+    ? parseRefs(refRes.stdout, settings.hideRemotes, SHOW_REMOTE_HEADS)
+    : await fallbackRefData(root)
   // 未提交更改计数：HEAD 在本次加载窗口内（哨兵条除外）才有意义，不在可视范围就不合成虚拟行
   const headHash = refData.head
   let uncommittedChanges = 0

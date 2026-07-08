@@ -53,6 +53,8 @@ export interface GitContextMenuState {
  * menus-dialogs 规格书；追问链（重名替换 / 强制删除确认等）由对话框内部续弹。
  */
 export type GitDialogRequest =
+  /** 初始化 Git 仓库（非仓库兜底态入口）；defaultBranch 为打开时读到的预填分支名 */
+  | { kind: 'init'; defaultBranch: string }
   | { kind: 'rename-branch'; branch: string }
   | { kind: 'delete-branch'; branch: string; remotesWithBranch: string[] }
   | { kind: 'merge'; obj: string; on: GitMergeOn; displayName: string }

@@ -1,11 +1,14 @@
-// Git 仓库监听，每项目两个 watcher：
+// Git 仓库监听，按项目的仓库形态二选一：
+// 仓库项目两个 watcher：
 // 1) .git 白名单（HEAD/index/config/refs）—— 绝不递归整个 .git：objects/、logs/ 的写入量
 //    大且无 UI 意义，会造成事件风暴；
 // 2) 工作区递归（仅排除 .git）—— 未跟踪 / 修改文件的增删改不触碰 .git，须监听工作区才能让
 //    未提交行统计与提交面板文件树及时刷新（macOS FSEvents 递归监听开销低）。忽略规则零硬编码：
 //    事件路径在防抖到期后经 `git check-ignore` 批量过滤，.gitignore / info/exclude / 全局
 //    excludesfile 全部由 git 自己裁决，不假设任何语言生态的目录布局。
-// 风格与 watcher.ts 一致：Map 持有 + 幂等对齐；防抖 750ms 按项目分桶（两个 watcher 共用计时）。
+// 非仓库项目一个探测 watcher：只盯项目根下 .git 的出现（git init 后自动跟进的实时通道；
+// 仓库根变化本身由 onChange 侧重验 repoRoot 后经 syncGitWatchers 对齐，此处不自行判定）。
+// 风格与 watcher.ts 一致：Map 持有 + 幂等对齐；防抖 750ms 按项目分桶（多个 watcher 共用计时）。
 
 import chokidar, { type FSWatcher } from 'chokidar'
 import { join, relative } from 'path'
@@ -22,12 +25,12 @@ const DEBOUNCE_MS = 750
 const REFS_DEPTH = 4
 
 interface GitWatcherEntry {
-  /** 建 watcher 时的仓库根 —— 对齐时用于探测 repoRoot 变化（如 .git 被删除后重建）以重建 watcher */
-  repoRoot: string
-  /** .git 白名单 watcher（HEAD/index/config/refs） */
+  /** 建 watcher 时的仓库根；null = 非仓库（探测形态）—— 对齐时值变化即重建 watcher */
+  repoRoot: string | null
+  /** 仓库：.git 白名单 watcher（HEAD/index/config/refs）；非仓库：盯 .git 出现的探测 watcher */
   watcher: FSWatcher
-  /** 工作区递归 watcher（仅排除 .git） */
-  worktreeWatcher: FSWatcher
+  /** 工作区递归 watcher（仅排除 .git）；非仓库（探测形态）无 */
+  worktreeWatcher: FSWatcher | null
   /** 该项目的防抖计时器（尾沿），与其他项目互不干扰 */
   timer: ReturnType<typeof setTimeout> | null
   /** 防抖窗口内累计的工作区相对路径（待 check-ignore 判定）；null = 本轮已含必刷新事件 */
@@ -78,7 +81,8 @@ function scheduleChange(
     entry.timer = null
     const paths = entry.pendingPaths
     entry.pendingPaths = new Set()
-    if (paths === null) onChange(projectPath)
+    // 探测形态（repoRoot null）只会收到必刷新事件（paths 恒为 null），此处判空仅为类型收窄
+    if (paths === null || entry.repoRoot === null) onChange(projectPath)
     else void notifyIfNotIgnored(projectPath, entry.repoRoot, [...paths], onChange)
   }, DEBOUNCE_MS)
 }
@@ -110,30 +114,53 @@ async function notifyIfNotIgnored(
 function disposeEntry(projectPath: string, entry: GitWatcherEntry): void {
   if (entry.timer) clearTimeout(entry.timer)
   void entry.watcher.close()
-  void entry.worktreeWatcher.close()
+  if (entry.worktreeWatcher !== null) void entry.worktreeWatcher.close()
   watchers.delete(projectPath)
 }
 
 /**
- * 让监听集合与当前项目集合对齐：新增项目起监听，移除项目关监听；
- * repoRoot 为 null（非 git 仓库）的项目跳过，repoRoot 变化的项目重建 watcher。
+ * 让监听集合与当前项目集合对齐：新增项目起监听，移除项目关监听；repoRoot 变化的项目
+ * 重建 watcher（含仓库 ↔ 非仓库的形态互转：null 也是一种期望值，对应探测形态）。
  */
 export function syncGitWatchers(
   projects: { projectPath: string; repoRoot: string | null }[],
   onChange: (projectPath: string) => void
 ): void {
-  // 期望集合：projectPath → repoRoot（剔除非 git 仓库）
-  const wanted = new Map<string, string>()
+  // 期望集合：projectPath → repoRoot（null = 非仓库，期望探测形态）
+  const wanted = new Map<string, string | null>()
   for (const project of projects) {
-    if (project.repoRoot !== null) wanted.set(project.projectPath, project.repoRoot)
+    wanted.set(project.projectPath, project.repoRoot)
   }
-  // 移除：项目已不在集合中，或 repoRoot 已变化 —— 后者关掉旧 watcher 让下面的新增分支重建
+  // 移除：项目已不在集合中（get 为 undefined），或 repoRoot 已变化（含形态互转）——
+  // 关掉旧 watcher 让下面的新增分支重建
   for (const [projectPath, entry] of watchers) {
-    if (wanted.get(projectPath) !== entry.repoRoot) disposeEntry(projectPath, entry)
+    if (!wanted.has(projectPath) || wanted.get(projectPath) !== entry.repoRoot) {
+      disposeEntry(projectPath, entry)
+    }
   }
   // 新增（含 repoRoot 变化后的重建）
   for (const [projectPath, repoRoot] of wanted) {
     if (watchers.has(projectPath)) continue
+    if (repoRoot === null) {
+      // 探测形态：盯项目根下 .git 的出现。chokidar 无法监听尚不存在的路径（实测无事件），
+      // 故监听项目根（depth 0 非递归）并在回调里只放行 .git 相关事件（与工作区 watcher 的
+      // 忽略正则正好互补）。事件本身不判定仓库化与否——统一交给 onChange 侧重验 repoRoot
+      // 后对齐形态
+      const probeWatcher = chokidar.watch(projectPath, { ignoreInitial: true, depth: 0 })
+      probeWatcher.on('all', (_event, eventPath: string) => {
+        if (isGitActionRunning()) return // init 动作自身的事件静音：动作 handler 已显式对齐
+        if (!WORKTREE_IGNORED.test(eventPath)) return // 项目根其余子项变化与仓库化无关
+        scheduleChange(projectPath, onChange, null)
+      })
+      watchers.set(projectPath, {
+        repoRoot: null,
+        watcher: probeWatcher,
+        worktreeWatcher: null,
+        timer: null,
+        pendingPaths: new Set()
+      })
+      continue
+    }
     const watcher = chokidar.watch(watchTargets(repoRoot), {
       ignoreInitial: true,
       // git 写操作的锁文件（index.lock、refs/heads/x.lock 等）无 UI 意义，直接忽略

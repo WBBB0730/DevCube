@@ -246,3 +246,16 @@ export function clearRepoRootCache(dir?: string): void {
   if (dir === undefined) repoRootCache.clear()
   else repoRootCache.delete(dir)
 }
+
+/**
+ * 重验仓库根（绕过缓存重新查找并回写）：git init / .git 删除会让缓存失真，
+ * watcher 防抖回调与手动刷新入口经此跟进。changed 含首次无缓存的情况。
+ */
+export async function revalidateRepoRoot(
+  dir: string
+): Promise<{ root: string | null; changed: boolean }> {
+  const cached = repoRootCache.get(dir)
+  const root = await lookupRepoRoot(dir)
+  repoRootCache.set(dir, root)
+  return { root, changed: cached === undefined || cached !== root }
+}

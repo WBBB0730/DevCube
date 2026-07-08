@@ -258,12 +258,17 @@ describe('buildMenuItems', () => {
   })
 
   it('未提交更改行菜单：贮藏 / 重置 / 清理三项（源代码管理视图已删除）', () => {
-    const rec = makeCtx({ commits: [commit(UNCOMMITTED, ['c2'])] })
+    const rec = makeCtx({ commits: [commit(UNCOMMITTED, ['c2'])], headHash: 'c2' })
     expect(titles(buildMenuItems({ kind: 'uncommitted' }, rec.ctx))).toEqual([
       '贮藏未提交的更改…',
       '重置未提交的更改…',
       '清理未跟踪文件…'
     ])
+  })
+
+  it('未提交更改行菜单：HEAD 未出生（空仓库）时只剩清理未跟踪文件', () => {
+    const rec = makeCtx({ commits: [commit(UNCOMMITTED, [])], headHash: null })
+    expect(titles(buildMenuItems({ kind: 'uncommitted' }, rec.ctx))).toEqual(['清理未跟踪文件…'])
   })
 
   it('表头菜单：默认排序 date 项打勾，点击拓扑排序写入设置', () => {

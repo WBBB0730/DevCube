@@ -14,6 +14,7 @@ import { Checkbox } from '@renderer/components/ui/checkbox'
 import {
   FILE_STATUS_COLOR,
   buildFileTree,
+  canPushAfterCommit,
   diffPossible,
   fileRowTitle,
   filesInSelection,
@@ -49,13 +50,16 @@ export function CommitForm({ projectPath }: { projectPath: string }): React.JSX.
     (s) => gitState(s, projectPath).expanded?.uncommitted?.staged.length ?? 0
   )
   const currentBranch = useGit((s) => gitState(s, projectPath).currentBranch)
+  const headHash = useGit((s) => gitState(s, projectPath).headHash)
   /** HEAD 提交信息预填的异步在途标记（期间 checkbox / 提交钮禁点，防连点与预填竞态） */
   const [amendLoading, setAmendLoading] = useState(false)
   /** 提交在途标记（commit 非幂等：双击会排入两个 commit，第二个必以 nothing to commit 报错） */
   const [committing, setCommitting] = useState(false)
-  /** 「提交后推送」勾选（本地态，切走重置）；detached HEAD 无当前分支时不可推送 */
+  /** 「提交后推送」勾选（本地态，切走重置） */
   const [push, setPush] = useState(false)
-  const canPush = currentBranch !== null
+  /** 空仓库（无 HEAD）没有提交可修正 */
+  const canAmend = headHash !== null
+  const canPush = canPushAfterCommit(currentBranch, headHash)
 
   const onAmendChange = async (checked: boolean): Promise<void> => {
     const store = useGit.getState()
@@ -111,9 +115,14 @@ export function CommitForm({ projectPath }: { projectPath: string }): React.JSX.
       })
       if (r.status !== 'ok') return // 失败：错误框呈现（actionErrors），不清草稿
       store.setCommitDraft(projectPath, { message: '', amend: false, preAmendMessage: '' })
-      if (push && currentBranch !== null) {
-        // 提交并推送：复用既有推送对话框（内含 常规 / force-with-lease / 强制 三档）
-        store.openDialog(projectPath, { kind: 'push-branch', branch: currentBranch })
+      if (push) {
+        // 提交并推送：复用既有推送对话框（内含 常规 / force-with-lease / 强制 三档）。
+        // 分支从提交后的最新状态取（runQuietAction 内已 await 软刷新落地）——空仓库的
+        // 首次提交让分支刚刚出生，提交前闭包里的 currentBranch 还是 null
+        const branch = gitState(useGit.getState(), projectPath).currentBranch
+        if (branch !== null) {
+          store.openDialog(projectPath, { kind: 'push-branch', branch })
+        }
       }
     } finally {
       setCommitting(false)
@@ -131,10 +140,16 @@ export function CommitForm({ projectPath }: { projectPath: string }): React.JSX.
       />
       {/* 修正 / 推送 两个勾选在左，「提交」按钮靠右；勾了推送则提交后弹推送对话框 */}
       <div className="flex items-center gap-4">
-        <label className="flex cursor-pointer select-none items-center gap-1.5 text-[13px] text-foreground">
+        <label
+          className={cn(
+            'flex select-none items-center gap-1.5 text-[13px] text-foreground',
+            canAmend ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'
+          )}
+          title={canAmend ? undefined : '还没有提交可修正'}
+        >
           <Checkbox
             checked={draft.amend}
-            disabled={amendLoading || committing}
+            disabled={!canAmend || amendLoading || committing}
             onCheckedChange={(checked) => void onAmendChange(checked)}
           />
           修正上次提交

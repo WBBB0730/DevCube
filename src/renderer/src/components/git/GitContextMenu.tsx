@@ -360,9 +360,17 @@ function stashMenu(
   ]
 }
 
-/** 未提交更改行菜单（§2.6；「打开源代码管理视图」为 VS Code 专有，移植删除）。 */
+/**
+ * 未提交更改行菜单（§2.6；「打开源代码管理视图」为 VS Code 专有，移植删除）。
+ * HEAD 未出生（空仓库首次提交前）时贮藏与重置都以 HEAD 为基准、git 无法执行，不显示。
+ */
 function uncommittedMenu(ctx: GitMenuContext): (GitMenuItem | 'divider')[] {
   const { actions } = ctx
+  const clean: GitMenuItem = {
+    title: '清理未跟踪文件…',
+    onClick: () => actions.openDialog({ kind: 'clean-untracked' })
+  }
+  if (ctx.headHash === null) return [clean]
   return [
     { title: '贮藏未提交的更改…', onClick: () => actions.openDialog({ kind: 'stash-save' }) },
     'divider',
@@ -370,7 +378,7 @@ function uncommittedMenu(ctx: GitMenuContext): (GitMenuItem | 'divider')[] {
       title: '重置未提交的更改…',
       onClick: () => actions.openDialog({ kind: 'reset-uncommitted' })
     },
-    { title: '清理未跟踪文件…', onClick: () => actions.openDialog({ kind: 'clean-untracked' }) }
+    clean
   ]
 }
 

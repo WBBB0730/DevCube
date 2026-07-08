@@ -23,17 +23,23 @@ export function GitPane({
   const status = useGit((s) => gitState(s, projectPath).status)
   const isRepo = useGit((s) => gitState(s, projectPath).isRepo)
   const isEmptyRepo = useGit((s) => gitState(s, projectPath).isEmptyRepo)
+  const hasCommits = useGit((s) => gitState(s, projectPath).commits.length > 0)
   const loadError = useGit((s) => gitState(s, projectPath).loadError)
   const hasExpanded = useGit((s) => gitState(s, projectPath).expanded !== null)
   const graphLoading = useGit((s) => gitState(s, projectPath).graphLoading)
   const load = useGit((s) => s.load)
 
   // 懒加载：首次可见才拉数据；隐藏期间状态保留，再次可见不重拉（.git 变动由 App 的
-  // onGitChanged 软刷新兜着）。load 一进入就同步置 loading，StrictMode 双挂载的第二次
-  // effect 读到非 idle 即跳过，天然幂等。
+  // onGitChanged 软刷新兜着），只顺手重验一次仓库根——init / .git 删除后仓库形态变化的
+  // 兜底通道之一（主通道是 watcher），变化时主进程推 git:changed 触发软刷新。
+  // load 一进入就同步置 loading，StrictMode 双挂载的第二次 effect 读到非 idle 即跳过，
+  // 天然幂等；重验本身幂等，双挂载多跑一次无害。
   useEffect(() => {
-    if (visible && gitState(useGit.getState(), projectPath).status === 'idle') {
+    if (!visible) return
+    if (gitState(useGit.getState(), projectPath).status === 'idle') {
       void load(projectPath)
+    } else {
+      void window.api.gitRevalidate(projectPath)
     }
   }, [visible, projectPath, load])
 
@@ -103,8 +109,35 @@ export function GitPane({
           </button>
         </div>
       ) : !isRepo ? (
-        <CenteredHint>该项目不是 Git 仓库</CenteredHint>
-      ) : isEmptyRepo ? (
+        // 非仓库兜底：初始化入口 + 手动刷新（自动跟进失灵时的兜底）；样式对齐错误态的「重试」
+        <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6">
+          <div className="text-sm text-muted-foreground">该项目不是 Git 仓库</div>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                // 预填当前生效的 init.defaultBranch（未配置回落 main），拿到后再弹对话框
+                void window.api.gitDefaultBranch(projectPath).then((defaultBranch) => {
+                  useGit.getState().openDialog(projectPath, { kind: 'init', defaultBranch })
+                })
+              }}
+              className="h-7 rounded-lg border border-[color:var(--border-input)] bg-panel px-4 text-[13px] text-foreground transition-colors hover:bg-[var(--bg-row-hover)]"
+            >
+              初始化 Git 仓库
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                // 重验仓库根后软刷新；有变化时主进程也推 git:changed，两次 load 由代际号去重
+                void window.api.gitRevalidate(projectPath).then(() => load(projectPath))
+              }}
+              className="h-7 rounded-lg border border-[color:var(--border-input)] bg-panel px-4 text-[13px] text-foreground transition-colors hover:bg-[var(--bg-row-hover)]"
+            >
+              刷新
+            </button>
+          </div>
+        </div>
+      ) : isEmptyRepo && !hasCommits ? (
         <CenteredHint>此仓库还没有任何提交</CenteredHint>
       ) : (
         // 内容区做 relative 容器：详情面板吊底（自带高度与上边框）。diff 面板 absolute

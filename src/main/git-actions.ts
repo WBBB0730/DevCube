@@ -9,6 +9,21 @@ type ActionOf<K extends GitAction['kind']> = Extract<GitAction, { kind: K }>
 
 // —— 纯参数构造（供测试）：每个函数返回按序执行的命令参数数组序列 ——
 
+// —— 初始化 ——
+
+/**
+ * init：branchName 非空即 -b（所见即所得，需 git ≥ 2.28），null 走裸 init 尊重
+ * init.defaultBranch；remoteUrl 非空串联 remote add origin。fetch 不在此序列内：
+ * 它失败不算 init 失败（中途失败即停的语义不适用），单独在 runInit 里执行。
+ */
+export function buildInitArgs(action: ActionOf<'init'>): string[][] {
+  const commands: string[][] = [
+    action.branchName === null ? ['init'] : ['init', '-b', action.branchName]
+  ]
+  if (action.remoteUrl !== null) commands.push(['remote', 'add', 'origin', action.remoteUrl])
+  return commands
+}
+
 // —— 分支 ——
 
 /** checkout-branch：检出本地分支，或从远程分支创建并检出（-b，自动设置 upstream）。 */
@@ -152,9 +167,14 @@ export function buildCommitArgs(action: ActionOf<'commit'>): string[][] {
 
 // —— 远程同步 ——
 
-/** fetch：remote 为 null 抓取全部；pruneTags 的前置校验（须同时 prune、版本 gate）在运行时做。 */
-export function buildFetchArgs(action: ActionOf<'fetch'>): string[][] {
+/**
+ * fetch：remote 为 null 抓取全部；pruneTags 的前置校验（须同时 prune、版本 gate）在运行时做。
+ * atomic（git ≥ 2.31，版本判定在运行时）让引用更新事务化——fetch 中断（如应用退出杀掉
+ * 子进程）不再留下指向缺失对象的损坏引用。
+ */
+export function buildFetchArgs(action: ActionOf<'fetch'>, atomic: boolean): string[][] {
   const args = ['fetch', action.remote === null ? '--all' : action.remote]
+  if (atomic) args.push('--atomic')
   if (action.prune) args.push('--prune')
   if (action.pruneTags) args.push('--prune-tags')
   return [args]
@@ -434,6 +454,13 @@ async function commitSquashIfStagedChangesExist(
   return run(cwd, buildSquashCommitArgs(obj, on))
 }
 
+/** fetch 是否可用 --atomic（git ≥ 2.31）；取不到版本按不可用处理（静默降级为普通 fetch）。 */
+async function supportsAtomicFetch(): Promise<boolean> {
+  const { findGit, isVersionAtLeast } = await gitExec()
+  const git = await findGit()
+  return git !== null && isVersionAtLeast(git.version, '2.31.0')
+}
+
 /**
  * 版本 gate：不满足返回中文错误消息。取不到版本时按满足处理（fail-open——
  * 若 git 整体不可用，后续实际命令自会以错误返回）。
@@ -523,7 +550,7 @@ async function runFetch(cwd: string, action: ActionOf<'fetch'>): Promise<GitActi
     const gateError = await checkGitVersion(cwd, '2.17.0', 'fetch --prune-tags')
     if (gateError !== null) return { status: 'error', errors: [gateError] }
   }
-  return toActionResult(await runSequence(cwd, buildFetchArgs(action)))
+  return toActionResult(await runSequence(cwd, buildFetchArgs(action, await supportsAtomicFetch())))
 }
 
 /** push-branch：空 remotes 直接报错；逐个远程推送，出错即停。 */
@@ -581,6 +608,25 @@ async function runAddTag(cwd: string, action: ActionOf<'add-tag'>): Promise<GitA
   return { status: 'ok' }
 }
 
+/**
+ * init：唯一合法作用于非仓库的动作，cwd 为项目路径本身（不经 resolveRepoRoot）。
+ * init [-b] → remote add 中途失败即停；填了远程则再 fetch origin（相当于顺手点一次刷新），
+ * fetch 失败不算 init 失败——仓库已建好，单独报错（部分成功也推 git:changed 的机制兜底）。
+ */
+async function runInit(projectPath: string, action: ActionOf<'init'>): Promise<GitActionResult> {
+  const result = toActionResult(await runSequence(projectPath, buildInitArgs(action)))
+  if (result.status !== 'ok' || action.remoteUrl === null) return result
+  const atomic = await supportsAtomicFetch()
+  const fetchError = await run(
+    projectPath,
+    atomic ? ['fetch', '--atomic', 'origin'] : ['fetch', 'origin']
+  )
+  if (fetchError !== null) {
+    return { status: 'error', errors: [`仓库已初始化，但从远程获取失败：\n${fetchError}`] }
+  }
+  return { status: 'ok' }
+}
+
 /** stash-push：git ≥ 2.13.2 版本 gate 不满足时不执行命令。 */
 async function runStashPush(cwd: string, action: ActionOf<'stash-push'>): Promise<GitActionResult> {
   const gateError = await checkGitVersion(cwd, '2.13.2', 'stash push')
@@ -588,8 +634,11 @@ async function runStashPush(cwd: string, action: ActionOf<'stash-push'>): Promis
   return toActionResult(await runSequence(cwd, buildStashPushArgs(action)))
 }
 
-/** 按动作类型分发执行；简单动作 = 构造出的命令序列顺序执行、出错即停。 */
-async function execAction(cwd: string, action: GitAction): Promise<GitActionResult> {
+/** 按动作类型分发执行；简单动作 = 构造出的命令序列顺序执行、出错即停。init 不经此处（非仓库）。 */
+async function execAction(
+  cwd: string,
+  action: Exclude<GitAction, { kind: 'init' }>
+): Promise<GitActionResult> {
   switch (action.kind) {
     case 'checkout-branch':
       return toActionResult(await runSequence(cwd, buildCheckoutBranchArgs(action)))
@@ -678,6 +727,8 @@ export async function runGitAction(
 ): Promise<GitActionResult> {
   runningActions++
   try {
+    // init 是唯一合法作用于非仓库的动作：不解析仓库根，cwd 用项目路径本身
+    if (action.kind === 'init') return await runInit(projectPath, action)
     const { resolveRepoRoot } = await gitExec()
     const repoRoot = await resolveRepoRoot(projectPath)
     if (repoRoot === null) return { status: 'error', errors: [NOT_A_REPO_ERROR] }
