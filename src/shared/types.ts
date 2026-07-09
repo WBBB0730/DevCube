@@ -12,6 +12,27 @@ export interface Project {
   path: string
   /** basename，用于展示 */
   name: string
+  /** 登记进 DevCube 的时间（epoch ms）；老档案缺省时读取层补当前时间 */
+  addedAt: number
+  /** 最近选中该项目的时间（epoch ms）；从未打开过为 null */
+  lastOpenedAt: number | null
+}
+
+/** 左树项目列表的排序方式。 */
+export type ProjectSortMode = 'custom' | 'name' | 'addedAt' | 'lastOpenedAt'
+
+/** 排序方向：名称 A→Z / 时间旧→新 为 asc；反之 desc。自定义模式忽略方向。 */
+export type ProjectSortDirection = 'asc' | 'desc'
+
+/** 跨重启保留的项目列表排序偏好。 */
+export interface ProjectSortPrefs {
+  mode: ProjectSortMode
+  direction: ProjectSortDirection
+}
+
+export const DEFAULT_PROJECT_SORT_PREFS: ProjectSortPrefs = {
+  mode: 'custom',
+  direction: 'asc'
 }
 
 /** 从 package.json 的 scripts 实时派生的只读候补，不持久化。 */
@@ -54,6 +75,8 @@ export interface PersistedState {
   gitSettings: Record<string, GitRepoSettings>
   /** 跨项目 git 视图偏好（查找选项、「不再提示」标记） */
   gitViewPrefs: GitViewPrefs
+  /** 左树项目列表排序偏好 */
+  projectSortPrefs: ProjectSortPrefs
 }
 
 /** 一个项目在聚合面板里的完整视图。 */
@@ -70,7 +93,7 @@ export type SessionStatus = 'running' | 'exited' | 'failed'
 export type RunTarget =
   { type: 'script'; projectPath: string; name: string } | { type: 'config'; id: string }
 
-/** 渲染端看到的会话快照。key 为「可运行项唯一键」，同一 script/config 单实例。 */
+/** 渲染端看到的会话快照。key 为配置唯一键，同一 script/config 单实例。 */
 export interface SessionState {
   key: string
   status: SessionStatus
@@ -121,6 +144,12 @@ export interface RunAPI extends GitAPI {
   /** 打开系统保存面板新建项目文件夹并登记；返回更新后的树（用户取消则返回原树） */
   createProject(): Promise<ProjectNode[]>
   removeProject(path: string): Promise<ProjectNode[]>
+  /** 重排项目列表顺序（自定义排序的落盘顺序） */
+  reorderProjects(orderedPaths: string[]): Promise<ProjectNode[]>
+  /** 记录「打开」某项目（更新 lastOpenedAt） */
+  touchProject(path: string): Promise<ProjectNode[]>
+  getProjectSortPrefs(): Promise<ProjectSortPrefs>
+  setProjectSortPrefs(patch: Partial<ProjectSortPrefs>): Promise<ProjectSortPrefs>
 
   // —— 运行时（slice 3+） ——
   run(target: RunTarget): Promise<void>

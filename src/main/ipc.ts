@@ -1,7 +1,7 @@
 import { ipcMain, BrowserWindow, shell } from 'electron'
 import { IPC } from '../shared/ipc'
 import { configKey } from '../shared/runnable'
-import type { CommandRunConfig, RunTarget } from '../shared/types'
+import type { CommandRunConfig, ProjectSortPrefs, RunTarget } from '../shared/types'
 import {
   resolveRepoSettings,
   type GitAction,
@@ -19,7 +19,14 @@ import {
   reorderConfigs,
   updateCommandConfig
 } from './configs'
-import { addProjectByPath, createAndAddProject, pickAndAddProject, removeProject } from './projects'
+import {
+  addProjectByPath,
+  createAndAddProject,
+  pickAndAddProject,
+  removeProject,
+  reorderProjects,
+  touchProject
+} from './projects'
 import {
   closeSession,
   disposeSession,
@@ -39,9 +46,11 @@ import {
   getConfigs,
   getGitSettings,
   getGitViewPrefs,
+  getProjectSortPrefs,
   getProjects,
   setGitSettings,
-  setGitViewPrefs
+  setGitViewPrefs,
+  setProjectSortPrefs
 } from './store'
 import { buildTree } from './tree'
 import { syncWatchers } from './watcher'
@@ -160,6 +169,21 @@ export function registerIpc(win: BrowserWindow): void {
     refreshWatchers()
     return buildTree()
   })
+
+  ipcMain.handle(IPC.projectReorder, (_e, orderedPaths: string[]) => {
+    reorderProjects(orderedPaths)
+    return buildTree()
+  })
+
+  ipcMain.handle(IPC.projectTouch, (_e, path: string) => {
+    touchProject(path)
+    return buildTree()
+  })
+
+  ipcMain.handle(IPC.projectSortPrefsGet, () => getProjectSortPrefs())
+  ipcMain.handle(IPC.projectSortPrefsSet, (_e, patch: Partial<ProjectSortPrefs>) =>
+    setProjectSortPrefs(patch)
+  )
 
   // —— 运行时 ——
   ipcMain.handle(IPC.run, (_e, target: RunTarget) => {

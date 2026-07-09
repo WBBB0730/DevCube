@@ -2,6 +2,7 @@ import { dialog } from 'electron'
 import { mkdirSync, statSync } from 'fs'
 import { basename } from 'path'
 import { getConfigs, getProjects, setConfigs, setProjects } from './store'
+import type { Project } from '../shared/types'
 
 /** 按绝对路径去重登记一个项目；非目录（如误拖入文件）直接忽略。 */
 export function addProjectByPath(dir: string): void {
@@ -12,7 +13,12 @@ export function addProjectByPath(dir: string): void {
   }
   const projects = getProjects()
   if (projects.some((p) => p.path === dir)) return
-  projects.push({ path: dir, name: basename(dir) })
+  projects.push({
+    path: dir,
+    name: basename(dir),
+    addedAt: Date.now(),
+    lastOpenedAt: null
+  })
   setProjects(projects)
 }
 
@@ -47,4 +53,30 @@ export async function createAndAddProject(): Promise<void> {
 export function removeProject(path: string): void {
   setProjects(getProjects().filter((p) => p.path !== path))
   setConfigs(getConfigs().filter((c) => c.projectPath !== path))
+}
+
+/** 重排项目列表顺序。严格按 orderedPaths；未知路径丢弃，未列出的追加末尾。 */
+export function reorderProjects(orderedPaths: string[]): void {
+  const byPath = new Map(getProjects().map((p) => [p.path, p]))
+  const seen = new Set<string>()
+  const reordered: Project[] = []
+  for (const path of orderedPaths) {
+    const p = byPath.get(path)
+    if (!p || seen.has(path)) continue
+    seen.add(path)
+    reordered.push(p)
+  }
+  for (const p of byPath.values()) {
+    if (!seen.has(p.path)) reordered.push(p)
+  }
+  setProjects(reordered)
+}
+
+/** 记录「打开」某项目：更新 lastOpenedAt。 */
+export function touchProject(path: string): void {
+  const projects = getProjects()
+  const i = projects.findIndex((p) => p.path === path)
+  if (i < 0) return
+  projects[i] = { ...projects[i], lastOpenedAt: Date.now() }
+  setProjects(projects)
 }

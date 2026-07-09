@@ -97,7 +97,7 @@ ANSI 16 色（取自 JetBrains 终端真实 Console Colors 调色板）：
 
 ## 图标
 
-Lucide（随 shadcn）：`Play`(运行) · `RotateCw`(重新运行 / Git 刷新) · `Square`(停止) · `MoreVertical`(更多⋮) · `Pencil`(编辑) · `Trash2`(删除) · `ChevronRight`(树展开 / 弹层箭头) · `FolderPlus`(添加项目) · `Plus`(新建命令 / 新建终端) · `Terminal`(终端 Tab) · `Search`/`ChevronUp`/`ChevronDown`/`X`(终端搜索框 / 关闭 Tab)。运行三角以 `--run-glyph` 上色。
+Lucide（随 shadcn）：`Play`(运行) · `RotateCw`(重新运行 / Git 刷新) · `Square`(停止) · `MoreVertical`(更多⋮) · `Pencil`(编辑) · `Trash2`(删除) · `ChevronRight`(树展开 / 弹层箭头) · `FolderPlus`(添加项目) · `ArrowUpDown`(项目排序) · `Plus`(新建命令 / 新建终端) · `Terminal`(终端 Tab) · `Search`/`ChevronUp`/`ChevronDown`/`X`(终端搜索框 / 关闭 Tab)。运行三角以 `--run-glyph` 上色。
 
 Git 图谱专用：`GitBranch`(Git Tab) · `SlidersHorizontal`(视图选项) · `GitCommitHorizontal`(提交，等同点「未提交的更改」行) · `RotateCw`(刷新) · `CircleArrowDown`(拉取) · `CircleArrowUp`(推送) · `GitBranchPlus`(创建分支) · `Settings`(仓库设置) · `LoaderCircle`(加载 / 动作进行中) · `TriangleAlert`(操作失败) · `Ellipsis`(提交面板文件行 … 菜单)。
 
@@ -118,6 +118,8 @@ Git 图谱专用：`GitBranch`(Git Tab) · `SlidersHorizontal`(视图选项) · 
 ```
 
 - **左树**：固定 280px，**项目间留白**。Project（可折叠）下**直接列出 Run Configuration**（无「我的配置」小标题；**行背景不缩进、仅内容缩进对齐**——状态点对齐文件夹图标列、名称对齐项目名，靠"补空占位列 + 居中点盒"实现）；探测脚本收进一个**临时弹出菜单**（**Base UI Popover**，即项目组件库；**深色背景 `--bg-panel` 与列表一致**；点触发浮出、点外面 / Esc 关闭，**选中或运行菜单项即刻关闭**；菜单项与配置行同款样式）。触发行置于配置列表最下方，UI 标签为**「检测到的配置」**（**文案与配置状态点对齐**，**数字在箭头前**，**箭头在右**）。项目行 hover 显示「新建命令」`＋` 与「更多」⋮（更多含「移除项目」）。项目名右侧显示包管理器角标（**pnpm 作为默认不显示**；hover 出按钮时让位隐藏）。
+- **标题栏**：左侧低调筛选（透明底 + 小 `Search` 图标，聚焦时才出行 hover 底；按项目名大小写不敏感包含过滤，只显示匹配项）；右侧排序按钮（`ArrowUpDown`）+ 新建/添加（`FolderPlus`）。排序菜单：自定义 / 名称 / 添加时间 / 打开时间；再点同一项翻转升/降序（自定义无方向）；当前项打勾并显示方向箭头。底边 1px `--separator`（与右 Tab 栏同）。
+- **项目支持拖拽排序**（无筛选时任意排序模式均可拖；@dnd-kit，PointerSensor 距离 6px；**仅垂直、钳制在项目列表内**）。**仅当松手后顺序实质变化**才落盘，并在非自定义模式下自动切到「自定义」；拖了但未改序则不覆盖原自定义顺序。**拖拽进行中所有项目暂时收起**，锚点按 `offsetTop - scrollTop`（含滚动钳制）；偏上用顶 padding、偏下优先加 scrollTop（余量负 margin）；拖中向下滚按增量吃掉 padding 并回退等量 scrollTop。**松手后**记下被拖项视口位置，展开后仅用 scrollTop 尽量拉回（不加 padding/margin）。筛选中禁用拖拽。
 - **配置支持拖拽排序**（@dnd-kit，PointerSensor 距离 6px 激活以不误触点击；**仅垂直移动、钳制在本项目列表块内**；顺序落盘、松手即时生效不回跳）。
 - **行内图标按钮**四周内边距一致 6px（固定高 `h-10` + `px-1.5`）。
 - **行选中**：`--selection-row` 圆角填充；其上按钮 hover 用 `--selection-row-hover`（蓝）而非灰。
@@ -133,7 +135,7 @@ Git 图谱专用：`GitBranch`(Git Tab) · `SlidersHorizontal`(视图选项) · 
 
 ## Tab 栏（以项目为维度）
 
-右控制台顶部的 Tab 栏承载**当前项目**的全部 Tab。除**常驻首位的 Git Tab**外，其余每个 Tab = 一个活的会话（Run Session 或 Terminal）。高 40px `h-10`、底 `--bg-panel`，与左标题栏同高同色；术语见 CONTEXT.md、取舍见 ADR-0003（含修订）、ADR-0005（Git Tab 破例）：
+右控制台顶部的 Tab 栏承载**当前项目**的全部 Tab。除**常驻首位的 Git Tab**外，其余每个 Tab = 一个活的会话（Run Session 或 Terminal）。高 40px `h-10`、底 `--bg-panel`、底边 1px `--separator`，与左标题栏同高同色同底边；术语见 CONTEXT.md、取舍见 ADR-0003（含修订）、ADR-0005（Git Tab 破例）：
 
 - **Git Tab**：**每项目常驻第一个、不可关闭**（无 `×`）。`GitBranch` 图标 16px + 「Git」（14px）+ 当前分支名用括号包住（如 `Git (main)`，muted 色、截断；detached HEAD 显示缩写 hash；项目成为当前项目时即预加载，Tab 栏始终显示分支名，不必等点开 Git Tab；此后随 git:changed 保鲜）；左右内边距对称（`pl-3 pr-3`，12px，因无 `×`）。选中态与 hover 同其它 Tab。它不是会话——数据状态存独立 git store，切走仅隐藏不卸载；当前项目由 App 预加载，打开 Git Tab 时若已就绪则只重验仓库根。
 - **运行会话 Tab**：**每条有会话的配置一个**（运行中或已退出未关闭）。状态点 + 配置名（14px）；`×` 常驻（背景仅 hover，圆形、颜色过渡）——运行中＝**停止并关闭**（温和停止，不二次确认），已退出＝关闭并弃输出（树上状态点回灰）。**顺序跟随树中配置顺序**；重跑复用原 Tab（单实例语义不变）。
@@ -143,7 +145,7 @@ Git 图谱专用：`GitBranch`(Git Tab) · `SlidersHorizontal`(视图选项) · 
 - 每个 Tab 常驻各自的 xterm 实例（切走仅隐藏、不卸载，跨项目亦然），故后台会话仍在跑、滚动历史与现场保留；切回某项目恢复其激活 Tab。
 - **激活解析**（Console / Tab 循环 / 关闭快捷键共用一套规则）：每项目记「激活的 Tab」。Tab 顺序 = Git Tab + 运行会话（树序）+ 终端。**点配置** → 有会话聚焦其 Tab、没跑过**不动当前激活 Tab**；**运行 / 重跑** → 聚焦其 Tab 并聚焦终端；**点项目行** → 保持该项目原激活 Tab；**点 Tab** → 只切视图、**不改树选择**（树选择与 Tab 激活解耦）。关闭激活 Tab → 按 Tab 顺序落到左邻（其次右邻）。首次进入某项目回落首个运行会话 Tab、再回落首个终端、最终回落 **Git Tab**——有项目即无占位态（Git Tab 常驻）。
 
-**当前项目与选中**：左树**项目行与配置行是同一层级的互斥选中**——单击项目行＝选中「项目本身」（右侧切到它的 Tab 栏、项目行以 `--selection-row` 高亮、清空配置选中）；单击配置行＝选中该配置（只高亮配置行，不连带高亮其项目行）。**折叠 / 展开由左侧箭头或整行双击触发**。新建 / 点选某终端也会把其项目设为当前。项目行上的「新建命令 / 更多」按钮，其 hover 底色跟随行态（选中蓝底行用 `--selection-row-hover`）。空项目（无可运行项）亦可点行进入并新建终端。
+**当前项目与选中**：左树**项目行与配置行是同一层级的互斥选中**——单击项目行＝选中「项目本身」（右侧切到它的 Tab 栏、项目行以 `--selection-row` 高亮、清空配置选中）；单击配置行＝选中该配置（只高亮配置行，不连带高亮其项目行）。**折叠 / 展开由左侧箭头或整行双击触发**。新建 / 点选某终端也会把其项目设为当前。项目行上的「新建命令 / 更多」按钮，其 hover 底色跟随行态（选中蓝底行用 `--selection-row-hover`）。空项目（尚无配置与探测脚本）亦可点行进入并新建终端。
 
 **终端交互**：终端**始终可交互**（不像运行会话退出后转只读）；切到 / 新建即自动聚焦、可直接输入；shell 自行结束（`exit` / Ctrl-D / 崩溃）即**自动关闭**该 Tab。xterm 能力（Cmd/Ctrl+F 搜索、链接点击、WebGL、Unicode 11）运行会话与终端一致。**快捷键**：`Cmd/Ctrl+T` 在当前项目新建终端、`Cmd/Ctrl+W` 关闭当前激活的 Tab（运行会话或终端；运行中温和停止；Git Tab 无操作）、`Ctrl+Tab` / `Ctrl+Shift+Tab` 在当前项目的全部 Tab 间循环。
 

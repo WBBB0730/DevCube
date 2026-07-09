@@ -2,12 +2,15 @@ import { create } from 'zustand'
 import type {
   CommandRunConfig,
   ProjectNode,
+  ProjectSortPrefs,
   RunConfig,
   RunTarget,
   SessionState,
   SessionStatus
 } from '@shared/types'
+import { DEFAULT_PROJECT_SORT_PREFS } from '@shared/types'
 import { configKey, gitTabKey, isGitTabKey } from '@shared/runnable'
+import { cycleProjectSort } from '@shared/project-sort'
 
 type CommandInput = Omit<CommandRunConfig, 'id' | 'kind'>
 
@@ -104,7 +107,7 @@ interface AppState {
   tree: ProjectNode[]
   sessions: Record<string, SessionState>
   /**
-   * 选中的可运行项（驱动左树配置行蓝底高亮）；为 null 表示「选中的是项目本身」。
+   * 选中的配置（驱动左树配置行蓝底高亮）；为 null 表示「选中的是项目本身」。
    * 树选择与 Tab 激活解耦：点 Tab 不改树选择，点树配置只在其有会话时聚焦对应 Tab。
    */
   selectedKey: string | null
@@ -117,13 +120,17 @@ interface AppState {
   /** 每会话的运行序号：重跑 +1，驱动对应运行面板清屏回填与聚焦（面板只订阅自己的键） */
   runNonce: Record<string, number>
   dialog: DialogState
+  /** 左树项目排序偏好（落盘） */
+  projectSortPrefs: ProjectSortPrefs
+  /** 左树项目名搜索（纯内存） */
+  projectFilter: string
   setTree: (tree: ProjectNode[]) => void
   setSession: (s: SessionState) => void
   /** 会话被销毁（关 Tab / shell 退出 / 删除配置或项目 / 对账）：清状态、删终端 Tab、修激活 Tab */
   handleSessionRemoved: (key: string) => void
-  /** 选中一个可运行项：有会话则聚焦其 Tab，没有则不动当前激活 Tab */
+  /** 选中一条配置：有会话则聚焦其 Tab，没有则不动当前激活 Tab */
   select: (key: string, projectPath: string) => void
-  /** 选中一条探测脚本：立即晋升为引用型配置进入「我的配置」（不必等运行），并按普通可运行项选中 */
+  /** 选中一条探测脚本：立即晋升为引用型配置进入「我的配置」（不必等运行），并按普通配置选中 */
   selectScript: (projectPath: string, name: string, key: string) => Promise<void>
   /** 选中「项目本身」（点项目行）：切当前项目，保持该项目原激活 Tab */
   selectProject: (projectPath: string) => void
@@ -136,6 +143,11 @@ interface AppState {
   addProjectByPath: (path: string) => Promise<void>
   createProject: () => Promise<void>
   removeProject: (path: string) => Promise<void>
+  /** 重排项目列表（自定义排序落盘） */
+  reorderProjects: (orderedPaths: string[]) => Promise<void>
+  /** 点选排序方式：同项翻转方向，换项取默认方向 */
+  cycleSortMode: (mode: ProjectSortPrefs['mode']) => Promise<void>
+  setProjectFilter: (query: string) => void
   run: (target: RunTarget, key: string, projectPath: string) => Promise<void>
   stop: (key: string) => Promise<void>
   /** 新建终端并聚焦；返回其会话键（供 Git 交互式 rebase 等向其写入命令） */
@@ -160,6 +172,8 @@ export const useApp = create<AppState>((set, get) => ({
   activeTabByProject: {},
   runNonce: {},
   dialog: { open: false },
+  projectSortPrefs: DEFAULT_PROJECT_SORT_PREFS,
+  projectFilter: '',
   setTree: (tree) => set({ tree }),
   setSession: (s) => set((state) => ({ sessions: { ...state.sessions, [s.key]: s } })),
   handleSessionRemoved: (key) =>
@@ -184,26 +198,36 @@ export const useApp = create<AppState>((set, get) => ({
       return { sessions, runNonce, terminals, activeTabByProject }
     }),
   // 选中配置：有会话 → 聚焦其 Tab；没跑过 → 不动当前激活 Tab（正在看的内容保持原样）。
-  select: (key, projectPath) =>
+  // 切到另一项目时记一次打开时间。
+  select: (key, projectPath) => {
+    const switched = get().currentProjectPath !== projectPath
     set((state) => ({
       selectedKey: key,
       currentProjectPath: projectPath,
       activeTabByProject: state.sessions[key]
         ? { ...state.activeTabByProject, [projectPath]: key }
         : state.activeTabByProject
-    })),
-  // 选中探测脚本：先按普通可运行项选中（同步高亮），再晋升入列（引用型与脚本共用同一键，选中态无缝延续）。
+    }))
+    if (switched) void window.api.touchProject(projectPath).then((tree) => set({ tree }))
+  },
+  // 选中探测脚本：先按普通配置选中（同步高亮），再晋升入列（引用型与脚本共用同一键，选中态无缝延续）。
   selectScript: async (projectPath, name, key) => {
     get().select(key, projectPath)
     set({ tree: await window.api.promoteScript(projectPath, name) })
   },
-  // 选中项目本身：只切当前项目，保持该项目原激活 Tab。
-  selectProject: (projectPath) => set({ selectedKey: null, currentProjectPath: projectPath }),
-  activateTab: (projectPath, key) =>
+  // 选中项目本身：只切当前项目，保持该项目原激活 Tab；并记录打开时间。
+  selectProject: (projectPath) => {
+    set({ selectedKey: null, currentProjectPath: projectPath })
+    void window.api.touchProject(projectPath).then((tree) => set({ tree }))
+  },
+  activateTab: (projectPath, key) => {
+    const switched = get().currentProjectPath !== projectPath
     set((state) => ({
       currentProjectPath: projectPath,
       activeTabByProject: { ...state.activeTabByProject, [projectPath]: key }
-    })),
+    }))
+    if (switched) void window.api.touchProject(projectPath).then((tree) => set({ tree }))
+  },
   // 关闭仅发请求；实际移除由 main 的 sessionRemoved 事件统一走 handleSessionRemoved。
   // Git Tab 常驻不可关闭（无会话可弃），直接忽略。
   closeTab: async (key) => {
@@ -211,10 +235,11 @@ export const useApp = create<AppState>((set, get) => ({
     return window.api.closeSession(key)
   },
   init: async () => {
-    const [tree, sessions, terminals] = await Promise.all([
+    const [tree, sessions, terminals, projectSortPrefs] = await Promise.all([
       window.api.getTree(),
       window.api.getSessions(),
-      window.api.getTerminals()
+      window.api.getTerminals(),
+      window.api.getProjectSortPrefs()
     ])
     // 重建终端 Tab（如 dev 热重载后 main 仍有 shell 存活）；名字按项目内出现顺序回落默认名。
     const seq: Record<string, number> = {}
@@ -225,7 +250,8 @@ export const useApp = create<AppState>((set, get) => ({
     set({
       tree,
       sessions: Object.fromEntries(sessions.map((s) => [s.key, s])),
-      terminals: termTabs
+      terminals: termTabs,
+      projectSortPrefs
     })
   },
   addProject: async () => set({ tree: await window.api.addProject() }),
@@ -246,19 +272,39 @@ export const useApp = create<AppState>((set, get) => ({
       }
     })
   },
+  reorderProjects: async (orderedPaths) => {
+    // 乐观更新：松手即本地排好序，避免等 IPC 回跳。
+    set((state) => {
+      const byPath = new Map(state.tree.map((n) => [n.project.path, n]))
+      const tree = orderedPaths
+        .map((p) => byPath.get(p))
+        .filter((n): n is ProjectNode => !!n)
+      return { tree }
+    })
+    set({ tree: await window.api.reorderProjects(orderedPaths) })
+  },
+  cycleSortMode: async (mode) => {
+    const next = cycleProjectSort(get().projectSortPrefs, mode)
+    set({ projectSortPrefs: next })
+    set({ projectSortPrefs: await window.api.setProjectSortPrefs(next) })
+  },
+  setProjectFilter: (query) => set({ projectFilter: query }),
   run: async (target, key, projectPath) => {
     // 运行即选中该配置、聚焦（即将出现的）其 Tab，并为该会话 +1 运行序号（重跑清屏回填与聚焦）。
+    const switched = get().currentProjectPath !== projectPath
     set((state) => ({
       selectedKey: key,
       currentProjectPath: projectPath,
       activeTabByProject: { ...state.activeTabByProject, [projectPath]: key },
       runNonce: { ...state.runNonce, [key]: (state.runNonce[key] ?? 0) + 1 }
     }))
+    if (switched) void window.api.touchProject(projectPath).then((tree) => set({ tree }))
     await window.api.run(target)
   },
   stop: async (key) => window.api.stop(key),
   newTerminal: async (projectPath) => {
     const key = await window.api.openTerminal(projectPath)
+    const switched = get().currentProjectPath !== projectPath
     set((state) => ({
       terminals: [
         ...state.terminals,
@@ -267,6 +313,7 @@ export const useApp = create<AppState>((set, get) => ({
       currentProjectPath: projectPath,
       activeTabByProject: { ...state.activeTabByProject, [projectPath]: key }
     }))
+    if (switched) void window.api.touchProject(projectPath).then((tree) => set({ tree }))
     return key
   },
   renameTerminal: (key, name) =>

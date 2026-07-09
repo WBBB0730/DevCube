@@ -185,7 +185,7 @@ function TabBar({
   }
 
   return (
-    <div className="flex h-10 shrink-0 items-center overflow-x-auto bg-panel px-2">
+    <div className="flex h-10 shrink-0 items-center overflow-x-auto border-b border-[var(--separator)] bg-panel px-2">
       {/* Git Tab：每项目常驻第一个、不可关闭（ADR-0005）。 */}
       <GitTabItem gitKey={gitKey} projectPath={projectPath} active={gitKey === activeKey} />
       {/* 运行会话 Tab：每条有会话的配置一个，顺序跟随树中配置顺序。 */}

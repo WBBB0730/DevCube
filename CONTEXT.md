@@ -7,10 +7,10 @@
 **Project（项目）**：被登记进运行器的一个本地文件夹，是聚合面板里的一个顶层条目，拥有属于自己的 Discovered Script 与 Run Configuration。
 _Avoid_: Workspace, Repo, Folder
 
-**Discovered Script（探测脚本）**：从项目 `package.json` 的 `scripts` 实时派生出来的候补可运行项——随文件变化自动增删、只读、尚未被选中或运行过。被选中或运行一次即"晋升"为 Run Configuration，并从候补区消失。
-_Avoid_: Task, NPM task, Script（裸用）
+**Discovered Script（探测脚本）**：从项目 `package.json` 的 `scripts` 实时派生出来的候补——随文件变化自动增删、只读、尚未被选中或运行过。被选中或运行一次即"晋升"为 Run Configuration，并从候补区消失。
+_Avoid_: Task, NPM task, Script（裸用）, 可运行项
 
-**Run Configuration（运行配置）**：用户"拥有"的、已保存的可运行项，分两种：
+**Run Configuration（运行配置）**：用户"拥有"的、已保存的可运行配置，分两种：
 
 - **引用型（Referenced）**：由 Discovered Script 首次选中或运行"晋升"而来，纯粹引用 `(Project, script 名)`，运行时从 `package.json` 解析命令、随其同步。**完全不可自定义**——名字即 script 名，没有自定义命令 / cwd / 环境变量，只能运行、停止、重跑、删除。所引用的 script 从 `package.json` 消失时**直接删除**（不存在用户手工内容会丢失）。
 - **命令型（Command）**：用户拥有的一条独立命令（命令行 + 工作目录 + 环境变量），完全可自定义、独立持久化、不随任何 script 变化、也不会被自动删除。要给某个 script 加环境变量 / 改 cwd / 改命令，就新建一条命令型配置——它不引用、也不同步任何 script。

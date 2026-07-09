@@ -1,5 +1,11 @@
 import type ElectronStore from 'electron-store'
-import type { PersistedState, Project, RunConfig } from '../shared/types'
+import type {
+  PersistedState,
+  Project,
+  ProjectSortPrefs,
+  RunConfig
+} from '../shared/types'
+import { DEFAULT_PROJECT_SORT_PREFS } from '../shared/types'
 import {
   DEFAULT_GIT_REPO_SETTINGS,
   DEFAULT_GIT_VIEW_PREFS,
@@ -18,13 +24,25 @@ export async function initStore(): Promise<void> {
       projects: [],
       configs: [],
       gitSettings: {},
-      gitViewPrefs: DEFAULT_GIT_VIEW_PREFS
+      gitViewPrefs: DEFAULT_GIT_VIEW_PREFS,
+      projectSortPrefs: DEFAULT_PROJECT_SORT_PREFS
     }
   })
 }
 
+/** 老档案缺 addedAt / lastOpenedAt 时补齐；首次读到脏数据即回写，避免每次 Date.now() 抖动。 */
 export function getProjects(): Project[] {
-  return store.get('projects')
+  const raw = store.get('projects')
+  const now = Date.now()
+  let dirty = false
+  const projects = raw.map((p) => {
+    const addedAt = typeof p.addedAt === 'number' ? p.addedAt : now
+    const lastOpenedAt = typeof p.lastOpenedAt === 'number' ? p.lastOpenedAt : null
+    if (addedAt !== p.addedAt || lastOpenedAt !== (p.lastOpenedAt ?? null)) dirty = true
+    return { path: p.path, name: p.name, addedAt, lastOpenedAt }
+  })
+  if (dirty) store.set('projects', projects)
+  return projects
 }
 
 export function setProjects(projects: Project[]): void {
@@ -87,5 +105,18 @@ export function getGitViewPrefs(): GitViewPrefs {
 export function setGitViewPrefs(patch: Partial<GitViewPrefs>): GitViewPrefs {
   const merged = { ...getGitViewPrefs(), ...patch }
   store.set('gitViewPrefs', merged)
+  return merged
+}
+
+export function getProjectSortPrefs(): ProjectSortPrefs {
+  return {
+    ...DEFAULT_PROJECT_SORT_PREFS,
+    ...pickKnownKeys(DEFAULT_PROJECT_SORT_PREFS, store.get('projectSortPrefs'))
+  }
+}
+
+export function setProjectSortPrefs(patch: Partial<ProjectSortPrefs>): ProjectSortPrefs {
+  const merged = { ...getProjectSortPrefs(), ...patch }
+  store.set('projectSortPrefs', merged)
   return merged
 }
