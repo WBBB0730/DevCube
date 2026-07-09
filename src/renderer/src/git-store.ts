@@ -16,6 +16,7 @@ import {
   type GitCommitStash,
   type GitDetailsRequest,
   type GitFileChange,
+  type GitOpInProgress,
   type GitRepoConfig,
   type GitRepoSettings,
   type GitViewPrefs
@@ -39,9 +40,13 @@ export interface GitProjectState {
   headHash: string | null
   currentBranch: string | null
   branches: string[]
+  /** 全量远程分支（带 remotes/ 前缀，不受显示开关与 hideRemotes 过滤），拉取/推送对话框用 */
+  remoteBranches: string[]
   remotes: string[]
   tags: string[]
   moreCommitsAvailable: boolean
+  /** 进行中的多步操作（变基/合并/拣选/回滚，冲突中断等）；状态条与防误触置灰依据 */
+  opInProgress: GitOpInProgress | null
   loadError: string | null
   /** 本次加载的提交窗口上限；初始 GIT_DEFAULTS.initialLoadCommits，「加载更多」+100 */
   maxCommits: number
@@ -121,9 +126,15 @@ export interface GitStoreState {
   runAction(projectPath: string, action: GitAction, label: string): Promise<GitActionResult>
   /**
    * 静默动作（暂存 / 取消暂存 / 撤销 / 提交专用，PRD「静默即时」）：不置 actionRunning
-   * （无进行中遮罩），每项目 FIFO 串行执行；'ok' 软刷新原地换数据，'error' 落 actionErrors
+   * （无进行中遮罩），每项目 FIFO 串行执行；'ok' 软刷新原地换数据，'error' 落 actionErrors。
+   * suppressErrorBox：错误不落 actionErrors，由调用方消费返回值就地呈现——对话框内的
+   * 行内刷新用（全局错误框会按渲染优先级顶掉表单，卸载后用户已填状态全部丢失）
    */
-  runQuietAction(projectPath: string, action: GitAction): Promise<GitActionResult>
+  runQuietAction(
+    projectPath: string,
+    action: GitAction,
+    opts?: { suppressErrorBox?: boolean }
+  ): Promise<GitActionResult>
   /** 写提交面板草稿（浅合并写回） */
   setCommitDraft(projectPath: string, patch: Partial<GitProjectState['commitDraft']>): void
 }
@@ -137,9 +148,11 @@ const EMPTY_PROJECT: GitProjectState = {
   headHash: null,
   currentBranch: null,
   branches: [],
+  remoteBranches: [],
   remotes: [],
   tags: [],
   moreCommitsAvailable: false,
+  opInProgress: null,
   loadError: null,
   maxCommits: GIT_DEFAULTS.initialLoadCommits,
   branchFilter: null,
@@ -242,8 +255,12 @@ function menuTargetAlive(
 function dialogTargetAlive(
   dialog: GitDialogRequest,
   commits: GitCommit[],
-  has: (hash: string) => boolean
+  has: (hash: string) => boolean,
+  opInProgress: GitOpInProgress | null
 ): boolean {
+  // 中止确认无 hash/selector，以操作状态收敛：用户已在终端自行收口（操作变化/消失）
+  // 时关框，防止对着已结束的操作点「是，中止」吃 git 报错
+  if (dialog.kind === 'op-abort') return dialog.op === opInProgress
   if ('hash' in dialog && !has(dialog.hash)) return false
   if ('selector' in dialog && !commits.some((c) => c.stash?.selector === dialog.selector)) {
     return false
@@ -257,11 +274,19 @@ function dialogTargetAlive(
  * diff 从属于详情：详情关则一并关；详情存活时不按 hash 单独收敛
  * （diff 的 fromHash 可能是加载窗口之外的父提交，按存在性判断会误关正看着的 diff）。
  */
-function reconcileOpenUi(cur: GitProjectState, commits: GitCommit[]): Partial<GitProjectState> {
+function reconcileOpenUi(
+  cur: GitProjectState,
+  commits: GitCommit[],
+  opInProgress: GitOpInProgress | null
+): Partial<GitProjectState> {
   const has = (hash: string): boolean => commits.some((c) => c.hash === hash)
   const out: Partial<GitProjectState> = {}
+  // 提交面板（未提交普通详情）豁免收敛：目标是工作区本身、恒不过期——全部提交/丢弃后
+  // 未提交行消失面板仍留着（空列表 + 可勾「修正」），工具栏无改动时也可直接打开它
+  const isCommitPanel = cur.expanded?.hash === UNCOMMITTED && cur.expanded.compareWith === null
   if (
     cur.expanded &&
+    !isCommitPanel &&
     !(
       has(cur.expanded.hash) &&
       (cur.expanded.compareWith === null || has(cur.expanded.compareWith))
@@ -273,7 +298,7 @@ function reconcileOpenUi(cur: GitProjectState, commits: GitCommit[]): Partial<Gi
   if (cur.contextMenu && !menuTargetAlive(cur.contextMenu.target, commits, has)) {
     out.contextMenu = null
   }
-  if (cur.dialog && !dialogTargetAlive(cur.dialog, commits, has)) out.dialog = null
+  if (cur.dialog && !dialogTargetAlive(cur.dialog, commits, has, opInProgress)) out.dialog = null
   return out
 }
 
@@ -446,11 +471,13 @@ export const useGit = create<GitStoreState>((set, get) => {
         headHash: result.headHash,
         currentBranch: result.currentBranch,
         branches: result.branches,
+        remoteBranches: result.remoteBranches,
         remotes: result.remotes,
         tags: result.tags,
         moreCommitsAvailable: result.moreCommitsAvailable,
+        opInProgress: result.opInProgress,
         loadError: null,
-        ...reconcileOpenUi(cur, commits)
+        ...reconcileOpenUi(cur, commits, result.opInProgress)
       })
       // 展开详情含未提交侧时，工作区内容可能已变：刷新详情数据（不闪 loading）。此处 await
       // 而非 void——让暂存/提交等静默动作的软刷新在两段列表落地后才返回，调用方（提交面板的
@@ -718,7 +745,7 @@ export const useGit = create<GitStoreState>((set, get) => {
       return result
     },
 
-    runQuietAction: async (projectPath, action) => {
+    runQuietAction: async (projectPath, action, opts) => {
       // 静默即时（PRD 12c）：不置 actionRunning（无进行中遮罩），挂到该项目的 FIFO 串行链上
       const prev = quietChains.get(projectPath) ?? Promise.resolve()
       const run = prev.then(async (): Promise<GitActionResult> => {
@@ -740,7 +767,7 @@ export const useGit = create<GitStoreState>((set, get) => {
           } catch {
             // 兜底吞掉：保证链上的每一环恒 resolve
           }
-        } else if (result.status === 'error') {
+        } else if (result.status === 'error' && opts?.suppressErrorBox !== true) {
           patchProject(projectPath, { actionErrors: result.errors })
         }
         return result

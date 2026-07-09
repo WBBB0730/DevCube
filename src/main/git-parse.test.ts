@@ -190,17 +190,56 @@ describe('countPorcelainStatus', () => {
   it('空输出计 0', () => {
     expect(countPorcelainStatus('')).toBe(0)
   })
+
+  it('冲突记录照常计入（与提交面板冲突桶口径一致）', () => {
+    expect(countPorcelainStatus('UU both.txt\nAA add.txt\n M other.ts\n')).toBe(3)
+  })
 })
 
 describe('parseStatusFilesZ', () => {
   it('D 与 ? 状态分别归入 deleted / untracked', () => {
     const stdout = ' D gone.ts\0?? new.ts\0 M other.ts\0'
-    expect(parseStatusFilesZ(stdout)).toEqual({ deleted: ['gone.ts'], untracked: ['new.ts'] })
+    expect(parseStatusFilesZ(stdout)).toEqual({
+      deleted: ['gone.ts'],
+      untracked: ['new.ts'],
+      conflicted: []
+    })
   })
 
   it('R 记录的原路径是独立 NUL 段，被跳过不误读', () => {
     const stdout = 'R  renamed.ts\0orig.ts\0 D gone.ts\0'
-    expect(parseStatusFilesZ(stdout)).toEqual({ deleted: ['gone.ts'], untracked: [] })
+    expect(parseStatusFilesZ(stdout)).toEqual({
+      deleted: ['gone.ts'],
+      untracked: [],
+      conflicted: []
+    })
+  })
+
+  it('冲突记录（XY 任一位 U、AA、DD）归入 conflicted；DU/UD/DD 同时保留在 deleted', () => {
+    // 真实样本：merge 冲突 + 暂存 rename + 未跟踪混排（冲突记录只有一个路径段）
+    const stdout =
+      'AA both-add.txt\0UU both-mod.txt\0DU del-by-them.txt\0UD del-by-us.txt\0' +
+      'DD both-del.txt\0R  renamed.txt\0to-rename.txt\0?? untracked.txt\0'
+    expect(parseStatusFilesZ(stdout)).toEqual({
+      conflicted: [
+        'both-add.txt',
+        'both-mod.txt',
+        'del-by-them.txt',
+        'del-by-us.txt',
+        'both-del.txt'
+      ],
+      deleted: ['del-by-them.txt', 'del-by-us.txt', 'both-del.txt'],
+      untracked: ['untracked.txt']
+    })
+  })
+
+  it('AU/UA 也判冲突且不落 untracked', () => {
+    const stdout = 'AU added-by-us.txt\0UA added-by-them.txt\0'
+    expect(parseStatusFilesZ(stdout)).toEqual({
+      conflicted: ['added-by-us.txt', 'added-by-them.txt'],
+      deleted: [],
+      untracked: []
+    })
   })
 })
 
@@ -259,7 +298,7 @@ describe('generateFileChanges', () => {
     const changes = generateFileChanges(
       [{ type: 'M', oldFilePath: 'a.ts', newFilePath: 'a.ts' }],
       [],
-      { deleted: ['a.ts', 'b.ts'], untracked: ['c.ts'] }
+      { deleted: ['a.ts', 'b.ts'], untracked: ['c.ts'], conflicted: [] }
     )
     expect(changes.map((c) => [c.newFilePath, c.type])).toEqual([
       ['a.ts', 'D'],
@@ -272,7 +311,11 @@ describe('generateFileChanges', () => {
   })
 
   it('untracked 目录条目（尾斜杠）去斜杠归一并标 isDir，普通文件不带 isDir', () => {
-    const changes = generateFileChanges([], [], { deleted: [], untracked: ['c.ts', 'sub/'] })
+    const changes = generateFileChanges([], [], {
+      deleted: [],
+      untracked: ['c.ts', 'sub/'],
+      conflicted: []
+    })
     expect(changes).toEqual([
       { oldFilePath: 'c.ts', newFilePath: 'c.ts', type: 'U', additions: null, deletions: null },
       {

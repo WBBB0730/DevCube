@@ -16,6 +16,7 @@ import {
 import { UNCOMMITTED } from '@shared/git'
 import { gitState, useGit } from '@renderer/git-store'
 import { GitBranchDropdown } from './GitBranchDropdown'
+import { opBlockReason } from './GitOpStatusBar'
 import { GitViewOptions } from './GitViewOptions'
 import { GitRepoSettings } from './GitRepoSettings'
 
@@ -32,11 +33,10 @@ export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.
   const headHash = useGit((s) => gitState(s, projectPath).headHash)
   const config = useGit((s) => gitState(s, projectPath).config)
   const fetching = useGit((s) => gitState(s, projectPath).fetching)
-  // 有无「未提交更改」行：提交钮仅在有改动时可用（等同于图上该行存在时才可点）
-  const hasUncommitted = useGit((s) => {
-    const commits = gitState(s, projectPath).commits
-    return commits.length > 0 && commits[0].hash === UNCOMMITTED
-  })
+  const opInProgress = useGit((s) => gitState(s, projectPath).opInProgress)
+  // 提交钮可用性：图上有任意行即可打开提交面板（无改动也能开，如只勾「修正」改信息）；
+  // 空图（空仓库且无改动）禁用——GitPane 此时只渲染占位提示，详情面板无处停靠
+  const hasCommits = useGit((s) => gitState(s, projectPath).commits.length > 0)
   const refresh = useGit((s) => s.refresh)
   const loadRepoConfig = useGit((s) => s.loadRepoConfig)
   const setFind = useGit((s) => s.setFind)
@@ -44,18 +44,13 @@ export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.
   const openDetails = useGit((s) => s.openDetails)
   const [settingsOpen, setSettingsOpen] = useState(false)
 
-  // 拉取按钮的 upstream 判断依赖仓库 config（branch.<name>.remote）：就绪后按需拉一次。
-  // StrictMode 双挂载幂等 —— loadRepoConfig 只是覆盖式落桶，重复调用无害。
+  // pull/push 对话框的默认值依赖仓库 config（branch.<name>.remote/merge/rebase）：就绪后
+  // 按需预拉一次。StrictMode 双挂载幂等 —— loadRepoConfig 只是覆盖式落桶，重复调用无害。
   useEffect(() => {
     if (status === 'ready' && isRepo && config === null) void loadRepoConfig(projectPath)
   }, [status, isRepo, config, projectPath, loadRepoConfig])
 
   const refreshing = fetching || status === 'loading'
-  // 当前分支的上游 remote（须仍在 remotes 里；config 未加载 / 无上游则 null → 拉取不可用）
-  const configuredRemote =
-    currentBranch !== null ? (config?.branches[currentBranch]?.remote ?? null) : null
-  const upstreamRemote =
-    configuredRemote !== null && remotes.includes(configuredRemote) ? configuredRemote : null
 
   return (
     <div className="flex h-10 shrink-0 items-center gap-2 bg-panel px-2">
@@ -75,10 +70,10 @@ export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
         <button
           type="button"
-          title="提交（打开未提交更改）"
-          disabled={!hasUncommitted}
+          title="提交（打开提交面板）"
+          disabled={!hasCommits}
           className={ICON_BTN}
-          // 效果等同点图上「未提交的更改」行：打开提交面板
+          // 效果等同点图上「未提交的更改」行：打开提交面板（无该行时也可开，收敛豁免见 store）
           onClick={() => void openDetails(projectPath, UNCOMMITTED, null)}
         >
           <GitCommitHorizontal className="size-4" />
@@ -98,20 +93,13 @@ export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.
         </button>
         <button
           type="button"
-          title="拉取当前分支"
-          // 已知取舍：上游分支名按同名预设（branch.<name>.merge 改名上游的少数情况
-          // 由 pull-branch 对话框的 remoteRef 文案兜底，用户可取消）
-          disabled={currentBranch === null || remotes.length === 0 || upstreamRemote === null}
+          // 操作进行中（变基/合并等冲突中途）时禁用并以 title 注明原因：pull 会动工作区必撞车
+          title={opInProgress !== null ? opBlockReason(opInProgress) : '拉取当前分支'}
+          // 无上游也可打开：remote / 远程分支 / 整合方式都在表单里选（默认值按上游配置求值）
+          disabled={currentBranch === null || remotes.length === 0 || opInProgress !== null}
           className={ICON_BTN}
           onClick={() =>
-            currentBranch !== null &&
-            upstreamRemote !== null &&
-            openDialog(projectPath, {
-              kind: 'pull-branch',
-              remote: upstreamRemote,
-              branch: currentBranch,
-              remoteRef: `${upstreamRemote}/${currentBranch}`
-            })
+            currentBranch !== null && openDialog(projectPath, { kind: 'pull-branch', preset: null })
           }
         >
           <CircleArrowDown className="size-4" />

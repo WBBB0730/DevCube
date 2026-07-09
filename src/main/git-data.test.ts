@@ -7,10 +7,12 @@ import {
   assembleUncommitted,
   buildDiffArgs,
   buildFileDiffArgs,
+  buildGitPathArgs,
   buildLogArgs,
   buildShowRefArgs,
   buildStatusArgs,
-  buildUncommittedDiffArgs
+  buildUncommittedDiffArgs,
+  resolveOpInProgress
 } from './git-data'
 import { GIT_FORMAT_LOG } from './git-parse'
 import { GIT_INDEX } from '../shared/git'
@@ -413,6 +415,82 @@ describe('assembleUncommitted', () => {
         deletions: null
       }
     ])
+    expect(result.conflicted).toEqual([])
+  })
+
+  it('冲突文件独立成桶（type 恒 "!"、计数恒 null），UU/AA 的影子 M 记录从未暂存段剔除', () => {
+    // UU 文件会以 stage-2↔工作区的 M 记录混进 index↔工作区 diff（numstat 数冲突标记行）
+    const result = assembleUncommitted(
+      '',
+      '',
+      'M\0both.txt\0M\0other.ts\0',
+      '4\t0\tboth.txt\0' + '2\t1\tother.ts\0',
+      'UU both.txt\0 M other.ts\0'
+    )
+    expect(result.conflicted).toEqual([
+      {
+        oldFilePath: 'both.txt',
+        newFilePath: 'both.txt',
+        type: '!',
+        additions: null,
+        deletions: null
+      }
+    ])
+    // 普通未暂存文件不受剔除影响
+    expect(result.unstaged).toEqual([
+      { oldFilePath: 'other.ts', newFilePath: 'other.ts', type: 'M', additions: 2, deletions: 1 }
+    ])
+    expect(result.staged).toEqual([])
+  })
+
+  it('DU/UD 冲突（diff 无任何记录）也入冲突桶，且不因 status 的 D 位混进未暂存段', () => {
+    const result = assembleUncommitted('', '', '', '', 'DU del-by-them.txt\0UD del-by-us.txt\0')
+    expect(result.conflicted.map((c) => [c.newFilePath, c.type])).toEqual([
+      ['del-by-them.txt', '!'],
+      ['del-by-us.txt', '!']
+    ])
+    expect(result.unstaged).toEqual([])
+    expect(result.staged).toEqual([])
+  })
+})
+
+describe('buildGitPathArgs', () => {
+  it('一次 rev-parse 带全部五个状态文件，顺序与 resolveOpInProgress 的判定位一致', () => {
+    expect(buildGitPathArgs()).toEqual([
+      'rev-parse',
+      '--git-path',
+      'rebase-merge',
+      '--git-path',
+      'rebase-apply',
+      '--git-path',
+      'MERGE_HEAD',
+      '--git-path',
+      'CHERRY_PICK_HEAD',
+      '--git-path',
+      'REVERT_HEAD'
+    ])
+  })
+})
+
+describe('resolveOpInProgress', () => {
+  it('全不存在为 null', () => {
+    expect(resolveOpInProgress([false, false, false, false, false])).toBeNull()
+  })
+
+  it('单一状态各自命中：rebase-merge 与 rebase-apply 都判 rebase', () => {
+    expect(resolveOpInProgress([true, false, false, false, false])).toBe('rebase')
+    expect(resolveOpInProgress([false, true, false, false, false])).toBe('rebase')
+    expect(resolveOpInProgress([false, false, true, false, false])).toBe('merge')
+    expect(resolveOpInProgress([false, false, false, true, false])).toBe('cherry-pick')
+    expect(resolveOpInProgress([false, false, false, false, true])).toBe('revert')
+  })
+
+  it('多状态并存按外层优先：rebase > cherry-pick > revert > merge', () => {
+    // 变基途中拣选冲突：rebase-merge 与 CHERRY_PICK_HEAD 并存
+    expect(resolveOpInProgress([true, false, false, true, false])).toBe('rebase')
+    expect(resolveOpInProgress([false, false, true, true, false])).toBe('cherry-pick')
+    expect(resolveOpInProgress([false, false, true, false, true])).toBe('revert')
+    expect(resolveOpInProgress([true, true, true, true, true])).toBe('rebase')
   })
 })
 
@@ -430,10 +508,27 @@ describe('assembleRepoConfig', () => {
       []
     )
     expect(config.branches).toEqual({
-      main: { remote: 'origin', pushRemote: null },
-      dev: { remote: 'origin', pushRemote: 'fork' },
-      'v1.0.x': { remote: 'origin', pushRemote: null }
+      main: { remote: 'origin', pushRemote: null, merge: null, rebase: null },
+      dev: { remote: 'origin', pushRemote: 'fork', merge: null, rebase: null },
+      'v1.0.x': { remote: 'origin', pushRemote: null, merge: null, rebase: null }
     })
+  })
+
+  it('branch.<name>.merge / .rebase 取 local，pull.rebase 取合并视图（可被全局层覆盖）', () => {
+    const config = assembleRepoConfig(
+      { 'pull.rebase': 'true' },
+      {
+        'branch.main.remote': 'origin',
+        'branch.main.merge': 'refs/heads/main',
+        'branch.main.rebase': 'merges'
+      },
+      {},
+      []
+    )
+    expect(config.branches).toEqual({
+      main: { remote: 'origin', pushRemote: null, merge: 'refs/heads/main', rebase: 'merges' }
+    })
+    expect(config.pullRebase).toBe('true')
   })
 
   it('remotes 的 url/pushUrl 取自 local 配置，缺失为 null', () => {
@@ -465,6 +560,7 @@ describe('assembleRepoConfig', () => {
     expect(assembleRepoConfig({}, {}, {}, [])).toEqual({
       branches: {},
       pushDefault: null,
+      pullRebase: null,
       remotes: [],
       user: { name: { local: null, global: null }, email: { local: null, global: null } }
     })

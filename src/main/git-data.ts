@@ -4,7 +4,7 @@
 // —— 纯参数构造（build* / assembleRepoConfig）与 IO 分离，供测试。
 
 import { readFile, stat } from 'fs/promises'
-import { join } from 'path'
+import { isAbsolute, join } from 'path'
 import { execGit, findGit, getErrorMessage, isVersionAtLeast, resolveRepoRoot } from './git-exec'
 import {
   assembleCommits,
@@ -40,6 +40,7 @@ import type {
   GitFileChange,
   GitLoadOptions,
   GitLoadResult,
+  GitOpInProgress,
   GitRepoConfig,
   GitRepoConfigResult,
   GitTagDetailsResult,
@@ -272,8 +273,41 @@ export function buildStatusArgs(showUntracked: boolean): string[] {
 }
 
 /**
- * 五路 stdout 组装未提交两段列表（提交面板数据源，ADR-0006）：
- * 已暂存 = HEAD↔index（diff --cached）；未暂存 = index↔工作区（diff）+ status 的未跟踪文件。
+ * opInProgress 探测的 gitdir 状态文件（名 → 含义见 resolveOpInProgress）。
+ * rev-parse --git-path 一次带全部（逐行输出、顺序与此一致），且在 worktree（.git 为文件）
+ * 下也解析到真实 gitdir——直接拼 .git/ 路径不可靠。
+ */
+const OP_STATE_FILES = [
+  'rebase-merge',
+  'rebase-apply',
+  'MERGE_HEAD',
+  'CHERRY_PICK_HEAD',
+  'REVERT_HEAD'
+] as const
+
+/** opInProgress 探测的 rev-parse 参数（--git-path 需 git ≥ 2.5，低于仓库所有既有 gate）。 */
+export function buildGitPathArgs(): string[] {
+  const args = ['rev-parse']
+  for (const name of OP_STATE_FILES) args.push('--git-path', name)
+  return args
+}
+
+/**
+ * 存在性标志（与 OP_STATE_FILES 同序）→ 进行中操作。多个并存（变基途中拣选冲突等嵌套）
+ * 时按外层优先：rebase > cherry-pick > revert > merge。
+ */
+export function resolveOpInProgress(exists: boolean[]): GitOpInProgress | null {
+  if (exists[0] || exists[1]) return 'rebase' // rebase-merge / rebase-apply（目录）
+  if (exists[3]) return 'cherry-pick' // CHERRY_PICK_HEAD
+  if (exists[4]) return 'revert' // REVERT_HEAD
+  if (exists[2]) return 'merge' // MERGE_HEAD
+  return null
+}
+
+/**
+ * 五路 stdout 组装未提交三段列表（提交面板数据源，ADR-0006）：
+ * 已暂存 = HEAD↔index（diff --cached）；未暂存 = index↔工作区（diff）+ status 的未跟踪文件；
+ * 冲突（unmerged）= status 的冲突桶（diff 恒 --diff-filter=AMDR，冲突记录只能从 status 取）。
  */
 export function assembleUncommitted(
   stagedNS: string,
@@ -283,6 +317,7 @@ export function assembleUncommitted(
   statusStdout: string
 ): GitUncommittedDetails {
   const status = parseStatusFilesZ(statusStdout)
+  const conflictedSet = new Set(status.conflicted)
   return {
     staged: generateFileChanges(
       parseNameStatusZ(stagedNS, false),
@@ -291,11 +326,21 @@ export function assembleUncommitted(
     ),
     // 关键坑：parseStatusFilesZ 的 deleted 混含「暂存删除」（X 位 D）——若透传会把暂存删除
     // 错混进未暂存段；工作区删除（Y 位 D）已由 index↔工作区 diff 自身的 D 记录覆盖，
-    // 故 deleted 传空数组、只用 untracked
+    // 故 deleted 传空数组、只用 untracked。
+    // UU/AA 冲突文件会以 stage-2↔工作区的「影子 M 记录」混进 index↔工作区 diff
+    // （numstat 数的是冲突标记行），须按冲突桶剔除，否则同一文件在未暂存段重复成行
     unstaged: generateFileChanges(parseNameStatusZ(wtNS, false), parseNumStatZ(wtNum, false), {
       deleted: [],
-      untracked: status.untracked
-    })
+      untracked: status.untracked,
+      conflicted: []
+    }).filter((change) => !conflictedSet.has(change.newFilePath)),
+    conflicted: status.conflicted.map((filePath) => ({
+      oldFilePath: filePath,
+      newFilePath: filePath,
+      type: '!' as const,
+      additions: null,
+      deletions: null
+    }))
   }
 }
 
@@ -308,19 +353,26 @@ export function assembleRepoConfig(
 ): GitRepoConfig {
   const branches: GitRepoConfig['branches'] = {}
   for (const key of Object.keys(local)) {
-    // .+ 贪婪匹配：分支名本身可含 '.'，锚定末尾的 .remote / .pushremote
-    const remoteMatch = key.match(/^branch\.(.+)\.remote$/)
-    const pushMatch = remoteMatch === null ? key.match(/^branch\.(.+)\.pushremote$/) : null
-    const branch = remoteMatch?.[1] ?? pushMatch?.[1]
-    if (branch === undefined) continue
-    const entry = branches[branch] ?? { remote: null, pushRemote: null }
-    if (remoteMatch !== null) entry.remote = local[key]
-    else entry.pushRemote = local[key]
-    branches[branch] = entry
+    // .+ 贪婪匹配：分支名本身可含 '.'，锚定末尾的已知子键
+    const match = key.match(/^branch\.(.+)\.(remote|pushremote|merge|rebase)$/)
+    if (match === null) continue
+    const entry = branches[match[1]] ?? {
+      remote: null,
+      pushRemote: null,
+      merge: null,
+      rebase: null
+    }
+    if (match[2] === 'remote') entry.remote = local[key]
+    else if (match[2] === 'pushremote') entry.pushRemote = local[key]
+    else if (match[2] === 'merge') entry.merge = local[key]
+    else entry.rebase = local[key]
+    branches[match[1]] = entry
   }
   return {
     branches,
     pushDefault: consolidated['remote.pushdefault'] ?? null,
+    // pull.rebase 可被全局层覆盖，取合并视图；branch.<name>.rebase 是分支级配置，取 local（见上）
+    pullRebase: consolidated['pull.rebase'] ?? null,
     remotes: remotes.map((name) => ({
       name,
       url: local[`remote.${name}.url`] ?? null,
@@ -360,6 +412,29 @@ async function loadStashes(root: string, showStashes: boolean): Promise<GitStash
   return parseStashes(result.stdout)
 }
 
+/**
+ * 探测进行中的多步操作：rev-parse --git-path 定位状态文件后逐个 fs 探测存在性。
+ * 任何失败（rev-parse 失败 / 行数不符）吞成 null——探测失败不该让整次加载失败。
+ */
+async function detectOpInProgress(root: string): Promise<GitOpInProgress | null> {
+  const result = await runGit(root, buildGitPathArgs())
+  if (!result.ok) return null
+  const paths = splitLines(result.stdout)
+  if (paths.length !== OP_STATE_FILES.length) return null
+  const exists = await Promise.all(
+    paths.map(async (p) => {
+      try {
+        // --git-path 输出相对执行时 cwd（即 root），也可能已是绝对路径
+        await stat(isAbsolute(p) ? p : join(root, p))
+        return true
+      } catch {
+        return false
+      }
+    })
+  )
+  return resolveOpInProgress(exists)
+}
+
 /** HEAD 是否已出生（可解析到提交）：-q --verify 保证静默且输出即 hash。 */
 function verifyHeadArgs(): string[] {
   return ['rev-parse', '-q', '--verify', 'HEAD']
@@ -384,12 +459,14 @@ function loadResult(patch: Partial<GitLoadResult>): GitLoadResult {
     isRepo: false,
     isEmptyRepo: false,
     branches: [],
+    remoteBranches: [],
     currentBranch: null,
     remotes: [],
     commits: [],
     headHash: null,
     tags: [],
     moreCommitsAvailable: false,
+    opInProgress: null,
     error: null,
     ...patch
   }
@@ -407,7 +484,9 @@ async function loadUnbornHead(
   stashes: GitStash[],
   remotes: string[],
   branches: string[],
-  currentBranch: string | null
+  remoteBranches: string[],
+  currentBranch: string | null,
+  opInProgress: GitOpInProgress | null
 ): Promise<GitLoadResult> {
   const [logRes, refRes, statusRes] = await Promise.all([
     runGit(
@@ -426,10 +505,24 @@ async function loadUnbornHead(
       : Promise.resolve(null)
   ])
   if (!logRes.ok) {
-    return loadResult({ isRepo: true, branches, currentBranch, remotes, error: logRes.error })
+    return loadResult({
+      isRepo: true,
+      branches,
+      remoteBranches,
+      currentBranch,
+      remotes,
+      error: logRes.error
+    })
   }
   if (statusRes !== null && !statusRes.ok) {
-    return loadResult({ isRepo: true, branches, currentBranch, remotes, error: statusRes.error })
+    return loadResult({
+      isRepo: true,
+      branches,
+      remoteBranches,
+      currentBranch,
+      remotes,
+      error: statusRes.error
+    })
   }
   const records = parseLog(logRes.stdout)
   // show-ref 失败（空仓库无任何 ref / 存在损坏引用）：降级路径与主路径同款，
@@ -453,12 +546,14 @@ async function loadUnbornHead(
     isRepo: true,
     isEmptyRepo: records.length === 0,
     branches,
+    remoteBranches,
     currentBranch,
     remotes,
     commits,
     headHash: null,
     tags,
     moreCommitsAvailable,
+    opInProgress,
     error: null
   }
 }
@@ -479,31 +574,44 @@ export async function loadRepo(
     if (probe.code !== 0) return loadResult({ error: getErrorMessage(probe) })
     return loadResult({})
   }
-  // 第一步：分支 / 远程 / 贮藏 / HEAD 出生探测 并行（stash 失败吞成 []，HEAD 探测失败
-  // 即未出生；其余任一失败整体报错）
-  const branchArgs = settings.showRemoteBranches
-    ? ['branch', '-a', '--no-color']
-    : ['branch', '--no-color']
-  const [branchRes, remoteRes, stashes, headRes] = await Promise.all([
-    runGit(root, branchArgs),
+  // 第一步：分支 / 远程 / 贮藏 / HEAD 出生探测 / 进行中操作探测 并行（stash 失败吞成 []，
+  // HEAD 探测失败即未出生，opInProgress 探测失败吞成 null；其余任一失败整体报错）。
+  // 恒取 -a：remoteBranches 需要全量远程分支
+  const [branchRes, remoteRes, stashes, headRes, opInProgress] = await Promise.all([
+    runGit(root, ['branch', '-a', '--no-color']),
     runGit(root, ['remote']),
     loadStashes(root, settings.showStashes),
-    runGit(root, verifyHeadArgs())
+    runGit(root, verifyHeadArgs()),
+    detectOpInProgress(root)
   ])
   if (!branchRes.ok) return loadResult({ isRepo: true, error: branchRes.error })
   if (!remoteRes.ok) return loadResult({ isRepo: true, error: remoteRes.error })
-  const { branches, head: currentBranch } = parseBranches(
-    branchRes.stdout,
-    settings.hideRemotes,
-    SHOW_REMOTE_HEADS
-  )
+  // 全量解析（零过滤）：remoteBranches 供拉取/推送对话框选分支——被「显示远程分支」开关
+  // 或 hideRemotes 过滤掉的 remote 也必须能拉取/推送，展示口径不能限制动作口径
+  const parsedAll = parseBranches(branchRes.stdout, [], SHOW_REMOTE_HEADS)
+  const currentBranch = parsedAll.head
+  const remoteBranches = parsedAll.branches.filter((b) => b.startsWith('remotes/'))
+  // 展示用列表（分支筛选下拉）维持原过滤口径：开关关 = 无任何远程项，开 = 按 hideRemotes 剔除
+  const branches = settings.showRemoteBranches
+    ? parseBranches(branchRes.stdout, settings.hideRemotes, SHOW_REMOTE_HEADS).branches
+    : parsedAll.branches.filter((b) => !b.startsWith('remotes/'))
   const remotes = splitLines(remoteRes.stdout)
   // HEAD 未出生（空仓库 / orphan 检出）：log 的 HEAD revision 不可解析，走专用路径。
   // 显式探测而非匹配 log 的错误文案——log 已带 --ignore-missing，不可解析的 HEAD 会被
   // 静默跳过而非报错，错误文案判定（原实现的做法）在此已不成立。
   // options.branches 非 null（指定分支筛选）时 log 参数本就不含 HEAD，照走主路径。
   if (options.branches === null && !headRes.ok) {
-    return loadUnbornHead(root, options, settings, stashes, remotes, branches, currentBranch)
+    return loadUnbornHead(
+      root,
+      options,
+      settings,
+      stashes,
+      remotes,
+      branches,
+      remoteBranches,
+      currentBranch,
+      opInProgress
+    )
   }
   // 第二步：log 与 show-ref 并行
   const [logRes, refRes] = await Promise.all([
@@ -519,7 +627,14 @@ export async function loadRepo(
     runGit(root, buildShowRefArgs(settings.showRemoteBranches))
   ])
   if (!logRes.ok) {
-    return loadResult({ isRepo: true, branches, currentBranch, remotes, error: logRes.error })
+    return loadResult({
+      isRepo: true,
+      branches,
+      remoteBranches,
+      currentBranch,
+      remotes,
+      error: logRes.error
+    })
   }
   const records = parseLog(logRes.stdout)
   const refData: GitRefData = refRes.ok
@@ -536,6 +651,7 @@ export async function loadRepo(
         return loadResult({
           isRepo: true,
           branches,
+          remoteBranches,
           currentBranch,
           remotes,
           error: statusRes.error
@@ -559,12 +675,14 @@ export async function loadRepo(
     isRepo: true,
     isEmptyRepo: false,
     branches,
+    remoteBranches,
     currentBranch,
     remotes,
     commits,
     headHash,
     tags,
     moreCommitsAvailable,
+    opInProgress,
     error: null
   }
 }

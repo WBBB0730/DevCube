@@ -6,6 +6,7 @@ import type {
   GitCommitStash,
   GitFileChange,
   GitMergeOn,
+  GitOpInProgress,
   GitRebaseOn,
   GitUncommittedDetails
 } from '@shared/git'
@@ -59,12 +60,16 @@ export type GitDialogRequest =
   | { kind: 'delete-branch'; branch: string; remotesWithBranch: string[] }
   | { kind: 'merge'; obj: string; on: GitMergeOn; displayName: string }
   | { kind: 'rebase'; obj: string; on: GitRebaseOn; displayName: string }
+  /** 推送分支（表单式 D5）；branch = 入口预设的本地分支（工具栏 = 当前分支，
+      右键 / 提交并推送 = 该入口的分支），remote / 目标分支等其余字段在表单里选 */
   | { kind: 'push-branch'; branch: string }
   /** 检出远程分支（创建本地跟踪分支）；remote 为 null 表示孤儿远程 ref */
   | { kind: 'checkout-remote-branch'; remoteRef: string; remote: string | null }
   | { kind: 'delete-remote-branch'; remoteRef: string; remote: string; branch: string }
   | { kind: 'fetch-into-local'; remote: string; remoteBranch: string; localBranch: string }
-  | { kind: 'pull-branch'; remote: string; branch: string; remoteRef: string }
+  /** 拉取到当前分支（表单式 D10）；preset = 入口预设的 remote 与远程分支（右键远程分支标签），
+      null = 表单按默认规则求值（工具栏入口） */
+  | { kind: 'pull-branch'; preset: { remote: string; branch: string } | null }
   | { kind: 'add-tag'; hash: string }
   | { kind: 'delete-tag'; name: string }
   | { kind: 'push-tag'; name: string; hash: string }
@@ -89,6 +94,8 @@ export type GitDialogRequest =
   | { kind: 'discard-file'; paths: string[] }
   /** 提交面板文件行「删除文件…」（未跟踪文件，从磁盘删除；单选传一项、多选传多项） */
   | { kind: 'delete-untracked-file'; paths: string[] }
+  /** 中止进行中的多步操作（状态条「中止」钮，危险确认；已解决的冲突进度将丢失） */
+  | { kind: 'op-abort'; op: GitOpInProgress }
 
 // —— 详情面板 / diff 面板 ——
 

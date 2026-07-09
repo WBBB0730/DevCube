@@ -254,16 +254,22 @@ export function countPorcelainStatus(stdout: string): number {
   return lines.length > 1 ? lines.length - 1 : 0
 }
 
-/** git status -z 中的已删除 / 未跟踪文件明细（供未提交详情合成 D / U 项）。 */
+/** git status -z 中的已删除 / 未跟踪 / 冲突文件明细（供未提交详情合成 D / U / 冲突项）。 */
 export interface GitStatusFiles {
   deleted: string[]
   untracked: string[]
+  /**
+   * 冲突（unmerged）文件：XY 任一位为 U、或 AA、或 DD。与 deleted 可重叠（DU/UD/DD）——
+   * deleted 保持原口径供比较视图维持 D 标注，conflicted 供未提交明细独立成桶
+   */
+  conflicted: string[]
 }
 
 /** 解析 `git status -s --porcelain -z`：R/C 记录的原路径是紧随其后的独立 NUL 段，要跳过。 */
 export function parseStatusFilesZ(stdout: string): GitStatusFiles {
   const deleted: string[] = []
   const untracked: string[] = []
+  const conflicted: string[] = []
   const segments = stdout.split('\0')
   let i = 0
   while (i < segments.length) {
@@ -273,11 +279,15 @@ export function parseStatusFilesZ(stdout: string): GitStatusFiles {
     const c1 = segment[0] // 暂存区状态
     const c2 = segment[1] // 工作区状态
     const filePath = normalizeGitPath(segment.substring(3))
+    // 冲突判定独立于 deleted（非 else-if）：DU/UD/DD 同时入两桶，见 GitStatusFiles 注释
+    if (c1 === 'U' || c2 === 'U' || (c1 === 'A' && c2 === 'A') || (c1 === 'D' && c2 === 'D')) {
+      conflicted.push(filePath)
+    }
     if (c1 === 'D' || c2 === 'D') deleted.push(filePath)
     else if (c1 === '?' || c2 === '?') untracked.push(filePath)
     i += c1 === 'R' || c2 === 'R' || c1 === 'C' || c2 === 'C' ? 2 : 1
   }
-  return { deleted, untracked }
+  return { deleted, untracked, conflicted }
 }
 
 // —— §7.3-§7.5 文件变更（name-status / numstat / 合成） ——

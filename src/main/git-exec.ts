@@ -49,8 +49,10 @@ function run(file: string, args: string[], cwd?: string): Promise<GitExecResult>
     try {
       child = cp.spawn(file, args, {
         cwd,
-        // GIT_TERMINAL_PROMPT=0：防止任何命令意外等待终端输入（读取类命令全部离线）
-        env: { ...process.env, GIT_TERMINAL_PROMPT: '0' }
+        // GIT_TERMINAL_PROMPT=0：防止任何命令意外等待终端输入（读取类命令全部离线）。
+        // GIT_EDITOR=true：会拉编辑器的命令（rebase/cherry-pick/revert --continue 等）
+        // 直接零修改退出、git 用默认信息——应用内 git 永不交互，交互式变基走 Terminal 不经此处
+        env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true' }
       })
     } catch (e) {
       // spawn 同步抛错（参数非法等）也不外抛，统一走结果对象

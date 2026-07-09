@@ -92,6 +92,35 @@ export function buildDropCommitArgs(action: ActionOf<'drop-commit'>): string[][]
   return [['rebase', '--onto', `${action.hash}^`, action.hash]]
 }
 
+// —— 操作进行中（继续 / 跳过 / 中止） ——
+// op 即子命令名，直接拼 --continue/--skip/--abort。continue 会拉编辑器写收尾提交信息，
+// 由 git-exec 全局注入的 GIT_EDITOR=true 兜住（零修改退出，git 用默认信息）。
+
+/** op-continue：解决并暂存冲突后继续（merge 无 --continue，类型层已排除）。 */
+export function buildOpContinueArgs(action: ActionOf<'op-continue'>): string[][] {
+  return [[action.op, '--continue']]
+}
+
+/** op-skip：跳过当前提交继续（版本 gate 见 opSkipVersionGate）。 */
+export function buildOpSkipArgs(action: ActionOf<'op-skip'>): string[][] {
+  return [[action.op, '--skip']]
+}
+
+/** op-abort：中止进行中的操作，回到操作前状态。 */
+export function buildOpAbortArgs(action: ActionOf<'op-abort'>): string[][] {
+  return [[action.op, '--abort']]
+}
+
+/**
+ * op-skip 的版本 gate 要求：rebase --skip 全版本可用不 gate；cherry-pick / revert 的
+ * --skip 是 git 2.23 才有的选项，先 gate 出中文提示（低版本原始报错是英文 unknown option）。
+ */
+export function opSkipVersionGate(
+  op: ActionOf<'op-skip'>['op']
+): { required: string; feature: string } | null {
+  return op === 'rebase' ? null : { required: '2.23.0', feature: `${op} --skip` }
+}
+
 // —— 提交 ——
 
 /** checkout-commit：检出提交进入 detached HEAD（确认交互在渲染端）。 */
@@ -170,24 +199,48 @@ export function buildCommitArgs(action: ActionOf<'commit'>): string[][] {
 /**
  * fetch：remote 为 null 抓取全部；pruneTags 的前置校验（须同时 prune、版本 gate）在运行时做。
  * atomic（git ≥ 2.31，版本判定在运行时）让引用更新事务化——fetch 中断（如应用退出杀掉
- * 子进程）不再留下指向缺失对象的损坏引用。
+ * 子进程）不再留下指向缺失对象的损坏引用。git 规定 --atomic 与 --all 互斥（只能单 remote），
+ * 故全量抓取且 atomic 时按 remotes（运行时枚举）逐个展开、顺序执行——每条命令自身事务化，
+ * 「中断不留损坏引用」的保证不变；不理会罕见的 remote.<name>.skipFetchAll 配置。
+ * remotes 为空时产出空序列（成功空操作）。git < 2.31 维持 --all 单命令。
  */
-export function buildFetchArgs(action: ActionOf<'fetch'>, atomic: boolean): string[][] {
-  const args = ['fetch', action.remote === null ? '--all' : action.remote]
-  if (atomic) args.push('--atomic')
-  if (action.prune) args.push('--prune')
-  if (action.pruneTags) args.push('--prune-tags')
+export function buildFetchArgs(
+  action: ActionOf<'fetch'>,
+  atomic: boolean,
+  remotes: string[]
+): string[][] {
+  const targets = action.remote !== null ? [action.remote] : atomic ? remotes : ['--all']
+  return targets.map((target) => {
+    const args = ['fetch', target]
+    if (atomic) args.push('--atomic')
+    if (action.prune) args.push('--prune')
+    if (action.pruneTags) args.push('--prune-tags')
+    return args
+  })
+}
+
+/**
+ * push-branch：单条 push。目标分支与本地同名时直接推分支名（git 展开为同名 refspec），
+ * 异名时以 <local>:<target> 显式指定。tagRefs 为 refs/tags/ 全名列表（勾选「同时推送标签」
+ * 时由 runPushBranch 运行时枚举后注入），与分支并入同一条命令一次推送。
+ */
+export function buildPushBranchArgs(
+  action: ActionOf<'push-branch'>,
+  tagRefs: string[] = []
+): string[][] {
+  const refspec =
+    action.targetBranch === action.localBranch
+      ? action.localBranch
+      : `${action.localBranch}:${action.targetBranch}`
+  const args = ['push', action.remote, refspec, ...tagRefs]
+  if (action.setUpstream) args.push('--set-upstream')
+  if (action.mode !== 'normal') args.push(`--${action.mode}`)
   return [args]
 }
 
-/** push-branch：每个远程一条命令，顺序执行出错即停；空 remotes 的错误在运行时预检。 */
-export function buildPushBranchArgs(action: ActionOf<'push-branch'>): string[][] {
-  return action.remotes.map((remote) => {
-    const args = ['push', remote, action.branch]
-    if (action.setUpstream) args.push('--set-upstream')
-    if (action.mode !== 'normal') args.push(`--${action.mode}`)
-    return args
-  })
+/** push-branch 勾选「同时推送标签」时的枚举命令：列出该分支历史上的全部标签（注释与轻量都含）。 */
+export function buildMergedTagsArgs(branch: string): string[] {
+  return ['tag', '--merged', branch]
 }
 
 /** fetch-into-local：把远程分支快进到非当前本地分支；非快进需 -f。 */
@@ -198,11 +251,19 @@ export function buildFetchIntoLocalArgs(action: ActionOf<'fetch-into-local'>): s
   return [args]
 }
 
-/** pull-branch：真正的 git pull（fetch+merge 一体）；squash 自动提交链在运行时串联。 */
+/**
+ * pull-branch：真正的 git pull（fetch+整合一体）。整合方式三选一：merge（可叠加 --no-ff）/
+ * rebase / squash；squash 的自动提交链在运行时串联。noFastForward 仅 merge 模式有意义。
+ * merge / squash 必须显式 --no-rebase：用户在对话框里选的是整合方式本身，
+ * 不能被仓库/全局的 pull.rebase、branch.<name>.rebase 配置悄悄改成变基。
+ */
 export function buildPullBranchArgs(action: ActionOf<'pull-branch'>): string[][] {
-  const args = ['pull', action.remote, action.branch]
-  if (action.squash) args.push('--squash')
-  else if (action.noFastForward) args.push('--no-ff')
+  const args = ['pull']
+  if (action.mode === 'rebase') args.push('--rebase')
+  else if (action.mode === 'squash') args.push('--no-rebase', '--squash')
+  else args.push('--no-rebase')
+  args.push(action.remote, action.branch)
+  if (action.mode === 'merge' && action.noFastForward) args.push('--no-ff')
   return [args]
 }
 
@@ -372,6 +433,11 @@ export function buildVersionGateError(feature: string, required: string, current
 
 const EOL_REGEX = /\r\n|\r|\n/
 
+/** 解析「每行一个名字」的 git 输出（git remote / git tag --merged）：按行拆分并去掉空行。 */
+export function parseNameList(stdout: string): string[] {
+  return stdout.split(EOL_REGEX).filter((line) => line !== '')
+}
+
 /**
  * 解析 `git branch -r --contains` 的输出，返回「不包含该提交」的远程列表。
  * 逐行去掉前两个状态字符、取 " -> " 之前的分支名、忽略括号包裹的 detached 描述行；
@@ -524,14 +590,14 @@ async function runMerge(cwd: string, action: ActionOf<'merge'>): Promise<GitActi
   return { status: 'ok' }
 }
 
-/** pull-branch：成功且 squash 时串联自动提交，消息对象为 "<remote>/<branch>"、类型恒为 branch。 */
+/** pull-branch：成功且 squash 模式时串联自动提交，消息对象为 "<remote>/<branch>"、类型恒为 branch。 */
 async function runPullBranch(
   cwd: string,
   action: ActionOf<'pull-branch'>
 ): Promise<GitActionResult> {
   const pullError = await run(cwd, buildPullBranchArgs(action)[0])
   if (pullError !== null) return toActionResult([pullError])
-  if (action.squash) {
+  if (action.mode === 'squash') {
     const obj = `${action.remote}/${action.branch}`
     return toActionResult([await commitSquashIfStagedChangesExist(cwd, obj, 'branch')])
   }
@@ -550,18 +616,37 @@ async function runFetch(cwd: string, action: ActionOf<'fetch'>): Promise<GitActi
     const gateError = await checkGitVersion(cwd, '2.17.0', 'fetch --prune-tags')
     if (gateError !== null) return { status: 'error', errors: [gateError] }
   }
-  return toActionResult(await runSequence(cwd, buildFetchArgs(action, await supportsAtomicFetch())))
+  const atomic = await supportsAtomicFetch()
+  // 全量抓取且 atomic 时才需要枚举远程（--atomic 与 --all 互斥，见 buildFetchArgs）；枚举失败原样报错
+  let remotes: string[] = []
+  if (action.remote === null && atomic) {
+    const { execGit, getErrorMessage } = await gitExec()
+    const result = await execGit(cwd, ['remote'])
+    if (result.code !== 0) return { status: 'error', errors: [getErrorMessage(result)] }
+    remotes = parseNameList(result.stdout.toString('utf8'))
+  }
+  return toActionResult(await runSequence(cwd, buildFetchArgs(action, atomic, remotes)))
 }
 
-/** push-branch：空 remotes 直接报错；逐个远程推送，出错即停。 */
+/**
+ * push-branch：勾选推标签时先枚举本地分支历史上的全部标签，以 refs/tags/ 全名并入同一条 push。
+ * 枚举失败直接报错——用户显式勾选了推标签，不静默降级为只推分支。
+ */
 async function runPushBranch(
   cwd: string,
   action: ActionOf<'push-branch'>
 ): Promise<GitActionResult> {
-  if (action.remotes.length === 0) {
-    return { status: 'error', errors: [`未指定要推送分支 ${action.branch} 的远程。`] }
+  let tagRefs: string[] = []
+  if (action.pushTags) {
+    // tag --merged 是 git 2.7.0 才有的选项，先 gate 出中文提示（低版本原始报错是英文 unknown option）
+    const gateError = await checkGitVersion(cwd, '2.7.0', 'tag --merged')
+    if (gateError !== null) return { status: 'error', errors: [gateError] }
+    const { execGit, getErrorMessage } = await gitExec()
+    const result = await execGit(cwd, buildMergedTagsArgs(action.localBranch))
+    if (result.code !== 0) return { status: 'error', errors: [getErrorMessage(result)] }
+    tagRefs = parseNameList(result.stdout.toString('utf8')).map((name) => `refs/tags/${name}`)
   }
-  return toActionResult(await runSequence(cwd, buildPushBranchArgs(action)))
+  return toActionResult(await runSequence(cwd, buildPushBranchArgs(action, tagRefs)))
 }
 
 /**
@@ -627,6 +712,16 @@ async function runInit(projectPath: string, action: ActionOf<'init'>): Promise<G
   return { status: 'ok' }
 }
 
+/** op-skip：版本 gate（见 opSkipVersionGate）不满足时不执行命令。 */
+async function runOpSkip(cwd: string, action: ActionOf<'op-skip'>): Promise<GitActionResult> {
+  const gate = opSkipVersionGate(action.op)
+  if (gate !== null) {
+    const gateError = await checkGitVersion(cwd, gate.required, gate.feature)
+    if (gateError !== null) return { status: 'error', errors: [gateError] }
+  }
+  return toActionResult(await runSequence(cwd, buildOpSkipArgs(action)))
+}
+
 /** stash-push：git ≥ 2.13.2 版本 gate 不满足时不执行命令。 */
 async function runStashPush(cwd: string, action: ActionOf<'stash-push'>): Promise<GitActionResult> {
   const gateError = await checkGitVersion(cwd, '2.13.2', 'stash push')
@@ -656,6 +751,12 @@ async function execAction(
       return toActionResult(await runSequence(cwd, buildRebaseArgs(action)))
     case 'drop-commit':
       return toActionResult(await runSequence(cwd, buildDropCommitArgs(action)))
+    case 'op-continue':
+      return toActionResult(await runSequence(cwd, buildOpContinueArgs(action)))
+    case 'op-skip':
+      return runOpSkip(cwd, action)
+    case 'op-abort':
+      return toActionResult(await runSequence(cwd, buildOpAbortArgs(action)))
     case 'checkout-commit':
       return toActionResult(await runSequence(cwd, buildCheckoutCommitArgs(action)))
     case 'cherrypick':

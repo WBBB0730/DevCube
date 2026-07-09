@@ -5,11 +5,14 @@
 // v1 取舍：D6（创建 Pull Request）不做（无 PR 配置契约）；D30 数据加载错误的「重试」在
 // GitPane 的 error 态，不在此处。
 import { useEffect, useMemo, useState } from 'react'
-import { Info, LoaderCircle, TriangleAlert } from 'lucide-react'
+import { Info, LoaderCircle, RotateCw, TriangleAlert } from 'lucide-react'
 import {
   type GitAction,
   type GitActionResult,
   type GitCommit,
+  type GitOpInProgress,
+  type GitPullMode,
+  type GitPushMode,
   type GitRepoConfig,
   type GitRepoSettings,
   type GitTagDetailsResult,
@@ -32,6 +35,7 @@ import {
   SelectValue
 } from '@renderer/components/ui/select'
 import { abbrevHash, formatDateTime } from './git-format'
+import { GIT_OP_LABEL, opBlockReason } from './GitOpStatusBar'
 import type { GitDialogRequest } from './git-view-types'
 
 // —— 纯函数层（供测试） ——
@@ -90,6 +94,74 @@ export function defaultPushRemote(
   return remotes.includes('origin') ? 'origin' : remotes[0]
 }
 
+/**
+ * pull 对话框「从远程拉取」默认值：当前分支上游 remote（branch.<name>.remote 且仍在
+ * remotes 中）→ 第一个 remote。config 未加载（null）/ detached HEAD 时直接取第一个。
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- 纯函数与组件同文件导出（供单测）
+export function defaultPullRemote(
+  currentBranch: string | null,
+  remotes: readonly string[],
+  config: GitRepoConfig | null
+): string {
+  if (remotes.length === 0) return ''
+  const configured =
+    currentBranch !== null ? (config?.branches[currentBranch]?.remote ?? null) : null
+  return configured !== null && remotes.includes(configured) ? configured : remotes[0]
+}
+
+/**
+ * 某 remote 上已加载的远程分支名（剥掉 remotes/<remote>/ 前缀）。剔除 HEAD：clone 出来的
+ * 仓库带 remotes/<remote>/HEAD 符号引用（parseBranches 保留该伪条目），它不是分支——
+ * 选中会生成 `git pull <remote> HEAD`（实际拉远程默认分支）或推送到 HEAD 直接报错。
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- 纯函数与组件同文件导出（供单测）
+export function remoteBranchesOf(branches: readonly string[], remote: string): string[] {
+  const prefix = `remotes/${remote}/`
+  return branches
+    .filter((b) => b.startsWith(prefix))
+    .map((b) => b.substring(prefix.length))
+    .filter((name) => name !== 'HEAD')
+}
+
+/**
+ * pull 对话框「远程分支」默认值：上游分支（branch.<name>.merge 的 refs/heads/X → X）→
+ * 与当前分支同名者 → ''（空值由确认按钮禁用兜底）。候选须在 options 里才生效。
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- 纯函数与组件同文件导出（供单测）
+export function defaultPullBranch(
+  currentBranch: string | null,
+  options: readonly string[],
+  config: GitRepoConfig | null
+): string {
+  const merge = currentBranch !== null ? (config?.branches[currentBranch]?.merge ?? null) : null
+  const upstream =
+    merge !== null && merge.startsWith('refs/heads/') ? merge.substring('refs/heads/'.length) : null
+  if (upstream !== null && options.includes(upstream)) return upstream
+  if (currentBranch !== null && options.includes(currentBranch)) return currentBranch
+  return ''
+}
+
+/**
+ * pull 对话框「整合方式」默认值三层：viewPrefs 记忆 → 仓库 git 配置（branch.<当前分支>.rebase
+ * 优先于 pull.rebase，对齐 git 自身的覆盖顺序；true/interactive/merges → 变基，其余 → 合并）
+ * → 合并。
+ */
+// eslint-disable-next-line react-refresh/only-export-components -- 纯函数与组件同文件导出（供单测）
+export function defaultPullMode(
+  viewPrefs: GitViewPrefs,
+  currentBranch: string | null,
+  config: GitRepoConfig | null
+): GitPullMode {
+  if (viewPrefs.pullIntegrationMode !== null) return viewPrefs.pullIntegrationMode
+  const raw =
+    (currentBranch !== null ? (config?.branches[currentBranch]?.rebase ?? null) : null) ??
+    config?.pullRebase ??
+    null
+  if (raw === null) return 'merge'
+  return ['true', 'interactive', 'merges'].includes(raw.toLowerCase()) ? 'rebase' : 'merge'
+}
+
 // —— 表单模型（§1.2 的 DialogInput 判别联合，值按 key 收集） ——
 
 interface SelectOption {
@@ -132,7 +204,16 @@ type DialogInputSpec =
       info?: string
     }
   | { type: 'radio'; key: string; label: string; options: SelectOption[]; default: string }
-  | { type: 'checkbox'; key: string; label: string; default: boolean; info?: string }
+  | {
+      type: 'checkbox'
+      key: string
+      label: string
+      default: boolean
+      info?: string
+      /** 置灰（操作进行中防误触等）：不可勾，hover 以 disabledReason 说明原因 */
+      disabled?: boolean
+      disabledReason?: string
+    }
 
 type DialogValues = Record<string, string | string[] | boolean>
 
@@ -159,16 +240,23 @@ export interface DialogEnv {
   projectPath: string
   commits: GitCommit[]
   branches: string[]
+  /** 全量远程分支（带 remotes/ 前缀，不受显示开关与 hideRemotes 过滤），拉取/推送对话框用 */
+  remoteBranches: string[]
   tags: string[]
   remotes: string[]
   currentBranch: string | null
   config: GitRepoConfig | null
   settings: GitRepoSettings | null
   viewPrefs: GitViewPrefs
+  /** 进行中的多步操作（变基/合并/拣选/回滚）：非空时会撞车的表单项置灰（如创建后检出） */
+  opInProgress: GitOpInProgress | null
   closeDialog(): void
   runAction(action: GitAction, label: string): Promise<GitActionResult>
-  /** 静默动作（提交面板的撤销 / 删除未跟踪文件）：无进行中遮罩（store.runQuietAction） */
-  runQuietAction(action: GitAction): Promise<GitActionResult>
+  /**
+   * 静默动作（提交面板的撤销 / 删除未跟踪文件）：无进行中遮罩（store.runQuietAction）。
+   * suppressErrorBox：错误不落全局错误框，由调用方就地呈现（行内刷新用，防表单被顶掉）
+   */
+  runQuietAction(action: GitAction, opts?: { suppressErrorBox?: boolean }): Promise<GitActionResult>
   clearActionErrors(): void
   /** 弹一个追问对话框（重名 / 强制删除 / 不在远程等续弹链） */
   openChase(spec: DialogSpec): void
@@ -180,7 +268,8 @@ function Em({ children }: { children: React.ReactNode }): React.JSX.Element {
   return <b className="break-all font-semibold text-foreground">{children}</b>
 }
 
-// —— 对话框描述构建（D1–D29；D27 tag-details 需异步状态，由组件层特判渲染） ——
+// —— 对话框描述构建（D1–D29；D27 tag-details 需异步状态、D10 pull-branch 需字段联动与
+// 行内刷新，均由组件层特判渲染） ——
 
 /** 提交后统一收口：先关对话框再执行动作（进行中遮罩由 actionRunning 呈现）。 */
 function dispatch(env: DialogEnv, action: GitAction, label: string): void {
@@ -207,7 +296,7 @@ function currentBranchText(currentBranch: string | null): React.ReactNode {
   )
 }
 
-/** 按 store 的对话框请求构建描述；返回 null 表示该请求由组件层特判（tag-details）。 */
+/** 按 store 的对话框请求构建描述；返回 null 表示该请求由组件层特判（tag-details / pull-branch）。 */
 // eslint-disable-next-line react-refresh/only-export-components -- 纯函数与组件同文件导出（供单测）
 export function buildSpec(req: GitDialogRequest, env: DialogEnv): DialogSpec | null {
   switch (req.kind) {
@@ -367,63 +456,8 @@ export function buildSpec(req: GitDialogRequest, env: DialogEnv): DialogSpec | n
         ]
       }
     }
-    case 'push-branch': {
-      // D5
-      const multi = env.remotes.length > 1
-      const inputs: DialogInputSpec[] = []
-      if (multi) {
-        inputs.push({
-          type: 'multi-select',
-          key: 'remotes',
-          label: '推送到远程',
-          options: env.remotes.map((r) => ({ name: r, value: r })),
-          defaults: [defaultPushRemote(req.branch, env.remotes, env.config)]
-        })
-      }
-      inputs.push(
-        { type: 'checkbox', key: 'setUpstream', label: '设置上游', default: true },
-        {
-          type: 'radio',
-          key: 'mode',
-          label: '推送模式',
-          options: [
-            { name: '普通', value: 'normal' },
-            { name: '强制（with lease）', value: 'force-with-lease' },
-            { name: '强制', value: 'force' }
-          ],
-          default: 'normal'
-        }
-      )
-      return {
-        message: multi ? (
-          <>
-            确定要推送分支 <Em>{req.branch}</Em> 吗？
-          </>
-        ) : (
-          <>
-            确定要将分支 <Em>{req.branch}</Em> 推送到远程 <Em>{env.remotes[0] ?? ''}</Em> 吗？
-          </>
-        ),
-        inputs,
-        buttons: [
-          {
-            label: '是，推送',
-            onClick: (v) =>
-              dispatch(
-                env,
-                {
-                  kind: 'push-branch',
-                  branch: req.branch,
-                  remotes: multi ? (v.remotes as string[]) : env.remotes.slice(0, 1),
-                  setUpstream: v.setUpstream as boolean,
-                  mode: v.mode as 'normal' | 'force' | 'force-with-lease'
-                },
-                '正在推送分支'
-              )
-          }
-        ]
-      }
-    }
+    case 'push-branch': // D5：目标分支 combobox 与行内刷新的异步状态不进声明式 spec，由组件层特判渲染
+      return null
     case 'checkout-remote-branch': // D7（追问 D7b：重名双按钮）
       return checkoutRemoteSpec(env, req.remoteRef, req.remote, null)
     case 'delete-remote-branch': // D8
@@ -484,47 +518,8 @@ export function buildSpec(req: GitDialogRequest, env: DialogEnv): DialogSpec | n
           }
         ]
       }
-    case 'pull-branch': // D10
-      return {
-        message: (
-          <>
-            确定要将远程分支 <Em>{req.remoteRef}</Em> 拉取到 {currentBranchText(env.currentBranch)}
-            吗？如果需要合并：
-          </>
-        ),
-        inputs: [
-          {
-            type: 'checkbox',
-            key: 'noFF',
-            label: '即使可以快进也创建新的合并提交',
-            default: false
-          },
-          {
-            type: 'checkbox',
-            key: 'squash',
-            label: '压缩提交',
-            default: false,
-            info: '在当前分支上创建单个提交，其效果等同于合并该远程分支。'
-          }
-        ],
-        buttons: [
-          {
-            label: '是，拉取',
-            onClick: (v) =>
-              dispatch(
-                env,
-                {
-                  kind: 'pull-branch',
-                  remote: req.remote,
-                  branch: req.branch,
-                  noFastForward: v.noFF as boolean,
-                  squash: v.squash as boolean
-                },
-                '正在拉取分支'
-              )
-          }
-        ]
-      }
+    case 'pull-branch': // D10：表单需 remote→分支联动与行内刷新的异步状态，由组件层特判渲染
+      return null
     case 'add-tag': // D11（追问 D11b 重名替换、D11c 提交不在远程）
       return addTagSpec(env, req.hash, null)
     case 'delete-tag': // D12（形态随 remote 数量）
@@ -936,6 +931,20 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
           }
         ]
       }
+    case 'op-abort': {
+      // 状态条「中止」的危险确认：git <op> --abort 会丢掉已解决的冲突进度
+      const opLabel = GIT_OP_LABEL[req.op]
+      return {
+        message: <>确定要中止{opLabel}吗？已解决的冲突进度将丢失。</>,
+        inputs: [],
+        buttons: [
+          {
+            label: '是，中止',
+            onClick: () => dispatch(env, { kind: 'op-abort', op: req.op }, `正在中止${opLabel}`)
+          }
+        ]
+      }
+    }
     case 'tag-details': // D27：需异步加载，由组件层特判渲染
       return null
     default:
@@ -1062,15 +1071,15 @@ function checkoutRemoteSpec(
                       '正在检出分支'
                     )
                     .then((res) => {
-                      // 检出成功且可拉取：自动 pull（no-ff / squash 用 D10 的默认值 false）
+                      // 检出成功且可拉取：自动 pull（整合方式固定用默认的合并，不走 D10 表单）
                       if (res.status === 'ok' && remote !== null) {
                         void env.runAction(
                           {
                             kind: 'pull-branch',
                             remote,
                             branch: remoteRef.substring(remote.length + 1),
-                            noFastForward: false,
-                            squash: false
+                            mode: 'merge',
+                            noFastForward: false
                           },
                           '正在拉取分支'
                         )
@@ -1389,7 +1398,11 @@ function createBranchSpec(
         type: 'checkbox',
         key: 'checkout',
         label: '创建后检出',
-        default: preset?.checkout ?? false
+        // 操作进行中防误触：checkout 在变基等中途会被 git 拒绝（分支已建、检出失败），
+        // 与检出类入口统一置灰；default 一并压 false，防 preset 带入的勾选态漏网
+        default: env.opInProgress !== null ? false : (preset?.checkout ?? false),
+        disabled: env.opInProgress !== null,
+        disabledReason: env.opInProgress !== null ? opBlockReason(env.opInProgress) : undefined
       }
     ],
     buttons: [
@@ -1437,12 +1450,14 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
   const actionErrors = useGit((s) => gitState(s, projectPath).actionErrors)
   const commits = useGit((s) => gitState(s, projectPath).commits)
   const branches = useGit((s) => gitState(s, projectPath).branches)
+  const remoteBranches = useGit((s) => gitState(s, projectPath).remoteBranches)
   const tags = useGit((s) => gitState(s, projectPath).tags)
   const remotes = useGit((s) => gitState(s, projectPath).remotes)
   const currentBranch = useGit((s) => gitState(s, projectPath).currentBranch)
   const config = useGit((s) => gitState(s, projectPath).config)
   const settings = useGit((s) => gitState(s, projectPath).settings)
   const viewPrefs = useGit((s) => s.viewPrefs)
+  const opInProgress = useGit((s) => gitState(s, projectPath).opInProgress)
 
   /** 追问链状态：nonce 作为表单 key，同一链上连续两个表单也能重置输入值 */
   const [chase, setChase] = useState<{ spec: DialogSpec; nonce: number } | null>(null)
@@ -1471,10 +1486,14 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
     }
   }, [tagName, projectPath])
 
-  // push remote 默认值需要仓库 config（branch.<name>.remote 等）：相关对话框打开时按需拉取
+  // push remote / pull 表单默认值需要仓库 config（branch.<name>.remote/merge/rebase 等）：
+  // 相关对话框打开时按需拉取
   const needsConfig =
     dialog !== null &&
-    (dialog.kind === 'push-branch' || dialog.kind === 'push-tag' || dialog.kind === 'add-tag')
+    (dialog.kind === 'push-branch' ||
+      dialog.kind === 'pull-branch' ||
+      dialog.kind === 'push-tag' ||
+      dialog.kind === 'add-tag')
   useEffect(() => {
     if (needsConfig && config === null) void useGit.getState().loadRepoConfig(projectPath)
   }, [needsConfig, config, projectPath])
@@ -1484,20 +1503,34 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
       projectPath,
       commits,
       branches,
+      remoteBranches,
       tags,
       remotes,
       currentBranch,
       config,
       settings,
       viewPrefs,
+      opInProgress,
       closeDialog: () => useGit.getState().closeDialog(projectPath),
       runAction: (action, label) => useGit.getState().runAction(projectPath, action, label),
-      runQuietAction: (action) => useGit.getState().runQuietAction(projectPath, action),
+      runQuietAction: (action, opts) => useGit.getState().runQuietAction(projectPath, action, opts),
       clearActionErrors: () => useGit.getState().clearActionErrors(projectPath),
       openChase: (spec) => setChase((prev) => ({ spec, nonce: (prev?.nonce ?? 0) + 1 })),
       setViewPrefs: (patch) => void useGit.getState().setViewPrefs(patch)
     }),
-    [projectPath, commits, branches, tags, remotes, currentBranch, config, settings, viewPrefs]
+    [
+      projectPath,
+      commits,
+      branches,
+      remoteBranches,
+      tags,
+      remotes,
+      currentBranch,
+      config,
+      settings,
+      viewPrefs,
+      opInProgress
+    ]
   )
 
   // 1. 错误框（动作失败 / 复制失败）：正文等宽多行，「知道了」清除
@@ -1557,7 +1590,23 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
     return <TagDetailsDialog name={dialog.name} info={info} onClose={env.closeDialog} />
   }
 
-  // 4b. 常规表单对话框
+  // 4b. D10 拉取（表单式）：remote→分支联动与行内刷新的异步 spinner 不进声明式 spec，
+  // 照 tag-details 的先例由组件层特判（key 同 dialogKey：请求变化即重置表单）。
+  // config 未就绪时先不挂表单（needsConfig 的 effect 正在拉）：默认值（上游 remote/分支、
+  // 整合方式的配置层）在挂载时冻结，提前挂会把空 config 算出的错误默认值定死。
+  if (dialog.kind === 'pull-branch') {
+    if (env.config === null) return null
+    return <PullBranchDialog key={dialogKey(dialog)} req={dialog} env={env} />
+  }
+
+  // 4c. D5 推送（表单式）：目标分支跟随本地分支、combobox 与行内刷新同理由组件层特判；
+  // config 门控理由同 4b（defaultPushRemote 依赖 branch.<name>.pushremote/remote）
+  if (dialog.kind === 'push-branch') {
+    if (env.config === null) return null
+    return <PushBranchDialog key={dialogKey(dialog)} req={dialog} env={env} />
+  }
+
+  // 4d. 常规表单对话框
   const spec = buildSpec(dialog, env)
   if (spec === null) return null
   return <DialogForm key={dialogKey(dialog)} spec={spec} onCancel={env.closeDialog} />
@@ -1732,9 +1781,20 @@ function DialogInputRow({
   setValue: (key: string, value: string | string[] | boolean) => void
 }): React.JSX.Element {
   if (input.type === 'checkbox') {
+    const disabled = input.disabled === true
     return (
-      <label className="flex cursor-pointer select-none items-center gap-2 text-[13px] text-foreground">
-        <Checkbox checked={value === true} onCheckedChange={(c) => setValue(input.key, c)} />
+      <label
+        className={cn(
+          'flex select-none items-center gap-2 text-[13px] text-foreground',
+          disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+        )}
+        title={disabled ? input.disabledReason : undefined}
+      >
+        <Checkbox
+          checked={value === true}
+          disabled={disabled}
+          onCheckedChange={(c) => setValue(input.key, c)}
+        />
         <span>{input.label}</span>
         {input.info !== undefined && <InfoIcon text={input.info} />}
       </label>
@@ -1848,6 +1908,533 @@ function DialogInputRow({
       </div>
       {control}
     </div>
+  )
+}
+
+// —— 自定义表单对话框（联动 / combobox / 行内刷新等超出声明式 spec 的表单；pull/push 用） ——
+
+/** 自定义表单按钮：disabled/title 由表单自身校验状态驱动（确认禁用 + 禁用原因提示）。 */
+interface FormDialogButton {
+  label: string
+  disabled?: boolean
+  /** 禁用原因等 hover 提示 */
+  title?: string
+  onClick: () => void
+}
+
+/**
+ * 自定义表单对话框外壳：Mask + DialogPanel + 消息 + children（字段自由布局）+ 按钮行。
+ * 键盘约定与 DialogForm 一致：Esc = 取消、Enter = 主按钮（排除输入法合成与禁用态）。
+ */
+function FormDialogShell({
+  message,
+  children,
+  buttons,
+  onCancel
+}: {
+  message: React.ReactNode
+  children: React.ReactNode
+  buttons: FormDialogButton[]
+  onCancel: () => void
+}): React.JSX.Element {
+  // Escape 兜底：焦点在对话框输入控件里时 GitPane 的 capture 监听会让位，这里补一份
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key === 'Escape') onCancel()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [onCancel])
+
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    // Enter = 主按钮；必须排除输入法合成中的回车（isComposing / keyCode 229）
+    if (e.key !== 'Enter') return
+    if (e.nativeEvent.isComposing || e.keyCode === 229) return
+    const primary = buttons[0]
+    if (primary === undefined || primary.disabled === true) return
+    e.preventDefault()
+    primary.onClick()
+  }
+
+  return (
+    <Mask onClick={onCancel}>
+      <DialogPanel onKeyDown={onKeyDown}>
+        <div className="space-y-3 px-4 py-4">
+          <div className="select-text text-[13px] leading-relaxed text-foreground">{message}</div>
+          {children}
+        </div>
+        <div className="flex justify-end gap-2 border-t px-4 py-2.5">
+          <Button variant="ghost" onClick={onCancel}>
+            取消
+          </Button>
+          {buttons.map((btn, i) => (
+            <Button
+              key={i}
+              disabled={btn.disabled === true}
+              title={btn.title}
+              onClick={btn.onClick}
+            >
+              {btn.label}
+            </Button>
+          ))}
+        </div>
+      </DialogPanel>
+    </Mask>
+  )
+}
+
+/** 自定义表单的字段行：标签 + 可选 ⓘ + 控件（DialogInputRow 标签包装的可组合版）。 */
+function FieldRow({
+  label,
+  info,
+  children
+}: {
+  label: string
+  info?: string
+  children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <div>
+      <div className="mb-1 flex items-center gap-1.5">
+        <span className="text-[12px] text-muted-foreground">{label}</span>
+        {info !== undefined && <InfoIcon text={info} />}
+      </div>
+      {children}
+    </div>
+  )
+}
+
+/** 行内刷新钮（分支字段旁）：对所选 remote 静默 fetch，期间转圈禁点；观感对齐输入控件。 */
+function InlineRefreshButton({
+  refreshing,
+  title,
+  onClick
+}: {
+  refreshing: boolean
+  title: string
+  onClick: () => void
+}): React.JSX.Element {
+  return (
+    <button
+      type="button"
+      title={title}
+      disabled={refreshing}
+      className="flex size-8 shrink-0 items-center justify-center rounded border border-[color:var(--border-input)] bg-[var(--bg-panel)] text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)] disabled:pointer-events-none disabled:opacity-50"
+      onClick={onClick}
+    >
+      {refreshing ? (
+        <LoaderCircle className="size-4 animate-spin" />
+      ) : (
+        <RotateCw className="size-4" />
+      )}
+    </button>
+  )
+}
+
+/** 行内刷新失败的就地错误行（观感对齐 text-ref 的非法字符提示）；null = 无错误不渲染。 */
+function RefreshErrorLine({ error }: { error: string | null }): React.JSX.Element | null {
+  if (error === null) return null
+  return (
+    <div className="mt-1 select-text whitespace-pre-wrap break-all text-[12px] text-[color:var(--destructive)]">
+      刷新失败：{error}
+    </div>
+  )
+}
+
+/**
+ * 可输可选 combobox（推送对话框「目标远程分支」用）：自由文本输入 + 建议列表（子串过滤，
+ * 点击回填）。Escape 在列表展开时只收起列表（stopPropagation 拦下外壳的取消监听）。
+ */
+export function DialogCombobox({
+  value,
+  onValueChange,
+  suggestions,
+  placeholder
+}: {
+  value: string
+  onValueChange: (value: string) => void
+  suggestions: readonly string[]
+  placeholder?: string
+}): React.JSX.Element {
+  const [open, setOpen] = useState(false)
+  const matched = suggestions.filter((s) => s.toLowerCase().includes(value.toLowerCase()))
+  const listOpen = open && matched.length > 0
+  return (
+    <div className="relative min-w-0 flex-1">
+      <Input
+        value={value}
+        placeholder={placeholder}
+        className="font-mono"
+        onChange={(e) => {
+          onValueChange(e.target.value)
+          setOpen(true)
+        }}
+        onFocus={() => setOpen(true)}
+        onBlur={() => setOpen(false)}
+        onKeyDown={(e) => {
+          if (e.key === 'Escape' && listOpen) {
+            e.stopPropagation()
+            setOpen(false)
+          }
+        }}
+      />
+      {listOpen && (
+        <div className="absolute inset-x-0 top-full z-10 mt-1 max-h-48 overflow-auto rounded-lg border border-[color:var(--border-input)] bg-panel p-1.5 shadow-xl">
+          {matched.map((s) => (
+            <button
+              key={s}
+              type="button"
+              className="flex w-full cursor-pointer items-center rounded px-1.5 py-1.5 text-left font-mono text-[13px] text-foreground hover:bg-[var(--bg-row-hover)]"
+              // 防止 blur 先收起列表、吞掉点击
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={() => {
+                onValueChange(s)
+                setOpen(false)
+              }}
+            >
+              {s}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** 单选 / 勾选行样式（拉取整合方式、推送模式的 radio 行及各自附属勾选行共用）。 */
+const CHOICE_ROW = 'flex cursor-pointer select-none items-center gap-2 text-[13px] text-foreground'
+
+/**
+ * D10 拉取当前分支（表单式）：从远程拉取 / 远程分支 / 整合方式三字段。
+ * 远程分支选项来自 env.remoteBranches（全量口径，不受「显示远程分支」开关与 hideRemotes
+ * 过滤——展示口径的 env.branches 被过滤时会让拉取变成死路），行内刷新钮对所选 remote
+ * 静默 fetch（runQuietAction 不弹进行中遮罩，成功后软刷新流回选项列表；失败就地提示，
+ * 不走全局错误框——那会顶掉表单、丢掉用户已填状态）。
+ * 确认时把所选整合方式写回 viewPrefs.pullIntegrationMode（下次默认值的第一层）。
+ */
+function PullBranchDialog({
+  req,
+  env
+}: {
+  req: Extract<GitDialogRequest, { kind: 'pull-branch' }>
+  env: DialogEnv
+}): React.JSX.Element {
+  // remote 与分支合并为一份状态：切 remote 必须按默认规则重置分支，二者不单独变化
+  const [target, setTarget] = useState<{ remote: string; branch: string }>(() => {
+    if (req.preset !== null && env.remotes.includes(req.preset.remote)) return req.preset
+    const remote = defaultPullRemote(env.currentBranch, env.remotes, env.config)
+    return {
+      remote,
+      branch: defaultPullBranch(
+        env.currentBranch,
+        remoteBranchesOf(env.remoteBranches, remote),
+        env.config
+      )
+    }
+  })
+  const [mode, setMode] = useState<GitPullMode>(() =>
+    defaultPullMode(env.viewPrefs, env.currentBranch, env.config)
+  )
+  const [noFF, setNoFF] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  /** 行内刷新失败的就地提示；换 remote / 重试时清掉 */
+  const [refreshError, setRefreshError] = useState<string | null>(null)
+
+  const branchOptions = remoteBranchesOf(env.remoteBranches, target.remote)
+
+  const selectRemote = (remote: string): void => {
+    setRefreshError(null)
+    setTarget({
+      remote,
+      branch: defaultPullBranch(
+        env.currentBranch,
+        remoteBranchesOf(env.remoteBranches, remote),
+        env.config
+      )
+    })
+  }
+
+  const refresh = (): void => {
+    setRefreshing(true)
+    setRefreshError(null)
+    void env
+      .runQuietAction(
+        { kind: 'fetch', remote: target.remote, prune: false, pruneTags: false },
+        { suppressErrorBox: true }
+      )
+      .then((r) => {
+        if (r.status === 'error') setRefreshError(r.errors.filter((e) => e !== '').join('\n'))
+      })
+      .finally(() => setRefreshing(false))
+  }
+
+  const disabled = target.branch === '' || refreshing
+  const confirm = (): void => {
+    env.setViewPrefs({ pullIntegrationMode: mode })
+    dispatch(
+      env,
+      {
+        kind: 'pull-branch',
+        remote: target.remote,
+        branch: target.branch,
+        mode,
+        // noFF 仅合并模式有意义；切去变基/压缩时勾选状态保留但不下发
+        noFastForward: mode === 'merge' && noFF
+      },
+      '正在拉取分支'
+    )
+  }
+
+  return (
+    <FormDialogShell
+      message={<>将远程分支拉取到 {currentBranchText(env.currentBranch)}：</>}
+      buttons={[
+        {
+          label: '是，拉取',
+          disabled,
+          title: disabled ? (refreshing ? '正在刷新远程分支列表' : '请先选择远程分支') : undefined,
+          onClick: confirm
+        }
+      ]}
+      onCancel={env.closeDialog}
+    >
+      <FieldRow label="从远程拉取">
+        <Select
+          value={target.remote}
+          onValueChange={(v) => selectRemote(v as string)}
+          items={env.remotes.map((r) => ({ value: r, label: r }))}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {env.remotes.map((r) => (
+              <SelectItem key={r} value={r}>
+                {r}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FieldRow>
+      <FieldRow label="远程分支">
+        <div className="flex items-center gap-1.5">
+          <div className="min-w-0 flex-1">
+            <Select
+              value={target.branch}
+              onValueChange={(v) => setTarget((t) => ({ ...t, branch: v as string }))}
+            >
+              <SelectTrigger>
+                <SelectValue>
+                  {(selected: string) =>
+                    selected === '' ? (
+                      <span className="text-[color:var(--fg-disabled)]">选择分支</span>
+                    ) : (
+                      selected
+                    )
+                  }
+                </SelectValue>
+              </SelectTrigger>
+              <SelectContent>
+                {branchOptions.map((b) => (
+                  <SelectItem key={b} value={b}>
+                    {b}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <InlineRefreshButton
+            refreshing={refreshing}
+            title={`获取 ${target.remote} 的最新分支列表`}
+            onClick={refresh}
+          />
+        </div>
+        <RefreshErrorLine error={refreshError} />
+      </FieldRow>
+      <FieldRow label="整合方式">
+        <RadioGroup value={mode} onValueChange={(v) => setMode(v as GitPullMode)}>
+          <label className={CHOICE_ROW}>
+            <RadioGroupItem value="merge" />
+            合并
+          </label>
+          {/* 合并的附属勾选：非合并模式禁用置灰（勾选状态保留，切回合并时仍在） */}
+          <label className={cn(CHOICE_ROW, 'ml-6', mode !== 'merge' && 'opacity-50')}>
+            <Checkbox
+              checked={noFF}
+              disabled={mode !== 'merge'}
+              onCheckedChange={(c) => setNoFF(c)}
+            />
+            即使可以快进也创建新的合并提交
+          </label>
+          <label className={CHOICE_ROW}>
+            <RadioGroupItem value="rebase" />
+            变基
+            <InfoIcon text="变基会重写本地未推送的提交；若这些提交已推送过，请勿使用。" />
+          </label>
+          <label className={CHOICE_ROW}>
+            <RadioGroupItem value="squash" />
+            压缩提交
+            <InfoIcon text="在当前分支上创建单个提交，其效果等同于合并该远程分支。" />
+          </label>
+        </RadioGroup>
+      </FieldRow>
+    </FormDialogShell>
+  )
+}
+
+/**
+ * D5 推送分支（表单式）：推送到远程 / 本地分支 / 目标远程分支 / 设置上游 / 推送标签 /
+ * 推送模式。目标远程分支是可输可选 combobox（建议 = 所选 remote 已加载的远程分支，
+ * 行内刷新钮同 D10）。「目标跟随本地分支同名直到手动编辑」「设置上游默认 = 目标与本地
+ * 同名、点过后不再自动变」都用「没动过则派生、动过存实值」表达，不引 effect 联动。
+ */
+function PushBranchDialog({
+  req,
+  env
+}: {
+  req: Extract<GitDialogRequest, { kind: 'push-branch' }>
+  env: DialogEnv
+}): React.JSX.Element {
+  // 本地分支选项：env.branches 剔除带 remotes/ 前缀的远程项即本地分支（当前分支排第 0）
+  const localOptions = env.branches.filter((b) => !b.startsWith('remotes/'))
+  const [remote, setRemote] = useState(() => defaultPushRemote(req.branch, env.remotes, env.config))
+  const [localBranch, setLocalBranch] = useState(req.branch)
+  /** 目标远程分支：null = 未手动编辑，跟随本地分支同名 */
+  const [editedTarget, setEditedTarget] = useState<string | null>(null)
+  const targetBranch = editedTarget ?? localBranch
+  /** 设置上游：null = 未手动点过，默认 = 目标与本地同名 */
+  const [touchedUpstream, setTouchedUpstream] = useState<boolean | null>(null)
+  const setUpstream = touchedUpstream ?? targetBranch === localBranch
+  const [pushTags, setPushTags] = useState(false)
+  const [mode, setMode] = useState<GitPushMode>('normal')
+  const [refreshing, setRefreshing] = useState(false)
+  /** 行内刷新失败的就地提示（同 D10：不走全局错误框，防表单被顶掉丢已填状态） */
+  const [refreshError, setRefreshError] = useState<string | null>(null)
+
+  const refresh = (): void => {
+    setRefreshing(true)
+    setRefreshError(null)
+    void env
+      .runQuietAction(
+        { kind: 'fetch', remote, prune: false, pruneTags: false },
+        { suppressErrorBox: true }
+      )
+      .then((r) => {
+        if (r.status === 'error') setRefreshError(r.errors.filter((e) => e !== '').join('\n'))
+      })
+      .finally(() => setRefreshing(false))
+  }
+
+  // remote 为空 = 仓库没有远程（「提交并推送」入口不看 remote 数量，可能走到这里）
+  const disabled = remote === '' || targetBranch === '' || refreshing
+  const confirm = (): void =>
+    dispatch(
+      env,
+      { kind: 'push-branch', remote, localBranch, targetBranch, setUpstream, pushTags, mode },
+      '正在推送分支'
+    )
+
+  return (
+    <FormDialogShell
+      message={<>将本地分支推送到远程：</>}
+      buttons={[
+        {
+          label: '是，推送',
+          disabled,
+          title: disabled
+            ? refreshing
+              ? '正在刷新远程分支列表'
+              : remote === ''
+                ? '仓库没有配置远程'
+                : '请先填写目标远程分支'
+            : undefined,
+          onClick: confirm
+        }
+      ]}
+      onCancel={env.closeDialog}
+    >
+      <FieldRow label="推送到远程">
+        <Select
+          value={remote}
+          onValueChange={(v) => {
+            setRemote(v as string)
+            // 刷新失败提示归属于具体 remote 的 fetch，换 remote 即失效
+            setRefreshError(null)
+          }}
+          items={env.remotes.map((r) => ({ value: r, label: r }))}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {env.remotes.map((r) => (
+              <SelectItem key={r} value={r}>
+                {r}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FieldRow>
+      <FieldRow label="本地分支">
+        <Select
+          value={localBranch}
+          onValueChange={(v) => setLocalBranch(v as string)}
+          items={localOptions.map((b) => ({ value: b, label: b }))}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {localOptions.map((b) => (
+              <SelectItem key={b} value={b}>
+                {b}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FieldRow>
+      <FieldRow label="目标远程分支">
+        <div className="flex items-center gap-1.5">
+          <DialogCombobox
+            value={targetBranch}
+            onValueChange={setEditedTarget}
+            suggestions={remoteBranchesOf(env.remoteBranches, remote)}
+            placeholder="分支名"
+          />
+          <InlineRefreshButton
+            refreshing={refreshing}
+            title={`获取 ${remote} 的最新分支列表`}
+            onClick={refresh}
+          />
+        </div>
+        <RefreshErrorLine error={refreshError} />
+      </FieldRow>
+      <label className={CHOICE_ROW}>
+        <Checkbox checked={setUpstream} onCheckedChange={(c) => setTouchedUpstream(c)} />
+        <span>设置上游</span>
+      </label>
+      <label className={CHOICE_ROW}>
+        <Checkbox checked={pushTags} onCheckedChange={(c) => setPushTags(c)} />
+        <span>同时推送该分支上的标签</span>
+        <InfoIcon text="推送该分支历史上的全部标签（附注与轻量都含）。" />
+      </label>
+      <FieldRow label="推送模式">
+        <RadioGroup value={mode} onValueChange={(v) => setMode(v as GitPushMode)}>
+          <label className={CHOICE_ROW}>
+            <RadioGroupItem value="normal" />
+            普通
+          </label>
+          <label className={CHOICE_ROW}>
+            <RadioGroupItem value="force-with-lease" />
+            强制（with lease）
+          </label>
+          <label className={CHOICE_ROW}>
+            <RadioGroupItem value="force" />
+            强制
+          </label>
+        </RadioGroup>
+      </FieldRow>
+    </FormDialogShell>
   )
 }
 

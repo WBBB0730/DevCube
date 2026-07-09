@@ -20,6 +20,10 @@ import {
   buildFetchArgs,
   buildFetchIntoLocalArgs,
   buildMergeArgs,
+  buildMergedTagsArgs,
+  buildOpAbortArgs,
+  buildOpContinueArgs,
+  buildOpSkipArgs,
   buildPruneRemoteArgs,
   buildPullBranchArgs,
   buildPushBranchArgs,
@@ -44,7 +48,9 @@ import {
   buildInitArgs,
   buildVersionGateError,
   findRemotesMissingCommit,
+  opSkipVersionGate,
   parseGitVersion,
+  parseNameList,
   toActionResult
 } from './git-actions'
 
@@ -261,6 +267,57 @@ describe('buildDropCommitArgs', () => {
   })
 })
 
+describe('buildOpContinueArgs', () => {
+  it('op 即子命令名，直接拼 --continue', () => {
+    expect(buildOpContinueArgs({ kind: 'op-continue', op: 'rebase' })).toEqual([
+      ['rebase', '--continue']
+    ])
+    expect(buildOpContinueArgs({ kind: 'op-continue', op: 'cherry-pick' })).toEqual([
+      ['cherry-pick', '--continue']
+    ])
+    expect(buildOpContinueArgs({ kind: 'op-continue', op: 'revert' })).toEqual([
+      ['revert', '--continue']
+    ])
+  })
+})
+
+describe('buildOpSkipArgs', () => {
+  it('op 即子命令名，直接拼 --skip', () => {
+    expect(buildOpSkipArgs({ kind: 'op-skip', op: 'rebase' })).toEqual([['rebase', '--skip']])
+    expect(buildOpSkipArgs({ kind: 'op-skip', op: 'cherry-pick' })).toEqual([
+      ['cherry-pick', '--skip']
+    ])
+    expect(buildOpSkipArgs({ kind: 'op-skip', op: 'revert' })).toEqual([['revert', '--skip']])
+  })
+})
+
+describe('buildOpAbortArgs', () => {
+  it('op 即子命令名（含 merge），直接拼 --abort', () => {
+    expect(buildOpAbortArgs({ kind: 'op-abort', op: 'rebase' })).toEqual([['rebase', '--abort']])
+    expect(buildOpAbortArgs({ kind: 'op-abort', op: 'merge' })).toEqual([['merge', '--abort']])
+    expect(buildOpAbortArgs({ kind: 'op-abort', op: 'cherry-pick' })).toEqual([
+      ['cherry-pick', '--abort']
+    ])
+    expect(buildOpAbortArgs({ kind: 'op-abort', op: 'revert' })).toEqual([['revert', '--abort']])
+  })
+})
+
+describe('opSkipVersionGate', () => {
+  it('rebase --skip 全版本可用，不 gate', () => {
+    expect(opSkipVersionGate('rebase')).toBeNull()
+  })
+
+  it('cherry-pick / revert 的 --skip 要求 git ≥ 2.23.0，gate 文案含功能名与两版本号', () => {
+    const gate = opSkipVersionGate('cherry-pick')
+    expect(gate).toEqual({ required: '2.23.0', feature: 'cherry-pick --skip' })
+    expect(opSkipVersionGate('revert')).toEqual({ required: '2.23.0', feature: 'revert --skip' })
+    const msg = buildVersionGateError(gate!.feature, gate!.required, '2.20.1')
+    expect(msg).toContain('cherry-pick --skip')
+    expect(msg).toContain('2.23.0')
+    expect(msg).toContain('2.20.1')
+  })
+})
+
 describe('buildCheckoutCommitArgs', () => {
   it('直接检出提交哈希', () => {
     expect(buildCheckoutCommitArgs({ kind: 'checkout-commit', hash: 'abc123' })).toEqual([
@@ -413,48 +470,118 @@ describe('buildCommitArgs', () => {
 })
 
 describe('buildFetchArgs', () => {
-  it('remote 为 null 时抓取全部（--all）', () => {
+  it('remote 为 null 且非 atomic 时抓取全部（--all 单命令），remotes 不参与', () => {
     expect(
-      buildFetchArgs({ kind: 'fetch', remote: null, prune: false, pruneTags: false }, false)
+      buildFetchArgs({ kind: 'fetch', remote: null, prune: false, pruneTags: false }, false, [
+        'origin'
+      ])
     ).toEqual([['fetch', '--all']])
   })
   it('指定远程并按序追加 --prune 与 --prune-tags', () => {
     expect(
-      buildFetchArgs({ kind: 'fetch', remote: 'origin', prune: true, pruneTags: true }, false)
+      buildFetchArgs({ kind: 'fetch', remote: 'origin', prune: true, pruneTags: true }, false, [])
     ).toEqual([['fetch', 'origin', '--prune', '--prune-tags']])
   })
   it('atomic（git ≥ 2.31）时紧跟 remote 追加 --atomic，引用更新事务化', () => {
     expect(
-      buildFetchArgs({ kind: 'fetch', remote: 'origin', prune: true, pruneTags: false }, true)
+      buildFetchArgs({ kind: 'fetch', remote: 'origin', prune: true, pruneTags: false }, true, [])
     ).toEqual([['fetch', 'origin', '--atomic', '--prune']])
+  })
+  it('remote 为 null 且 atomic 时按 remotes 逐个展开（--atomic 与 --all 互斥），每条都带全部 flag', () => {
+    expect(
+      buildFetchArgs({ kind: 'fetch', remote: null, prune: true, pruneTags: false }, true, [
+        'origin',
+        'upstream'
+      ])
+    ).toEqual([
+      ['fetch', 'origin', '--atomic', '--prune'],
+      ['fetch', 'upstream', '--atomic', '--prune']
+    ])
+  })
+  it('remote 为 null 且 atomic 但 remotes 为空时产出空序列（成功空操作）', () => {
+    expect(
+      buildFetchArgs({ kind: 'fetch', remote: null, prune: false, pruneTags: false }, true, [])
+    ).toEqual([])
   })
 })
 
 describe('buildPushBranchArgs', () => {
-  it('每个远程生成一条命令，flag 在分支名之后', () => {
+  it('目标分支与本地同名时直接推分支名，flag 在分支名之后', () => {
     expect(
       buildPushBranchArgs({
         kind: 'push-branch',
-        branch: 'dev',
-        remotes: ['origin', 'upstream'],
+        remote: 'origin',
+        localBranch: 'dev',
+        targetBranch: 'dev',
         setUpstream: true,
+        pushTags: false,
         mode: 'force-with-lease'
       })
-    ).toEqual([
-      ['push', 'origin', 'dev', '--set-upstream', '--force-with-lease'],
-      ['push', 'upstream', 'dev', '--set-upstream', '--force-with-lease']
-    ])
+    ).toEqual([['push', 'origin', 'dev', '--set-upstream', '--force-with-lease']])
   })
-  it('normal 模式不追加 force flag', () => {
+  it('目标分支异名时以 <local>:<target> refspec 推送', () => {
     expect(
       buildPushBranchArgs({
         kind: 'push-branch',
-        branch: 'dev',
-        remotes: ['origin'],
+        remote: 'origin',
+        localBranch: 'dev',
+        targetBranch: 'feature/dev',
         setUpstream: false,
+        pushTags: false,
         mode: 'normal'
       })
+    ).toEqual([['push', 'origin', 'dev:feature/dev']])
+  })
+  it('force 模式追加 --force（normal 不追加 force flag）', () => {
+    expect(
+      buildPushBranchArgs({
+        kind: 'push-branch',
+        remote: 'origin',
+        localBranch: 'dev',
+        targetBranch: 'dev',
+        setUpstream: false,
+        pushTags: false,
+        mode: 'force'
+      })
+    ).toEqual([['push', 'origin', 'dev', '--force']])
+  })
+  it('tagRefs 以 refs/tags/ 全名并入同一条命令，紧跟分支 refspec 之后、flag 之前', () => {
+    expect(
+      buildPushBranchArgs(
+        {
+          kind: 'push-branch',
+          remote: 'origin',
+          localBranch: 'dev',
+          targetBranch: 'dev',
+          setUpstream: true,
+          pushTags: true,
+          mode: 'normal'
+        },
+        ['refs/tags/v1.0', 'refs/tags/v1.1']
+      )
+    ).toEqual([['push', 'origin', 'dev', 'refs/tags/v1.0', 'refs/tags/v1.1', '--set-upstream']])
+  })
+  it('tagRefs 为空数组时命令与不传时一致（分支历史上没有标签也照常推分支）', () => {
+    expect(
+      buildPushBranchArgs(
+        {
+          kind: 'push-branch',
+          remote: 'origin',
+          localBranch: 'dev',
+          targetBranch: 'dev',
+          setUpstream: false,
+          pushTags: true,
+          mode: 'normal'
+        },
+        []
+      )
     ).toEqual([['push', 'origin', 'dev']])
+  })
+})
+
+describe('buildMergedTagsArgs', () => {
+  it('用 tag --merged 列出分支历史上的全部标签', () => {
+    expect(buildMergedTagsArgs('dev')).toEqual(['tag', '--merged', 'dev'])
   })
 })
 
@@ -484,27 +611,49 @@ describe('buildFetchIntoLocalArgs', () => {
 })
 
 describe('buildPullBranchArgs', () => {
-  it('squash 优先于 noFastForward', () => {
+  it('merge 模式显式 --no-rebase（压制 pull.rebase 配置）', () => {
     expect(
       buildPullBranchArgs({
         kind: 'pull-branch',
         remote: 'origin',
         branch: 'main',
-        noFastForward: true,
-        squash: true
+        mode: 'merge',
+        noFastForward: false
       })
-    ).toEqual([['pull', 'origin', 'main', '--squash']])
+    ).toEqual([['pull', '--no-rebase', 'origin', 'main']])
   })
-  it('仅 noFastForward 时加 --no-ff', () => {
+  it('merge 且 noFastForward 时加 --no-ff', () => {
     expect(
       buildPullBranchArgs({
         kind: 'pull-branch',
         remote: 'origin',
         branch: 'main',
-        noFastForward: true,
-        squash: false
+        mode: 'merge',
+        noFastForward: true
       })
-    ).toEqual([['pull', 'origin', 'main', '--no-ff']])
+    ).toEqual([['pull', '--no-rebase', 'origin', 'main', '--no-ff']])
+  })
+  it('rebase 模式时 --rebase 紧跟 pull，noFastForward 被忽略（仅 merge 模式有意义）', () => {
+    expect(
+      buildPullBranchArgs({
+        kind: 'pull-branch',
+        remote: 'origin',
+        branch: 'main',
+        mode: 'rebase',
+        noFastForward: true
+      })
+    ).toEqual([['pull', '--rebase', 'origin', 'main']])
+  })
+  it('squash 模式带 --no-rebase --squash（自动提交链在运行时串联）', () => {
+    expect(
+      buildPullBranchArgs({
+        kind: 'pull-branch',
+        remote: 'origin',
+        branch: 'main',
+        mode: 'squash',
+        noFastForward: false
+      })
+    ).toEqual([['pull', '--no-rebase', '--squash', 'origin', 'main']])
   })
 })
 
@@ -800,6 +949,18 @@ describe('buildVersionGateError', () => {
     expect(msg).toContain('stash push')
     expect(msg).toContain('2.13.2')
     expect(msg).toContain('2.11.0')
+  })
+})
+
+describe('parseNameList', () => {
+  it('解析 git tag --merged 的输出：每行一个标签名，去掉末尾空行', () => {
+    expect(parseNameList('v1.0\nv1.1\nv2.0-rc.1\n')).toEqual(['v1.0', 'v1.1', 'v2.0-rc.1'])
+  })
+  it('兼容 CRLF 换行（Windows 下的 git 输出）', () => {
+    expect(parseNameList('origin\r\nupstream\r\n')).toEqual(['origin', 'upstream'])
+  })
+  it('空输出时返回空数组', () => {
+    expect(parseNameList('')).toEqual([])
   })
 })
 

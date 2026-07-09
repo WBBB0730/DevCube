@@ -61,6 +61,12 @@ export interface GitLoadOptions {
   branches: string[] | null
 }
 
+/**
+ * 仓库当前进行中的多步操作（冲突中断等，gitdir 状态文件探测）。多个状态并存
+ * （变基途中拣选冲突等嵌套）时按外层优先：rebase > cherry-pick > revert > merge。
+ */
+export type GitOpInProgress = 'rebase' | 'merge' | 'cherry-pick' | 'revert'
+
 /** 一次完整加载的结果：仓库概要 + 提交列表 + refs，主进程内部串联产出。 */
 export interface GitLoadResult {
   /** 项目根目录是否在 git 仓库内（false 时其余字段皆为空值） */
@@ -69,6 +75,11 @@ export interface GitLoadResult {
   isEmptyRepo: boolean
   /** 分支名列表（当前分支排第 0；远程分支带 remotes/ 前缀），供分支筛选下拉 */
   branches: string[]
+  /**
+   * 全量远程分支（带 remotes/ 前缀），不受「显示远程分支」开关与 hideRemotes 过滤——
+   * 拉取/推送对话框的分支选项用；branches 是展示口径，被过滤时拉取会变成死路
+   */
+  remoteBranches: string[]
   /** 当前分支名；detached HEAD 为 null */
   currentBranch: string | null
   /** remote 名列表 */
@@ -79,12 +90,18 @@ export interface GitLoadResult {
   /** 全部 tag 名（去重），供对话框重名校验 */
   tags: string[]
   moreCommitsAvailable: boolean
+  /** 进行中的多步操作（状态条 / 防误触依据）；无（或探测失败）为 null */
+  opInProgress: GitOpInProgress | null
   error: string | null
 }
 
 // —— 提交详情与文件变更 ——
 
-export type GitFileStatus = 'A' | 'M' | 'D' | 'R' | 'U'
+/**
+ * 文件变更状态。'!' 为冲突（unmerged）：只由未提交明细的 conflicted 桶产出，
+ * 不来自 diff 输出（diff 恒 --diff-filter=AMDR，冲突记录天然缺席）。
+ */
+export type GitFileStatus = 'A' | 'M' | 'D' | 'R' | 'U' | '!'
 
 export interface GitFileChange {
   /** R 时为旧路径；其余等于 newFilePath。路径相对仓库根、'/' 分隔 */
@@ -130,6 +147,11 @@ export type GitDetailsRequest =
 export interface GitUncommittedDetails {
   staged: GitFileChange[]
   unstaged: GitFileChange[]
+  /**
+   * 冲突（unmerged）文件（type 恒 '!'，additions/deletions 恒 null——unmerged 无正经
+   * numstat）。展示上并入未暂存段；勾选（git add）= 标记已解决后流入 staged
+   */
+  conflicted: GitFileChange[]
 }
 
 export interface GitDetailsResult {
@@ -218,12 +240,26 @@ export interface GitTagDetailsResult {
   error: string | null
 }
 
-// —— 仓库 git 配置（仓库设置面板用，内存态不落盘） ——
+// —— 仓库 git 配置（仓库设置面板与 pull/push 对话框默认值用，内存态不落盘） ——
 
 export interface GitRepoConfig {
-  /** local 配置中的 branch.<name>.remote / .pushremote */
-  branches: Record<string, { remote: string | null; pushRemote: string | null }>
+  /**
+   * local 配置中的 branch.<name>.remote / .pushremote / .merge / .rebase。
+   * merge 为原始 ref 全名（如 refs/heads/main）、rebase 为原始字符串值（true/false/merges…），
+   * 如何解释（拉取对话框的上游分支与整合方式默认值）由渲染端决定
+   */
+  branches: Record<
+    string,
+    {
+      remote: string | null
+      pushRemote: string | null
+      merge: string | null
+      rebase: string | null
+    }
+  >
   pushDefault: string | null
+  /** 合并视图的 pull.rebase 原始值；未配置为 null（拉取对话框整合方式默认值的回退层） */
+  pullRebase: string | null
   remotes: { name: string; url: string | null; pushUrl: string | null }[]
   user: {
     name: { local: string | null; global: string | null }
@@ -266,6 +302,8 @@ export interface GitViewPrefs {
   pushTagSkipRemoteCheck: boolean
   /** diff 面板视图模式：false = 统一（unified），true = 左右对比（side-by-side）；跨会话记忆 */
   diffSplitView: boolean
+  /** pull 对话框「整合方式」的记忆值；null = 从未选过（回退仓库 git 配置，再回退合并） */
+  pullIntegrationMode: GitPullMode | null
 }
 
 /** BooleanOverride 为 'default' 时的应用级默认值与其它全局常量。 */
@@ -296,7 +334,8 @@ export const DEFAULT_GIT_VIEW_PREFS: GitViewPrefs = {
   findOpenCommitDetailsView: false,
   alwaysAcceptCheckoutCommit: false,
   pushTagSkipRemoteCheck: false,
-  diffSplitView: true
+  diffSplitView: true,
+  pullIntegrationMode: null
 }
 
 /** 解一个三态开关的有效值。 */
@@ -338,6 +377,8 @@ export interface GitEffectiveSettings {
 
 export type GitResetMode = 'soft' | 'mixed' | 'hard'
 export type GitPushMode = 'normal' | 'force' | 'force-with-lease'
+/** pull 的整合方式：合并 / 变基 / 压缩提交 */
+export type GitPullMode = 'merge' | 'rebase' | 'squash'
 /** merge 的对象类型；也用于生成 squash 提交消息 */
 export type GitMergeOn = 'branch' | 'remote-tracking' | 'commit'
 export type GitRebaseOn = 'branch' | 'commit'
@@ -367,6 +408,11 @@ export type GitAction =
     }
   | { kind: 'rebase'; obj: string; on: GitRebaseOn; ignoreDate: boolean }
   | { kind: 'drop-commit'; hash: string }
+  // 操作进行中（冲突）：继续 / 跳过 / 中止。merge 无 --continue/--skip（解决冲突后在
+  // 提交面板正常提交收口）；--skip 对 cherry-pick/revert 需 git ≥ 2.23（运行时 gate）
+  | { kind: 'op-continue'; op: 'rebase' | 'cherry-pick' | 'revert' }
+  | { kind: 'op-skip'; op: 'rebase' | 'cherry-pick' | 'revert' }
+  | { kind: 'op-abort'; op: GitOpInProgress }
   // 提交
   | { kind: 'checkout-commit'; hash: string }
   | {
@@ -390,9 +436,13 @@ export type GitAction =
   | { kind: 'fetch'; remote: string | null; prune: boolean; pruneTags: boolean }
   | {
       kind: 'push-branch'
-      branch: string
-      remotes: string[]
+      remote: string
+      localBranch: string
+      /** 目标远程分支名；与 localBranch 异名时以 refspec <local>:<target> 推送 */
+      targetBranch: string
       setUpstream: boolean
+      /** 同时推送该分支历史上的全部标签（运行时枚举后以 refs/tags/ 全名并入同一条 push） */
+      pushTags: boolean
       mode: GitPushMode
     }
   | {
@@ -406,8 +456,10 @@ export type GitAction =
       kind: 'pull-branch'
       remote: string
       branch: string
+      /** 整合方式；squash 的自动提交链在运行时串联 */
+      mode: GitPullMode
+      /** 仅 merge 模式有意义：即使可以快进也创建合并提交 */
       noFastForward: boolean
-      squash: boolean
     }
   // 标签
   | {
