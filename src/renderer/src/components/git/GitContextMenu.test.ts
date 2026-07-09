@@ -70,6 +70,7 @@ function makeCtx(overrides: Partial<GitMenuContext> = {}): Recorded {
     branchFilter: null,
     settings: DEFAULT_GIT_REPO_SETTINGS,
     viewPrefs: DEFAULT_GIT_VIEW_PREFS,
+    opInProgress: null,
     actions: {
       runAction: (action) => rec.ran.push(action),
       runQuietAction: (action) => rec.quiet.push(action),
@@ -383,6 +384,31 @@ describe('buildMenuItems', () => {
     expect(rec.opened).toEqual([{ kind: 'discard-file', paths: ['d.ts'] }])
   })
 
+  it('提交面板未暂存段菜单：冲突文件首项为「标记为已解决」走 stage-paths 静默链路，无撤销项', () => {
+    const rec = linearCtx()
+    const target: GitMenuTarget = {
+      kind: 'uncommitted-file',
+      file: {
+        oldFilePath: 'c.ts',
+        newFilePath: 'c.ts',
+        type: '!',
+        additions: null,
+        deletions: null
+      },
+      section: 'unstaged'
+    }
+    const items = buildMenuItems(target, rec.ctx)
+    expect(titles(items)).toEqual([
+      '标记为已解决',
+      '打开文件',
+      '在文件夹中显示',
+      '复制文件绝对路径',
+      '复制文件相对路径'
+    ])
+    click(items, '标记为已解决')
+    expect(rec.quiet).toEqual([{ kind: 'stage-paths', paths: ['c.ts'] }])
+  })
+
   it('提交面板已暂存段批量菜单：取消暂存所选，R 文件展开旧 / 新双路径', () => {
     const rec = linearCtx()
     const target: GitMenuTarget = {
@@ -397,6 +423,81 @@ describe('buildMenuItems', () => {
     expect(titles(items)).toEqual(['取消暂存所选 (2)'])
     click(items, '取消暂存所选 (2)')
     expect(rec.quiet).toEqual([{ kind: 'unstage-paths', paths: ['a.ts', 'x.ts', 'y.ts'] }])
+  })
+
+  it('操作进行中：提交菜单会撞车的项置灰并带 hover 原因，标签/复制类不受影响', () => {
+    const rec = linearCtx({ opInProgress: 'merge' })
+    const items = buildMenuItems({ kind: 'commit', hash: 'c1' }, rec.ctx)
+    const find = (t: string): GitMenuItem =>
+      items.find((i) => i !== 'divider' && i.title === t) as GitMenuItem
+    for (const t of [
+      '检出提交…',
+      '拣选提交…',
+      '回滚提交…',
+      '丢弃提交…',
+      '合并到当前分支…',
+      '将当前分支变基到此提交…',
+      '将当前分支重置到此提交…'
+    ]) {
+      expect(find(t).disabled, t).toBe(true)
+      expect(find(t).disabledReason, t).toBe('合并进行中，请先完成或中止')
+    }
+    expect(find('添加标签…').disabled).toBeUndefined()
+    expect(find('创建分支…').disabled).toBeUndefined()
+    expect(find('复制提交哈希').disabled).toBeUndefined()
+  })
+
+  it('操作进行中：分支/远程分支菜单的检出、合并、变基、拉取置灰，推送/删除/获取保留可用', () => {
+    const rec = linearCtx({
+      currentBranch: 'main',
+      remotes: ['origin'],
+      branches: ['main', 'dev', 'remotes/origin/dev'],
+      opInProgress: 'rebase'
+    })
+    const find = (items: (GitMenuItem | 'divider')[], t: string): GitMenuItem =>
+      items.find((i) => i !== 'divider' && i.title === t) as GitMenuItem
+    const branchItems = buildMenuItems({ kind: 'branch', name: 'dev', hash: 'c1' }, rec.ctx)
+    expect(find(branchItems, '检出分支').disabled).toBe(true)
+    expect(find(branchItems, '检出分支').disabledReason).toBe('变基进行中，请先完成或中止')
+    expect(find(branchItems, '合并到当前分支…').disabled).toBe(true)
+    expect(find(branchItems, '将当前分支变基到该分支…').disabled).toBe(true)
+    expect(find(branchItems, '删除分支…').disabled).toBeUndefined()
+    expect(find(branchItems, '推送分支…').disabled).toBeUndefined()
+    const target: GitMenuTarget = {
+      kind: 'remote-branch',
+      fullRef: 'origin/dev',
+      remote: 'origin',
+      hash: 'c1'
+    }
+    const remoteItems = buildMenuItems(target, rec.ctx)
+    expect(find(remoteItems, '检出分支…').disabled).toBe(true)
+    expect(find(remoteItems, '合并到当前分支…').disabled).toBe(true)
+    expect(find(remoteItems, '拉取到当前分支…').disabled).toBe(true)
+    // fetch-into-local 不碰工作区，保留可用
+    expect(find(remoteItems, '获取到本地分支…').disabled).toBeUndefined()
+  })
+
+  it('操作进行中：贮藏应用/弹出/创建分支置灰、丢弃保留；未提交行重置置灰、贮藏与清理保留', () => {
+    const stash = { selector: 'refs/stash@{0}', baseHash: 'c1', untrackedFilesHash: null }
+    const rec = linearCtx({ opInProgress: 'cherry-pick' })
+    const find = (items: (GitMenuItem | 'divider')[], t: string): GitMenuItem =>
+      items.find((i) => i !== 'divider' && i.title === t) as GitMenuItem
+    const stashItems = buildMenuItems({ kind: 'stash', hash: 's0', stash }, rec.ctx)
+    expect(find(stashItems, '应用贮藏…').disabled).toBe(true)
+    expect(find(stashItems, '应用贮藏…').disabledReason).toBe('拣选进行中，请先完成或中止')
+    expect(find(stashItems, '弹出贮藏…').disabled).toBe(true)
+    expect(find(stashItems, '从贮藏创建分支…').disabled).toBe(true)
+    expect(find(stashItems, '丢弃贮藏…').disabled).toBeUndefined()
+    const rec2 = makeCtx({
+      commits: [commit(UNCOMMITTED, ['c2'])],
+      headHash: 'c2',
+      opInProgress: 'revert'
+    })
+    const uItems = buildMenuItems({ kind: 'uncommitted' }, rec2.ctx)
+    expect(find(uItems, '重置未提交的更改…').disabled).toBe(true)
+    expect(find(uItems, '重置未提交的更改…').disabledReason).toBe('回滚进行中，请先完成或中止')
+    expect(find(uItems, '贮藏未提交的更改…').disabled).toBeUndefined()
+    expect(find(uItems, '清理未跟踪文件…').disabled).toBeUndefined()
   })
 
   it('提交面板未暂存段批量菜单：混选给暂存 / 撤销 / 删除三项，按类型分流路径', () => {
@@ -419,6 +520,24 @@ describe('buildMenuItems', () => {
       { kind: 'discard-file', paths: ['m.ts'] },
       { kind: 'delete-untracked-file', paths: ['u.ts'] }
     ])
+  })
+
+  it('提交面板未暂存段批量菜单：冲突文件计入暂存所选、不计入撤销所选', () => {
+    const rec = linearCtx()
+    const target: GitMenuTarget = {
+      kind: 'uncommitted-files',
+      files: [
+        { oldFilePath: 'm.ts', newFilePath: 'm.ts', type: 'M', additions: 1, deletions: 1 },
+        { oldFilePath: 'c.ts', newFilePath: 'c.ts', type: '!', additions: null, deletions: null }
+      ],
+      section: 'unstaged'
+    }
+    const items = buildMenuItems(target, rec.ctx)
+    expect(titles(items)).toEqual(['暂存所选 (2)', '撤销所选更改 (1)…'])
+    click(items, '暂存所选 (2)')
+    expect(rec.quiet).toEqual([{ kind: 'stage-paths', paths: ['m.ts', 'c.ts'] }])
+    click(items, '撤销所选更改 (1)…')
+    expect(rec.opened).toEqual([{ kind: 'discard-file', paths: ['m.ts'] }])
   })
 })
 

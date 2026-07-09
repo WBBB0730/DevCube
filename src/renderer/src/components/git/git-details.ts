@@ -19,16 +19,18 @@ export const FILE_STATUS_LABEL: Record<GitFileStatus, string> = {
   M: '已修改',
   D: '已删除',
   R: '已重命名',
-  U: '未跟踪'
+  U: '未跟踪',
+  '!': '冲突'
 }
 
-/** 文件状态 → 颜色（A/U 绿、M/R 蓝、D 红），全部取既有 token 不写裸 hex。 */
+/** 文件状态 → 颜色（A/U 绿、M/R 蓝、D/冲突 红），全部取既有 token 不写裸 hex。 */
 export const FILE_STATUS_COLOR: Record<GitFileStatus, string> = {
   A: 'var(--status-success)',
   U: 'var(--status-success)',
   M: 'var(--git-graph-color0)',
   R: 'var(--git-graph-color0)',
-  D: 'var(--status-failed)'
+  D: 'var(--status-failed)',
+  '!': 'var(--status-failed)'
 }
 
 /**

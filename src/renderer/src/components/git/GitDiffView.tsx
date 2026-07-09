@@ -136,6 +136,13 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
             {error}
           </div>
         </div>
+      ) : file.type === '!' ? (
+        // 冲突文件：git diff 对 unmerged 输出 combined diff（diff --cc，hunk 头 @@@）或
+        // 「* Unmerged path」，实测 DiffFile.initRaw 均吃不下（Invalid hunk header format），
+        // 按二进制同款兜底一句说明，不等数据返回
+        <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
+          文件处于冲突状态，请在编辑器中解决后暂存
+        </div>
       ) : data !== null && data.binary ? (
         // key=文件身份：换文件即重建组件（images 状态自然归零），不在 effect 里手动重置
         <BinaryBody

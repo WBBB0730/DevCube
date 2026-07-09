@@ -159,7 +159,9 @@ export function GitCommitTable({ projectPath }: { projectPath: string }): React.
   const maxGraphWidth = viewWidth > 0 ? Math.round(viewWidth / 3) : 0
   const limited = maxGraphWidth > 0 && contentWidth > maxGraphWidth
   const visibleGraphWidth = limited ? maxGraphWidth : contentWidth
-  const graphColWidth = Math.max(visibleGraphWidth, 64)
+  // 下限 = 一列内容宽（2*offsetX，恰容下窄边距表头的「图谱」二字）：1~3 列的常见拓扑
+  // 也能看出宽度差异，不再被固定值钳平
+  const graphColWidth = Math.max(visibleGraphWidth, 2 * grid.offsetX)
   const svgHeight =
     commits.length > 0 ? grid.offsetY + (commits.length - 1) * grid.y + grid.y / 2 : 0
 
@@ -218,6 +220,9 @@ export function GitCommitTable({ projectPath }: { projectPath: string }): React.
       },
       branchDoubleClick: (e, name) => {
         e.stopPropagation()
+        // 操作进行中（变基/合并等冲突中途）：双击无可视禁用面，handler 早退拦截，
+        // 原因由常驻状态条解释（右键菜单同款入口是置灰 + hover 原因）
+        if (gitState(useGit.getState(), projectPath).opInProgress !== null) return
         void useGit
           .getState()
           .runAction(
@@ -228,6 +233,8 @@ export function GitCommitTable({ projectPath }: { projectPath: string }): React.
       },
       remoteDoubleClick: (e, fullRef, remote) => {
         e.stopPropagation()
+        // 同 branchDoubleClick：操作进行中早退
+        if (gitState(useGit.getState(), projectPath).opInProgress !== null) return
         useGit
           .getState()
           .openDialog(projectPath, { kind: 'checkout-remote-branch', remoteRef: fullRef, remote })
@@ -266,7 +273,10 @@ export function GitCommitTable({ projectPath }: { projectPath: string }): React.
                 })
               }}
             >
-              <th className={TH} style={{ width: graphColWidth }}>
+              {/* min-width 而非 width：描述列 width:100% 会把其他列压到最小内容宽，
+                  width 在该布局下被无视（实测），min-width 才能真正随内容撑开列。
+                  px-1 对齐数据格：表头最小内容宽收到 32px（一列宽），不盖过列宽同步 */}
+              <th className={cn(TH, 'px-1')} style={{ minWidth: graphColWidth }}>
                 图谱
               </th>
               {/* width:100% + max-width:0：Description 吃掉全部剩余宽（§1.3 自动布局） */}

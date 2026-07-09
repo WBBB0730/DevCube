@@ -19,6 +19,7 @@ import {
   type GitCommitOrdering,
   type GitCommitStash,
   type GitFileChange,
+  type GitOpInProgress,
   type GitRepoSettings,
   type GitViewPrefs
 } from '@shared/git'
@@ -26,6 +27,7 @@ import { dropCommitPossible } from '@renderer/lib/git-graph'
 import { gitState, useGit } from '@renderer/git-store'
 import { cn } from '@renderer/lib/utils'
 import { toggleBranch } from './GitBranchDropdown'
+import { opBlockReason } from './GitOpStatusBar'
 import { pathspecOf } from './git-details'
 import { abbrevHash } from './git-format'
 import type { GitDialogRequest, GitMenuTarget } from './git-view-types'
@@ -38,6 +40,9 @@ export interface GitMenuItem {
   onClick: () => void
   /** checked 模式（表头排序菜单）：左侧 ✓ 列 */
   checked?: boolean
+  /** 置灰（操作进行中防误触）：不可点，hover 以 disabledReason 说明原因 */
+  disabled?: boolean
+  disabledReason?: string
 }
 
 /** buildMenuItems 的动作出口：组件注入 store / window.api 分发，测试注入记录用实现。 */
@@ -65,7 +70,19 @@ export interface GitMenuContext {
   branchFilter: string[] | null
   settings: GitRepoSettings | null
   viewPrefs: GitViewPrefs
+  /** 进行中的多步操作（变基/合并/拣选/回滚）：非空时会撞车的菜单项置灰 */
+  opInProgress: GitOpInProgress | null
   actions: GitMenuActions
+}
+
+/**
+ * 操作进行中的防误触置灰：会动工作区 / HEAD 的项（检出、合并、变基、拉取、拣选、回滚、
+ * 重置、贮藏应用/弹出等）在冲突中途执行必撞「already in progress」类 fatal。
+ * 禁用而非隐藏——隐藏会让整组连分隔线一起消失（groupMenuItems 丢空组），用户不知入口去了哪。
+ */
+function blockDuringOp(item: GitMenuItem, ctx: GitMenuContext): GitMenuItem {
+  if (ctx.opInProgress === null) return item
+  return { ...item, disabled: true, disabledReason: opBlockReason(ctx.opInProgress) }
 }
 
 /** 提交说明取首行（复制提交说明用；数据层 message 已是主题行，防御性再切一次）。 */
@@ -121,50 +138,75 @@ function commitMenu(hash: string, ctx: GitMenuContext): (GitMenuItem | 'divider'
     { title: '创建分支…', onClick: () => actions.openDialog({ kind: 'create-branch', hash }) },
     'divider',
     // 勾选过「总是允许」后不再弹确认框，文案随之去掉省略号（§2.1 / D15）
-    ctx.viewPrefs.alwaysAcceptCheckoutCommit
-      ? {
-          title: '检出提交',
-          onClick: () => actions.runAction({ kind: 'checkout-commit', hash }, '正在检出提交')
-        }
-      : {
-          title: '检出提交…',
-          onClick: () => actions.openDialog({ kind: 'checkout-commit', hash })
-        },
-    { title: '拣选提交…', onClick: () => actions.openDialog({ kind: 'cherrypick', hash }) },
-    { title: '回滚提交…', onClick: () => actions.openDialog({ kind: 'revert', hash }) }
+    blockDuringOp(
+      ctx.viewPrefs.alwaysAcceptCheckoutCommit
+        ? {
+            title: '检出提交',
+            onClick: () => actions.runAction({ kind: 'checkout-commit', hash }, '正在检出提交')
+          }
+        : {
+            title: '检出提交…',
+            onClick: () => actions.openDialog({ kind: 'checkout-commit', hash })
+          },
+      ctx
+    ),
+    blockDuringOp(
+      { title: '拣选提交…', onClick: () => actions.openDialog({ kind: 'cherrypick', hash }) },
+      ctx
+    ),
+    blockDuringOp(
+      { title: '回滚提交…', onClick: () => actions.openDialog({ kind: 'revert', hash }) },
+      ctx
+    )
   ]
   if (index >= 0 && dropCommitPossible(ctx.commits, ctx.headHash, index, onlyFirstParent)) {
-    items.push({
-      title: '丢弃提交…',
-      onClick: () => actions.openDialog({ kind: 'drop-commit', hash })
-    })
+    // 丢弃提交底层是 rebase --onto，正是「已存在 rebase-merge 目录」fatal 的高发入口，一并置灰
+    items.push(
+      blockDuringOp(
+        {
+          title: '丢弃提交…',
+          onClick: () => actions.openDialog({ kind: 'drop-commit', hash })
+        },
+        ctx
+      )
+    )
   }
   items.push(
     'divider',
-    {
-      title: '合并到当前分支…',
-      onClick: () =>
-        actions.openDialog({
-          kind: 'merge',
-          obj: hash,
-          on: 'commit',
-          displayName: abbrevHash(hash)
-        })
-    },
-    {
-      title: '将当前分支变基到此提交…',
-      onClick: () =>
-        actions.openDialog({
-          kind: 'rebase',
-          obj: hash,
-          on: 'commit',
-          displayName: abbrevHash(hash)
-        })
-    },
-    {
-      title: '将当前分支重置到此提交…',
-      onClick: () => actions.openDialog({ kind: 'reset', hash })
-    },
+    blockDuringOp(
+      {
+        title: '合并到当前分支…',
+        onClick: () =>
+          actions.openDialog({
+            kind: 'merge',
+            obj: hash,
+            on: 'commit',
+            displayName: abbrevHash(hash)
+          })
+      },
+      ctx
+    ),
+    blockDuringOp(
+      {
+        title: '将当前分支变基到此提交…',
+        onClick: () =>
+          actions.openDialog({
+            kind: 'rebase',
+            obj: hash,
+            on: 'commit',
+            displayName: abbrevHash(hash)
+          })
+      },
+      ctx
+    ),
+    // reset --hard 会吞掉冲突进度且不清 rebase-merge 目录，统一置灰、引导走状态条「中止」
+    blockDuringOp(
+      {
+        title: '将当前分支重置到此提交…',
+        onClick: () => actions.openDialog({ kind: 'reset', hash })
+      },
+      ctx
+    ),
     'divider',
     { title: '复制提交哈希', onClick: () => actions.copyText(hash, '提交哈希') },
     { title: '复制提交说明', onClick: () => actions.copyText(firstLine(message), '提交说明') }
@@ -178,14 +220,19 @@ function branchMenu(name: string, ctx: GitMenuContext): (GitMenuItem | 'divider'
   const isCurrent = name === ctx.currentBranch
   const items: (GitMenuItem | 'divider')[] = []
   if (!isCurrent) {
-    items.push({
-      title: '检出分支',
-      onClick: () =>
-        actions.runAction(
-          { kind: 'checkout-branch', branch: name, remoteBranch: null },
-          '正在检出分支'
-        )
-    })
+    items.push(
+      blockDuringOp(
+        {
+          title: '检出分支',
+          onClick: () =>
+            actions.runAction(
+              { kind: 'checkout-branch', branch: name, remoteBranch: null },
+              '正在检出分支'
+            )
+        },
+        ctx
+      )
+    )
   }
   items.push({
     title: '重命名分支…',
@@ -202,16 +249,22 @@ function branchMenu(name: string, ctx: GitMenuContext): (GitMenuItem | 'divider'
         onClick: () =>
           actions.openDialog({ kind: 'delete-branch', branch: name, remotesWithBranch })
       },
-      {
-        title: '合并到当前分支…',
-        onClick: () =>
-          actions.openDialog({ kind: 'merge', obj: name, on: 'branch', displayName: name })
-      },
-      {
-        title: '将当前分支变基到该分支…',
-        onClick: () =>
-          actions.openDialog({ kind: 'rebase', obj: name, on: 'branch', displayName: name })
-      }
+      blockDuringOp(
+        {
+          title: '合并到当前分支…',
+          onClick: () =>
+            actions.openDialog({ kind: 'merge', obj: name, on: 'branch', displayName: name })
+        },
+        ctx
+      ),
+      blockDuringOp(
+        {
+          title: '将当前分支变基到该分支…',
+          onClick: () =>
+            actions.openDialog({ kind: 'rebase', obj: name, on: 'branch', displayName: name })
+        },
+        ctx
+      )
     )
   }
   if (ctx.remotes.length > 0) {
@@ -250,11 +303,14 @@ function remoteBranchMenu(
   const { actions } = ctx
   const branchName = remote !== null ? fullRef.substring(remote.length + 1) : ''
   const items: (GitMenuItem | 'divider')[] = [
-    {
-      title: '检出分支…',
-      onClick: () =>
-        actions.openDialog({ kind: 'checkout-remote-branch', remoteRef: fullRef, remote })
-    }
+    blockDuringOp(
+      {
+        title: '检出分支…',
+        onClick: () =>
+          actions.openDialog({ kind: 'checkout-remote-branch', remoteRef: fullRef, remote })
+      },
+      ctx
+    )
   ]
   if (remote !== null) {
     items.push({
@@ -280,22 +336,33 @@ function remoteBranchMenu(
       })
     }
   }
-  items.push({
-    title: '合并到当前分支…',
-    onClick: () =>
-      actions.openDialog({
-        kind: 'merge',
-        obj: fullRef,
-        on: 'remote-tracking',
-        displayName: fullRef
-      })
-  })
+  items.push(
+    blockDuringOp(
+      {
+        title: '合并到当前分支…',
+        onClick: () =>
+          actions.openDialog({
+            kind: 'merge',
+            obj: fullRef,
+            on: 'remote-tracking',
+            displayName: fullRef
+          })
+      },
+      ctx
+    )
+  )
   if (remote !== null) {
-    items.push({
-      title: '拉取到当前分支…',
-      onClick: () =>
-        actions.openDialog({ kind: 'pull-branch', remote, branch: branchName, remoteRef: fullRef })
-    })
+    items.push(
+      blockDuringOp(
+        {
+          title: '拉取到当前分支…',
+          // 预设该远程分支为表单初值（remote 与分支仍可在表单里改）
+          onClick: () =>
+            actions.openDialog({ kind: 'pull-branch', preset: { remote, branch: branchName } })
+        },
+        ctx
+      )
+    )
   }
   // 「创建 Pull Request」与「创建归档」v1 不做（见文件头注释）
   items.push('divider', selectInDropdownItem(`remotes/${fullRef}`, ctx), 'divider', {
@@ -343,16 +410,26 @@ function stashMenu(
 ): (GitMenuItem | 'divider')[] {
   const { actions } = ctx
   const selector = stash.selector
+  // 应用 / 弹出会动工作区、创建分支含检出，操作进行中置灰；丢弃只删 ref、保留可用
   return [
-    {
-      title: '应用贮藏…',
-      onClick: () => actions.openDialog({ kind: 'stash-apply', selector })
-    },
-    {
-      title: '从贮藏创建分支…',
-      onClick: () => actions.openDialog({ kind: 'stash-branch', selector })
-    },
-    { title: '弹出贮藏…', onClick: () => actions.openDialog({ kind: 'stash-pop', selector }) },
+    blockDuringOp(
+      {
+        title: '应用贮藏…',
+        onClick: () => actions.openDialog({ kind: 'stash-apply', selector })
+      },
+      ctx
+    ),
+    blockDuringOp(
+      {
+        title: '从贮藏创建分支…',
+        onClick: () => actions.openDialog({ kind: 'stash-branch', selector })
+      },
+      ctx
+    ),
+    blockDuringOp(
+      { title: '弹出贮藏…', onClick: () => actions.openDialog({ kind: 'stash-pop', selector }) },
+      ctx
+    ),
     { title: '丢弃贮藏…', onClick: () => actions.openDialog({ kind: 'stash-drop', selector }) },
     'divider',
     { title: '复制贮藏名', onClick: () => actions.copyText(selector, '贮藏名') },
@@ -374,10 +451,14 @@ function uncommittedMenu(ctx: GitMenuContext): (GitMenuItem | 'divider')[] {
   return [
     { title: '贮藏未提交的更改…', onClick: () => actions.openDialog({ kind: 'stash-save' }) },
     'divider',
-    {
-      title: '重置未提交的更改…',
-      onClick: () => actions.openDialog({ kind: 'reset-uncommitted' })
-    },
+    // reset --hard 会吞冲突进度且与操作状态文件交互很脆，置灰、引导走状态条「中止」
+    blockDuringOp(
+      {
+        title: '重置未提交的更改…',
+        onClick: () => actions.openDialog({ kind: 'reset-uncommitted' })
+      },
+      ctx
+    ),
     clean
   ]
 }
@@ -465,7 +546,9 @@ function fileMenu(
 
 /**
  * 提交面板文件行菜单（… 按钮与右键共用，ADR-0006）：已暂存段首项「取消暂存」（静默即时），
- * 未暂存段首项按类型分流——未跟踪走「删除文件…」、其余走「撤销更改…」（均先弹危险确认）。
+ * 未暂存段首项按类型分流——未跟踪走「删除文件…」、冲突走「标记为已解决」（静默即时，
+ * = git add，与勾选同链路；git checkout -- 对 unmerged 路径直接报错故无撤销项）、
+ * 其余走「撤销更改…」（删除类先弹危险确认）。
  */
 function uncommittedFileMenu(
   target: Extract<GitMenuTarget, { kind: 'uncommitted-file' }>,
@@ -484,6 +567,11 @@ function uncommittedFileMenu(
       title: '删除文件…',
       onClick: () =>
         actions.openDialog({ kind: 'delete-untracked-file', paths: [file.newFilePath] })
+    })
+  } else if (file.type === '!') {
+    items.push({
+      title: '标记为已解决',
+      onClick: () => actions.runQuietAction({ kind: 'stage-paths', paths: pathspecOf(file) })
     })
   } else {
     items.push({
@@ -542,7 +630,11 @@ function uncommittedFilesMenu(
     title: `暂存所选 (${files.length})`,
     onClick: () => actions.runQuietAction({ kind: 'stage-paths', paths: files.flatMap(pathspecOf) })
   })
-  const discardPaths = files.filter((f) => f.type !== 'U').map((f) => f.newFilePath)
+  // 冲突文件不可撤销（checkout -- 对 unmerged 报错），批量撤销只收跟踪且无冲突的文件；
+  // 「暂存所选」对冲突文件 = 标记已解决，天然覆盖，无需单列
+  const discardPaths = files
+    .filter((f) => f.type !== 'U' && f.type !== '!')
+    .map((f) => f.newFilePath)
   const deletePaths = files.filter((f) => f.type === 'U').map((f) => f.newFilePath)
   if (discardPaths.length > 0) {
     items.push({
@@ -589,6 +681,7 @@ export function GitContextMenu({ projectPath }: { projectPath: string }): React.
   const branches = useGit((s) => gitState(s, projectPath).branches)
   const branchFilter = useGit((s) => gitState(s, projectPath).branchFilter)
   const settings = useGit((s) => gitState(s, projectPath).settings)
+  const opInProgress = useGit((s) => gitState(s, projectPath).opInProgress)
   const viewPrefs = useGit((s) => s.viewPrefs)
 
   // 动作注入：全部经 store / window.api 分发（回调内取 getState 而非闭包，避免过期）
@@ -644,6 +737,7 @@ export function GitContextMenu({ projectPath }: { projectPath: string }): React.
       branchFilter,
       settings,
       viewPrefs,
+      opInProgress,
       actions
     })
   )
@@ -684,7 +778,14 @@ export function GitContextMenu({ projectPath }: { projectPath: string }): React.
               <Fragment key={gi}>
                 {gi > 0 && <div className="mx-1.5 my-1 h-px bg-[var(--separator)]" />}
                 {group.map((item, ii) => (
-                  <Menu.Item key={ii} className={MENU_ITEM} onClick={item.onClick}>
+                  <Menu.Item
+                    key={ii}
+                    // 置灰项：Base UI disabled 挡掉点击与键盘导航；title 给禁用原因
+                    disabled={item.disabled === true}
+                    title={item.disabled === true ? item.disabledReason : undefined}
+                    className={cn(MENU_ITEM, item.disabled === true && 'cursor-default opacity-50')}
+                    onClick={item.onClick}
+                  >
                     {checkedMode && (
                       <Check
                         className={cn('size-3.5 shrink-0', item.checked !== true && 'invisible')}

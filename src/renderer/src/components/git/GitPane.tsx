@@ -6,6 +6,7 @@ import { useEffect } from 'react'
 import { LoaderCircle } from 'lucide-react'
 import { gitState, useGit } from '@renderer/git-store'
 import { GitToolbar } from './GitToolbar'
+import { GitOpStatusBar } from './GitOpStatusBar'
 import { GitCommitTable } from './GitCommitTable'
 import { GitFindWidget } from './GitFindWidget'
 import { GitCommitDetails } from './GitCommitDetails'
@@ -87,6 +88,8 @@ export function GitPane({
   return (
     <div className="flex h-full min-h-0 flex-col bg-deepest">
       {showChrome && <GitToolbar projectPath={projectPath} />}
+      {/* 操作进行中状态条（变基/合并/拣选/回滚中断）：组件自判 opInProgress 为空即 null */}
+      {showChrome && <GitOpStatusBar projectPath={projectPath} />}
       {status === 'idle' || status === 'loading' ? (
         <CenteredHint>
           <LoaderCircle className="size-4 animate-spin" />

@@ -2,6 +2,8 @@
 // SourceTree —— 左栏 CommitForm（提交信息 + 修正 / 推送勾选 + 提交），右栏
 // UncommittedFileSections（「已暂存 / 未暂存」两段文件树：勾选即 git add、取消勾选即
 // unstage、区头 = 全部；同一文件可同时出现在两段——已暂存是暂存那一刻的快照）。
+// 冲突文件（type '!'）并入未暂存段展示并带红「冲突」徽标：勾选走同一 stage-paths
+// 链路 = git add = 标记已解决，解决后经软刷新自然流入已暂存段。
 // 两个组件由 GitCommitDetails 的左右栏分别挂载；暂存类操作走 runQuietAction 静默即时
 // （无进行中遮罩，PRD「静默即时」），错误由 GitDialogs 的错误框统一呈现。
 import { useMemo, useRef, useState, type ReactNode } from 'react'
@@ -51,6 +53,7 @@ export function CommitForm({ projectPath }: { projectPath: string }): React.JSX.
   )
   const currentBranch = useGit((s) => gitState(s, projectPath).currentBranch)
   const headHash = useGit((s) => gitState(s, projectPath).headHash)
+  const opInProgress = useGit((s) => gitState(s, projectPath).opInProgress)
   /** HEAD 提交信息预填的异步在途标记（期间 checkbox / 提交钮禁点，防连点与预填竞态） */
   const [amendLoading, setAmendLoading] = useState(false)
   /** 提交在途标记（commit 非幂等：双击会排入两个 commit，第二个必以 nothing to commit 报错） */
@@ -100,9 +103,14 @@ export function CommitForm({ projectPath }: { projectPath: string }): React.JSX.
   }
 
   // 禁用：无提交信息、既无已暂存文件又不是修正（amend 允许空暂存区只改信息）、
-  // 或预填 / 提交在途（防双击重复提交与迟到预填的竞态）
+  // 或预填 / 提交在途（防双击重复提交与迟到预填的竞态）。
+  // merge 进行中放开空暂存区：冲突全按「保留我方」解决时 index==HEAD、已暂存段为空，
+  // 但 MERGE_HEAD 仍在、git 仍要求一次提交才能收口（此时 commit 接受空 diff 的合并提交）。
   const disabled =
-    draft.message.trim() === '' || (stagedCount === 0 && !draft.amend) || amendLoading || committing
+    draft.message.trim() === '' ||
+    (stagedCount === 0 && !draft.amend && opInProgress !== 'merge') ||
+    amendLoading ||
+    committing
 
   const commit = async (push: boolean): Promise<void> => {
     const store = useGit.getState()
@@ -195,6 +203,15 @@ export function UncommittedFileSections({
   const rawUnstaged = useGit(
     (s) => gitState(s, projectPath).expanded?.uncommitted?.unstaged ?? EMPTY_FILES
   )
+  const rawConflicted = useGit(
+    (s) => gitState(s, projectPath).expanded?.uncommitted?.conflicted ?? EMPTY_FILES
+  )
+  // 冲突文件本质是未解决的工作区状态：并入未暂存段展示（数据独立成桶只因 AMDR diff 取不到），
+  // 无冲突时保持 rawUnstaged 原引用，树/排序/选区零扰动
+  const unstagedFiles = useMemo(
+    () => (rawConflicted.length === 0 ? rawUnstaged : [...rawUnstaged, ...rawConflicted]),
+    [rawUnstaged, rawConflicted]
+  )
   /**
    * 乐观勾选（不移段）：点勾后把这些文件的 newFilePath 记入 pending（值 = 目标段），复选框
    * 原地按目标态翻转、文件留在原段；期间面板锁定（locked）。真实两段数据反映该变更后由下方
@@ -205,20 +222,30 @@ export function UncommittedFileSections({
   const [selection, setSelection] = useState<SectionSelection | null>(null)
   // 两段列表落地新引用（软刷新后文件移段 / 消失）即清空选区并对账 pending：旧 key 已失效。
   // 渲染期比对上一份引用（React「渲染中调整 state」模式，非 effect，避免级联渲染告警）。
-  const [prevLists, setPrevLists] = useState({ staged: rawStaged, unstaged: rawUnstaged })
-  if (prevLists.staged !== rawStaged || prevLists.unstaged !== rawUnstaged) {
-    setPrevLists({ staged: rawStaged, unstaged: rawUnstaged })
+  const [prevLists, setPrevLists] = useState({
+    staged: rawStaged,
+    unstaged: rawUnstaged,
+    conflicted: rawConflicted
+  })
+  if (
+    prevLists.staged !== rawStaged ||
+    prevLists.unstaged !== rawUnstaged ||
+    prevLists.conflicted !== rawConflicted
+  ) {
+    setPrevLists({ staged: rawStaged, unstaged: rawUnstaged, conflicted: rawConflicted })
     setSelection(null)
-    // 逐文件对账：真实数据已反映该 pending 项即清除（暂存 = 已进暂存段且离未暂存段；
-    // 取消暂存 = 已离暂存段）。判据成立前不清、复选框不回弹，故无闪烁；pending 清空即解锁。
+    // 逐文件对账：真实数据已反映该 pending 项即清除（暂存 = 已离未暂存段——未暂存段含
+    // 冲突桶；不要求「已进暂存段」：冲突按「保留我方」解决时 add 后 index==HEAD，文件从
+    // 三个列表全部消失、永不入暂存段，判据若含 stagedSet 则 pending 永不清、面板卡锁。
+    // 离开未暂存段即意味着 add 已落地或文件已不存在，两者都该清；取消暂存 = 已离暂存段）。
+    // 判据成立前不清、复选框不回弹，故无闪烁；pending 清空即解锁。
     if (pending.size > 0) {
       const stagedSet = new Set(rawStaged.map((f) => f.newFilePath))
-      const unstagedSet = new Set(rawUnstaged.map((f) => f.newFilePath))
+      const unstagedSet = new Set(unstagedFiles.map((f) => f.newFilePath))
       const next = new Map(pending)
       let changed = false
       for (const [key, to] of pending) {
-        const done =
-          to === 'staged' ? stagedSet.has(key) && !unstagedSet.has(key) : !stagedSet.has(key)
+        const done = to === 'staged' ? !unstagedSet.has(key) : !stagedSet.has(key)
         if (done) {
           next.delete(key)
           changed = true
@@ -252,10 +279,15 @@ export function UncommittedFileSections({
       for (const f of targets) next.set(f.newFilePath, to)
       return next
     })
+    // 操作进行中的全取消暂存必须显式传路径：无 pathspec 的 mixed reset 会触发 git 清除
+    // MERGE_HEAD / CHERRY_PICK_HEAD / REVERT_HEAD 等状态文件，静默摧毁进行中的操作；
+    // 带 pathspec 的 reset 不会（实测）。
+    const opInProgress = gitState(useGit.getState(), projectPath).opInProgress
+    const emptyPaths = all && !(from === 'staged' && opInProgress !== null)
     const result = await useGit.getState().runQuietAction(projectPath, {
       kind: from === 'staged' ? 'unstage-paths' : 'stage-paths',
       // R 需要同时传旧 / 新两个路径（pathspec 覆盖重命名两端）；all=空 = 全部
-      paths: all ? [] : targets.flatMap(pathspecOf)
+      paths: emptyPaths ? [] : targets.flatMap(pathspecOf)
     })
     if (result.status !== 'ok') {
       setPending((prev) => {
@@ -298,11 +330,11 @@ export function UncommittedFileSections({
       <FileSection
         projectPath={projectPath}
         section="unstaged"
-        files={rawUnstaged}
+        files={unstagedFiles}
         pending={pending}
         locked={locked}
         onToggle={(targets, section) => void runToggle(targets, section, false)}
-        onToggleAll={() => void runToggle(rawUnstaged, 'unstaged', true)}
+        onToggleAll={() => void runToggle(unstagedFiles, 'unstaged', true)}
         selectedKeys={selection?.section === 'unstaged' ? selection.keys : EMPTY_KEYS}
         anchor={selection?.section === 'unstaged' ? selection.anchor : null}
         onSelect={selectInSection('unstaged')}
@@ -571,6 +603,8 @@ function FileSection({
         >
           {row.name}
         </span>
+        {/* 冲突徽标：占 +/- 统计的位置（冲突行 additions/deletions 恒 null，两者互斥不打架） */}
+        {file.type === '!' && <span className="shrink-0 text-[12px] text-status-failed">冲突</span>}
         {(file.type === 'M' || file.type === 'R') &&
           file.additions !== null &&
           file.deletions !== null && (
