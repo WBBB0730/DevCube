@@ -3,7 +3,7 @@ import { ProjectTree } from '@renderer/components/ProjectTree'
 import { Console } from '@renderer/components/Console'
 import { ConfigDialog } from '@renderer/components/ConfigDialog'
 import { resolveTabs, useApp } from '@renderer/store'
-import { useGit } from '@renderer/git-store'
+import { gitState, useGit } from '@renderer/git-store'
 import { isGitTabKey } from '@shared/runnable'
 
 // 在当前项目的全部 Tab（Git + 运行会话 + 终端）间循环。dir: +1 下一个 / -1 上一个。
@@ -37,6 +37,8 @@ function App(): React.JSX.Element {
     document.title = projectName ? `${projectName} — DevCube` : 'DevCube'
   }, [projectName])
 
+  const currentProjectPath = useApp((s) => s.currentProjectPath)
+
   useEffect(() => {
     init()
     const offTree = window.api.onTreeChanged((tree) => useApp.getState().setTree(tree))
@@ -44,7 +46,7 @@ function App(): React.JSX.Element {
     const offRemoved = window.api.onSessionRemoved((key) =>
       useApp.getState().handleSessionRemoved(key)
     )
-    // 仓库变化（.git 变动 / git 动作完成）→ 软刷新对应项目的图谱；从未打开过的项目跳过。
+    // 仓库变化（.git 变动 / git 动作完成）→ 软刷新对应项目的图谱；从未加载过的项目跳过。
     const offGit = window.api.onGitChanged((projectPath) => {
       const git = useGit.getState()
       if (git.projects[projectPath]) void git.load(projectPath)
@@ -56,6 +58,16 @@ function App(): React.JSX.Element {
       offGit()
     }
   }, [init])
+
+  // 当前项目提前全量 load：Tab 栏始终能显示分支名，不必等点开 Git Tab。
+  // 仅 idle 时触发；已加载过的靠 onGitChanged 软刷新保鲜。load 同步置 loading，StrictMode 双挂载幂等。
+  useEffect(() => {
+    if (!currentProjectPath) return
+    const git = useGit.getState()
+    if (gitState(git, currentProjectPath).status === 'idle') {
+      void git.load(currentProjectPath)
+    }
+  }, [currentProjectPath])
 
   // 终端 Tab 快捷键。capture 阶段拦截，抢在 xterm 之前，避免被下发给 pty。
   useEffect(() => {

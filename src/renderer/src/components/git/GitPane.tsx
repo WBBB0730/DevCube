@@ -1,5 +1,6 @@
 // Git Tab 的根组件：每项目常驻一个（Console 里切走仅隐藏不卸载，现场保留）。
-// 首次可见才触发加载（懒加载）；四态渲染（非仓库 / 空仓库 / 加载中 / 出错）+ 就绪表格；
+// 当前项目由 App 预加载（Tab 栏分支名）；本组件可见时若仍 idle 则补拉，已加载则重验仓库根。
+// 四态渲染（非仓库 / 空仓库 / 加载中 / 出错）+ 就绪表格；
 // 全局键盘只在可见时挂 capture 监听：Esc 分层关闭、Cmd/Ctrl+F 打开查找、Cmd/Ctrl+R 刷新
 // （fetch + 软刷新；App.tsx 只占用 T / W / Ctrl+Tab，无冲突）。
 import { useEffect } from 'react'
@@ -30,11 +31,10 @@ export function GitPane({
   const graphLoading = useGit((s) => gitState(s, projectPath).graphLoading)
   const load = useGit((s) => s.load)
 
-  // 懒加载：首次可见才拉数据；隐藏期间状态保留，再次可见不重拉（.git 变动由 App 的
-  // onGitChanged 软刷新兜着），只顺手重验一次仓库根——init / .git 删除后仓库形态变化的
-  // 兜底通道之一（主通道是 watcher），变化时主进程推 git:changed 触发软刷新。
-  // load 一进入就同步置 loading，StrictMode 双挂载的第二次 effect 读到非 idle 即跳过，
-  // 天然幂等；重验本身幂等，双挂载多跑一次无害。
+  // 可见时：仍 idle（未成过当前项目、App 预加载未赶上）则补拉；已加载则重验仓库根——
+  // init / .git 删除后仓库形态变化的兜底（主通道是 watcher），变化时主进程推 git:changed。
+  // 隐藏期间状态保留；.git 变动由 App 的 onGitChanged 软刷新。load 同步置 loading，
+  // StrictMode 双挂载幂等；重验本身幂等，双挂载多跑一次无害。
   useEffect(() => {
     if (!visible) return
     if (gitState(useGit.getState(), projectPath).status === 'idle') {

@@ -35,9 +35,11 @@ import { CSS } from '@dnd-kit/utilities'
 import type { SessionOutput, SessionStatus } from '@shared/types'
 import { gitTabKey } from '@shared/runnable'
 import { useApp, resolveTabs, type RunTabInfo, type TerminalTab } from '@renderer/store'
+import { gitState, useGit } from '@renderer/git-store'
 import { cn } from '@renderer/lib/utils'
 import { xtermTheme } from '@renderer/lib/xterm-theme'
 import { GitPane } from '@renderer/components/git/GitPane'
+import { abbrevHash } from '@renderer/components/git/git-format'
 
 // 常驻 xterm 会各持一个 WebGL 上下文；浏览器/Electron 对同页上下文数有硬上限（约 16）。
 // 给全局加载数封顶，超出的终端回退默认渲染，避免挤掉后台终端的上下文造成静默降级。
@@ -89,7 +91,7 @@ export function Console(): React.JSX.Element {
         activeKey={activeKey}
       />
       <div className="relative min-h-0 flex-1">
-        {/* Git 面板：每个项目常驻一个（切走仅隐藏；首次可见才拉数据，见 GitPane）。 */}
+        {/* Git 面板：每个项目常驻一个（切走仅隐藏；当前项目由 App 预加载，见 GitPane）。 */}
         {tree.map((n) => {
           const gk = gitTabKey(n.project.path)
           const visible = n.project.path === currentProjectPath && gk === activeKey
@@ -220,7 +222,9 @@ function TabBar({
   )
 }
 
-// Git Tab：图标 + 「Git」，无关闭键（左右内边距对称 pl-3/pr-3 即 12px，其余 Tab 右侧有 × 故 pr-2）。
+// Git Tab：图标 + 「Git」+ 「(分支名)」，无关闭键（左右内边距对称 pl-3/pr-3 即 12px，
+// 其余 Tab 右侧有 × 故 pr-2）。分支名来自 git-store：当前项目由 App 预加载，不必等点开
+// Git Tab；此后 git:changed 软刷新保鲜（检出/提交即时跟随）；detached HEAD 回落缩写 hash。
 function GitTabItem({
   gitKey,
   projectPath,
@@ -231,6 +235,10 @@ function GitTabItem({
   active: boolean
 }): React.JSX.Element {
   const activateTab = useApp((s) => s.activateTab)
+  const branch = useGit((s) => {
+    const st = gitState(s, projectPath)
+    return st.currentBranch ?? (st.headHash !== null ? abbrevHash(st.headHash) : null)
+  })
   return (
     <div
       className={cn(TAB, 'pl-3 pr-3')}
@@ -239,6 +247,11 @@ function GitTabItem({
     >
       <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
       <span className="text-foreground">Git</span>
+      {branch !== null && (
+        <span className="min-w-0 truncate text-muted-foreground" title={branch}>
+          ({branch})
+        </span>
+      )}
     </div>
   )
 }
