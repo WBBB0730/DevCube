@@ -13,7 +13,8 @@ import {
   pathspecOf,
   resolveDiffEndpoints,
   tokenizeBody,
-  uncommittedDiffEndpoints
+  uncommittedDiffEndpoints,
+  workingTreeStatusByPath
 } from './git-details'
 
 /** 快捷构造一个文件变更。 */
@@ -27,6 +28,20 @@ function fc(path: string, overrides: Partial<GitFileChange> = {}): GitFileChange
     ...overrides
   }
 }
+
+describe('workingTreeStatusByPath', () => {
+  it('未暂存覆盖已暂存；冲突优先；跳过 isDir', () => {
+    const m = workingTreeStatusByPath({
+      staged: [fc('a.ts', { type: 'A' }), fc('b.ts', { type: 'M' })],
+      unstaged: [fc('b.ts', { type: 'M' }), fc('nested/', { type: 'U', isDir: true })],
+      conflicted: [fc('c.ts', { type: '!' })]
+    })
+    expect(m.get('a.ts')).toBe('A')
+    expect(m.get('b.ts')).toBe('M')
+    expect(m.get('c.ts')).toBe('!')
+    expect(m.has('nested/')).toBe(false)
+  })
+})
 
 describe('canPushAfterCommit', () => {
   it('有当前分支时可推送', () => {

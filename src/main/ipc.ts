@@ -44,16 +44,21 @@ import {
   writeStdin
 } from './runner'
 import {
+  deleteFilesUi,
   deleteGitSettings,
   getConfigs,
+  getFilesUi,
   getGitSettings,
   getGitViewPrefs,
   getProjectSortPrefs,
   getProjects,
+  setFilesUi,
   setGitSettings,
   setGitViewPrefs,
   setProjectSortPrefs
 } from './store'
+import { listDir, readFileEntry, sanitizeFilesUi, writeFileEntry } from './files'
+import type { FilesUiState } from '../shared/files'
 import { buildTree } from './tree'
 import { syncWatchers } from './watcher'
 import {
@@ -167,6 +172,7 @@ export function registerIpc(win: BrowserWindow): void {
     disposeTerminalsForProject(path) // 一并杀掉并清除它名下的全部 Terminal
     removeProject(path)
     deleteGitSettings(path) // 连同它的 git 设置与仓库根缓存
+    deleteFilesUi(path)
     clearRepoRootCache(path)
     refreshWatchers()
     return buildTree()
@@ -261,6 +267,35 @@ export function registerIpc(win: BrowserWindow): void {
       shell.showItemInFolder(path)
     }
   })
+
+  // —— Files Tab ——
+  ipcMain.handle(IPC.filesListDir, (_e, projectPath: string, dirPath: string) =>
+    listDir(projectPath, dirPath)
+  )
+  ipcMain.handle(IPC.filesRead, (_e, projectPath: string, filePath: string) =>
+    readFileEntry(projectPath, filePath)
+  )
+  ipcMain.handle(IPC.filesWrite, (_e, projectPath: string, filePath: string, content: string) =>
+    writeFileEntry(projectPath, filePath, content)
+  )
+  ipcMain.handle(IPC.filesGetUi, async (_e, projectPath: string) => {
+    const ui = getFilesUi(projectPath)
+    const sanitized = await sanitizeFilesUi(projectPath, ui)
+    if (
+      sanitized.openPath !== ui.openPath ||
+      sanitized.recentPaths.length !== ui.recentPaths.length ||
+      sanitized.recentPaths.some((p, i) => p !== ui.recentPaths[i])
+    ) {
+      setFilesUi(projectPath, {
+        openPath: sanitized.openPath,
+        recentPaths: sanitized.recentPaths
+      })
+    }
+    return sanitized
+  })
+  ipcMain.handle(IPC.filesSetUi, (_e, projectPath: string, patch: Partial<FilesUiState>) =>
+    setFilesUi(projectPath, patch)
+  )
 
   // —— Git 图谱 ——
   // 读操作：每项目设置在 handler 层解析成有效值传入（git-data 不依赖 store，便于测试）。

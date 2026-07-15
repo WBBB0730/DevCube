@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { configKey, scriptKey } from './runnable'
+import {
+  configKey,
+  filesTabKey,
+  isFilesTabKey,
+  isResidentTabKey,
+  scriptKey
+} from './runnable'
 import type { RunConfig } from './types'
 
 const SEP = String.fromCharCode(0)
@@ -19,5 +25,13 @@ describe('runnable keys', () => {
       command: 'ls'
     }
     expect(configKey(cfg)).toBe(`cmd${SEP}abc`)
+  })
+
+  it('Files Tab 键与常驻判定', () => {
+    expect(filesTabKey('/p')).toBe('files:/p')
+    expect(isFilesTabKey('files:/p')).toBe(true)
+    expect(isResidentTabKey('files:/p')).toBe(true)
+    expect(isResidentTabKey('git:/p')).toBe(true)
+    expect(isResidentTabKey('terminal:1')).toBe(false)
   })
 })

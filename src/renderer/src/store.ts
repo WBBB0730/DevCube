@@ -10,8 +10,12 @@ import type {
   SessionStatus
 } from '@shared/types'
 import { DEFAULT_PROJECT_SORT_PREFS } from '@shared/types'
-import { configKey, gitTabKey, isGitTabKey } from '@shared/runnable'
+import { configKey, filesTabKey, gitTabKey, isResidentTabKey } from '@shared/runnable'
 import { cycleProjectSort } from '@shared/project-sort'
+import {
+  resolveActiveTabKey,
+  resolveNeighborAfterClose
+} from '@shared/tab-activation'
 
 type CommandInput = Omit<CommandRunConfig, 'id' | 'kind'>
 
@@ -51,20 +55,20 @@ function nextTerminalName(terminals: TerminalTab[], projectPath: string): string
 export interface ResolvedTabs {
   /** 常驻 Git Tab 的键（`git:<projectPath>`，恒排最前、不可关闭，ADR-0005） */
   gitKey: string
+  /** 常驻 Files Tab 的键（`files:<projectPath>`，排第二、不可关闭） */
+  filesKey: string
   /** 运行会话 Tab（树序）：每条有会话的配置一个 */
   runTabs: RunTabInfo[]
   /** 终端 Tab（组内可拖拽排序） */
   termTabs: TerminalTab[]
-  /** 当前激活的 Tab（Git Tab 键 / 运行会话键 / 终端键）；Git Tab 常驻，故恒非 null */
+  /** 当前激活的 Tab；常驻 Tab 存在，故恒非 null */
   activeKey: string
 }
 
 /**
- * 解析某项目的 Tab 栏与激活 Tab。Tab 顺序 = 常驻 Git Tab + 运行会话（树序）+ 终端。
- * activeTabByProject：键 = 显式激活的 Tab；缺省（未接触过）= 回落首个运行会话 Tab、
- * 再回落首个终端、最终回落 Git Tab（保持运行器优先的旧回落序）。
- * 显式值失效为瞬态（运行刚点下会话未建 / 刚被移除待修正）、历史 null（关到一个不剩），
- * 都落到 Git Tab —— 有项目即无占位态。
+ * 解析某项目的 Tab 栏与激活 Tab。
+ * Tab 顺序 = Git → Files → 运行会话（树序）→ 终端。
+ * 默认激活：有运行中的 Run Session → 第一个运行中的；否则 Git（ADR-0005）。
  */
 export function resolveTabs(
   s: {
@@ -76,6 +80,7 @@ export function resolveTabs(
   projectPath: string
 ): ResolvedTabs {
   const gitKey = gitTabKey(projectPath)
+  const filesKey = filesTabKey(projectPath)
   const node = s.tree.find((n) => n.project.path === projectPath)
   const runTabs: RunTabInfo[] = []
   for (const c of node?.configs ?? []) {
@@ -91,17 +96,14 @@ export function resolveTabs(
   }
   const termTabs = s.terminals.filter((t) => t.projectPath === projectPath)
   const stored = s.activeTabByProject[projectPath]
-  let activeKey: string
-  if (stored === undefined) activeKey = runTabs[0]?.key ?? termTabs[0]?.key ?? gitKey
-  else if (
-    stored !== null &&
-    (stored === gitKey ||
-      runTabs.some((t) => t.key === stored) ||
-      termTabs.some((t) => t.key === stored))
-  )
-    activeKey = stored
-  else activeKey = gitKey
-  return { gitKey, runTabs, termTabs, activeKey }
+  const activeKey = resolveActiveTabKey({
+    gitKey,
+    filesKey,
+    runTabs,
+    termTabs,
+    stored
+  })
+  return { gitKey, filesKey, runTabs, termTabs, activeKey }
 }
 
 interface AppState {
@@ -208,17 +210,18 @@ export const useApp = create<AppState>((set, get) => ({
       const runNonce = { ...state.runNonce }
       delete runNonce[key]
       const terminals = state.terminals.filter((t) => t.key !== key)
-      // 修正指向被移除 Tab 的激活项：按移除前的 Tab 顺序（Git + 运行会话树序 + 终端序）
-      // 取左邻，其次右邻。Git Tab 常驻最左，因此至少落到它，不再有占位态。
+      // 修正指向被移除 Tab 的激活项：按移除前的 Tab 顺序取左邻，其次右邻（不套用默认激活）。
       const activeTabByProject = { ...state.activeTabByProject }
       for (const [proj, act] of Object.entries(activeTabByProject)) {
         if (act !== key) continue
-        const { gitKey, runTabs, termTabs } = resolveTabs(state, proj) // 移除前的状态
-        const ordered = [gitKey, ...runTabs.map((t) => t.key), ...termTabs.map((t) => t.key)]
-        const idx = ordered.indexOf(key)
-        const rest = ordered.filter((k) => k !== key)
-        activeTabByProject[proj] =
-          idx < 0 ? (rest[0] ?? null) : (rest[idx - 1] ?? rest[idx] ?? null)
+        const { gitKey, filesKey, runTabs, termTabs } = resolveTabs(state, proj)
+        const ordered = [
+          gitKey,
+          filesKey,
+          ...runTabs.map((t) => t.key),
+          ...termTabs.map((t) => t.key)
+        ]
+        activeTabByProject[proj] = resolveNeighborAfterClose(ordered, key)
       }
       return { sessions, runNonce, terminals, activeTabByProject }
     }),
@@ -254,9 +257,9 @@ export const useApp = create<AppState>((set, get) => ({
     if (switched) void window.api.touchProject(projectPath).then((tree) => set({ tree }))
   },
   // 关闭仅发请求；实际移除由 main 的 sessionRemoved 事件统一走 handleSessionRemoved。
-  // Git Tab 常驻不可关闭（无会话可弃），直接忽略。
+  // 常驻非会话 Tab（Git / Files）不可关闭。
   closeTab: async (key) => {
-    if (isGitTabKey(key)) return
+    if (isResidentTabKey(key)) return
     return window.api.closeSession(key)
   },
   init: async () => {

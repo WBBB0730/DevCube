@@ -8,7 +8,8 @@ import {
   UNCOMMITTED,
   type GitCommitStash,
   type GitFileChange,
-  type GitFileStatus
+  type GitFileStatus,
+  type GitUncommittedDetails
 } from '@shared/git'
 
 // —— 文件状态展示 ——
@@ -23,14 +24,37 @@ export const FILE_STATUS_LABEL: Record<GitFileStatus, string> = {
   '!': '冲突'
 }
 
-/** 文件状态 → 颜色（A/U 绿、M/R 蓝、D/冲突 红），全部取既有 token 不写裸 hex。 */
+/** 文件状态 → 颜色（Dark.icls FILESTATUS_*；未跟踪 U 故意跟新增同色，不对齐 UNKNOWN）。 */
 export const FILE_STATUS_COLOR: Record<GitFileStatus, string> = {
-  A: 'var(--status-success)',
-  U: 'var(--status-success)',
-  M: 'var(--git-graph-color0)',
-  R: 'var(--git-graph-color0)',
-  D: 'var(--status-failed)',
-  '!': 'var(--status-failed)'
+  A: 'var(--git-status-added)',
+  U: 'var(--git-status-added)',
+  M: 'var(--git-status-modified)',
+  R: 'var(--git-status-modified)',
+  D: 'var(--git-status-deleted)',
+  '!': 'var(--git-status-conflict)'
+}
+
+/**
+ * 未提交两段 → 相对仓库根路径的工作区展示状态（供 Files 树上色）。
+ * 优先级：冲突 > 未暂存 > 已暂存；跳过 isDir（目录名仍走默认正文色）。
+ */
+export function workingTreeStatusByPath(
+  uncommitted: GitUncommittedDetails
+): Map<string, GitFileStatus> {
+  const m = new Map<string, GitFileStatus>()
+  for (const f of uncommitted.staged) {
+    if (f.isDir) continue
+    m.set(f.newFilePath, f.type)
+  }
+  for (const f of uncommitted.unstaged) {
+    if (f.isDir) continue
+    m.set(f.newFilePath, f.type)
+  }
+  for (const f of uncommitted.conflicted) {
+    if (f.isDir) continue
+    m.set(f.newFilePath, '!')
+  }
+  return m
 }
 
 /**

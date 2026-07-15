@@ -1,0 +1,971 @@
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import CodeMirror from '@uiw/react-codemirror'
+import {
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  File as FileIcon,
+  FileClock,
+  Folder,
+  FolderOpen,
+  ListTree,
+  SquareArrowOutUpRight
+} from 'lucide-react'
+import { pushRecentPath, type FilesDirEntry, type FilesReadResult } from '@shared/files'
+import type { GitFileStatus } from '@shared/git'
+import { normalizePath } from '@shared/files-path'
+import { cn } from '@renderer/lib/utils'
+import {
+  FILES_BASIC_SETUP,
+  filesEditorConfig,
+  filesEditorTheme,
+  filesHighlighting,
+  languageExtensionForPath
+} from '@renderer/lib/cm6-setup'
+import { useFiles } from '@renderer/files-store'
+import { Button } from '@renderer/components/ui/button'
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger
+} from '@renderer/components/ui/dropdown-menu'
+import {
+  FILE_STATUS_COLOR,
+  workingTreeStatusByPath
+} from '@renderer/components/git/git-details'
+
+const IDLE_SAVE_MS = 2000
+const TREE_W = 240
+/** 交互对齐左树（选中色 / hover / transition）；尺寸更紧凑（非左树 h-10/14px）。 */
+const ROW =
+  'flex h-8 w-full cursor-pointer items-center gap-1 rounded px-1.5 text-left text-[13px] text-foreground transition-colors'
+
+type Loaded =
+  | { kind: 'text'; path: string; content: string; mtimeMs: number; dirty: boolean }
+  | { kind: 'image'; path: string; dataUrl: string }
+  | { kind: 'other'; path: string; size: number }
+  | null
+
+export function FilesPane({
+  projectPath,
+  visible
+}: {
+  projectPath: string
+  visible: boolean
+}): React.JSX.Element {
+  const rootLogical = normalizePath(projectPath)
+  const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
+  const [childrenByDir, setChildrenByDir] = useState<Record<string, FilesDirEntry[]>>({})
+  const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  const [loaded, setLoaded] = useState<Loaded>(null)
+  const [saveError, setSaveError] = useState<string | null>(null)
+  const [conflict, setConflict] = useState<{ disk: string; mtimeMs: number } | null>(null)
+  /** 相对项目根路径 → 工作区 Git 状态（与提交面板文件树上色同源） */
+  const [statusByRel, setStatusByRel] = useState<Map<string, GitFileStatus>>(() => new Map())
+  const [recentPaths, setRecentPaths] = useState<string[]>([])
+
+  const loadedRef = useRef(loaded)
+  loadedRef.current = loaded
+  const recentPathsRef = useRef(recentPaths)
+  recentPathsRef.current = recentPaths
+  const expandedRef = useRef(expanded)
+  expandedRef.current = expanded
+  const childrenByDirRef = useRef(childrenByDir)
+  childrenByDirRef.current = childrenByDir
+  const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const treeScrollRef = useRef<HTMLDivElement>(null)
+  /** 仅「打开文件 / 显式定位」时滚入；点目录改 expanded 不滚。 */
+  const prevSelectedPath = useRef<string | null>(null)
+  const pendingScrollPath = useRef<string | null>(null)
+  /** 同路径再次「在文件树中显示」时强制重跑滚动。 */
+  const [revealTick, setRevealTick] = useState(0)
+  const [ready, setReady] = useState(false)
+  /** 忽略过期的 openFile / git status / 全部展开 响应。 */
+  const openSeqRef = useRef(0)
+  const gitStatusSeqRef = useRef(0)
+  const expandAllSeqRef = useRef(0)
+
+  const refreshGitStatus = useCallback(async () => {
+    const seq = ++gitStatusSeqRef.current
+    try {
+      const result = await window.api.gitDetails(projectPath, { kind: 'uncommitted' })
+      if (seq !== gitStatusSeqRef.current) return
+      if (result.error || !result.uncommitted) {
+        setStatusByRel(new Map())
+        return
+      }
+      setStatusByRel(workingTreeStatusByPath(result.uncommitted))
+    } catch {
+      if (seq !== gitStatusSeqRef.current) return
+      setStatusByRel(new Map())
+    }
+  }, [projectPath])
+
+  // Files 可见时拉未提交状态；仓库变动（含工作区 watcher）后刷新
+  useEffect(() => {
+    if (!visible) return
+    void refreshGitStatus()
+    return window.api.onGitChanged((p) => {
+      if (p === projectPath) void refreshGitStatus()
+    })
+  }, [visible, projectPath, refreshGitStatus])
+
+  // 打开文件 / 显式定位后滚入视口；展开目录等只在挂起未完成时重试
+  useLayoutEffect(() => {
+    if (selectedPath !== prevSelectedPath.current) {
+      prevSelectedPath.current = selectedPath
+      pendingScrollPath.current = selectedPath
+    }
+    if (!visible || !pendingScrollPath.current) return
+    const root = treeScrollRef.current
+    if (!root) return
+    const el = root.querySelector(
+      `[data-files-path="${globalThis.CSS.escape(pendingScrollPath.current)}"]`
+    )
+    if (!el) return
+    el.scrollIntoView({ block: 'nearest' })
+    pendingScrollPath.current = null
+  }, [visible, selectedPath, expanded, childrenByDir, revealTick])
+
+  const persistUi = useCallback(
+    (openPath: string | null, expandedPaths: string[]) => {
+      void window.api.filesSetUi(projectPath, { openPath, expandedPaths })
+    },
+    [projectPath]
+  )
+
+  const flushSave = useCallback(async (): Promise<boolean> => {
+    const cur = loadedRef.current
+    if (!cur || cur.kind !== 'text' || !cur.dirty) return true
+    try {
+      const { mtimeMs } = await window.api.filesWrite(projectPath, cur.path, cur.content)
+      setLoaded((prev) =>
+        prev && prev.kind === 'text' && prev.path === cur.path
+          ? { ...prev, dirty: false, mtimeMs }
+          : prev
+      )
+      setSaveError(null)
+      void refreshGitStatus()
+      return true
+    } catch (e) {
+      setSaveError(e instanceof Error ? e.message : String(e))
+      return false
+    }
+  }, [projectPath, refreshGitStatus])
+
+  const scheduleIdleSave = useCallback(() => {
+    if (idleTimer.current) clearTimeout(idleTimer.current)
+    idleTimer.current = setTimeout(() => {
+      void flushSave()
+    }, IDLE_SAVE_MS)
+  }, [flushSave])
+
+  const openFile = useCallback(
+    async (filePath: string, opts?: { force?: boolean }) => {
+      if (idleTimer.current) {
+        clearTimeout(idleTimer.current)
+        idleTimer.current = null
+      }
+      const seq = ++openSeqRef.current
+      const cur = loadedRef.current
+      if (cur?.kind === 'text' && cur.dirty && cur.path !== filePath && !opts?.force) {
+        const ok = await flushSave()
+        if (!ok) return
+        if (seq !== openSeqRef.current) return
+      }
+      try {
+        const result: FilesReadResult = await window.api.filesRead(projectPath, filePath)
+        if (seq !== openSeqRef.current) return
+        if (result.kind === 'text') {
+          setLoaded({
+            kind: 'text',
+            path: result.path,
+            content: result.content,
+            mtimeMs: result.mtimeMs,
+            dirty: false
+          })
+        } else if (result.kind === 'image') {
+          setLoaded({ kind: 'image', path: result.path, dataUrl: result.dataUrl })
+        } else {
+          setLoaded({ kind: 'other', path: result.path, size: result.size })
+        }
+        setSelectedPath(filePath)
+        setSaveError(null)
+        const nextRecent = pushRecentPath(recentPathsRef.current, filePath)
+        setRecentPaths(nextRecent)
+        void window.api.filesSetUi(projectPath, {
+          openPath: filePath,
+          expandedPaths: [...expandedRef.current],
+          recentPaths: nextRecent
+        })
+      } catch (e) {
+        if (seq !== openSeqRef.current) return
+        setSaveError(e instanceof Error ? e.message : String(e))
+        setLoaded(null)
+        setSelectedPath(null)
+        persistUi(null, [...expandedRef.current])
+      }
+    },
+    [flushSave, persistUi, projectPath]
+  )
+
+  const ensureDirLoaded = useCallback(
+    async (dirPath: string) => {
+      if (childrenByDirRef.current[dirPath]) return
+      const entries = await window.api.filesListDir(projectPath, dirPath)
+      setChildrenByDir((prev) => {
+        if (prev[dirPath]) return prev
+        return { ...prev, [dirPath]: entries }
+      })
+    },
+    [projectPath]
+  )
+
+  const toggleDir = useCallback(
+    async (dirPath: string) => {
+      const willOpen = !expandedRef.current.has(dirPath)
+      // 手动收起时作废进行中的「全部展开」，否则后续 flush 会把目录再次打开
+      if (!willOpen) expandAllSeqRef.current++
+      if (willOpen) await ensureDirLoaded(dirPath)
+      const next = new Set(expandedRef.current)
+      if (willOpen) next.add(dirPath)
+      else next.delete(dirPath)
+      expandedRef.current = next
+      setExpanded(next)
+      persistUi(loadedRef.current?.path ?? null, [...next])
+    },
+    [ensureDirLoaded, persistUi]
+  )
+
+  const collapseAllDirs = useCallback(() => {
+    expandAllSeqRef.current++
+    const next = new Set<string>()
+    expandedRef.current = next
+    setExpanded(next)
+    persistUi(loadedRef.current?.path ?? null, [])
+  }, [persistUi])
+
+  /**
+   * 递归加载并展开全部目录。
+   * - 分批刷 UI；单目录失败不中断
+   * - seq 作废后不再写 expanded（避免收起后又被内层 flush 展开）
+   * - 永不把内部可变 Set 交给 state/ref（只提交拷贝）
+   */
+  const expandAllDirs = useCallback(async () => {
+    const seq = ++expandAllSeqRef.current
+    const nextChildren: Record<string, FilesDirEntry[]> = { ...childrenByDirRef.current }
+    const nextExpanded = new Set<string>()
+    let listed = 0
+
+    const stillActive = (): boolean => seq === expandAllSeqRef.current
+
+    const flushChildren = (): void => {
+      const snap = { ...nextChildren }
+      childrenByDirRef.current = snap
+      setChildrenByDir(snap)
+    }
+
+    const flushExpanded = (): void => {
+      if (!stillActive()) return
+      const snap = new Set(nextExpanded)
+      if (!stillActive()) return
+      expandedRef.current = snap
+      setExpanded(snap)
+    }
+
+    const walk = async (dir: string): Promise<void> => {
+      if (!stillActive()) return
+      nextExpanded.add(dir)
+      try {
+        if (!nextChildren[dir]) {
+          nextChildren[dir] = await window.api.filesListDir(projectPath, dir)
+        }
+      } catch {
+        nextChildren[dir] = nextChildren[dir] ?? []
+        return
+      }
+      if (!stillActive()) return
+      listed++
+      if (listed === 1 || listed % 15 === 0) {
+        flushChildren()
+        flushExpanded()
+        await new Promise<void>((r) => setTimeout(r, 0))
+        if (!stillActive()) return
+      }
+      for (const e of nextChildren[dir]) {
+        if (!stillActive()) return
+        if (e.isDirectory) await walk(e.path)
+      }
+    }
+
+    try {
+      await walk(rootLogical)
+    } finally {
+      if (stillActive()) {
+        flushChildren()
+        flushExpanded()
+        persistUi(loadedRef.current?.path ?? null, [...expandedRef.current])
+      }
+    }
+  }, [persistUi, projectPath, rootLogical])
+
+  /** 展开到目标：文件只展开祖先；目录连自身一并展开。 */
+  const expandToPath = useCallback(
+    async (logical: string, isDirectory: boolean): Promise<Set<string>> => {
+      const toAdd: string[] = [rootLogical]
+      const rel = logical.startsWith(rootLogical + '/')
+        ? logical.slice(rootLogical.length + 1)
+        : ''
+      if (rel) {
+        const segs = rel.split('/')
+        let prefix = rootLogical
+        for (let i = 0; i < segs.length; i++) {
+          prefix = normalizePath(prefix + '/' + segs[i])
+          const last = i === segs.length - 1
+          if (!last || isDirectory) {
+            toAdd.push(prefix)
+            await ensureDirLoaded(prefix).catch(() => undefined)
+          }
+        }
+      }
+      const next = new Set(expandedRef.current)
+      for (const p of toAdd) next.add(p)
+      expandedRef.current = next
+      setExpanded(next)
+      return next
+    },
+    [ensureDirLoaded, rootLogical]
+  )
+
+  const expandToFile = useCallback(
+    async (logical: string): Promise<void> => {
+      const next = await expandToPath(logical, false)
+      persistUi(logical, [...next])
+    },
+    [expandToPath, persistUi]
+  )
+
+  /** 在右侧文件树展开并滚到目标（不打开/切换正文，除非本来就是该文件）。 */
+  const revealInTree = useCallback(
+    async (logical: string, isDirectory: boolean): Promise<void> => {
+      const next = await expandToPath(logical, isDirectory)
+      setSelectedPath(logical)
+      pendingScrollPath.current = logical
+      setRevealTick((n) => n + 1)
+      const openPath = loadedRef.current?.path ?? null
+      persistUi(openPath, [...next])
+    },
+    [expandToPath, persistUi]
+  )
+
+  const openFromRecent = useCallback(
+    async (logical: string) => {
+      await expandToFile(logical)
+      await openFile(logical)
+      // 已是当前文件时 selectedPath 不变，须强制挂起滚动（同「在文件树中显示」）
+      pendingScrollPath.current = logical
+      setRevealTick((n) => n + 1)
+    },
+    [expandToFile, openFile]
+  )
+
+  // 首次变为可见时：恢复树展开与上次打开（pending 由下一 effect 统一消费，避免竞态）
+  useEffect(() => {
+    if (!visible || ready) return
+    let cancelled = false
+    void (async () => {
+      await ensureDirLoaded(rootLogical)
+      if (cancelled) return
+      const ui = await window.api.filesGetUi(projectPath)
+      if (cancelled) return
+      const exp = new Set(ui.expandedPaths.length ? ui.expandedPaths : [])
+      expandedRef.current = exp
+      setExpanded(exp)
+      setRecentPaths(ui.recentPaths)
+      for (const d of exp) {
+        await ensureDirLoaded(d).catch(() => undefined)
+        if (cancelled) return
+      }
+      const hasPending = !!useFiles.getState().pendingOpenByProject[projectPath]
+      if (!hasPending && ui.openPath) await openFile(ui.openPath, { force: true })
+      if (cancelled) return
+      setReady(true)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [visible, ready, ensureDirLoaded, openFile, projectPath, rootLogical])
+
+  // Git / 外部 pending open（ready 之后才消费）
+  const pending = useFiles((s) => s.pendingOpenByProject[projectPath])
+  useEffect(() => {
+    if (!ready || !pending) return
+    const path = useFiles.getState().consumePendingOpen(projectPath)
+    if (!path) return
+    // 不在 cleanup 里取消：consume 会立刻把 pending 置空并重跑 effect，取消会误杀本次打开。
+    void (async () => {
+      const logical = normalizePath(path)
+      await expandToFile(logical)
+      await openFile(logical)
+    })()
+  }, [ready, pending, projectPath, expandToFile, openFile])
+
+  // 离开 Files Tab / 失焦 → 保存
+  useEffect(() => {
+    if (!visible) void flushSave()
+  }, [visible, flushSave])
+
+  useEffect(() => {
+    const onBlur = (): void => {
+      void flushSave()
+    }
+    window.addEventListener('blur', onBlur)
+    return () => window.removeEventListener('blur', onBlur)
+  }, [flushSave])
+
+  // 外部变更：可见时周期性轻量检查 mtime（无 watcher 专用通道时的务实做法）
+  useEffect(() => {
+    if (!visible) return
+    const id = setInterval(() => {
+      void (async () => {
+        const cur = loadedRef.current
+        if (!cur || cur.kind !== 'text') return
+        const path = cur.path
+        const mtimeMs = cur.mtimeMs
+        try {
+          const fresh = await window.api.filesRead(projectPath, path)
+          const still = loadedRef.current
+          if (!still || still.kind !== 'text' || still.path !== path) return
+          if (fresh.kind !== 'text') return
+          if (fresh.mtimeMs === mtimeMs || fresh.mtimeMs === still.mtimeMs) return
+          if (still.dirty) {
+            setConflict({ disk: fresh.content, mtimeMs: fresh.mtimeMs })
+          } else {
+            setLoaded({
+              kind: 'text',
+              path: fresh.path,
+              content: fresh.content,
+              mtimeMs: fresh.mtimeMs,
+              dirty: false
+            })
+          }
+        } catch {
+          /* 文件可能已删：静默 */
+        }
+      })()
+    }, 2000)
+    return () => clearInterval(id)
+  }, [visible, projectPath])
+
+  return (
+    <div className="flex h-full min-h-0">
+      <div className="relative min-h-0 min-w-0 flex-1 bg-deepest">
+        {!loaded && (
+          <div className="flex h-full min-h-0 flex-col">
+            <FilesToolbar
+              path={null}
+              projectRoot={rootLogical}
+              error={null}
+              recentPaths={recentPaths}
+              fileStatus={undefined}
+              onRevealInTree={revealInTree}
+              onOpenRecent={openFromRecent}
+            />
+            <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
+              在右侧选择文件
+            </div>
+          </div>
+        )}
+        {loaded?.kind === 'text' && (
+          <FilesTextEditor
+            path={loaded.path}
+            content={loaded.content}
+            projectRoot={rootLogical}
+            error={saveError}
+            recentPaths={recentPaths}
+            fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
+            onRevealInTree={revealInTree}
+            onOpenRecent={openFromRecent}
+            onChange={(v) => {
+              setLoaded((prev) =>
+                prev && prev.kind === 'text' ? { ...prev, content: v, dirty: true } : prev
+              )
+              scheduleIdleSave()
+            }}
+          />
+        )}
+        {loaded?.kind === 'image' && (
+          <div className="flex h-full min-h-0 flex-col">
+            <FilesToolbar
+              path={loaded.path}
+              projectRoot={rootLogical}
+              error={null}
+              recentPaths={recentPaths}
+              fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
+              onRevealInTree={revealInTree}
+              onOpenRecent={openFromRecent}
+            />
+            <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
+              <img
+                src={loaded.dataUrl}
+                alt={loaded.path}
+                className="max-h-full max-w-full object-contain"
+              />
+            </div>
+          </div>
+        )}
+        {loaded?.kind === 'other' && (
+          <div className="flex h-full min-h-0 flex-col">
+            <FilesToolbar
+              path={loaded.path}
+              projectRoot={rootLogical}
+              error={null}
+              recentPaths={recentPaths}
+              fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
+              onRevealInTree={revealInTree}
+              onOpenRecent={openFromRecent}
+            />
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-sm text-muted-foreground">
+              <p>无法在此编辑此文件</p>
+              <p className="text-xs">{formatSize(loaded.size)}</p>
+              <button
+                type="button"
+                className="rounded-lg px-3 py-1.5 text-[color:var(--fg-primary)] transition-colors hover:bg-[var(--bg-button-hover)]"
+                onClick={() => void window.api.openPath(toSysPath(loaded.path))}
+              >
+                在其他应用中打开
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+      <div
+        className="flex h-full shrink-0 flex-col border-l border-[var(--separator)] bg-panel"
+        style={{ width: TREE_W }}
+      >
+        <div className="flex h-10 shrink-0 items-center justify-end gap-0.5 border-b border-[var(--separator)] px-1.5">
+          <button
+            type="button"
+            title="全部展开"
+            className={TOOLBAR_BTN}
+            onClick={() => void expandAllDirs()}
+          >
+            <ChevronsUpDown className="size-4" />
+          </button>
+          <button
+            type="button"
+            title="全部折叠"
+            className={TOOLBAR_BTN}
+            onClick={collapseAllDirs}
+          >
+            <ChevronsDownUp className="size-4" />
+          </button>
+        </div>
+        <div ref={treeScrollRef} className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5 pt-1">
+          <FileTreeNode
+            projectRoot={rootLogical}
+            dirPath={rootLogical}
+            depth={0}
+            expanded={expanded}
+            childrenByDir={childrenByDir}
+            selectedPath={selectedPath}
+            statusByRel={statusByRel}
+            onToggle={toggleDir}
+            onOpenFile={(p) => void openFile(p)}
+          />
+        </div>
+      </div>
+
+      {conflict && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-[440px] rounded border border-[color:var(--border-input)] bg-panel p-4 shadow-xl">
+            <h2 className="text-sm text-[color:var(--fg-dialog-title)]">文件已在磁盘上更改</h2>
+            <p className="mt-2 text-[13px] text-muted-foreground">
+              当前有未保存的编辑，磁盘内容也已变化。要重载磁盘版本还是保留编辑器内容？
+            </p>
+            <div className="mt-4 flex justify-end gap-2">
+              <Button
+                variant="ghost"
+                onClick={() => {
+                  setLoaded((prev) =>
+                    prev && prev.kind === 'text' && conflict
+                      ? { ...prev, mtimeMs: conflict.mtimeMs }
+                      : prev
+                  )
+                  setConflict(null)
+                }}
+              >
+                保留编辑器内容
+              </Button>
+              <Button
+                onClick={() => {
+                  setLoaded((prev) =>
+                    prev && prev.kind === 'text'
+                      ? {
+                          ...prev,
+                          content: conflict.disk,
+                          mtimeMs: conflict.mtimeMs,
+                          dirty: false
+                        }
+                      : prev
+                  )
+                  setConflict(null)
+                }}
+              >
+                重载
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function FilesTextEditor({
+  path,
+  content,
+  projectRoot,
+  error,
+  recentPaths,
+  fileStatus,
+  onRevealInTree,
+  onOpenRecent,
+  onChange
+}: {
+  path: string
+  content: string
+  projectRoot: string
+  error: string | null
+  recentPaths: string[]
+  fileStatus: GitFileStatus | undefined
+  onRevealInTree: (logical: string, isDirectory: boolean) => void | Promise<void>
+  onOpenRecent: (logical: string) => void | Promise<void>
+  onChange: (value: string) => void
+}): React.JSX.Element {
+  const extensions = useMemo(
+    () => [
+      filesEditorTheme,
+      filesHighlighting,
+      filesEditorConfig,
+      languageExtensionForPath(path)
+    ],
+    [path]
+  )
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <FilesToolbar
+        path={path}
+        projectRoot={projectRoot}
+        error={error}
+        recentPaths={recentPaths}
+        fileStatus={fileStatus}
+        onRevealInTree={onRevealInTree}
+        onOpenRecent={onOpenRecent}
+      />
+      <div className="files-codemirror min-h-0 flex-1 overflow-hidden bg-[#1E1F22]">
+        <CodeMirror
+          key={path}
+          value={content}
+          height="100%"
+          theme="none"
+          extensions={extensions}
+          basicSetup={FILES_BASIC_SETUP}
+          onChange={onChange}
+          className="h-full [&_.cm-editor]:h-full [&_.cm-editor]:outline-none"
+        />
+      </div>
+    </div>
+  )
+}
+
+/** 对齐 GitToolbar ICON_BTN：transition-colors + 钮组 gap-0.5 */
+const TOOLBAR_BTN =
+  'flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
+
+function FilesToolbar({
+  path,
+  projectRoot,
+  error,
+  recentPaths,
+  fileStatus,
+  onRevealInTree,
+  onOpenRecent
+}: {
+  path: string | null
+  projectRoot: string
+  error: string | null
+  recentPaths: string[]
+  fileStatus: GitFileStatus | undefined
+  onRevealInTree: (logical: string, isDirectory: boolean) => void | Promise<void>
+  onOpenRecent: (logical: string) => void | Promise<void>
+}): React.JSX.Element {
+  const rel =
+    path && path.startsWith(projectRoot + '/')
+      ? path.slice(projectRoot.length + 1)
+      : (path ?? '')
+  const parts = rel.split('/').filter((p) => p.length > 0)
+  const fileColour = fileStatus ? FILE_STATUS_COLOR[fileStatus] : undefined
+  return (
+    <div className="flex h-10 shrink-0 items-center gap-2 border-b border-[var(--separator)] bg-panel px-2 text-[13px]">
+      <div
+        className="flex min-w-0 flex-1 items-center overflow-hidden"
+        title={path ?? undefined}
+      >
+        {path && (
+          <div className="flex min-w-0 items-center gap-0.5 overflow-hidden">
+            {parts.map((part, i) => {
+              const last = i === parts.length - 1
+              const segmentPath = normalizePath(
+                projectRoot + '/' + parts.slice(0, i + 1).join('/')
+              )
+              return (
+                <span key={`${i}:${part}`} className="flex min-w-0 items-center gap-0.5">
+                  {i > 0 && (
+                    <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
+                  )}
+                  <button
+                    type="button"
+                    title={segmentPath}
+                    className={cn(
+                      'max-w-full cursor-pointer truncate transition-colors hover:text-[color:var(--fg-primary)]',
+                      last
+                        ? 'text-[color:var(--files-crumb-file)]'
+                        : 'text-muted-foreground'
+                    )}
+                    style={
+                      last
+                        ? ({
+                            '--files-crumb-file': fileColour ?? 'var(--fg-primary)'
+                          } as React.CSSProperties)
+                        : undefined
+                    }
+                    onClick={() => void onRevealInTree(segmentPath, !last)}
+                  >
+                    {part}
+                  </button>
+                </span>
+              )
+            })}
+          </div>
+        )}
+      </div>
+      {error && <span className="shrink-0 text-xs text-[var(--status-failed)]">{error}</span>}
+      <div className="flex shrink-0 items-center gap-0.5">
+        <DropdownMenu>
+          <DropdownMenuTrigger title="最近打开文件" className={TOOLBAR_BTN}>
+            <FileClock className="size-4" />
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="max-w-2xl">
+            {recentPaths.length === 0 ? (
+              <div className="px-2 py-1.5 text-[13px] text-muted-foreground">暂无最近打开文件</div>
+            ) : (
+              recentPaths.map((p) => {
+                const rel = relPathUnderRoot(projectRoot, p) || p
+                const slash = rel.lastIndexOf('/')
+                const name = slash >= 0 ? rel.slice(slash + 1) : rel
+                const dir = slash >= 0 ? rel.slice(0, slash) : ''
+                return (
+                  <DropdownMenuItem
+                    key={p}
+                    className="min-w-0 gap-1.5"
+                    onClick={() => void onOpenRecent(p)}
+                  >
+                    <span className="shrink-0" title={p}>
+                      {name}
+                    </span>
+                    {dir && (
+                      <span className="min-w-0 truncate text-muted-foreground" title={p}>
+                        {dir}
+                      </span>
+                    )}
+                  </DropdownMenuItem>
+                )
+              })
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+        {path && (
+          <>
+            <button
+              type="button"
+              title="在文件树中显示"
+              className={TOOLBAR_BTN}
+              onClick={() => void onRevealInTree(path, false)}
+            >
+              <ListTree className="size-4" />
+            </button>
+            <button
+              type="button"
+              title="在文件夹中显示"
+              className={TOOLBAR_BTN}
+              onClick={() => void window.api.revealInFolder(toSysPath(path))}
+            >
+              <FolderOpen className="size-4" />
+            </button>
+            <button
+              type="button"
+              title="在其他应用中打开"
+              className={TOOLBAR_BTN}
+              onClick={() => void window.api.openPath(toSysPath(path))}
+            >
+              <SquareArrowOutUpRight className="size-4" />
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  )
+}
+
+function relPathUnderRoot(projectRoot: string, absolute: string): string {
+  if (absolute === projectRoot) return ''
+  if (absolute.startsWith(projectRoot + '/')) return absolute.slice(projectRoot.length + 1)
+  return absolute
+}
+
+function FileTreeNode({
+  projectRoot,
+  dirPath,
+  depth,
+  expanded,
+  childrenByDir,
+  selectedPath,
+  statusByRel,
+  onToggle,
+  onOpenFile
+}: {
+  projectRoot: string
+  dirPath: string
+  depth: number
+  expanded: Set<string>
+  childrenByDir: Record<string, FilesDirEntry[]>
+  selectedPath: string | null
+  statusByRel: Map<string, GitFileStatus>
+  onToggle: (dir: string) => void
+  onOpenFile: (path: string) => void
+}): React.JSX.Element {
+  const entries = childrenByDir[dirPath] ?? []
+  const isRoot = dirPath === projectRoot
+  /** 内容缩进：行背景全宽，仅左侧占位（对齐左树「背景不缩进」）。 */
+  const indent = (levels: number): React.JSX.Element | null =>
+    levels > 0 ? <span className="shrink-0" style={{ width: levels * 12 }} /> : null
+
+  return (
+    <div>
+      {!isRoot && (
+        <button
+          type="button"
+          data-files-path={dirPath}
+          className={cn(
+            ROW,
+            selectedPath === dirPath
+              ? 'bg-[var(--selection-row)]'
+              : 'hover:bg-[var(--bg-row-hover)]'
+          )}
+          onClick={() => onToggle(dirPath)}
+        >
+          {indent(depth)}
+          <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+            <ChevronRight
+              className={cn(
+                'size-3.5 transition-transform',
+                expanded.has(dirPath) && 'rotate-90'
+              )}
+            />
+          </span>
+          <Folder className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
+          <span
+            className="min-w-0 flex-1 truncate"
+            style={
+              selectedPath === dirPath ? { color: 'var(--fg-primary)' } : undefined
+            }
+          >
+            {dirPath.split('/').pop()}
+          </span>
+        </button>
+      )}
+      {(isRoot || expanded.has(dirPath)) &&
+        entries.map((e) =>
+          e.isDirectory ? (
+            <FileTreeNode
+              key={e.path}
+              projectRoot={projectRoot}
+              dirPath={e.path}
+              depth={isRoot ? depth : depth + 1}
+              expanded={expanded}
+              childrenByDir={childrenByDir}
+              selectedPath={selectedPath}
+              statusByRel={statusByRel}
+              onToggle={onToggle}
+              onOpenFile={onOpenFile}
+            />
+          ) : (
+            <FileTreeFileRow
+              key={e.path}
+              entry={e}
+              depth={isRoot ? depth : depth + 1}
+              selected={selectedPath === e.path}
+              status={statusByRel.get(relPathUnderRoot(projectRoot, e.path))}
+              indent={indent}
+              onOpen={() => onOpenFile(e.path)}
+            />
+          )
+        )}
+    </div>
+  )
+}
+
+function FileTreeFileRow({
+  entry,
+  depth,
+  selected,
+  status,
+  indent,
+  onOpen
+}: {
+  entry: FilesDirEntry
+  depth: number
+  selected: boolean
+  status: GitFileStatus | undefined
+  indent: (levels: number) => React.JSX.Element | null
+  onOpen: () => void
+}): React.JSX.Element {
+  const colour = status ? FILE_STATUS_COLOR[status] : undefined
+  return (
+    <button
+      type="button"
+      data-files-path={entry.path}
+      className={cn(
+        ROW,
+        selected ? 'bg-[var(--selection-row)]' : 'hover:bg-[var(--bg-row-hover)]'
+      )}
+      onClick={onOpen}
+    >
+      {indent(depth)}
+      <span className="size-3.5 shrink-0" />
+      <FileIcon
+        className="size-3.5 shrink-0"
+        style={{ color: colour ?? 'var(--fg-icon)' }}
+      />
+      <span
+        className="min-w-0 flex-1 truncate"
+        style={{ color: selected ? 'var(--fg-primary)' : colour }}
+      >
+        {entry.name}
+      </span>
+    </button>
+  )
+}
+
+function formatSize(n: number): string {
+  if (n < 1024) return `${n} B`
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`
+}
+
+/** 逻辑路径转系统路径（macOS/Linux 上通常相同）。 */
+function toSysPath(logical: string): string {
+  return logical
+}

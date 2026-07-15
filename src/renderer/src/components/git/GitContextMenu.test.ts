@@ -79,7 +79,7 @@ function makeCtx(overrides: Partial<GitMenuContext> = {}): Recorded {
       updateSettings: (p) => rec.patches.push(p),
       openDiff: (_f, from, to) => rec.diffs.push({ from, to }),
       copyText: (text) => rec.copied.push(text),
-      openPath: (p) => rec.paths.push(p),
+      openInFiles: (p) => rec.paths.push(p),
       revealInFolder: (p) => rec.revealed.push(p)
     },
     ...overrides

@@ -604,7 +604,9 @@ function FileSection({
           {row.name}
         </span>
         {/* 冲突徽标：占 +/- 统计的位置（冲突行 additions/deletions 恒 null，两者互斥不打架） */}
-        {file.type === '!' && <span className="shrink-0 text-[12px] text-status-failed">冲突</span>}
+        {file.type === '!' && (
+          <span className="shrink-0 text-[12px] text-[color:var(--git-status-conflict)]">冲突</span>
+        )}
         {(file.type === 'M' || file.type === 'R') &&
           file.additions !== null &&
           file.deletions !== null && (

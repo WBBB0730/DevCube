@@ -24,3 +24,17 @@ export function gitTabKey(projectPath: string): string {
 export function isGitTabKey(key: string): boolean {
   return key.startsWith('git:')
 }
+
+// Files Tab 键：每项目一个常驻、非会话的 Tab（ADR-0005），排在 Git Tab 之后。
+export function filesTabKey(projectPath: string): string {
+  return `files:${projectPath}`
+}
+
+export function isFilesTabKey(key: string): boolean {
+  return key.startsWith('files:')
+}
+
+/** 常驻非会话 Tab（Git / Files）：Cmd+W / closeTab 均为 no-op。 */
+export function isResidentTabKey(key: string): boolean {
+  return isGitTabKey(key) || isFilesTabKey(key)
+}

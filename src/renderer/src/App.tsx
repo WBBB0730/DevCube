@@ -4,14 +4,19 @@ import { Console } from '@renderer/components/Console'
 import { ConfigDialog } from '@renderer/components/ConfigDialog'
 import { resolveTabs, useApp } from '@renderer/store'
 import { gitState, useGit } from '@renderer/git-store'
-import { isGitTabKey } from '@shared/runnable'
+import { isResidentTabKey } from '@shared/runnable'
 
-// 在当前项目的全部 Tab（Git + 运行会话 + 终端）间循环。dir: +1 下一个 / -1 上一个。
+// 在当前项目的全部 Tab（Git + Files + 运行会话 + 终端）间循环。dir: +1 下一个 / -1 上一个。
 // 与 Console 共用 resolveTabs 解析。
 function cycleTab(projectPath: string, dir: 1 | -1): void {
   const st = useApp.getState()
-  const { gitKey, runTabs, termTabs, activeKey } = resolveTabs(st, projectPath)
-  const ordered = [gitKey, ...runTabs.map((t) => t.key), ...termTabs.map((t) => t.key)]
+  const { gitKey, filesKey, runTabs, termTabs, activeKey } = resolveTabs(st, projectPath)
+  const ordered = [
+    gitKey,
+    filesKey,
+    ...runTabs.map((t) => t.key),
+    ...termTabs.map((t) => t.key)
+  ]
   const idx = ordered.indexOf(activeKey)
   const next =
     idx < 0
@@ -88,12 +93,12 @@ function App(): React.JSX.Element {
         e.stopPropagation()
         st.newTerminal(proj)
       } else if (mod && !e.shiftKey && (e.key === 'w' || e.key === 'W')) {
-        // Cmd/Ctrl+W：关闭当前激活的 Tab（运行会话或终端；运行中则温和停止）。Git Tab 常驻不可关；
-        // 但当前项目存在即一律吞掉，绝不冒泡到系统默认 Cmd+W 误关整个窗口（会连带杀掉所有终端/进程）。
+        // Cmd/Ctrl+W：关闭当前激活的会话 Tab；常驻 Git / Files 不可关。
+        // 当前项目存在即一律吞掉，绝不冒泡到系统默认 Cmd+W 误关窗口。
         e.preventDefault()
         e.stopPropagation()
         const { activeKey } = resolveTabs(st, proj)
-        if (!isGitTabKey(activeKey)) st.closeTab(activeKey)
+        if (!isResidentTabKey(activeKey)) st.closeTab(activeKey)
       } else if (e.ctrlKey && e.key === 'Tab') {
         // Ctrl+Tab / Ctrl+Shift+Tab：在当前项目的 Tab 间循环。
         e.preventDefault()

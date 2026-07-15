@@ -25,6 +25,7 @@ import {
 } from '@shared/git'
 import { dropCommitPossible } from '@renderer/lib/git-graph'
 import { gitState, useGit } from '@renderer/git-store'
+import { useFiles } from '@renderer/files-store'
 import { cn } from '@renderer/lib/utils'
 import { toggleBranch } from './GitBranchDropdown'
 import { opBlockReason } from './GitOpStatusBar'
@@ -55,7 +56,8 @@ export interface GitMenuActions {
   updateSettings(patch: Partial<GitRepoSettings>): void
   openDiff(file: GitFileChange, fromHash: string, toHash: string): void
   copyText(text: string, typeLabel: string): void
-  openPath(absolutePath: string): void
+  /** 在 Files Tab 中打开（不再直接调系统应用） */
+  openInFiles(absolutePath: string): void
   revealInFolder(absolutePath: string): void
 }
 
@@ -513,7 +515,7 @@ function fileMenu(
     items.push(
       {
         title: '打开文件',
-        onClick: () => actions.openPath(`${ctx.projectPath}/${file.newFilePath}`)
+        onClick: () => actions.openInFiles(`${ctx.projectPath}/${file.newFilePath}`)
       },
       {
         title: '在文件夹中显示',
@@ -583,7 +585,7 @@ function uncommittedFileMenu(
     items.push(
       {
         title: '打开文件',
-        onClick: () => actions.openPath(`${ctx.projectPath}/${file.newFilePath}`)
+        onClick: () => actions.openInFiles(`${ctx.projectPath}/${file.newFilePath}`)
       },
       {
         title: '在文件夹中显示',
@@ -710,7 +712,7 @@ export function GitContextMenu({ projectPath }: { projectPath: string }): React.
           })
         })
       },
-      openPath: (absolutePath) => void window.api.openPath(absolutePath),
+      openInFiles: (absolutePath) => useFiles.getState().openInFiles(projectPath, absolutePath),
       revealInFolder: (absolutePath) => void window.api.revealInFolder(absolutePath)
     }),
     [projectPath]

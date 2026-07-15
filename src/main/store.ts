@@ -1,4 +1,6 @@
 import type ElectronStore from 'electron-store'
+import type { FilesUiState } from '../shared/files'
+import { DEFAULT_FILES_UI } from '../shared/files'
 import type {
   PersistedState,
   Project,
@@ -25,7 +27,8 @@ export async function initStore(): Promise<void> {
       configs: [],
       gitSettings: {},
       gitViewPrefs: DEFAULT_GIT_VIEW_PREFS,
-      projectSortPrefs: DEFAULT_PROJECT_SORT_PREFS
+      projectSortPrefs: DEFAULT_PROJECT_SORT_PREFS,
+      filesUi: {}
     }
   })
 }
@@ -122,4 +125,26 @@ export function setProjectSortPrefs(patch: Partial<ProjectSortPrefs>): ProjectSo
   const merged = { ...getProjectSortPrefs(), ...patch }
   store.set('projectSortPrefs', merged)
   return merged
+}
+
+export function getFilesUi(projectPath: string): FilesUiState {
+  const all = store.get('filesUi') ?? {}
+  const stored = all[projectPath]
+  return {
+    ...DEFAULT_FILES_UI,
+    ...pickKnownKeys(DEFAULT_FILES_UI, stored)
+  }
+}
+
+export function setFilesUi(projectPath: string, patch: Partial<FilesUiState>): FilesUiState {
+  const merged = { ...getFilesUi(projectPath), ...patch }
+  store.set('filesUi', { ...(store.get('filesUi') ?? {}), [projectPath]: merged })
+  return merged
+}
+
+/** 项目移除时清掉 Files UI，避免残留。 */
+export function deleteFilesUi(projectPath: string): void {
+  const all = { ...(store.get('filesUi') ?? {}) }
+  delete all[projectPath]
+  store.set('filesUi', all)
 }

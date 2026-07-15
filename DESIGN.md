@@ -34,6 +34,7 @@
 | `--separator`           | `#1E1F22` | 面板间 1px 分隔                                |
 | `--selection-row`       | `#2D436E` | 选中行圆角填充                                 |
 | `--selection-row-hover` | `#35538F` | 选中（蓝底）行上按钮的 hover 底（非灰）        |
+| `--editor-selection`    | `#224283` | Files 编辑器文本选区（WebStorm；≠ 行选中蓝）   |
 | `--accent`              | `#3574F0` | 强调（New UI 主蓝，⚠ 推导，非 .icls）；**焦点环全局关闭**（`--ring: transparent`） |
 | `--link`                | `#548AF7` | 链接（.icls HYPERLINK）                        |
 
@@ -55,6 +56,18 @@
 | `--status-running` | `#5FAD65` | 运行中             |
 | `--status-success` | `#57965D` | 成功退出（exit 0） |
 | `--status-failed`  | `#C94F4F` | 失败退出（非 0）   |
+
+**Git 文件状态色**（`Dark.icls` FILESTATUS_*；提交面板 / Files 树文件名与图标）
+
+| 变量                      | 值        | 来源 / 用途                                                |
+| ------------------------- | --------- | ---------------------------------------------------------- |
+| `--git-status-added`      | `#73BD79` | FILESTATUS_ADDED；新增（A）；**未跟踪（U）也用此色**（不对齐 FILESTATUS_UNKNOWN） |
+| `--git-status-modified`   | `#70AEFF` | FILESTATUS_MODIFIED / RENAMED；修改 / 重命名（M / R）      |
+| `--git-status-deleted`    | `#6F737A` | FILESTATUS_DELETED；删除（D）；与 `--fg-disabled` 同值      |
+| `--git-status-conflict`   | `#DE6A66` | FILESTATUS_*_MERGED_WITH_*_CONFLICTS / changelistConflict；冲突（`!`） |
+| `--git-status-merged`     | `#CF84CF` | FILESTATUS_MERGED；已合并（预留）                          |
+| `--git-status-ignored`    | `#D69A6B` | FILESTATUS_IDEA_FILESTATUS_IGNORED；已忽略（预留）         |
+| `--git-status-untracked`  | `#E88F89` | FILESTATUS_UNKNOWN（**预留，当前 U 不用**）                |
 
 **滚动条（webkit）**
 
@@ -89,6 +102,7 @@ ANSI 16 色（取自 JetBrains 终端真实 Console Colors 调色板）：
 
 - **UI 字体**：Inter，13px，行高 ~20px（JetBrains New UI 默认）；**树行文字 14px**，**次要信息（角标 / 小标题）最小 12px**（终端搜索计数 11px 除外）。
 - **控制台字体**：JetBrains Mono，13px，行高 1.3，字重 500（补偿 WebGL 在 macOS 渲染偏细）。
+- **Files 编辑器字体**（对齐 WebStorm 默认编辑器 + `Dark.icls`）：JetBrains Mono，13px，字重 400，无连字；行高 CSS `1.7`（`.files-codemirror`）；文本选区 `--editor-selection` `#224283`；正文/行号/光标行/语法色见 `cm6-setup`（背景 `#1E1F22`、前景 `#BCBEC4`、行号 `#4B5059`、光标行 `#26282E` 等）。
 - **侧栏**固定宽 **280px**（不可拖拽）。
 - **树行 / 触发行**固定高 40px（`h-10`，四周内边距 6px；固定高以免 hover 出按钮时整行跳动）；行内图标按钮 28px、图标 16px；状态点 8px。
 - **圆角**：按钮 / 弹出菜单 6px（`rounded-lg`）、条目/配置行高亮 4px（`rounded`）、面板 0。
@@ -97,7 +111,7 @@ ANSI 16 色（取自 JetBrains 终端真实 Console Colors 调色板）：
 
 ## 图标
 
-Lucide（随 shadcn）：`Play`(运行) · `RotateCw`(重新运行 / Git 刷新) · `Square`(停止) · `Eraser`(清空运行会话输出) · `MoreVertical`(更多⋮) · `Pencil`(编辑) · `Trash2`(删除) · `ChevronRight`(树展开 / 弹层箭头) · `FolderPlus`(添加项目) · `FolderOpen`(打开文件夹) · `FilePlusCorner`(新建配置) · `ArrowUpDown`(项目排序) · `AArrowDown`/`AArrowUp`(名称升/降序) · `ClockArrowDown`/`ClockArrowUp`(时间升/降序) · `Plus`(新建终端) · `Terminal`(终端 Tab) · `Search`/`ChevronUp`/`ChevronDown`/`X`(终端搜索框 / 关闭 Tab)。运行三角以 `--run-glyph` 上色。
+Lucide（随 shadcn）：`Play`(运行) · `RotateCw`(重新运行 / Git 刷新) · `Square`(停止) · `Eraser`(清空运行会话输出) · `MoreVertical`(更多⋮) · `Pencil`(编辑) · `Trash2`(删除) · `ChevronRight`(树展开 / 弹层箭头) · `FolderPlus`(添加项目) · `FolderOpen`(打开文件夹 / Files Tab 标签「文件」 / Files「在文件夹中显示」) · `FileClock`(Files「最近打开文件」) · `ListTree`(Files「在文件树中显示」) · `SquareArrowOutUpRight`(Files「在其他应用中打开」) · `ChevronsUpDown`(Files 文件树「全部展开」) · `ChevronsDownUp`(Files 文件树「全部折叠」) · `FilePlusCorner`(新建配置) · `ArrowUpDown`(项目排序) · `AArrowDown`/`AArrowUp`(名称升/降序) · `ClockArrowDown`/`ClockArrowUp`(时间升/降序) · `Plus`(新建终端) · `Terminal`(终端 Tab) · `Search`/`ChevronUp`/`ChevronDown`/`X`(终端搜索框 / 关闭 Tab)。运行三角以 `--run-glyph` 上色。
 
 Git 图谱专用：`GitBranch`(Git Tab) · `SlidersHorizontal`(视图选项) · `GitCommitHorizontal`(提交，等同点「未提交的更改」行) · `RotateCw`(刷新) · `CircleArrowDown`(拉取) · `CircleArrowUp`(推送) · `GitBranchPlus`(创建分支) · `Settings`(仓库设置) · `LoaderCircle`(加载 / 动作进行中) · `TriangleAlert`(操作失败) · `Ellipsis`(提交面板文件行 … 菜单)。
 
@@ -137,15 +151,16 @@ Git 图谱专用：`GitBranch`(Git Tab) · `SlidersHorizontal`(视图选项) · 
 
 ## Tab 栏（以项目为维度）
 
-右控制台顶部的 Tab 栏承载**当前项目**的全部 Tab。除**常驻首位的 Git Tab**外，其余每个 Tab = 一个活的会话（Run Session 或 Terminal）。高 40px `h-10`、底 `--bg-panel`、底边 1px `--separator`，与左标题栏同高同色同底边；术语见 CONTEXT.md、取舍见 ADR-0003（含修订）、ADR-0005（Git Tab 破例）：
+右控制台顶部的 Tab 栏承载**当前项目**的全部 Tab。除**常驻的 Git Tab / Files Tab**外，其余每个 Tab = 一个活的会话（Run Session 或 Terminal）。高 40px `h-10`、底 `--bg-panel`、底边 1px `--separator`，与左标题栏同高同色同底边；术语见 CONTEXT.md、取舍见 ADR-0003（含修订）、ADR-0005（常驻非会话 Tab + 默认激活）：
 
 - **Git Tab**：**每项目常驻第一个、不可关闭**（无 `×`）。`GitBranch` 图标 16px + 「Git」（14px）+ 当前分支名用括号包住（如 `Git (main)`，muted 色、截断；detached HEAD 显示缩写 hash；项目成为当前项目时即预加载，Tab 栏始终显示分支名，不必等点开 Git Tab；此后随 git:changed 保鲜）；左右内边距对称（`pl-3 pr-3`，12px，因无 `×`）。选中态与 hover 同其它 Tab。它不是会话——数据状态存独立 git store，切走仅隐藏不卸载；当前项目由 App 预加载，打开 Git Tab 时若已就绪则只重验仓库根。
+- **Files Tab**：**每项目常驻第二个、不可关闭**（无 `×`，紧接 Git 之后、会话之前）。`FolderOpen` 图标 16px + 「文件」（14px）；左右内边距对称（同 Git，因无 `×`）。文件树（不按 `.gitignore` 过滤；隐藏 WebStorm Ignored Files 默认项如 `.git` / `.DS_Store`）+ 单文件正文：文本用 CodeMirror 6（实验对照分支；**仅语法高亮与文本编辑**——无 lint / 补全；Monaco 对照见 `backup/files-tab-monaco`）；图片内嵌预览；其余占位并提供「在其他应用中打开」。工具栏：相对路径**可点面包屑**（左对齐；段间 `ChevronRight`、目录段 muted、文件名有工作区 Git 状态则用 `--git-status-*` 否则 `--fg-primary`；hover 只改文字色、无底；点目录/文件名 → 右侧树展开并滚到对应行；无未保存圆点）+「最近打开文件」(`FileClock`，下拉最近 10 个：文件名正文色 + 目录路径 muted，空则「暂无最近打开文件」；无正文时也显示) +「在文件树中显示」(`ListTree`，定位当前文件) +「在文件夹中显示」(`FolderOpen`) +「在其他应用中打开」(`SquareArrowOutUpRight`)，文案对齐 Git 菜单 / VS Code Reveal。**文件树行交互对齐左树、尺寸更紧凑**：树顶 header（同高 h-10）右对齐「全部展开」(`ChevronsUpDown`) /「全部折叠」(`ChevronsDownUp`)；`h-8` / `rounded` / 13px / `transition-colors`；目录名默认 `text-foreground`、选中 `--fg-primary`；文件名/图标按工作区 Git 状态色（同提交面板 `FILE_STATUS_COLOR`，无状态时图标 `--fg-icon`、名正文色），选中压成 `--fg-primary`；选中行 `--selection-row`（hover 不变色），未选中 `hover:bg-row-hover`；行背景全宽、仅内容按层级缩进；图标/箭头 14px（`size-3.5`；文件夹/文件图标 `--fg-icon` 或状态色，箭头 `muted` 不同色）；目录始终 `Folder`（展开不换 `FolderOpen`，靠箭头旋转表示开合）。事件自动保存；无内层多文件 Tab、无文件 CRUD。左栏 ProjectTree 不动。Git「打开文件」进入本 Tab。切走隐藏不卸载；每项目持久化上次打开路径与树展开（路径无效则静默空态）。布局为左正文 / 右文件树；未打开条目时空态文案「在右侧选择文件」。
 - **运行会话 Tab**：**每条有会话的配置一个**（运行中或已退出未关闭）。状态点 + 配置名（14px）；`×` 常驻（背景仅 hover，圆形、颜色过渡）——运行中＝**停止并关闭**（温和停止，不二次确认），已退出＝关闭并弃输出（树上状态点回灰）。**顺序跟随树中配置顺序**；重跑复用原 Tab（单实例语义不变）。
 - **终端 Tab（Terminal）**：`Terminal` 图标 16px + 名称；`×` 同上（关闭即杀 shell）。默认名「终端 / 终端 (2) …」按项目内序号，**双击可改名**（仅内存态，重启不留）。**组内支持拖拽排序**（仅水平、钳制在终端组内，不与运行会话组混排；顺序纯内存）。整组排在运行会话组之后。
 - **末尾 `+`**（`Plus`，tooltip「新建终端」）：在当前项目根目录起一个交互 `$SHELL` 的新终端 Tab 并聚焦。
 - **选中态** 3px `--primary` 主色下描边、**hover** `--bg-row-hover`；Tab 过多时横向溢出、走全局细滚动条。
-- 每个 Tab 常驻各自的 xterm 实例（切走仅隐藏、不卸载，跨项目亦然），故后台会话仍在跑、滚动历史与现场保留；切回某项目恢复其激活 Tab。
-- **激活解析**（Console / Tab 循环 / 关闭快捷键共用一套规则）：每项目记「激活的 Tab」。Tab 顺序 = Git Tab + 运行会话（树序）+ 终端。**点配置** → 有会话聚焦其 Tab、没跑过**不动当前激活 Tab**；**运行 / 重跑** → 聚焦其 Tab 并聚焦终端；**点项目行** → 保持该项目原激活 Tab；**点 Tab** → 只切视图、**不改树选择**（树选择与 Tab 激活解耦）。关闭激活 Tab → 按 Tab 顺序落到左邻（其次右邻）。首次进入某项目回落首个运行会话 Tab、再回落首个终端、最终回落 **Git Tab**——有项目即无占位态（Git Tab 常驻）。
+- 每个会话 Tab 常驻各自的 xterm 实例（切走仅隐藏、不卸载，跨项目亦然），故后台会话仍在跑、滚动历史与现场保留；切回某项目恢复其激活 Tab。Git / Files 面板同「切走隐藏不卸载」。
+- **激活解析**：每项目记「激活的 Tab」。Tab 顺序 = Git → Files → 运行会话（树序）→ 终端。**点配置** → 有会话聚焦其 Tab、没跑过**不动当前激活 Tab**；**运行 / 重跑** → 聚焦其 Tab 并聚焦终端；**点项目行** → 保持该项目原激活 Tab；**点 Tab** → 只切视图、**不改树选择**（树选择与 Tab 激活解耦）。**关闭**激活 Tab → 左邻（其次右邻）；常驻 Tab 上 Cmd+W 无效。**默认激活**（首次进入 / 解析缺省）：有运行中的 Run Session 则取 Tab 栏从左到右第一个运行中的，否则按 Tab 序（即 **Git Tab**）——有项目即无占位态。
 
 **当前项目与选中**：左树**项目行与配置行是同一层级的互斥选中**——单击项目行＝选中「项目本身」（右侧切到它的 Tab 栏、项目行以 `--selection-row` 高亮、清空配置选中）；单击配置行＝选中该配置（只高亮配置行，不连带高亮其项目行）。**折叠 / 展开由左侧箭头或整行双击触发**。新建 / 点选某终端也会把其项目设为当前。项目行上的「更多」按钮，其 hover 底色跟随行态（选中蓝底行用 `--selection-row-hover`）。空项目（尚无配置与探测脚本）亦可点行进入并新建终端。
 
@@ -160,7 +175,7 @@ Git 图谱专用：`GitBranch`(Git Tab) · `SlidersHorizontal`(视图选项) · 
 - **提交表格**：紧凑行高 24px（图谱网格 `grid.y`）、13px。列 = 图谱 / 描述 / 日期 / 作者 / 提交哈希（8 位缩写，`font-mono`）。图谱列宽随分支线内容同步（下限一列宽 32px，图谱表头窄边距 `px-1` 恰容「图谱」二字）、上限视图 1/3，超出用 SVG 右缘 12px 渐隐。
 - **分支线配色**：12 色循环调色板 `--git-graph-color0..11`（沿用参考默认值）；行级 `data-color="i"` 注入 `--git-graph-color`，圆点/标签/HEAD 空心圆引用它。未提交更改行与其线为灰 `--git-uncommitted`。
 - **引用标签顺序**：stash → 当前分支（提前）→ 其余本地分支 → 远程分支；tag 独立一组。当前提交行加粗、HEAD 圆点空心。已合并进 HEAD 的 merge commit 半透明（mute）。
-- **详情面板**：吊底停靠（默认高 250px、顶边可拖 [100,600]），左右分栏可拖（比例 [0.2,0.8]）。左 = 提交/贮藏元信息（hash 可复制、父提交可跳、`mailto`/URL 链接）、右 = 文件变更树（单链文件夹压缩、圆角块行、**目录行逐级 sticky 吸顶**、状态色 A/U 绿 · M/R 蓝 · D 红、`+N -M`；**当前打开 diff 的文件行以 `--selection-row` 高亮、文件名转白 `--fg-primary`**）。
+- **详情面板**：吊底停靠（默认高 250px、顶边可拖 [100,600]），左右分栏可拖（比例 [0.2,0.8]）。左 = 提交/贮藏元信息（hash 可复制、父提交可跳、`mailto`/URL 链接）、右 = 文件变更树（单链文件夹压缩、圆角块行、**目录行逐级 sticky 吸顶**、状态色见 `--git-status-*`（A/U 增绿 · M/R 改蓝 · D 删灰 · `!` 冲突）、`+N -M`；**当前打开 diff 的文件行以 `--selection-row` 高亮、文件名转白 `--fg-primary`**）。
 - **提交面板**：未提交行的详情即提交面板（ADR-0006，对齐 SourceTree）——左 = 提交信息多行框，其下一行「修正上次提交」勾选在左、「提交并推送」(ghost) 与「提交」按钮靠右（不再收进二级菜单）；右 =「已暂存 / 未暂存」两段文件树（**区头即可折叠顶级目录：箭头旋转过渡、双击 / 点箭头折叠整段、单击滚动到该段；区头 checkbox 同目录逻辑（整段全暂存才勾）、双向 sticky 常驻（已暂存钉顶、未暂存未到时钉底预告 / 滚到时钉在已暂存区头下方，两段标题恒可见）；内部目录行逐级 sticky 吸顶**、**目录行 checkbox 暂存/取消该目录下全部文件**、勾选文件即 `git add`、取消勾选即 unstage、**勾选后复选框原地即时翻转、文件先不移段（乐观勾选），期间面板锁定禁止暂存操作；待 git 确认、真实数据落地后文件才移到另一段，失败则还原复选框并解锁**、文件行单击 = 选中并看 HEAD→暂存 或 暂存→工作区 diff、目录行单击 = 选中（chevron 或双击开合）、**支持文件管理器式多选（Cmd/Ctrl 加减选、Shift 范围选，文件与目录皆可选）、选中行以 `--selection-row` 高亮、文件名转白 `--fg-primary`、跨两段互斥（切段即清空）、右键选区出批量菜单（暂存 / 取消暂存 / 撤销更改 / 删除未跟踪 所选）、点选区内任一行的复选框即对整批联合暂存 / 取消**、行尾 `Ellipsis` 菜单：撤销更改 / 删除未跟踪文件 / 打开文件 / **在文件夹中显示** / 复制路径；暂存类操作静默即时、不弹进行中遮罩）。复选框/单选统一用 shadcn `Checkbox`/`RadioGroup`（Base UI）。默认高 392。面板不随「未提交更改」行消失而自动关闭（目标是工作区、恒不过期）：无改动时可从工具栏直接打开（两段皆空占位），提交/丢弃清空全部改动后仍保持打开。
 - **Diff 面板**：应用内 diff，`absolute` **只覆盖图谱表格区**（吊底详情/文件列表仍可见，点文件看 diff 时能继续切文件）。正文由 `@git-diff-view/react` 渲染（语法高亮 + 词级 diff 内置、无虚拟滚动，ADR-0007）；头部可切**统一（`AlignJustify`）/ 左右对比（`Columns2`）**两视图，偏好存 `viewPrefs.diffSplitView` 跨会话记忆、**默认左右对比**。**横竖滚动条常驻面板边缘**（`main.css` 限高库滚动容器，split 两栏纵横同步由库内置 syncScroll 承接）。配色在 `main.css` 以库的同选择器覆盖其主题变量、全部引用既有 token：hunk 头底 `--diff-hunk-header-bg`、新增 `--diff-add-bg`、删除 `--diff-del-bg`、词级高亮 `--diff-add-word-bg` / `--diff-del-word-bg`、正文底 `--bg-deepest`、等宽 `--font-mono`；二进制兜底，120ms 延迟加载态。
 - **查找**：`Cmd/Ctrl+F` 右上浮层（样式同终端搜索框），命中行高亮 `--find-match-bg`、当前项 `--find-match-active-bg`（取自 Shell.icls SEARCH_RESULT 绿）。

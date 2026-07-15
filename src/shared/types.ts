@@ -2,6 +2,7 @@
 // 术语见 CONTEXT.md：Project / Discovered Script / Run Configuration（引用型·命令型）/ Run Session。
 // Git 图谱（Git Tab）的域模型与 API 在 ./git.ts，经 GitAPI 并入 RunAPI。
 
+import type { FilesDirEntry, FilesReadResult, FilesUiState } from './files'
 import type { GitAPI, GitRepoSettings, GitViewPrefs } from './git'
 
 export type PackageManager = 'pnpm' | 'yarn' | 'npm' | 'bun'
@@ -83,6 +84,8 @@ export interface PersistedState {
   gitViewPrefs: GitViewPrefs
   /** 左树项目列表排序偏好 */
   projectSortPrefs: ProjectSortPrefs
+  /** 每项目 Files Tab UI（键 = 项目绝对路径） */
+  filesUi: Record<string, FilesUiState>
 }
 
 /** 一个项目在聚合面板里的完整视图。 */
@@ -200,10 +203,21 @@ export interface RunAPI extends GitAPI {
   // —— 外链 ——
   /** 在系统默认浏览器打开 http/https 链接（终端可点击链接） */
   openExternal(url: string): Promise<void>
-  /** 用系统默认应用打开本地文件（Git 详情面板「打开文件」） */
+  /** 用系统默认应用打开本地路径（Files「在其他应用中打开」、项目「打开文件夹」等） */
   openPath(path: string): Promise<void>
   /** 在系统文件管理器中定位并选中该文件（「在文件夹中显示」） */
   revealInFolder(path: string): Promise<void>
+
+  // —— Files Tab ——
+  filesListDir(projectPath: string, dirPath: string): Promise<FilesDirEntry[]>
+  filesRead(projectPath: string, filePath: string): Promise<FilesReadResult>
+  filesWrite(
+    projectPath: string,
+    filePath: string,
+    content: string
+  ): Promise<{ mtimeMs: number }>
+  filesGetUi(projectPath: string): Promise<FilesUiState>
+  filesSetUi(projectPath: string, patch: Partial<FilesUiState>): Promise<FilesUiState>
 
   // —— 事件订阅（返回取消函数） ——
   onTreeChanged(cb: (tree: ProjectNode[]) => void): () => void

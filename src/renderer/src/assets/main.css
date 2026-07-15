@@ -23,6 +23,7 @@
   --separator: #1e1f22;
   --selection-row: #2d436e;
   --selection-row-hover: #35538f;
+  --editor-selection: #224283;
   --run-glyph: #5fad65;
   --run-active-bg: #57965d;
   --run-active-bg-hover: #4e8752;
@@ -32,6 +33,15 @@
   --status-running: #5fad65;
   --status-success: #57965d;
   --status-failed: #c94f4f;
+
+  /* —— Git 文件状态（Dark.icls FILESTATUS_*） —— */
+  --git-status-added: #73bd79;
+  --git-status-modified: #70aeff;
+  --git-status-deleted: #6f737a;
+  --git-status-untracked: #e88f89;
+  --git-status-conflict: #de6a66;
+  --git-status-merged: #cf84cf;
+  --git-status-ignored: #d69a6b;
 
   /* —— 滚动条（webkit） —— */
   --scrollbar-thumb: #404043;
@@ -117,6 +127,13 @@
   --color-status-running: var(--status-running);
   --color-status-success: var(--status-success);
   --color-status-failed: var(--status-failed);
+  --color-git-status-added: var(--git-status-added);
+  --color-git-status-modified: var(--git-status-modified);
+  --color-git-status-deleted: var(--git-status-deleted);
+  --color-git-status-untracked: var(--git-status-untracked);
+  --color-git-status-conflict: var(--git-status-conflict);
+  --color-git-status-merged: var(--git-status-merged);
+  --color-git-status-ignored: var(--git-status-ignored);
 
   --font-sans: 'Inter Variable', system-ui, -apple-system, sans-serif;
   --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
@@ -216,6 +233,15 @@
 .diff-tailwindcss-wrapper,
 .diff-tailwindcss-wrapper .diff-table-scroll-container {
   font-family: var(--font-mono) !important;
+}
+
+/* Files Tab · CodeMirror：压过 @codemirror/view baseTheme 的 line-height: 1.4。 */
+.files-codemirror .cm-scroller,
+.files-codemirror .cm-content,
+.files-codemirror .cm-line,
+.files-codemirror .cm-gutterElement {
+  font-size: 13px;
+  line-height: 1.7 !important;
 }
 
 /* —— Diff 面板滚动结构：横向滚动条常驻面板底部 ——

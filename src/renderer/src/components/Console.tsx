@@ -3,6 +3,7 @@ import {
   ChevronDown,
   ChevronUp,
   Eraser,
+  FolderOpen,
   GitBranch,
   Play,
   Plus,
@@ -36,12 +37,13 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { SessionOutput, SessionStatus } from '@shared/types'
-import { configKey, gitTabKey } from '@shared/runnable'
+import { configKey, filesTabKey, gitTabKey } from '@shared/runnable'
 import { useApp, resolveTabs, type RunTabInfo, type TerminalTab } from '@renderer/store'
 import { gitState, useGit } from '@renderer/git-store'
 import { cn } from '@renderer/lib/utils'
 import { xtermTheme } from '@renderer/lib/xterm-theme'
 import { GitPane } from '@renderer/components/git/GitPane'
+import { FilesPane } from '@renderer/components/files/FilesPane'
 import { abbrevHash } from '@renderer/components/git/git-format'
 
 // 常驻 xterm 会各持一个 WebGL 上下文；浏览器/Electron 对同页上下文数有硬上限（约 16）。
@@ -75,7 +77,7 @@ export function Console(): React.JSX.Element {
   }
 
   // 与 cycleTab / 关闭快捷键共用同一解析规则（见 store.resolveTabs）。
-  const { gitKey, runTabs, termTabs, activeKey } = resolveTabs(
+  const { gitKey, filesKey, runTabs, termTabs, activeKey } = resolveTabs(
     { tree, sessions, terminals, activeTabByProject },
     currentProjectPath
   )
@@ -84,7 +86,7 @@ export function Console(): React.JSX.Element {
   const termKeys = new Set(terminals.map((t) => t.key))
   const runSessionKeys = Object.keys(sessions).filter((k) => !termKeys.has(k))
 
-  // 仅当激活的是运行会话 Tab 时出操作栏（Git / 终端 Tab 不出）。
+  // 仅当激活的是运行会话 Tab 时出操作栏（Git / Files / 终端 Tab 不出）。
   const activeRunTab = runTabs.find((t) => t.key === activeKey) ?? null
 
   return (
@@ -92,6 +94,7 @@ export function Console(): React.JSX.Element {
       <TabBar
         projectPath={currentProjectPath}
         gitKey={gitKey}
+        filesKey={filesKey}
         runTabs={runTabs}
         termTabs={termTabs}
         activeKey={activeKey}
@@ -107,6 +110,16 @@ export function Console(): React.JSX.Element {
           return (
             <div key={gk} className={cn('absolute inset-0', !visible && 'hidden')}>
               <GitPane projectPath={n.project.path} visible={visible} />
+            </div>
+          )
+        })}
+        {/* Files 面板：每项目常驻（切走仅隐藏）。 */}
+        {tree.map((n) => {
+          const fk = filesTabKey(n.project.path)
+          const visible = n.project.path === currentProjectPath && fk === activeKey
+          return (
+            <div key={fk} className={cn('absolute inset-0', !visible && 'hidden')}>
+              <FilesPane projectPath={n.project.path} visible={visible} />
             </div>
           )
         })}
@@ -241,12 +254,14 @@ const restrictToHorizontalWithinList: Modifier = ({
 function TabBar({
   projectPath,
   gitKey,
+  filesKey,
   runTabs,
   termTabs,
   activeKey
 }: {
   projectPath: string
   gitKey: string
+  filesKey: string
   runTabs: RunTabInfo[]
   termTabs: TerminalTab[]
   activeKey: string
@@ -269,6 +284,8 @@ function TabBar({
     <div className="flex h-10 shrink-0 items-center overflow-x-auto border-b border-[var(--separator)] bg-panel px-2">
       {/* Git Tab：每项目常驻第一个、不可关闭（ADR-0005）。 */}
       <GitTabItem gitKey={gitKey} projectPath={projectPath} active={gitKey === activeKey} />
+      {/* Files Tab：常驻第二、不可关闭。 */}
+      <FilesTabItem filesKey={filesKey} projectPath={projectPath} active={filesKey === activeKey} />
       {/* 运行会话 Tab：每条有会话的配置一个，顺序跟随树中配置顺序。 */}
       {runTabs.map((t) => (
         <RunTabItem key={t.key} tab={t} active={t.key === activeKey} projectPath={projectPath} />
@@ -333,6 +350,28 @@ function GitTabItem({
           ({branch})
         </span>
       )}
+    </div>
+  )
+}
+
+function FilesTabItem({
+  filesKey,
+  projectPath,
+  active
+}: {
+  filesKey: string
+  projectPath: string
+  active: boolean
+}): React.JSX.Element {
+  const activateTab = useApp((s) => s.activateTab)
+  return (
+    <div
+      className={cn(TAB, 'pl-3 pr-3')}
+      style={active ? TAB_ACTIVE : undefined}
+      onClick={() => activateTab(projectPath, filesKey)}
+    >
+      <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="text-foreground">文件</span>
     </div>
   )
 }

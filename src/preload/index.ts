@@ -47,6 +47,14 @@ const api: RunAPI = {
   openPath: (path) => ipcRenderer.invoke(IPC.openPath, path),
   revealInFolder: (path) => ipcRenderer.invoke(IPC.openInFolder, path),
 
+  filesListDir: (projectPath, dirPath) =>
+    ipcRenderer.invoke(IPC.filesListDir, projectPath, dirPath),
+  filesRead: (projectPath, filePath) => ipcRenderer.invoke(IPC.filesRead, projectPath, filePath),
+  filesWrite: (projectPath, filePath, content) =>
+    ipcRenderer.invoke(IPC.filesWrite, projectPath, filePath, content),
+  filesGetUi: (projectPath) => ipcRenderer.invoke(IPC.filesGetUi, projectPath),
+  filesSetUi: (projectPath, patch) => ipcRenderer.invoke(IPC.filesSetUi, projectPath, patch),
+
   gitLoad: (projectPath, options: GitLoadOptions) =>
     ipcRenderer.invoke(IPC.gitLoad, projectPath, options),
   gitDetails: (projectPath, request: GitDetailsRequest) =>
