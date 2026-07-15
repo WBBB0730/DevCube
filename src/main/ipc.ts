@@ -31,6 +31,7 @@ import {
   closeSession,
   disposeSession,
   disposeTerminalsForProject,
+  clearSessionOutput,
   getSessionBuffer,
   getSessions,
   getTerminals,
@@ -140,21 +141,21 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.treeGet, () => buildTree())
 
   ipcMain.handle(IPC.projectAdd, async () => {
-    await pickAndAddProject()
+    const focusPath = await pickAndAddProject()
     refreshWatchers()
-    return buildTree()
+    return { tree: buildTree(), focusPath }
   })
 
   ipcMain.handle(IPC.projectAddByPath, (_e, path: string) => {
-    addProjectByPath(path)
+    const focusPath = addProjectByPath(path)
     refreshWatchers()
-    return buildTree()
+    return { tree: buildTree(), focusPath }
   })
 
   ipcMain.handle(IPC.projectCreate, async () => {
-    await createAndAddProject()
+    const focusPath = await createAndAddProject()
     refreshWatchers()
-    return buildTree()
+    return { tree: buildTree(), focusPath }
   })
 
   ipcMain.handle(IPC.projectRemove, (_e, path: string) => {
@@ -198,6 +199,7 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.on(IPC.stdin, (_e, key: string, data: string) => writeStdin(key, data))
   ipcMain.on(IPC.resize, (_e, key: string, cols: number, rows: number) => resize(key, cols, rows))
   ipcMain.handle(IPC.sessionBuffer, (_e, key: string) => getSessionBuffer(key))
+  ipcMain.handle(IPC.sessionClear, (_e, key: string) => clearSessionOutput(key))
   ipcMain.handle(IPC.sessions, () => getSessions())
 
   // —— 终端（Terminal，自由 shell）与 Tab 关闭 ——

@@ -14,14 +14,14 @@ export interface Project {
   name: string
   /** 登记进 DevCube 的时间（epoch ms）；老档案缺省时读取层补当前时间 */
   addedAt: number
-  /** 最近选中该项目的时间（epoch ms）；从未打开过为 null */
+  /** 最近打开该项目的时间（epoch ms）；登记时写入，之后每次选中刷新；老档案缺省为 null */
   lastOpenedAt: number | null
 }
 
 /** 左树项目列表的排序方式。 */
 export type ProjectSortMode = 'custom' | 'name' | 'addedAt' | 'lastOpenedAt'
 
-/** 排序方向：名称 A→Z / 时间旧→新 为 asc；反之 desc。自定义模式忽略方向。 */
+/** 排序方向：名称 A→Z / 时间旧→新 为 asc；反之 desc。自定义与打开时间忽略方向（打开时间恒为最近→最远）。 */
 export type ProjectSortDirection = 'asc' | 'desc'
 
 /** 跨重启保留的项目列表排序偏好。 */
@@ -30,9 +30,10 @@ export interface ProjectSortPrefs {
   direction: ProjectSortDirection
 }
 
+/** 默认：添加时间倒序（新→旧）。已持久化的偏好不被覆盖。 */
 export const DEFAULT_PROJECT_SORT_PREFS: ProjectSortPrefs = {
-  mode: 'custom',
-  direction: 'asc'
+  mode: 'addedAt',
+  direction: 'desc'
 }
 
 /** 从 package.json 的 scripts 实时派生的只读候补，不持久化。 */
@@ -87,6 +88,12 @@ export interface ProjectNode {
   configs: RunConfig[]
 }
 
+/** 添加 / 新建 / 拖入项目的结果：树 + 应聚焦的路径（取消或无效则为 null）。 */
+export interface ProjectAddResult {
+  tree: ProjectNode[]
+  focusPath: string | null
+}
+
 export type SessionStatus = 'running' | 'exited' | 'failed'
 
 /** 运行目标：一条探测脚本，或一条已保存配置。 */
@@ -137,12 +144,12 @@ export interface TerminalInfo {
 export interface RunAPI extends GitAPI {
   // —— 项目 / 树（slice 1） ——
   getTree(): Promise<ProjectNode[]>
-  /** 打开系统文件夹选择器新增项目；返回更新后的树（用户取消则返回原树） */
-  addProject(): Promise<ProjectNode[]>
-  /** 拖入文件夹路径新增项目 */
-  addProjectByPath(path: string): Promise<ProjectNode[]>
-  /** 打开系统保存面板新建项目文件夹并登记；返回更新后的树（用户取消则返回原树） */
-  createProject(): Promise<ProjectNode[]>
+  /** 打开系统文件夹选择器新增项目；取消则 focusPath 为 null */
+  addProject(): Promise<ProjectAddResult>
+  /** 拖入 / 按路径登记项目；已存在亦返回该路径以便聚焦 */
+  addProjectByPath(path: string): Promise<ProjectAddResult>
+  /** 打开系统保存面板新建项目文件夹并登记；取消则 focusPath 为 null */
+  createProject(): Promise<ProjectAddResult>
   removeProject(path: string): Promise<ProjectNode[]>
   /** 重排项目列表顺序（自定义排序的落盘顺序） */
   reorderProjects(orderedPaths: string[]): Promise<ProjectNode[]>
@@ -158,6 +165,8 @@ export interface RunAPI extends GitAPI {
   resize(key: string, cols: number, rows: number): void
   /** 拉取某会话的屏幕快照（切换选择/刷新时回填控制台；含累计流长度用于去重） */
   getSessionBuffer(key: string): Promise<SessionBufferSnapshot>
+  /** 清空某会话的控制台输出（进程继续跑；换代 sid，bytes 归零） */
+  clearSessionOutput(key: string): Promise<void>
   /** 当前所有活跃/已结束但保留的会话快照 */
   getSessions(): Promise<SessionState[]>
 

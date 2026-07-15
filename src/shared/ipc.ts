@@ -15,6 +15,7 @@ export const IPC = {
   stdin: 'session:stdin',
   resize: 'session:resize',
   sessionBuffer: 'session:buffer',
+  sessionClear: 'session:clear',
   sessions: 'session:list',
   sessionOutput: 'session:output',
   sessionStatus: 'session:status',

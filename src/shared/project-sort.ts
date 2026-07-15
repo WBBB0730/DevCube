@@ -15,13 +15,15 @@ export function defaultDirectionFor(mode: ProjectSortMode): ProjectSortDirection
 
 /**
  * 点选某排序方式：同 mode 则翻转方向；换 mode 则切到该 mode 的默认方向。
- * 自定义无方向，始终 direction 无关。
+ * 自定义无方向；打开时间（lastOpenedAt）固定降序（最近在前），再点也不翻转。
  */
 export function cycleProjectSort(
   current: ProjectSortPrefs,
   nextMode: ProjectSortMode
 ): ProjectSortPrefs {
   if (nextMode === 'custom') return { mode: 'custom', direction: 'asc' }
+  // 打开时间只有「最近→最远」一种语义，不提供升序。
+  if (nextMode === 'lastOpenedAt') return { mode: 'lastOpenedAt', direction: 'desc' }
   if (current.mode === nextMode) {
     return { mode: nextMode, direction: current.direction === 'asc' ? 'desc' : 'asc' }
   }
@@ -51,13 +53,13 @@ function compareProjects(
   if (mode === 'addedAt') {
     return (a.addedAt - b.addedAt) * dir
   }
-  // lastOpenedAt：null 永远排最后（与方向无关）
+  // lastOpenedAt：固定最近→最远；null 永远排最后（prefs.direction 忽略）
   const aT = a.lastOpenedAt
   const bT = b.lastOpenedAt
   if (aT === null && bT === null) return 0
   if (aT === null) return 1
   if (bT === null) return -1
-  return (aT - bT) * dir
+  return bT - aT
 }
 
 /** 按项目名大小写不敏感包含筛选；空查询原样返回。 */

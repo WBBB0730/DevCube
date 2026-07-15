@@ -5,7 +5,7 @@ import {
   filterProjectNodes,
   sortProjectNodes
 } from './project-sort'
-import type { Project, ProjectNode, ProjectSortPrefs } from './types'
+import { DEFAULT_PROJECT_SORT_PREFS, type Project, type ProjectNode, type ProjectSortPrefs } from './types'
 
 function node(
   name: string,
@@ -36,7 +36,7 @@ describe('cycleProjectSort', () => {
     })
   })
 
-  it('同 mode 再点翻转方向', () => {
+  it('同 mode 再点翻转方向（打开时间除外）', () => {
     expect(cycleProjectSort({ mode: 'name', direction: 'asc' }, 'name')).toEqual({
       mode: 'name',
       direction: 'desc'
@@ -44,6 +44,17 @@ describe('cycleProjectSort', () => {
     expect(cycleProjectSort({ mode: 'addedAt', direction: 'desc' }, 'addedAt')).toEqual({
       mode: 'addedAt',
       direction: 'asc'
+    })
+    expect(cycleProjectSort({ mode: 'lastOpenedAt', direction: 'desc' }, 'lastOpenedAt')).toEqual({
+      mode: 'lastOpenedAt',
+      direction: 'desc'
+    })
+  })
+
+  it('切入打开时间固定降序', () => {
+    expect(cycleProjectSort({ mode: 'name', direction: 'asc' }, 'lastOpenedAt')).toEqual({
+      mode: 'lastOpenedAt',
+      direction: 'desc'
     })
   })
 })
@@ -53,6 +64,12 @@ describe('defaultDirectionFor', () => {
     expect(defaultDirectionFor('name')).toBe('asc')
     expect(defaultDirectionFor('addedAt')).toBe('desc')
     expect(defaultDirectionFor('lastOpenedAt')).toBe('desc')
+  })
+})
+
+describe('DEFAULT_PROJECT_SORT_PREFS', () => {
+  it('默认添加时间倒序', () => {
+    expect(DEFAULT_PROJECT_SORT_PREFS).toEqual({ mode: 'addedAt', direction: 'desc' })
   })
 })
 
@@ -86,11 +103,15 @@ describe('sortProjectNodes', () => {
     expect(sortProjectNodes(nodes, prefs).map((n) => n.project.path)).toEqual(['/a', '/b', '/z'])
   })
 
-  it('打开时间：null 永远排最后', () => {
+  it('打开时间：固定最近→最远，null 永远排最后（忽略 direction）', () => {
     const prefs: ProjectSortPrefs = { mode: 'lastOpenedAt', direction: 'desc' }
     expect(sortProjectNodes(nodes, prefs).map((n) => n.project.path)).toEqual(['/b', '/z', '/a'])
-    const asc: ProjectSortPrefs = { mode: 'lastOpenedAt', direction: 'asc' }
-    expect(sortProjectNodes(nodes, asc).map((n) => n.project.path)).toEqual(['/z', '/b', '/a'])
+    const ascIgnored: ProjectSortPrefs = { mode: 'lastOpenedAt', direction: 'asc' }
+    expect(sortProjectNodes(nodes, ascIgnored).map((n) => n.project.path)).toEqual([
+      '/b',
+      '/z',
+      '/a'
+    ])
   })
 })
 

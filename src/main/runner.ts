@@ -321,6 +321,20 @@ export function getSessionBuffer(key: string): SessionBufferSnapshot {
     : { sid: '', data: '', bytes: 0, cols: DEFAULT_COLS, rows: DEFAULT_ROWS }
 }
 
+/**
+ * 清空会话控制台输出：清无头终端屏幕、换代 sid、bytes 归零。
+ * 进程与会话状态不变；换代是为了让渲染端丢弃清屏前的在途输出（bytes 跨代不可比）。
+ */
+export function clearSessionOutput(key: string): void {
+  const s = sessions.get(key)
+  if (!s) return
+  s.screen.reset()
+  s.sid = randomUUID()
+  s.bytes = 0
+  s.parsedBytes = 0
+  s.endsWithNewline = true
+}
+
 export function getSessions(): SessionState[] {
   return [...sessions.values()].map(snapshot)
 }

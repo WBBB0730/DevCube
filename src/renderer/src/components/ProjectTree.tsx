@@ -1,19 +1,24 @@
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState, type HTMLAttributes } from 'react'
+import { Menu } from '@base-ui-components/react/menu'
 import {
-  ArrowDown,
-  ArrowUp,
+  AArrowDown,
+  AArrowUp,
   ArrowUpDown,
   Check,
   ChevronRight,
+  ClockArrowDown,
+  ClockArrowUp,
+  FilePlusCorner,
   Folder,
+  FolderOpen,
   FolderPlus,
   MoreVertical,
   Pencil,
   Play,
-  Plus,
   RotateCw,
   Search,
   Square,
+  Terminal,
   Trash2
 } from 'lucide-react'
 import {
@@ -113,6 +118,27 @@ export function ProjectTree(): React.JSX.Element {
   const filtered = filterProjectNodes(sortProjectNodes(tree, projectSortPrefs), projectFilter)
   // 有筛选时禁用拖拽；非自定义也可拖，松手且顺序实质变化后才切到自定义并落盘。
   const canDrag = projectFilter.trim() === '' && filtered.length > 1
+  const currentProjectPath = useApp((s) => s.currentProjectPath)
+  const scrollToProjectPath = useApp((s) => s.scrollToProjectPath)
+  const clearScrollToProjectPath = useApp((s) => s.clearScrollToProjectPath)
+
+  // 打开时间排序：等 touch 回写、当前项已排到最前之后，再滚到顶（先排序后滚动）。
+  useLayoutEffect(() => {
+    if (projectSortPrefs.mode !== 'lastOpenedAt' || !currentProjectPath) return
+    if (filtered[0]?.project.path !== currentProjectPath) return
+    const list = listRef.current
+    if (list) list.scrollTop = 0
+  }, [projectSortPrefs.mode, currentProjectPath, filtered])
+
+  // 添加项目后：把目标行滚进视口（已可见则不动，对齐 Git 父提交 block:'nearest'）。
+  useLayoutEffect(() => {
+    if (!scrollToProjectPath) return
+    const el = listRef.current?.querySelector(
+      `[data-project-path="${globalThis.CSS.escape(scrollToProjectPath)}"]`
+    )
+    el?.scrollIntoView({ block: 'nearest' })
+    clearScrollToProjectPath()
+  }, [scrollToProjectPath, filtered, clearScrollToProjectPath])
 
   useLayoutEffect(() => {
     const list = listRef.current
@@ -350,21 +376,39 @@ function SortMenu({
           return (
             <DropdownMenuItem key={opt.mode} onClick={() => onSelect(opt.mode)}>
               <span className="flex size-4 shrink-0 items-center justify-center">
-                {active && <Check className="size-3.5" />}
+                {active && <SortActiveIcon mode={opt.mode} direction={direction} />}
               </span>
               <span className="flex-1">{opt.label}</span>
-              {active && opt.mode !== 'custom' && (
-                direction === 'asc' ? (
-                  <ArrowUp className="size-3.5 text-muted-foreground" />
-                ) : (
-                  <ArrowDown className="size-3.5 text-muted-foreground" />
-                )
-              )}
             </DropdownMenuItem>
           )
         })}
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+/** 当前排序项左侧图标：自定义=勾；名称=AZ 箭头；时间=时钟箭头。兼作选中标记。 */
+function SortActiveIcon({
+  mode,
+  direction
+}: {
+  mode: ProjectSortMode
+  direction: 'asc' | 'desc'
+}): React.JSX.Element {
+  if (mode === 'custom') return <Check className="size-3.5" />
+  if (mode === 'name') {
+    return direction === 'asc' ? (
+      <AArrowDown className="size-3.5" />
+    ) : (
+      <AArrowUp className="size-3.5" />
+    )
+  }
+  // 打开时间固定降序，只用 ClockArrowDown；添加时间仍可升/降。
+  if (mode === 'lastOpenedAt') return <ClockArrowDown className="size-3.5" />
+  return direction === 'asc' ? (
+    <ClockArrowUp className="size-3.5" />
+  ) : (
+    <ClockArrowDown className="size-3.5" />
   )
 }
 
@@ -410,10 +454,11 @@ function ProjectRow({
   node: ProjectNode
   forceCollapsed: boolean
   /** 项目拖拽句柄（仅挂在行头） */
-  dragHandleProps?: React.HTMLAttributes<HTMLDivElement>
+  dragHandleProps?: HTMLAttributes<HTMLDivElement>
 }): React.JSX.Element {
   const [open, setOpen] = useState(true)
-  const openCreateDialog = useApp((s) => s.openCreateDialog)
+  // 项目行右键菜单：鼠标点虚拟 anchor（与 Git 右键同款）。
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null)
   const reorderConfigs = useApp((s) => s.reorderConfigs)
   const selectProject = useApp((s) => s.selectProject)
   // 与配置行同层级的互斥选中：仅当「项目本身」被选中（无配置选中）时高亮项目行。
@@ -435,7 +480,7 @@ function ProjectRow({
   const expanded = open && !forceCollapsed
 
   return (
-    <div>
+    <div data-project-path={node.project.path}>
       <div
         className={cn(
           ROW,
@@ -444,6 +489,11 @@ function ProjectRow({
         )}
         onClick={() => selectProject(node.project.path)}
         onDoubleClick={() => setOpen((v) => !v)}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+          setCtxMenu({ x: e.clientX, y: e.clientY })
+        }}
         {...dragHandleProps}
       >
         {/* 折叠/展开由箭头或整行双击触发（整行单击留给「设为当前项目」）。 */}
@@ -465,18 +515,13 @@ function ProjectRow({
             {node.packageManager}
           </span>
         )}
-        <IconButton
-          title="新建命令"
-          selected={selected}
-          onClick={(e) => {
-            e.stopPropagation()
-            openCreateDialog(node.project.path)
-          }}
-        >
-          <Plus className="size-4" />
-        </IconButton>
         <ProjectMoreMenu projectPath={node.project.path} selected={selected} />
       </div>
+      {ctxMenu && (
+        <PointContextMenu point={ctxMenu} onClose={() => setCtxMenu(null)}>
+          <ProjectMenuItems projectPath={node.project.path} />
+        </PointContextMenu>
+      )}
       {expanded && (
         <div className="mt-0.5">
           <DndContext
@@ -583,6 +628,8 @@ function RunnableRow({
   /** 选中或运行后回调（探测脚本弹出菜单用它及时关闭） */
   onAction?: () => void
 }): React.JSX.Element {
+  // 仅配置行右键；探测脚本无更多菜单，不加右键。
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null)
   const status = useApp((s) => s.sessions[rkey]?.status ?? 'idle')
   const selected = useApp((s) => s.selectedKey === rkey)
   const run = useApp((s) => s.run)
@@ -598,67 +645,101 @@ function RunnableRow({
   const idleVis = selected ? 'flex' : 'hidden group-hover:flex'
 
   return (
-    <div
-      className={cn(ROW, selected ? 'bg-[var(--selection-row)]' : 'hover:bg-[var(--bg-row-hover)]')}
-      onClick={() => {
-        onAction?.()
-        // 探测脚本选中即晋升进「我的配置」，不必等运行。
-        if (target.type === 'script') selectScript(target.projectPath, target.name, rkey)
-        else select(rkey, projectPath)
-      }}
-    >
-      {/* 缩进对齐：占位补齐折叠箭头列，点居中于文件夹图标列 */}
-      {indent && <span className="size-4 shrink-0" />}
-      <span className="flex size-4 shrink-0 items-center justify-center">
-        <StatusDot status={status} />
-      </span>
-      <span className="flex-1 truncate">{label}</span>
-
-      {/* 左：运行 / 重新运行（恒在左，激活即原地替换） */}
-      <button
-        type="button"
-        title={running ? '重新运行' : '运行'}
-        className={cn(
-          BTN,
-          running
-            ? 'bg-[var(--run-active-bg)] text-white hover:bg-[var(--run-active-bg-hover)]'
-            : cn('text-[var(--run-glyph)]', btnHover, idleVis)
-        )}
-        onClick={(e) => {
-          e.stopPropagation()
+    <>
+      <div
+        className={cn(ROW, selected ? 'bg-[var(--selection-row)]' : 'hover:bg-[var(--bg-row-hover)]')}
+        onClick={() => {
           onAction?.()
-          run(target, rkey, projectPath)
+          // 探测脚本选中即晋升进「我的配置」，不必等运行。
+          if (target.type === 'script') selectScript(target.projectPath, target.name, rkey)
+          else select(rkey, projectPath)
         }}
+        onContextMenu={
+          config
+            ? (e) => {
+                e.preventDefault()
+                e.stopPropagation()
+                setCtxMenu({ x: e.clientX, y: e.clientY })
+              }
+            : undefined
+        }
       >
-        {running ? <RotateCw className="size-4" /> : <Play className="size-4" />}
-      </button>
+        {/* 缩进对齐：占位补齐折叠箭头列，点居中于文件夹图标列 */}
+        {indent && <span className="size-4 shrink-0" />}
+        <span className="flex size-4 shrink-0 items-center justify-center">
+          <StatusDot status={status} />
+        </span>
+        <span className="flex-1 truncate">{label}</span>
 
-      {/* 右：空闲=更多菜单（仅配置）/ 运行中=停止 */}
-      {running ? (
+        {/* 左：运行 / 重新运行（恒在左，激活即原地替换） */}
         <button
           type="button"
-          title="停止"
+          title={running ? '重新运行' : '运行'}
           className={cn(
             BTN,
-            'bg-[var(--stop-active-bg)] text-white hover:bg-[var(--stop-active-bg-hover)]'
+            running
+              ? 'bg-[var(--run-active-bg)] text-white hover:bg-[var(--run-active-bg-hover)]'
+              : cn('text-[var(--run-glyph)]', btnHover, idleVis)
           )}
           onClick={(e) => {
             e.stopPropagation()
-            stop(rkey)
+            onAction?.()
+            run(target, rkey, projectPath)
           }}
         >
-          <Square className="size-4" />
+          {running ? <RotateCw className="size-4" /> : <Play className="size-4" />}
         </button>
-      ) : (
-        config && (
-          <MoreMenu
-            config={config}
-            baseClass={cn(BTN, 'text-muted-foreground hover:text-[color:var(--fg-icon)]', btnHover)}
-            idleVis={idleVis}
-          />
-        )
+
+        {/* 右：空闲=更多菜单（仅配置）/ 运行中=停止 */}
+        {running ? (
+          <button
+            type="button"
+            title="停止"
+            className={cn(
+              BTN,
+              'bg-[var(--stop-active-bg)] text-white hover:bg-[var(--stop-active-bg-hover)]'
+            )}
+            onClick={(e) => {
+              e.stopPropagation()
+              stop(rkey)
+            }}
+          >
+            <Square className="size-4" />
+          </button>
+        ) : (
+          config && (
+            <MoreMenu
+              config={config}
+              baseClass={cn(BTN, 'text-muted-foreground hover:text-[color:var(--fg-icon)]', btnHover)}
+              idleVis={idleVis}
+            />
+          )
+        )}
+      </div>
+      {config && ctxMenu && (
+        <PointContextMenu point={ctxMenu} onClose={() => setCtxMenu(null)}>
+          <ConfigMenuItems config={config} />
+        </PointContextMenu>
       )}
-    </div>
+    </>
+  )
+}
+
+/** 配置菜单项：⋮ 与右键共用（编辑仅命令型 / 删除）。 */
+function ConfigMenuItems({ config }: { config: RunConfig }): React.JSX.Element {
+  const openEditDialog = useApp((s) => s.openEditDialog)
+  const deleteConfig = useApp((s) => s.deleteConfig)
+  return (
+    <>
+      {config.kind === 'command' && (
+        <DropdownMenuItem onClick={() => openEditDialog(config)}>
+          <Pencil className="size-4" /> 编辑
+        </DropdownMenuItem>
+      )}
+      <DropdownMenuItem onClick={() => deleteConfig(config.id)}>
+        <Trash2 className="size-4" /> 删除
+      </DropdownMenuItem>
+    </>
   )
 }
 
@@ -672,8 +753,6 @@ function MoreMenu({
   idleVis: string
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
-  const openEditDialog = useApp((s) => s.openEditDialog)
-  const deleteConfig = useApp((s) => s.deleteConfig)
 
   return (
     <DropdownMenu open={open} onOpenChange={(nextOpen) => setOpen(nextOpen)}>
@@ -681,20 +760,40 @@ function MoreMenu({
         className={cn(baseClass, open ? 'flex' : idleVis)}
         title="更多"
         onClick={(e) => e.stopPropagation()}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+        }}
       >
         <MoreVertical className="size-4" />
       </DropdownMenuTrigger>
       <DropdownMenuContent>
-        {config.kind === 'command' && (
-          <DropdownMenuItem onClick={() => openEditDialog(config)}>
-            <Pencil className="size-4" /> 编辑
-          </DropdownMenuItem>
-        )}
-        <DropdownMenuItem onClick={() => deleteConfig(config.id)}>
-          <Trash2 className="size-4" /> 删除
-        </DropdownMenuItem>
+        <ConfigMenuItems config={config} />
       </DropdownMenuContent>
     </DropdownMenu>
+  )
+}
+
+/** 项目菜单项：⋮ 与右键共用（打开文件夹 / 新建配置 / 新建终端 / 移除项目）。 */
+function ProjectMenuItems({ projectPath }: { projectPath: string }): React.JSX.Element {
+  const openCreateDialog = useApp((s) => s.openCreateDialog)
+  const newTerminal = useApp((s) => s.newTerminal)
+  const removeProject = useApp((s) => s.removeProject)
+  return (
+    <>
+      <DropdownMenuItem onClick={() => void window.api.openPath(projectPath)}>
+        <FolderOpen className="size-4" /> 打开文件夹
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => void newTerminal(projectPath)}>
+        <Terminal className="size-4" /> 新建终端
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => openCreateDialog(projectPath)}>
+        <FilePlusCorner className="size-4" /> 新建配置
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => removeProject(projectPath)}>
+        <Trash2 className="size-4" /> 移除项目
+      </DropdownMenuItem>
+    </>
   )
 }
 
@@ -706,7 +805,6 @@ function ProjectMoreMenu({
   selected?: boolean
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
-  const removeProject = useApp((s) => s.removeProject)
 
   return (
     <DropdownMenu open={open} onOpenChange={(nextOpen) => setOpen(nextOpen)}>
@@ -720,42 +818,75 @@ function ProjectMoreMenu({
         )}
         title="更多"
         onClick={(e) => e.stopPropagation()}
+        onContextMenu={(e) => {
+          e.preventDefault()
+          e.stopPropagation()
+        }}
       >
         <MoreVertical className="size-4" />
       </DropdownMenuTrigger>
       <DropdownMenuContent>
-        <DropdownMenuItem onClick={() => removeProject(projectPath)}>
-          <Trash2 className="size-4" /> 移除项目
-        </DropdownMenuItem>
+        <ProjectMenuItems projectPath={projectPath} />
       </DropdownMenuContent>
     </DropdownMenu>
   )
 }
 
-function IconButton({
-  title,
-  onClick,
-  selected,
+/** 左树右键菜单壳：Base UI Menu + 鼠标点虚拟 anchor（对齐 GitContextMenu）。 */
+function PointContextMenu({
+  point,
+  onClose,
   children
 }: {
-  title: string
-  onClick: (e: React.MouseEvent) => void
-  selected?: boolean
+  point: { x: number; y: number }
+  onClose: () => void
   children: React.ReactNode
 }): React.JSX.Element {
+  const anchor = useMemo(
+    () => ({ getBoundingClientRect: (): DOMRect => new DOMRect(point.x, point.y, 0, 0) }),
+    [point]
+  )
+
   return (
-    <button
-      type="button"
-      title={title}
-      onClick={onClick}
-      className={cn(
-        'hidden size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:text-[color:var(--fg-icon)] group-hover:flex',
-        // 选中（蓝底）行上的按钮 hover 用蓝色高亮，而非灰色。
-        selected ? 'hover:bg-[var(--selection-row-hover)]' : 'hover:bg-[var(--bg-button-hover)]'
-      )}
+    <Menu.Root
+      open
+      modal={false}
+      onOpenChange={(open, eventDetails) => {
+        if (open) return
+        // 与 Git 右键同款：只在明确关闭意图时关，忽略 focus-out 等。
+        const reason = eventDetails?.reason
+        if (
+          reason === 'escape-key' ||
+          reason === 'outside-press' ||
+          reason === 'item-press' ||
+          reason === 'close-press' ||
+          reason === 'imperative-action'
+        ) {
+          onClose()
+        }
+      }}
     >
-      {children}
-    </button>
+      <Menu.Portal>
+        <Menu.Positioner
+          className="z-50"
+          anchor={anchor}
+          side="bottom"
+          align="start"
+          sideOffset={2}
+          collisionPadding={2}
+        >
+          <Menu.Popup
+            className="min-w-32 rounded-lg border border-[color:var(--border-input)] bg-panel p-1.5 shadow-xl outline-none"
+            onContextMenu={(e) => {
+              e.preventDefault()
+              e.stopPropagation()
+            }}
+          >
+            {children}
+          </Menu.Popup>
+        </Menu.Positioner>
+      </Menu.Portal>
+    </Menu.Root>
   )
 }
 

@@ -2,10 +2,13 @@ import { useEffect, useRef, useState } from 'react'
 import {
   ChevronDown,
   ChevronUp,
+  Eraser,
   GitBranch,
   Play,
   Plus,
+  RotateCw,
   Search,
+  Square,
   Terminal as TerminalIcon,
   X
 } from 'lucide-react'
@@ -33,7 +36,7 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { SessionOutput, SessionStatus } from '@shared/types'
-import { gitTabKey } from '@shared/runnable'
+import { configKey, gitTabKey } from '@shared/runnable'
 import { useApp, resolveTabs, type RunTabInfo, type TerminalTab } from '@renderer/store'
 import { gitState, useGit } from '@renderer/git-store'
 import { cn } from '@renderer/lib/utils'
@@ -81,6 +84,9 @@ export function Console(): React.JSX.Element {
   const termKeys = new Set(terminals.map((t) => t.key))
   const runSessionKeys = Object.keys(sessions).filter((k) => !termKeys.has(k))
 
+  // 仅当激活的是运行会话 Tab 时出操作栏（Git / 终端 Tab 不出）。
+  const activeRunTab = runTabs.find((t) => t.key === activeKey) ?? null
+
   return (
     <div className="flex h-full min-w-0 flex-1 flex-col bg-deepest">
       <TabBar
@@ -90,6 +96,9 @@ export function Console(): React.JSX.Element {
         termTabs={termTabs}
         activeKey={activeKey}
       />
+      {activeRunTab && (
+        <RunActionBar projectPath={currentProjectPath} tab={activeRunTab} />
+      )}
       <div className="relative min-h-0 flex-1">
         {/* Git 面板：每个项目常驻一个（切走仅隐藏；当前项目由 App 预加载，见 GitPane）。 */}
         {tree.map((n) => {
@@ -118,6 +127,78 @@ export function Console(): React.JSX.Element {
           )
         })}
       </div>
+    </div>
+  )
+}
+
+// 运行会话操作栏：仅在激活运行会话 Tab 时出现（Tab 栏下方）。
+// 仅按钮：运行/重跑、停止、清空；无配置名/状态文案（Tab 已承载）。
+// 高 40px、底 --bg-panel、底边 1px --separator；按钮 size-7、间距 gap-1.5，与左树一致。
+const ACTION_BTN = 'flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors'
+
+function RunActionBar({
+  projectPath,
+  tab
+}: {
+  projectPath: string
+  tab: RunTabInfo
+}): React.JSX.Element {
+  const tree = useApp((s) => s.tree)
+  const session = useApp((s) => s.sessions[tab.key])
+  const run = useApp((s) => s.run)
+  const stop = useApp((s) => s.stop)
+  const clearOutput = useApp((s) => s.clearOutput)
+
+  const config = tree
+    .find((n) => n.project.path === projectPath)
+    ?.configs.find((c) => configKey(c) === tab.key)
+
+  const running = session?.status === 'running'
+
+  return (
+    <div className="flex h-10 shrink-0 items-center gap-1.5 border-b border-[var(--separator)] bg-panel px-1.5">
+      <button
+        type="button"
+        title={running ? '重新运行' : '运行'}
+        className={cn(
+          ACTION_BTN,
+          running
+            ? 'bg-[var(--run-active-bg)] text-white hover:bg-[var(--run-active-bg-hover)]'
+            : 'text-[var(--run-glyph)] hover:bg-[var(--bg-button-hover)]'
+        )}
+        onClick={() => {
+          if (!config) return
+          run({ type: 'config', id: config.id }, tab.key, projectPath)
+        }}
+        disabled={!config}
+      >
+        {running ? <RotateCw className="size-4" /> : <Play className="size-4" />}
+      </button>
+      <button
+        type="button"
+        title="停止"
+        disabled={!running}
+        className={cn(
+          ACTION_BTN,
+          running
+            ? 'bg-[var(--stop-active-bg)] text-white hover:bg-[var(--stop-active-bg-hover)]'
+            : 'text-muted-foreground opacity-40'
+        )}
+        onClick={() => stop(tab.key)}
+      >
+        <Square className="size-4" />
+      </button>
+      <button
+        type="button"
+        title="清空输出"
+        className={cn(
+          ACTION_BTN,
+          'text-muted-foreground hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
+        )}
+        onClick={() => clearOutput(tab.key)}
+      >
+        <Eraser className="size-4" />
+      </button>
     </div>
   )
 }

@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type {
   CommandRunConfig,
+  ProjectAddResult,
   ProjectNode,
   ProjectSortPrefs,
   RunConfig,
@@ -124,6 +125,8 @@ interface AppState {
   projectSortPrefs: ProjectSortPrefs
   /** 左树项目名搜索（纯内存） */
   projectFilter: string
+  /** 添加项目后待滚入视口的路径；滚完即清 */
+  scrollToProjectPath: string | null
   setTree: (tree: ProjectNode[]) => void
   setSession: (s: SessionState) => void
   /** 会话被销毁（关 Tab / shell 退出 / 删除配置或项目 / 对账）：清状态、删终端 Tab、修激活 Tab */
@@ -148,8 +151,11 @@ interface AppState {
   /** 点选排序方式：同项翻转方向，换项取默认方向 */
   cycleSortMode: (mode: ProjectSortPrefs['mode']) => Promise<void>
   setProjectFilter: (query: string) => void
+  clearScrollToProjectPath: () => void
   run: (target: RunTarget, key: string, projectPath: string) => Promise<void>
   stop: (key: string) => Promise<void>
+  /** 清空某运行会话的控制台输出（进程继续；+1 runNonce 驱动面板清屏回填） */
+  clearOutput: (key: string) => Promise<void>
   /** 新建终端并聚焦；返回其会话键（供 Git 交互式 rebase 等向其写入命令） */
   newTerminal: (projectPath: string) => Promise<string>
   renameTerminal: (key: string, name: string) => void
@@ -163,6 +169,20 @@ interface AppState {
   reorderConfigs: (projectPath: string, orderedIds: string[]) => Promise<void>
 }
 
+/**
+ * 登记项目后的统一收尾：有 focusPath（新建或已存在）则选中并滚入视口；
+ * 取消 / 无效路径不动 store，避免无谓刷新把列表滚走。
+ */
+async function applyAddedProject(
+  set: (partial: Partial<AppState>) => void,
+  fetch: () => Promise<ProjectAddResult>
+): Promise<void> {
+  const { focusPath } = await fetch()
+  if (!focusPath) return
+  set({ selectedKey: null, currentProjectPath: focusPath })
+  set({ tree: await window.api.touchProject(focusPath), scrollToProjectPath: focusPath })
+}
+
 export const useApp = create<AppState>((set, get) => ({
   tree: [],
   sessions: {},
@@ -174,6 +194,7 @@ export const useApp = create<AppState>((set, get) => ({
   dialog: { open: false },
   projectSortPrefs: DEFAULT_PROJECT_SORT_PREFS,
   projectFilter: '',
+  scrollToProjectPath: null,
   setTree: (tree) => set({ tree }),
   setSession: (s) => set((state) => ({ sessions: { ...state.sessions, [s.key]: s } })),
   handleSessionRemoved: (key) =>
@@ -254,9 +275,16 @@ export const useApp = create<AppState>((set, get) => ({
       projectSortPrefs
     })
   },
-  addProject: async () => set({ tree: await window.api.addProject() }),
-  addProjectByPath: async (path) => set({ tree: await window.api.addProjectByPath(path) }),
-  createProject: async () => set({ tree: await window.api.createProject() }),
+  // 添加成功或命中已有项目：选中并滚入视口；取消 / 无效路径则只刷新树。
+  addProject: async () => {
+    await applyAddedProject(set, () => window.api.addProject())
+  },
+  addProjectByPath: async (path) => {
+    await applyAddedProject(set, () => window.api.addProjectByPath(path))
+  },
+  createProject: async () => {
+    await applyAddedProject(set, () => window.api.createProject())
+  },
   removeProject: async (path) => {
     const tree = await window.api.removeProject(path)
     // 该项目的会话/终端已由 main 销毁（逐个 sessionRemoved）；这里清掉指向它的当前项目与激活项。
@@ -289,6 +317,7 @@ export const useApp = create<AppState>((set, get) => ({
     set({ projectSortPrefs: await window.api.setProjectSortPrefs(next) })
   },
   setProjectFilter: (query) => set({ projectFilter: query }),
+  clearScrollToProjectPath: () => set({ scrollToProjectPath: null }),
   run: async (target, key, projectPath) => {
     // 运行即选中该配置、聚焦（即将出现的）其 Tab，并为该会话 +1 运行序号（重跑清屏回填与聚焦）。
     const switched = get().currentProjectPath !== projectPath
@@ -302,6 +331,13 @@ export const useApp = create<AppState>((set, get) => ({
     await window.api.run(target)
   },
   stop: async (key) => window.api.stop(key),
+  clearOutput: async (key) => {
+    await window.api.clearSessionOutput(key)
+    // 与重跑同路：+1 runNonce 驱动面板 reset + 回填空快照（新 sid）。
+    set((state) => ({
+      runNonce: { ...state.runNonce, [key]: (state.runNonce[key] ?? 0) + 1 }
+    }))
+  },
   newTerminal: async (projectPath) => {
     const key = await window.api.openTerminal(projectPath)
     const switched = get().currentProjectPath !== projectPath
