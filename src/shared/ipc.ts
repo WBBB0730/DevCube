@@ -8,6 +8,7 @@ export const IPC = {
   projectRemove: 'project:remove',
   projectReorder: 'project:reorder',
   projectTouch: 'project:touch',
+  projectSetPinned: 'project:set-pinned',
   projectSortPrefsGet: 'project:sort-prefs-get',
   projectSortPrefsSet: 'project:sort-prefs-set',
   run: 'session:run',

@@ -16,6 +16,8 @@ export interface Project {
   addedAt: number
   /** 最近打开该项目的时间（epoch ms）；登记时写入，之后每次选中刷新；老档案缺省为 null */
   lastOpenedAt: number | null
+  /** 是否 Pin（置顶）；老档案缺省为 false */
+  pinned: boolean
 }
 
 /** 左树项目列表的排序方式。 */
@@ -28,12 +30,15 @@ export type ProjectSortDirection = 'asc' | 'desc'
 export interface ProjectSortPrefs {
   mode: ProjectSortMode
   direction: ProjectSortDirection
+  /** 已 Pin 项目行是否叠放吸顶；关则置顶/未置顶均按当前段吸顶（视口最上一项）。默认开。 */
+  pinSticky: boolean
 }
 
 /** 默认：添加时间倒序（新→旧）。已持久化的偏好不被覆盖。 */
 export const DEFAULT_PROJECT_SORT_PREFS: ProjectSortPrefs = {
   mode: 'addedAt',
-  direction: 'desc'
+  direction: 'desc',
+  pinSticky: true
 }
 
 /** 从 package.json 的 scripts 实时派生的只读候补，不持久化。 */
@@ -155,6 +160,8 @@ export interface RunAPI extends GitAPI {
   reorderProjects(orderedPaths: string[]): Promise<ProjectNode[]>
   /** 记录「打开」某项目（更新 lastOpenedAt） */
   touchProject(path: string): Promise<ProjectNode[]>
+  /** 设置 Project 的 Pin；置顶/取消后进入目标区块开头 */
+  setProjectPinned(path: string, pinned: boolean): Promise<ProjectNode[]>
   getProjectSortPrefs(): Promise<ProjectSortPrefs>
   setProjectSortPrefs(patch: Partial<ProjectSortPrefs>): Promise<ProjectSortPrefs>
 

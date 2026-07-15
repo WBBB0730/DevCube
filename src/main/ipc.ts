@@ -25,6 +25,7 @@ import {
   pickAndAddProject,
   removeProject,
   reorderProjects,
+  setProjectPinned,
   touchProject
 } from './projects'
 import {
@@ -178,6 +179,11 @@ export function registerIpc(win: BrowserWindow): void {
 
   ipcMain.handle(IPC.projectTouch, (_e, path: string) => {
     touchProject(path)
+    return buildTree()
+  })
+
+  ipcMain.handle(IPC.projectSetPinned, (_e, path: string, pinned: boolean) => {
+    setProjectPinned(path, pinned)
     return buildTree()
   })
 

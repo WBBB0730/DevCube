@@ -18,6 +18,7 @@ const api: RunAPI = {
   removeProject: (path) => ipcRenderer.invoke(IPC.projectRemove, path),
   reorderProjects: (orderedPaths) => ipcRenderer.invoke(IPC.projectReorder, orderedPaths),
   touchProject: (path) => ipcRenderer.invoke(IPC.projectTouch, path),
+  setProjectPinned: (path, pinned) => ipcRenderer.invoke(IPC.projectSetPinned, path, pinned),
   getProjectSortPrefs: () => ipcRenderer.invoke(IPC.projectSortPrefsGet),
   setProjectSortPrefs: (patch) => ipcRenderer.invoke(IPC.projectSortPrefsSet, patch),
 

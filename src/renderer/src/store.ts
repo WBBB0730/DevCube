@@ -148,8 +148,12 @@ interface AppState {
   removeProject: (path: string) => Promise<void>
   /** 重排项目列表（自定义排序落盘） */
   reorderProjects: (orderedPaths: string[]) => Promise<void>
+  /** 设置 Project 的 Pin */
+  setProjectPinned: (path: string, pinned: boolean) => Promise<void>
   /** 点选排序方式：同项翻转方向，换项取默认方向 */
   cycleSortMode: (mode: ProjectSortPrefs['mode']) => Promise<void>
+  /** 开关已 Pin 项目行滚动吸顶 */
+  setPinSticky: (pinSticky: boolean) => Promise<void>
   setProjectFilter: (query: string) => void
   clearScrollToProjectPath: () => void
   run: (target: RunTarget, key: string, projectPath: string) => Promise<void>
@@ -311,10 +315,18 @@ export const useApp = create<AppState>((set, get) => ({
     })
     set({ tree: await window.api.reorderProjects(orderedPaths) })
   },
+  setProjectPinned: async (path, pinned) => {
+    set({ tree: await window.api.setProjectPinned(path, pinned) })
+  },
   cycleSortMode: async (mode) => {
     const next = cycleProjectSort(get().projectSortPrefs, mode)
     set({ projectSortPrefs: next })
     set({ projectSortPrefs: await window.api.setProjectSortPrefs(next) })
+  },
+  setPinSticky: async (pinSticky) => {
+    const next = { ...get().projectSortPrefs, pinSticky }
+    set({ projectSortPrefs: next })
+    set({ projectSortPrefs: await window.api.setProjectSortPrefs({ pinSticky }) })
   },
   setProjectFilter: (query) => set({ projectFilter: query }),
   clearScrollToProjectPath: () => set({ scrollToProjectPath: null }),

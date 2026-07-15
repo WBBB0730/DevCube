@@ -30,7 +30,7 @@ export async function initStore(): Promise<void> {
   })
 }
 
-/** 老档案缺 addedAt / lastOpenedAt 时补齐；首次读到脏数据即回写，避免每次 Date.now() 抖动。 */
+/** 老档案缺 addedAt / lastOpenedAt / pinned 时补齐；首次读到脏数据即回写，避免每次 Date.now() 抖动。 */
 export function getProjects(): Project[] {
   const raw = store.get('projects')
   const now = Date.now()
@@ -38,8 +38,11 @@ export function getProjects(): Project[] {
   const projects = raw.map((p) => {
     const addedAt = typeof p.addedAt === 'number' ? p.addedAt : now
     const lastOpenedAt = typeof p.lastOpenedAt === 'number' ? p.lastOpenedAt : null
-    if (addedAt !== p.addedAt || lastOpenedAt !== (p.lastOpenedAt ?? null)) dirty = true
-    return { path: p.path, name: p.name, addedAt, lastOpenedAt }
+    const pinned = p.pinned === true
+    if (addedAt !== p.addedAt || lastOpenedAt !== (p.lastOpenedAt ?? null) || p.pinned !== pinned) {
+      dirty = true
+    }
+    return { path: p.path, name: p.name, addedAt, lastOpenedAt, pinned }
   })
   if (dirty) store.set('projects', projects)
   return projects

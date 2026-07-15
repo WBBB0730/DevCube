@@ -1,6 +1,7 @@
 import { dialog } from 'electron'
 import { mkdirSync, statSync } from 'fs'
 import { basename } from 'path'
+import { applyProjectPinned } from '../shared/project-sort'
 import { getConfigs, getProjects, setConfigs, setProjects } from './store'
 import type { Project } from '../shared/types'
 
@@ -20,7 +21,8 @@ export function addProjectByPath(dir: string): string | null {
       path: dir,
       name: basename(dir),
       addedAt: now,
-      lastOpenedAt: now
+      lastOpenedAt: now,
+      pinned: false
     })
     setProjects(projects)
   }
@@ -84,4 +86,9 @@ export function touchProject(path: string): void {
   if (i < 0) return
   projects[i] = { ...projects[i], lastOpenedAt: Date.now() }
   setProjects(projects)
+}
+
+/** 设置 Project 的 Pin，并移到目标区块开头。 */
+export function setProjectPinned(path: string, pinned: boolean): void {
+  setProjects(applyProjectPinned(getProjects(), path, pinned))
 }
