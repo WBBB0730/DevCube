@@ -9,7 +9,7 @@ import type {
 } from './types'
 
 /** 各排序模式首次切入时的默认方向。 */
-export function defaultDirectionFor(mode: ProjectSortMode): ProjectSortDirection {
+function defaultDirectionFor(mode: ProjectSortMode): ProjectSortDirection {
   return mode === 'name' ? 'asc' : 'desc'
 }
 

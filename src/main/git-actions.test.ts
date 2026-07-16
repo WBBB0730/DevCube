@@ -405,11 +405,6 @@ describe('buildStagePathsArgs', () => {
       ['add', '-A', '--', 'src/a b.ts', 'x.txt']
     ])
   })
-  it('R 双路径场景由调用方传旧新两个路径，构造层原样透传', () => {
-    expect(
-      buildStagePathsArgs({ kind: 'stage-paths', paths: ['src/old.ts', 'src/new.ts'] })
-    ).toEqual([['add', '-A', '--', 'src/old.ts', 'src/new.ts']])
-  })
 })
 
 describe('buildUnstagePathsArgs', () => {

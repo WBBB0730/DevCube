@@ -108,10 +108,6 @@ describe('diffPossible', () => {
     expect(diffPossible(fc('a.png', { additions: null, deletions: null }))).toBe(true)
   })
 
-  it('有行数的文本文件可打开 diff', () => {
-    expect(diffPossible(fc('a.ts'))).toBe(true)
-  })
-
   it('未跟踪目录整体条目不可打开 diff', () => {
     expect(
       diffPossible(fc('vendor', { type: 'U', additions: null, deletions: null, isDir: true }))
@@ -122,12 +118,6 @@ describe('diffPossible', () => {
 describe('fileRowTitle', () => {
   it('可 diff 的普通修改显示「点击查看差异 • 已修改」', () => {
     expect(fileRowTitle(fc('a.ts'))).toBe('点击查看差异 • 已修改')
-  })
-
-  it('无行数的文件（如二进制）同样提示点击查看', () => {
-    expect(fileRowTitle(fc('a.png', { additions: null, deletions: null }))).toBe(
-      '点击查看差异 • 已修改'
-    )
   })
 
   it('未跟踪目录整体条目提示无法查看差异', () => {

@@ -1,3 +1,4 @@
+import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { buildScriptCommand, buildShellInvocation, buildShellSession, resolveCwd } from './command'
 
@@ -16,7 +17,7 @@ describe('resolveCwd', () => {
     expect(resolveCwd('/p')).toBe('/p')
   })
   it('相对路径按项目根解析', () => {
-    expect(resolveCwd('/p', 'packages/api')).toBe('/p/packages/api')
+    expect(resolveCwd('/p', 'packages/api')).toBe(join('/p', 'packages/api'))
   })
   it('绝对路径原样返回', () => {
     expect(resolveCwd('/p', '/abs/dir')).toBe('/abs/dir')

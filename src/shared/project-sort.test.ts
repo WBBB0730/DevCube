@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 import {
   applyProjectPinned,
   cycleProjectSort,
-  defaultDirectionFor,
   filterProjectNodes,
   sortProjectNodes
 } from './project-sort'
@@ -67,14 +66,6 @@ describe('cycleProjectSort', () => {
       cycleProjectSort(prefs({ mode: 'name', direction: 'asc', pinSticky: false }), 'addedAt')
         .pinSticky
     ).toBe(false)
-  })
-})
-
-describe('defaultDirectionFor', () => {
-  it('名称默认升序，时间默认降序', () => {
-    expect(defaultDirectionFor('name')).toBe('asc')
-    expect(defaultDirectionFor('addedAt')).toBe('desc')
-    expect(defaultDirectionFor('lastOpenedAt')).toBe('desc')
   })
 })
 

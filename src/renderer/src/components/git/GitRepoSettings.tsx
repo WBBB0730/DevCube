@@ -11,11 +11,10 @@ import { Input } from '@renderer/components/ui/input'
 import { Checkbox } from '@renderer/components/ui/checkbox'
 import { RadioGroup, RadioGroupItem } from '@renderer/components/ui/radio-group'
 
-// —— 纯逻辑（导出供测试） ——
+// —— 纯逻辑 ——
 
 /** 切换某 remote 的隐藏态后的 hideRemotes 新数组（幂等：重复勾选不产生重复项）。 */
-// eslint-disable-next-line react-refresh/only-export-components -- 纯函数与组件同文件导出（供单测）
-export function nextHideRemotes(hideRemotes: string[], remote: string, hidden: boolean): string[] {
+function nextHideRemotes(hideRemotes: string[], remote: string, hidden: boolean): string[] {
   const without = hideRemotes.filter((r) => r !== remote)
   return hidden ? [...without, remote] : without
 }

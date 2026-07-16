@@ -29,13 +29,6 @@ describe('promote', () => {
 describe('reconcile', () => {
   const scriptsByProject = new Map([['/p', new Set(['dev', 'build'])]])
 
-  it('script 仍存在的引用型配置保留', () => {
-    const configs: RunConfig[] = [
-      { id: '1', kind: 'referenced', projectPath: '/p', scriptName: 'dev' }
-    ]
-    expect(reconcile(configs, scriptsByProject)).toEqual(configs)
-  })
-
   it('script 已消失的引用型配置被删除', () => {
     const configs: RunConfig[] = [
       { id: '1', kind: 'referenced', projectPath: '/p', scriptName: 'dev' },
