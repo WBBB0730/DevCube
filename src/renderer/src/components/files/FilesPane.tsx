@@ -52,6 +52,17 @@ type Loaded =
   | { kind: 'other'; path: string; size: number }
   | null
 
+async function loadWorkingTreeStatus(projectPath: string): Promise<Map<string, GitFileStatus>> {
+  try {
+    const result = await window.api.gitDetails(projectPath, { kind: 'uncommitted' })
+    return result.error || !result.uncommitted
+      ? new Map()
+      : workingTreeStatusByPath(result.uncommitted)
+  } catch {
+    return new Map()
+  }
+}
+
 export function FilesPane({
   projectPath,
   visible
@@ -71,13 +82,9 @@ export function FilesPane({
   const [recentPaths, setRecentPaths] = useState<string[]>([])
 
   const loadedRef = useRef(loaded)
-  loadedRef.current = loaded
   const recentPathsRef = useRef(recentPaths)
-  recentPathsRef.current = recentPaths
   const expandedRef = useRef(expanded)
-  expandedRef.current = expanded
   const childrenByDirRef = useRef(childrenByDir)
-  childrenByDirRef.current = childrenByDir
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const treeScrollRef = useRef<HTMLDivElement>(null)
   /** 仅「打开文件 / 显式定位」时滚入；点目录改 expanded 不滚。 */
@@ -100,16 +107,44 @@ export function FilesPane({
     childrenByDir: Record<string, FilesDirEntry[]>
     expanded: Set<string>
   } | null>(null)
-  const expandedBeforeFilterRef = useRef<Set<string> | null>(null)
   const filterInputRef = useRef<HTMLInputElement>(null)
   const filterViewRef = useRef(filterView)
-  filterViewRef.current = filterView
+
+  useLayoutEffect(() => {
+    loadedRef.current = loaded
+    recentPathsRef.current = recentPaths
+    expandedRef.current = expanded
+    childrenByDirRef.current = childrenByDir
+    filterViewRef.current = filterView
+  }, [loaded, recentPaths, expanded, childrenByDir, filterView])
+
+  // 隐藏时丢弃临时过滤；其它 Files 状态继续常驻。
+  const [filterVisible, setFilterVisible] = useState(visible)
+  if (filterVisible !== visible) {
+    setFilterVisible(visible)
+    if (!visible) {
+      setFilterQuery('')
+      setFilterScanning(false)
+      setFilterView(null)
+    }
+  }
+
+  useLayoutEffect(() => {
+    if (!visible) {
+      filterSeqRef.current++
+      filterViewRef.current = null
+    }
+  }, [visible])
 
   const filtering = filterQuery.trim().length > 0
-  const displayChildren = filtering
-    ? (filterView?.childrenByDir ?? { [rootLogical]: [] })
-    : childrenByDir
-  const displayExpanded = filtering ? (filterView?.expanded ?? new Set([rootLogical])) : expanded
+  const displayChildren = useMemo(
+    () => (filtering ? (filterView?.childrenByDir ?? { [rootLogical]: [] }) : childrenByDir),
+    [childrenByDir, filterView, filtering, rootLogical]
+  )
+  const displayExpanded = useMemo(
+    () => (filtering ? (filterView?.expanded ?? new Set([rootLogical])) : expanded),
+    [expanded, filterView, filtering, rootLogical]
+  )
   const filterEmpty =
     filtering &&
     !filterScanning &&
@@ -118,27 +153,21 @@ export function FilesPane({
 
   const refreshGitStatus = useCallback(async () => {
     const seq = ++gitStatusSeqRef.current
-    try {
-      const result = await window.api.gitDetails(projectPath, { kind: 'uncommitted' })
-      if (seq !== gitStatusSeqRef.current) return
-      if (result.error || !result.uncommitted) {
-        setStatusByRel(new Map())
-        return
-      }
-      setStatusByRel(workingTreeStatusByPath(result.uncommitted))
-    } catch {
-      if (seq !== gitStatusSeqRef.current) return
-      setStatusByRel(new Map())
-    }
+    const status = await loadWorkingTreeStatus(projectPath)
+    if (seq === gitStatusSeqRef.current) setStatusByRel(status)
   }, [projectPath])
 
   // Files 可见时拉未提交状态；仓库变动（含工作区 watcher）后刷新
   useEffect(() => {
     if (!visible) return
-    void refreshGitStatus()
-    return window.api.onGitChanged((p) => {
+    const seq = ++gitStatusSeqRef.current
+    void loadWorkingTreeStatus(projectPath).then((status) => {
+      if (seq === gitStatusSeqRef.current) setStatusByRel(status)
+    })
+    const dispose = window.api.onGitChanged((p) => {
       if (p === projectPath) void refreshGitStatus()
     })
+    return dispose
   }, [visible, projectPath, refreshGitStatus])
 
   // 打开文件 / 显式定位后滚入视口；展开目录等只在挂起未完成时重试
@@ -173,9 +202,7 @@ export function FilesPane({
       // 同步写 ref，避免保存触发的 files:changed 仍读到旧 dirty/mtime 而误报冲突
       const next = { ...cur, dirty: false, mtimeMs }
       loadedRef.current = next
-      setLoaded((prev) =>
-        prev && prev.kind === 'text' && prev.path === cur.path ? next : prev
-      )
+      setLoaded((prev) => (prev && prev.kind === 'text' && prev.path === cur.path ? next : prev))
       setSaveError(null)
       void refreshGitStatus()
       return true
@@ -440,72 +467,33 @@ export function FilesPane({
     [expandToFile, openFile]
   )
 
-  const exitFilter = useCallback(async () => {
+  const updateFilterQuery = useCallback((query: string): void => {
     filterSeqRef.current++
-    setFilterQuery('')
-    setFilterScanning(false)
-    filterViewRef.current = null
-    setFilterView(null)
-    const snap = expandedBeforeFilterRef.current
-    expandedBeforeFilterRef.current = null
-    if (snap) {
-      expandedRef.current = snap
-      setExpanded(snap)
-      persistUi(loadedRef.current?.path ?? null, [...snap])
+    setFilterQuery(query)
+    setFilterScanning(query.trim().length > 0)
+    if (!query.trim()) {
+      filterViewRef.current = null
+      setFilterView(null)
     }
+  }, [])
+
+  const exitFilter = useCallback(async () => {
+    updateFilterQuery('')
     const open = loadedRef.current?.path ?? selectedPath
     if (open) await expandToFile(open)
-  }, [expandToFile, persistUi, selectedPath])
-
-  // 切走 Files Tab 时清空过滤（不持久化）
-  useEffect(() => {
-    if (visible) return
-    if (!filterQuery && !filterView) return
-    filterSeqRef.current++
-    setFilterQuery('')
-    setFilterScanning(false)
-    filterViewRef.current = null
-    setFilterView(null)
-    const snap = expandedBeforeFilterRef.current
-    expandedBeforeFilterRef.current = null
-    if (snap) {
-      expandedRef.current = snap
-      setExpanded(snap)
-      persistUi(loadedRef.current?.path ?? null, [...snap])
-    }
-  }, [visible, filterQuery, filterView, persistUi])
+  }, [expandToFile, selectedPath, updateFilterQuery])
 
   // 防抖扫盘过滤
   useEffect(() => {
     const q = filterQuery.trim()
-    if (!q) {
-      if (expandedBeforeFilterRef.current || filterViewRef.current) {
-        filterSeqRef.current++
-        setFilterScanning(false)
-        filterViewRef.current = null
-        setFilterView(null)
-        const snap = expandedBeforeFilterRef.current
-        expandedBeforeFilterRef.current = null
-        if (snap) {
-          expandedRef.current = snap
-          setExpanded(snap)
-          persistUi(loadedRef.current?.path ?? null, [...snap])
-          const open = loadedRef.current?.path
-          if (open) void expandToFile(open)
-        }
-      }
-      return
-    }
-    if (!expandedBeforeFilterRef.current) {
-      expandedBeforeFilterRef.current = new Set(expandedRef.current)
-    }
+    if (!q || !visible) return
     const seq = ++filterSeqRef.current
-    setFilterScanning(true)
+    let cancelled = false
     const timer = setTimeout(() => {
       void (async () => {
         try {
           const result = await window.api.filesFilterTree(projectPath, q)
-          if (seq !== filterSeqRef.current) return
+          if (cancelled || seq !== filterSeqRef.current) return
           const snap = {
             childrenByDir: result.childrenByDir,
             expanded: new Set(result.expandedPaths)
@@ -513,7 +501,7 @@ export function FilesPane({
           filterViewRef.current = snap
           setFilterView(snap)
         } catch {
-          if (seq !== filterSeqRef.current) return
+          if (cancelled || seq !== filterSeqRef.current) return
           const snap = {
             childrenByDir: { [rootLogical]: [] as FilesDirEntry[] },
             expanded: new Set([rootLogical])
@@ -521,12 +509,15 @@ export function FilesPane({
           filterViewRef.current = snap
           setFilterView(snap)
         } finally {
-          if (seq === filterSeqRef.current) setFilterScanning(false)
+          if (!cancelled && seq === filterSeqRef.current) setFilterScanning(false)
         }
       })()
     }, FILTER_DEBOUNCE_MS)
-    return () => clearTimeout(timer)
-  }, [filterQuery, projectPath, rootLogical, persistUi, expandToFile])
+    return () => {
+      cancelled = true
+      clearTimeout(timer)
+    }
+  }, [filterQuery, projectPath, rootLogical, visible])
 
   // 首次变为可见时：恢复树展开与上次打开（pending 由下一 effect 统一消费，避免竞态）
   useEffect(() => {
@@ -858,7 +849,7 @@ export function FilesPane({
               <input
                 ref={filterInputRef}
                 value={filterQuery}
-                onChange={(e) => setFilterQuery(e.target.value)}
+                onChange={(e) => updateFilterQuery(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === 'Escape') {
                     e.preventDefault()
@@ -922,13 +913,13 @@ export function FilesPane({
               }
               if (e.key === 'Backspace' && filterQuery) {
                 e.preventDefault()
-                setFilterQuery((q) => q.slice(0, -1))
+                updateFilterQuery(filterQuery.slice(0, -1))
                 filterInputRef.current?.focus()
                 return
               }
               if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
                 e.preventDefault()
-                setFilterQuery((q) => q + e.key)
+                updateFilterQuery(filterQuery + e.key)
                 filterInputRef.current?.focus()
               }
             }}

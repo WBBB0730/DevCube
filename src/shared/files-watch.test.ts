@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  mergeReloadedDirs,
-  resolveOpenTextDiskSync,
-  sameDirEntries
-} from './files-watch'
+import { mergeReloadedDirs, resolveOpenTextDiskSync, sameDirEntries } from './files-watch'
 import type { FilesDirEntry } from './files'
 
 function entry(name: string, path: string, isDirectory = false): FilesDirEntry {

@@ -96,9 +96,7 @@ const PIN_STICKY_SEAM: CSSProperties = {
  */
 function scrollProjectIntoView(list: HTMLElement, path: string): void {
   const esc = globalThis.CSS.escape(path)
-  const anchor = list.querySelector(
-    `[data-project-scroll-anchor="${esc}"]`
-  ) as HTMLElement | null
+  const anchor = list.querySelector(`[data-project-scroll-anchor="${esc}"]`) as HTMLElement | null
   const row = list.querySelector(`[data-project-path="${esc}"]`) as HTMLElement | null
   if (!anchor || !row) return
 

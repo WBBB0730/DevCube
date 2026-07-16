@@ -1,10 +1,12 @@
 node_modules
 dist
 out
+.cache
 .DS_Store
 .eslintcache
 *.log*
 .idea
+scripts/out
 
 # TS 增量构建缓存
 *.tsbuildinfo

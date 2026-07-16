@@ -9,6 +9,7 @@ import { killAllSessions } from './runner'
 import { closeAllWatchers } from './watcher'
 import { closeAllGitWatchers } from './git-watcher'
 import { closeAllFilesWatchers } from './files-watcher'
+import { resolveReleaseEdition } from '../shared/release-edition'
 
 // 必须在 app.ready 之前注册特权 scheme，否则渲染层无法用自定义协议播媒体。
 registerFilesMediaScheme()
@@ -51,7 +52,7 @@ function createWindow(): BrowserWindow {
 
 app.whenReady().then(async () => {
   // Set app user model id for windows
-  electronApp.setAppUserModelId('com.wbbb.devcube')
+  electronApp.setAppUserModelId(resolveReleaseEdition(app.getVersion()).appId)
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
