@@ -10,7 +10,12 @@ export interface FilesDirEntry {
 export type FilesReadResult =
   | { kind: 'text'; path: string; content: string; mtimeMs: number }
   | { kind: 'image'; path: string; dataUrl: string }
+  | { kind: 'audio'; path: string; mediaUrl: string; mime: string }
+  | { kind: 'video'; path: string; mediaUrl: string; mime: string }
   | { kind: 'other'; path: string; size: number }
+
+/** Files Tab 音视频预览自定义协议（主进程 stream，渲染层 `<audio>`/`<video>`）。 */
+export const FILES_MEDIA_SCHEME = 'dc-media'
 
 /** 每项目 Files Tab UI 持久化（上次打开路径 + 树展开 + 最近打开）。 */
 export interface FilesUiState {

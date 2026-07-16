@@ -46,6 +46,8 @@ const ROW =
 type Loaded =
   | { kind: 'text'; path: string; content: string; mtimeMs: number; dirty: boolean }
   | { kind: 'image'; path: string; dataUrl: string }
+  | { kind: 'audio'; path: string; mediaUrl: string; mime: string }
+  | { kind: 'video'; path: string; mediaUrl: string; mime: string }
   | { kind: 'other'; path: string; size: number }
   | null
 
@@ -214,6 +216,20 @@ export function FilesPane({
           })
         } else if (result.kind === 'image') {
           setLoaded({ kind: 'image', path: result.path, dataUrl: result.dataUrl })
+        } else if (result.kind === 'audio') {
+          setLoaded({
+            kind: 'audio',
+            path: result.path,
+            mediaUrl: result.mediaUrl,
+            mime: result.mime
+          })
+        } else if (result.kind === 'video') {
+          setLoaded({
+            kind: 'video',
+            path: result.path,
+            mediaUrl: result.mediaUrl,
+            mime: result.mime
+          })
         } else {
           setLoaded({ kind: 'other', path: result.path, size: result.size })
         }
@@ -661,6 +677,53 @@ export function FilesPane({
                 alt={loaded.path}
                 className="max-h-full max-w-full object-contain"
               />
+            </div>
+          </div>
+        )}
+        {loaded?.kind === 'video' && (
+          <div className="flex h-full min-h-0 flex-col">
+            <FilesToolbar
+              path={loaded.path}
+              projectRoot={rootLogical}
+              error={null}
+              recentPaths={recentPaths}
+              fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
+              treeVisible={treeVisible}
+              onShowTree={() => setTreeVisible(true)}
+              onToggleTree={() => setTreeVisible((v) => !v)}
+              onRevealInTree={revealInTree}
+              onOpenRecent={openFromRecent}
+            />
+            <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
+              <video
+                key={loaded.mediaUrl}
+                controls
+                preload="metadata"
+                className="max-h-full max-w-full"
+              >
+                <source src={loaded.mediaUrl} type={loaded.mime} />
+              </video>
+            </div>
+          </div>
+        )}
+        {loaded?.kind === 'audio' && (
+          <div className="flex h-full min-h-0 flex-col">
+            <FilesToolbar
+              path={loaded.path}
+              projectRoot={rootLogical}
+              error={null}
+              recentPaths={recentPaths}
+              fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
+              treeVisible={treeVisible}
+              onShowTree={() => setTreeVisible(true)}
+              onToggleTree={() => setTreeVisible((v) => !v)}
+              onRevealInTree={revealInTree}
+              onOpenRecent={openFromRecent}
+            />
+            <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
+              <audio key={loaded.mediaUrl} controls preload="metadata">
+                <source src={loaded.mediaUrl} type={loaded.mime} />
+              </audio>
             </div>
           </div>
         )}

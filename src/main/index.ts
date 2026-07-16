@@ -2,11 +2,15 @@ import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import { handleFilesMediaProtocol, registerFilesMediaScheme } from './files-media-protocol'
 import { initStore } from './store'
 import { registerIpc } from './ipc'
 import { killAllSessions } from './runner'
 import { closeAllWatchers } from './watcher'
 import { closeAllGitWatchers } from './git-watcher'
+
+// 必须在 app.ready 之前注册特权 scheme，否则渲染层无法用自定义协议播媒体。
+registerFilesMediaScheme()
 
 function createWindow(): BrowserWindow {
   const mainWindow = new BrowserWindow({
@@ -55,6 +59,7 @@ app.whenReady().then(async () => {
   })
 
   await initStore()
+  handleFilesMediaProtocol()
   registerIpc(createWindow())
 
   app.on('activate', function () {

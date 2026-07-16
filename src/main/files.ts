@@ -1,8 +1,12 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
+import { detectAv } from '@file-type/av'
+import { fileTypeFromFile } from 'file-type'
 import {
   classifyFilesOpenKind,
-  resolveFilesOpenKind,
+  filesOpenKindFromMime,
+  primaryMime,
+  sniffTextBuffer,
   type FilesOpenKind
 } from '../shared/files-kind'
 import { normalizePath, resolveWithinProject } from '../shared/files-path'
@@ -14,6 +18,7 @@ import {
   type FilesReadResult,
   type FilesUiState
 } from '../shared/files'
+import { buildFilesMediaUrl } from './files-media-protocol'
 import { execGit, resolveRepoRoot } from './git-exec'
 import { getProjects } from './store'
 
@@ -151,10 +156,32 @@ export async function filterFilesTreeScan(
   return filterFilesTree(root, full, q)
 }
 
+function imageDataUrl(buf: Buffer, mimeOrExt: string): string {
+  if (mimeOrExt.includes('/')) {
+    return `data:${mimeOrExt};base64,${buf.toString('base64')}`
+  }
+  const ext = mimeOrExt === 'jpg' ? 'jpeg' : mimeOrExt
+  return `data:image/${ext};base64,${buf.toString('base64')}`
+}
+
+/**
+ * 用 file-type + @file-type/av 读魔数；失败则 null。
+ * 已知文本扩展名的调用方应短路，避免无谓扫盘。
+ */
+async function detectMime(sysPath: string): Promise<string | null> {
+  try {
+    const ft = await fileTypeFromFile(sysPath, { customDetectors: [detectAv] })
+    return ft ? primaryMime(ft.mime) : null
+  } catch {
+    return null
+  }
+}
+
 export async function readFileEntry(
   projectPath: string,
   filePath: string
 ): Promise<FilesReadResult> {
+  const root = assertProjectRoot(projectPath)
   const logical = within(projectPath, filePath)
   const sys = toSys(logical)
   const st = await fs.stat(sys)
@@ -162,37 +189,61 @@ export async function readFileEntry(
   const name = path.basename(sys)
   const byName = classifyFilesOpenKind(name)
 
-  if (byName === 'image') {
+  if (byName === 'text') {
     const buf = await fs.readFile(sys)
-    const ext = path.extname(name).slice(1).toLowerCase() || 'png'
-    const mime = ext === 'jpg' ? 'jpeg' : ext
+    if (buf.length > MAX_TEXT_BYTES) {
+      return { kind: 'other', path: logical, size: buf.length }
+    }
     return {
-      kind: 'image',
+      kind: 'text',
       path: logical,
-      dataUrl: `data:image/${mime};base64,${buf.toString('base64')}`
+      content: buf.toString('utf8'),
+      mtimeMs: st.mtimeMs
     }
   }
 
-  const buf = await fs.readFile(sys)
-  const kind: FilesOpenKind = resolveFilesOpenKind(name, buf)
+  const mime = await detectMime(sys)
+  let kind: FilesOpenKind = byName
+  if (mime) {
+    const fromMime = filesOpenKindFromMime(mime)
+    if (fromMime !== null) kind = fromMime
+  }
+
+  if (kind === 'audio' || kind === 'video') {
+    const mediaMime = mime ?? (kind === 'audio' ? 'audio/mpeg' : 'video/mp4')
+    return {
+      kind,
+      path: logical,
+      mime: mediaMime,
+      mediaUrl: buildFilesMediaUrl(root, logical, mediaMime)
+    }
+  }
+
   if (kind === 'image') {
-    // 不应走到：byName 已处理图片扩展
+    const buf = await fs.readFile(sys)
     const ext = path.extname(name).slice(1).toLowerCase() || 'png'
     return {
       kind: 'image',
       path: logical,
-      dataUrl: `data:image/${ext};base64,${buf.toString('base64')}`
+      dataUrl: imageDataUrl(buf, mime ?? ext)
     }
   }
-  if (kind === 'other' || buf.length > MAX_TEXT_BYTES) {
-    return { kind: 'other', path: logical, size: buf.length }
+
+  // other：已确认二进制 MIME 则不再整文件读入，只报 size；否则嗅探是否文本
+  if (mime) {
+    return { kind: 'other', path: logical, size: st.size }
   }
-  return {
-    kind: 'text',
-    path: logical,
-    content: buf.toString('utf8'),
-    mtimeMs: st.mtimeMs
+
+  const buf = await fs.readFile(sys)
+  if (sniffTextBuffer(buf) && buf.length <= MAX_TEXT_BYTES) {
+    return {
+      kind: 'text',
+      path: logical,
+      content: buf.toString('utf8'),
+      mtimeMs: st.mtimeMs
+    }
   }
+  return { kind: 'other', path: logical, size: buf.length }
 }
 
 export async function writeFileEntry(
