@@ -1,7 +1,7 @@
 {
   "name": "devcube",
   "productName": "DevCube",
-  "version": "1.0.0-beta.1",
+  "version": "1.0.0-beta.2",
   "description": "A project-oriented desktop runner for commands, terminals, files, and Git",
   "main": "./out/main/index.js",
   "author": "WBBB",
