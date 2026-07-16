@@ -64,7 +64,7 @@
 | `--git-status-added`     | `#73BD79` | FILESTATUS_ADDED；新增（A）；**未跟踪（U）也用此色**（不对齐 FILESTATUS_UNKNOWN） |
 | `--git-status-modified`  | `#70AEFF` | FILESTATUS_MODIFIED / RENAMED；修改 / 重命名（M / R）                             |
 | `--git-status-deleted`   | `#6F737A` | FILESTATUS_DELETED；删除（D）；与 `--fg-disabled` 同值                            |
-| `--git-status-conflict`  | `#DE6A66` | FILESTATUS__*MERGED_WITH*__CONFLICTS / changelistConflict；冲突（`!`）            |
+| `--git-status-conflict`  | `#DE6A66` | FILESTATUS___MERGED_WITH___CONFLICTS / changelistConflict；冲突（`!`）            |
 | `--git-status-merged`    | `#CF84CF` | FILESTATUS_MERGED；已合并（预留）                                                 |
 | `--git-status-ignored`   | `#D69A6B` | FILESTATUS_IDEA_FILESTATUS_IGNORED；已忽略（预留）                                |
 | `--git-status-untracked` | `#E88F89` | FILESTATUS_UNKNOWN（**预留，当前 U 不用**）                                       |
