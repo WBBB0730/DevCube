@@ -11,12 +11,7 @@ import { isResidentTabKey } from '@shared/runnable'
 function cycleTab(projectPath: string, dir: 1 | -1): void {
   const st = useApp.getState()
   const { gitKey, filesKey, runTabs, termTabs, activeKey } = resolveTabs(st, projectPath)
-  const ordered = [
-    gitKey,
-    filesKey,
-    ...runTabs.map((t) => t.key),
-    ...termTabs.map((t) => t.key)
-  ]
+  const ordered = [gitKey, filesKey, ...runTabs.map((t) => t.key), ...termTabs.map((t) => t.key)]
   const idx = ordered.indexOf(activeKey)
   const next =
     idx < 0

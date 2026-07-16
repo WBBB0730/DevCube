@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  classifyFilesOpenKind,
-  resolveFilesOpenKind,
-  sniffTextBuffer
-} from './files-kind'
+import { classifyFilesOpenKind, resolveFilesOpenKind, sniffTextBuffer } from './files-kind'
 
 describe('classifyFilesOpenKind', () => {
   it('源码与配置走 text', () => {

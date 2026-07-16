@@ -28,15 +28,15 @@
 
 **边框 / 选中 / 强调**
 
-| 变量                    | 值        | 用途                                           |
-| ----------------------- | --------- | ---------------------------------------------- |
-| `--border-input`        | `#4F5157` | input / select / dialog 描边                   |
-| `--separator`           | `#1E1F22` | 面板间 1px 分隔                                |
-| `--selection-row`       | `#2D436E` | 选中行圆角填充                                 |
-| `--selection-row-hover` | `#35538F` | 选中（蓝底）行上按钮的 hover 底（非灰）        |
-| `--editor-selection`    | `#224283` | Files 编辑器文本选区（WebStorm；≠ 行选中蓝）   |
+| 变量                    | 值        | 用途                                                                               |
+| ----------------------- | --------- | ---------------------------------------------------------------------------------- |
+| `--border-input`        | `#4F5157` | input / select / dialog 描边                                                       |
+| `--separator`           | `#1E1F22` | 面板间 1px 分隔                                                                    |
+| `--selection-row`       | `#2D436E` | 选中行圆角填充                                                                     |
+| `--selection-row-hover` | `#35538F` | 选中（蓝底）行上按钮的 hover 底（非灰）                                            |
+| `--editor-selection`    | `#224283` | Files 编辑器文本选区（WebStorm；≠ 行选中蓝）                                       |
 | `--accent`              | `#3574F0` | 强调（New UI 主蓝，⚠ 推导，非 .icls）；**焦点环全局关闭**（`--ring: transparent`） |
-| `--link`                | `#548AF7` | 链接（.icls HYPERLINK）                        |
+| `--link`                | `#548AF7` | 链接（.icls HYPERLINK）                                                            |
 
 **运行 / 停止按钮**
 
@@ -59,15 +59,15 @@
 
 **Git 文件状态色**（`Dark.icls` FILESTATUS_*；提交面板 / Files 树文件名与图标）
 
-| 变量                      | 值        | 来源 / 用途                                                |
-| ------------------------- | --------- | ---------------------------------------------------------- |
-| `--git-status-added`      | `#73BD79` | FILESTATUS_ADDED；新增（A）；**未跟踪（U）也用此色**（不对齐 FILESTATUS_UNKNOWN） |
-| `--git-status-modified`   | `#70AEFF` | FILESTATUS_MODIFIED / RENAMED；修改 / 重命名（M / R）      |
-| `--git-status-deleted`    | `#6F737A` | FILESTATUS_DELETED；删除（D）；与 `--fg-disabled` 同值      |
-| `--git-status-conflict`   | `#DE6A66` | FILESTATUS_*_MERGED_WITH_*_CONFLICTS / changelistConflict；冲突（`!`） |
-| `--git-status-merged`     | `#CF84CF` | FILESTATUS_MERGED；已合并（预留）                          |
-| `--git-status-ignored`    | `#D69A6B` | FILESTATUS_IDEA_FILESTATUS_IGNORED；已忽略（预留）         |
-| `--git-status-untracked`  | `#E88F89` | FILESTATUS_UNKNOWN（**预留，当前 U 不用**）                |
+| 变量                     | 值        | 来源 / 用途                                                                       |
+| ------------------------ | --------- | --------------------------------------------------------------------------------- |
+| `--git-status-added`     | `#73BD79` | FILESTATUS_ADDED；新增（A）；**未跟踪（U）也用此色**（不对齐 FILESTATUS_UNKNOWN） |
+| `--git-status-modified`  | `#70AEFF` | FILESTATUS_MODIFIED / RENAMED；修改 / 重命名（M / R）                             |
+| `--git-status-deleted`   | `#6F737A` | FILESTATUS_DELETED；删除（D）；与 `--fg-disabled` 同值                            |
+| `--git-status-conflict`  | `#DE6A66` | FILESTATUS__*MERGED_WITH*__CONFLICTS / changelistConflict；冲突（`!`）            |
+| `--git-status-merged`    | `#CF84CF` | FILESTATUS_MERGED；已合并（预留）                                                 |
+| `--git-status-ignored`   | `#D69A6B` | FILESTATUS_IDEA_FILESTATUS_IGNORED；已忽略（预留）                                |
+| `--git-status-untracked` | `#E88F89` | FILESTATUS_UNKNOWN（**预留，当前 U 不用**）                                       |
 
 **滚动条（webkit）**
 
@@ -111,7 +111,7 @@ ANSI 16 色（取自 JetBrains 终端真实 Console Colors 调色板）：
 
 ## 图标
 
-Lucide（随 shadcn）：`Play`(运行) · `RotateCw`(重新运行 / Git 刷新) · `Square`(停止) · `Eraser`(清空运行会话输出) · `MoreVertical`(更多⋮) · `Pencil`(编辑) · `Trash2`(删除) · `ChevronRight`(树展开 / 弹层箭头) · `FolderPlus`(添加项目) · `FolderOpen`(打开文件夹 / Files Tab 标签「文件」 / Files「在文件夹中显示」) · `FileClock`(Files「最近打开文件」) · `ListTree`(Files「在文件树中显示」) · `SquareArrowOutUpRight`(Files「在其他应用中打开」) · `ChevronsUpDown`(Files 文件树「全部展开」) · `ChevronsDownUp`(Files 文件树「全部折叠」) · `FilePlusCorner`(新建配置) · `ArrowUpDown`(项目排序) · `AArrowDown`/`AArrowUp`(名称升/降序) · `ClockArrowDown`/`ClockArrowUp`(时间升/降序) · `Plus`(新建终端) · `Terminal`(终端 Tab) · `Search`/`ChevronUp`/`ChevronDown`/`X`(终端搜索框 / 关闭 Tab)。运行三角以 `--run-glyph` 上色。
+Lucide（随 shadcn）：`Play`(运行) · `RotateCw`(重新运行 / Git 刷新) · `Square`(停止) · `Eraser`(清空运行会话输出) · `MoreVertical`(更多⋮) · `Pencil`(编辑) · `Trash2`(删除) · `ChevronRight`(树展开 / 弹层箭头) · `FolderPlus`(添加项目) · `FolderOpen`(打开文件夹 / Files Tab 标签「文件」 / Files「在文件夹中显示」) · `FileClock`(Files「最近打开文件」) · `ListTree`(Files「在文件树中显示」) · `Minus`(Files「隐藏文件树」) · `PanelRight`(Files「显示文件树」) · `SquareArrowOutUpRight`(Files「在其他应用中打开」) · `ChevronsUpDown`(Files 文件树「全部展开」) · `ChevronsDownUp`(Files 文件树「全部折叠」) · `FilePlusCorner`(新建配置) · `ArrowUpDown`(项目排序) · `AArrowDown`/`AArrowUp`(名称升/降序) · `ClockArrowDown`/`ClockArrowUp`(时间升/降序) · `Plus`(新建终端) · `Terminal`(终端 Tab) · `Search`(左栏项目筛选 / Files 树顶筛选 / 终端搜索框)/`ChevronUp`/`ChevronDown`/`X`(筛选清空 / 终端搜索框 / 关闭 Tab)。运行三角以 `--run-glyph` 上色。
 
 Git 图谱专用：`GitBranch`(Git Tab) · `SlidersHorizontal`(视图选项) · `GitCommitHorizontal`(提交，等同点「未提交的更改」行) · `RotateCw`(刷新) · `CircleArrowDown`(拉取) · `CircleArrowUp`(推送) · `GitBranchPlus`(创建分支) · `Settings`(仓库设置) · `LoaderCircle`(加载 / 动作进行中) · `TriangleAlert`(操作失败) · `Ellipsis`(提交面板文件行 … 菜单)。
 
@@ -133,7 +133,7 @@ Git 图谱专用：`GitBranch`(Git Tab) · `SlidersHorizontal`(视图选项) · 
 
 - **左树**：固定 280px，**项目间留白**。Project（可折叠）下**直接列出 Run Configuration**（无「我的配置」小标题；**行背景不缩进、仅内容缩进对齐**——状态点对齐文件夹图标列、名称对齐项目名，靠"补空占位列 + 居中点盒"实现）；探测脚本收进一个**临时弹出菜单**（**Base UI Popover**，即项目组件库；**深色背景 `--bg-panel` 与列表一致**；点触发浮出、点外面 / Esc 关闭，**选中或运行菜单项即刻关闭**；菜单项与配置行同款样式）。触发行置于配置列表最下方，UI 标签为**「检测到的配置」**（**文案与配置状态点对齐**，**数字在箭头前**，**箭头在右**）。项目行 hover 显示「更多」⋮；项目行右键与「更多」共用菜单项：**打开文件夹**（`FolderOpen`）/ **新建终端**（`Terminal`）/ **新建配置**（`FilePlusCorner`）/ **置顶** 或 **取消置顶**（`Pin` / `PinOff`，在「移除」之上）/ **移除项目**。已 **Pin** 时空闲在「更多」同槽显示小图钉（muted），hover / 拖拽时**原地换成** ⋮（不挤到旁边）。无行内单独图钉按钮。项目名右侧显示包管理器角标（**pnpm 作为默认不显示**；hover 出按钮时让位隐藏）。
 - **Pin 与列表**：**Pin** 分区——已置顶整段在未置顶之上，组内仍走当前排序；新项目默认不 Pin。置顶 / 取消置顶分别进入目标区块**开头**（改落盘序，不自动切排序 mode）。置顶**标题行**为列表直接子节点；**默认** `position: sticky` 按序叠放（`top: n×(40+1)`，行间 1px 不透明缝）；排序菜单「固定置顶」可关叠放——关后每项包进段容器、当前段 `top:0` 吸顶，**下一段把上一段顶走**（不覆盖）。未置顶**标题行**在本项目块内吸顶，贴在置顶堆下方（被下一段顶走）。配置区照常滚走。**点击已吸顶的项目标题**（置顶 / 未置顶）滚其前方的非 sticky 段锚（`scrollIntoView({ block: 'start' })` + `scroll-margin-top` 预留吸顶高度；对齐 Git 段头跳转）。术语见 CONTEXT.md / `docs/prd/project-pin.md`。
-- **标题栏**：左侧低调筛选（透明底 + 小 `Search` 图标，聚焦时才出行 hover 底；按项目名大小写不敏感包含过滤，只显示匹配项；筛选结果仍保持 Pin 分区）。右侧排序按钮（`ArrowUpDown`）+ 新建/添加（`FolderPlus`）。排序菜单：自定义 / 名称 / 添加时间 / 打开时间；**分隔线**；**固定置顶**（勾选开关：开＝已 Pin 行滚动叠放吸顶；关＝不叠放，但视口最上的项目行仍当前段吸顶。默认开，持久化于 `projectSortPrefs.pinSticky`）。**默认添加时间倒序**（新→旧；已持久化偏好不覆盖）。名称与添加时间再点同一项翻转升/降序；**打开时间固定最近→最远、不可翻转**；自定义无方向。当前项左侧单一图标兼作选中——自定义用勾、名称用 `AArrowDown`/`AArrowUp`、添加时间用 `ClockArrowDown`/`ClockArrowUp`、打开时间只用 `ClockArrowDown`；「固定置顶」开时左侧勾。**打开时间排序下**选中/打开某项目后等它排到本组最前，再以 `scrollIntoView({ block: 'nearest' })` 滚入视口（不再特供滚到列表顶）。**新增项目**：插入落盘数组头（未置顶区靠前；勿与 **Pin** 混淆），并写入 `lastOpenedAt`；添加时间倒序靠 `addedAt` 自然靠前；名称 / 添加时间升序不强制靠前；**添加成功或命中已登记项目后均选中该项目**，并以 `scrollIntoView({ block: 'nearest' })` 滚入视口（已可见则不动，对齐 Git 父提交跳转）。底边 1px `--separator`（与右 Tab 栏同）。
+- **标题栏**：左侧低调筛选（透明底 + 小 `Search` 图标，聚焦时才出行 hover 底；有内容时右侧出清空 `X`；按项目名大小写不敏感包含过滤，只显示匹配项；筛选结果仍保持 Pin 分区）。右侧排序按钮（`ArrowUpDown`）+ 新建/添加（`FolderPlus`）。排序菜单：自定义 / 名称 / 添加时间 / 打开时间；**分隔线**；**固定置顶**（勾选开关：开＝已 Pin 行滚动叠放吸顶；关＝不叠放，但视口最上的项目行仍当前段吸顶。默认开，持久化于 `projectSortPrefs.pinSticky`）。**默认添加时间倒序**（新→旧；已持久化偏好不覆盖）。名称与添加时间再点同一项翻转升/降序；**打开时间固定最近→最远、不可翻转**；自定义无方向。当前项左侧单一图标兼作选中——自定义用勾、名称用 `AArrowDown`/`AArrowUp`、添加时间用 `ClockArrowDown`/`ClockArrowUp`、打开时间只用 `ClockArrowDown`；「固定置顶」开时左侧勾。**打开时间排序下**选中/打开某项目后等它排到本组最前，再以 `scrollIntoView({ block: 'nearest' })` 滚入视口（不再特供滚到列表顶）。**新增项目**：插入落盘数组头（未置顶区靠前；勿与 **Pin** 混淆），并写入 `lastOpenedAt`；添加时间倒序靠 `addedAt` 自然靠前；名称 / 添加时间升序不强制靠前；**添加成功或命中已登记项目后均选中该项目**，并以 `scrollIntoView({ block: 'nearest' })` 滚入视口（已可见则不动，对齐 Git 父提交跳转）。底边 1px `--separator`（与右 Tab 栏同）。
 - **项目支持拖拽排序**（无筛选时任意排序模式均可拖；@dnd-kit，PointerSensor 距离 6px；**仅垂直**；**钳制在当前 Pin 组边缘**（并与列表可视区取交），不可拖出组外；**不可跨 Pin 边界**——组内可排，跨界在碰撞检测阶段即忽略、不落盘、不改 Pin；置顶 / 未置顶分属两个 SortableContext）。**仅当松手后顺序实质变化**才落盘，并在非自定义模式下自动切到「自定义」；拖了但未改序则不覆盖原自定义顺序。**拖拽进行中所有项目暂时收起**，锚点按所见视口 Y（含吸顶）；收起后关 sticky，用 `needScrollTop = offsetTop - anchor` 钉住被拖项：偏上加顶 padding、可滚则设 scrollTop、超出 maxScroll 时用底 padding 撑高再滚（**不用负 margin**）；拖中向下滚按增量吃掉顶 padding 并回退等量 scrollTop；**拖拽中左树其它元素不响应 hover**。**松手后**记下被拖项视口位置，展开后仅用 scrollTop 尽量拉回（不加 padding）。筛选中禁用拖拽（菜单仍可开关 Pin）。
 - **配置支持拖拽排序**（@dnd-kit，PointerSensor 距离 6px 激活以不误触点击；**仅垂直移动、钳制在本项目配置列表内**——父容器不含「检测到的配置」触发行；顺序落盘、松手即时生效不回跳；拖中同样抑制左树其它 hover）。
 - **行内图标按钮**四周内边距一致 6px（固定高 `h-10` + `px-1.5`）。
@@ -154,7 +154,7 @@ Git 图谱专用：`GitBranch`(Git Tab) · `SlidersHorizontal`(视图选项) · 
 右控制台顶部的 Tab 栏承载**当前项目**的全部 Tab。除**常驻的 Git Tab / Files Tab**外，其余每个 Tab = 一个活的会话（Run Session 或 Terminal）。高 40px `h-10`、底 `--bg-panel`、底边 1px `--separator`，与左标题栏同高同色同底边；术语见 CONTEXT.md、取舍见 ADR-0003（含修订）、ADR-0005（常驻非会话 Tab + 默认激活）：
 
 - **Git Tab**：**每项目常驻第一个、不可关闭**（无 `×`）。`GitBranch` 图标 16px + 「Git」（14px）+ 当前分支名用括号包住（如 `Git (main)`，muted 色、截断；detached HEAD 显示缩写 hash；项目成为当前项目时即预加载，Tab 栏始终显示分支名，不必等点开 Git Tab；此后随 git:changed 保鲜）；左右内边距对称（`pl-3 pr-3`，12px，因无 `×`）。选中态与 hover 同其它 Tab。它不是会话——数据状态存独立 git store，切走仅隐藏不卸载；当前项目由 App 预加载，打开 Git Tab 时若已就绪则只重验仓库根。
-- **Files Tab**：**每项目常驻第二个、不可关闭**（无 `×`，紧接 Git 之后、会话之前）。`FolderOpen` 图标 16px + 「文件」（14px）；左右内边距对称（同 Git，因无 `×`）。文件树（不按 `.gitignore` 过滤；隐藏 WebStorm Ignored Files 默认项如 `.git` / `.DS_Store`）+ 单文件正文：文本用 CodeMirror 6（实验对照分支；**仅语法高亮与文本编辑**——无 lint / 补全；Monaco 对照见 `backup/files-tab-monaco`）；图片内嵌预览；其余占位并提供「在其他应用中打开」。工具栏：相对路径**可点面包屑**（左对齐；段间 `ChevronRight`、目录段 muted、文件名有工作区 Git 状态则用 `--git-status-*` 否则 `--fg-primary`；hover 只改文字色、无底；点目录/文件名 → 右侧树展开并滚到对应行；无未保存圆点）+「最近打开文件」(`FileClock`，下拉最近 10 个：文件名正文色 + 目录路径 muted，空则「暂无最近打开文件」；无正文时也显示) +「在文件树中显示」(`ListTree`，定位当前文件) +「在文件夹中显示」(`FolderOpen`) +「在其他应用中打开」(`SquareArrowOutUpRight`)，文案对齐 Git 菜单 / VS Code Reveal。**文件树行交互对齐左树、尺寸更紧凑**：树顶 header（同高 h-10）右对齐「全部展开」(`ChevronsUpDown`) /「全部折叠」(`ChevronsDownUp`)；`h-8` / `rounded` / 13px / `transition-colors`；目录名默认 `text-foreground`、选中 `--fg-primary`；文件名/图标按工作区 Git 状态色（同提交面板 `FILE_STATUS_COLOR`，无状态时图标 `--fg-icon`、名正文色），选中压成 `--fg-primary`；选中行 `--selection-row`（hover 不变色），未选中 `hover:bg-row-hover`；行背景全宽、仅内容按层级缩进；图标/箭头 14px（`size-3.5`；文件夹/文件图标 `--fg-icon` 或状态色，箭头 `muted` 不同色）；目录始终 `Folder`（展开不换 `FolderOpen`，靠箭头旋转表示开合）。事件自动保存；无内层多文件 Tab、无文件 CRUD。左栏 ProjectTree 不动。Git「打开文件」进入本 Tab。切走隐藏不卸载；每项目持久化上次打开路径与树展开（路径无效则静默空态）。布局为左正文 / 右文件树；未打开条目时空态文案「在右侧选择文件」。
+- **Files Tab**：**每项目常驻第二个、不可关闭**（无 `×`，紧接 Git 之后、会话之前）。`FolderOpen` 图标 16px + 「文件」（14px）；左右内边距对称（同 Git，因无 `×`）。文件树（不按 `.gitignore` 过滤；隐藏 WebStorm Ignored Files 默认项如 `.git` / `.DS_Store`）+ 单文件正文：文本用 CodeMirror 6（实验对照分支；**仅语法高亮与文本编辑**——无 lint / 补全；Monaco 对照见 `backup/files-tab-monaco`）；图片内嵌预览；其余占位并提供「在其他应用中打开」。工具栏：相对路径**可点面包屑**（左对齐；段间 `ChevronRight`、目录段 muted、文件名有工作区 Git 状态则用 `--git-status-*` 否则 `--fg-primary`；hover 只改文字色、无底；点目录/文件名 → 右侧树展开并滚到对应行；无未保存圆点）+「最近打开文件」(`FileClock`，下拉最近 10 个：文件名正文色 + 目录路径 muted，空则「暂无最近打开文件」；无正文时也显示) +「在文件树中显示」(`ListTree`，定位当前文件；若树已隐藏则先显示再滚到行) +「在文件夹中显示」(`FolderOpen`) +「在其他应用中打开」(`SquareArrowOutUpRight`) + 文件树隐藏时最右「显示文件树」(`PanelRight`，与左侧钮组之间 1×12px `--border-input` 竖线)；**双击编辑区标题栏**切换文件树显隐（面包屑与右侧钮组不触发），文案对齐 Git 菜单 / VS Code Reveal。**文件树行交互对齐左树、尺寸更紧凑**：树顶 header（同高 h-10）左侧常驻筛选（`Search` + 占位「筛选」，有内容时清空 `X`，样式同左栏项目筛选；扫描中极轻提示）；焦点在树上时可打印字写入、Esc 清空；按相对路径包含收窄**同一棵树**（保留结构；目录命中带整支；无匹配「无匹配文件」；不过滤高亮）；右侧「全部展开」(`ChevronsUpDown`) /「全部折叠」(`ChevronsDownUp`) / 最右「隐藏文件树」(`Minus`)（过滤期间展开/折叠只作用于过滤后的树）；固定宽 280px；可整块隐藏（编辑区占满，不留窄条把手；可见性不持久化，重挂载默认展开）；`h-8` / `rounded` / 13px / `transition-colors`；目录名默认 `text-foreground`、选中 `--fg-primary`；文件名/图标按工作区 Git 状态色（同提交面板 `FILE_STATUS_COLOR`，无状态时图标 `--fg-icon`、名正文色），选中压成 `--fg-primary`；选中行 `--selection-row`（hover 不变色），未选中 `hover:bg-row-hover`；行背景全宽、仅内容按层级缩进；图标/箭头 14px（`size-3.5`；文件夹/文件图标 `--fg-icon` 或状态色，箭头 `muted` 不同色）；目录始终 `Folder`（展开不换 `FolderOpen`，靠箭头旋转表示开合）。事件自动保存；无内层多文件 Tab、无文件 CRUD。左栏 ProjectTree 不动。Git「打开文件」进入本 Tab。切走隐藏不卸载；每项目持久化上次打开路径与树展开（路径无效则静默空态）。布局为左正文 / 右文件树；未打开条目时空态文案「在右侧选择文件」。
 - **运行会话 Tab**：**每条有会话的配置一个**（运行中或已退出未关闭）。状态点 + 配置名（14px）；`×` 常驻（背景仅 hover，圆形、颜色过渡）——运行中＝**停止并关闭**（温和停止，不二次确认），已退出＝关闭并弃输出（树上状态点回灰）。**顺序跟随树中配置顺序**；重跑复用原 Tab（单实例语义不变）。
 - **终端 Tab（Terminal）**：`Terminal` 图标 16px + 名称；`×` 同上（关闭即杀 shell）。默认名「终端 / 终端 (2) …」按项目内序号，**双击可改名**（按项目持久化）。**组内支持拖拽排序**（仅水平、钳制在终端组内，不与运行会话组混排；顺序按项目持久化）。整组排在运行会话组之后。冷启动恢复壳、第一次激活才起 shell（无历史输出）；关 Tab / shell 自退出与落盘同步。
 - **末尾 `+`**（`Plus`，tooltip「新建终端」）：在当前项目根目录起一个交互 `$SHELL` 的新终端 Tab 并聚焦。

@@ -269,10 +269,7 @@ function selectionDecorations(state: EditorState): DecorationSet {
 }
 
 /** tab 宽 + 行内选区（与活动行并存）。 */
-export const filesEditorConfig: Extension = [
-  EditorState.tabSize.of(4),
-  filesSelectionMarkup
-]
+export const filesEditorConfig: Extension = [EditorState.tabSize.of(4), filesSelectionMarkup]
 
 const jsdocMark = Decoration.mark({ class: 'cm-jsdoc' })
 const jsdocTagMark = Decoration.mark({ class: 'cm-jsdoc-tag' })

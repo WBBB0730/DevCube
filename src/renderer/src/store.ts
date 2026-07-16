@@ -12,10 +12,7 @@ import type {
 import { DEFAULT_PROJECT_SORT_PREFS } from '@shared/types'
 import { configKey, filesTabKey, gitTabKey, isResidentTabKey } from '@shared/runnable'
 import { cycleProjectSort } from '@shared/project-sort'
-import {
-  resolveActiveTabKey,
-  resolveNeighborAfterClose
-} from '@shared/tab-activation'
+import { resolveActiveTabKey, resolveNeighborAfterClose } from '@shared/tab-activation'
 import {
   mergeTerminalTabs,
   resolvePersistedProjectPath,
@@ -68,7 +65,11 @@ function persistWorkspace(get: () => AppState): void {
 }
 
 /** 激活的 Terminal 若尚未 spawn，则用既有 id 拉起 shell。 */
-async function ensureTerminalSpawned(get: () => AppState, projectPath: string, key: string): Promise<void> {
+async function ensureTerminalSpawned(
+  get: () => AppState,
+  projectPath: string,
+  key: string
+): Promise<void> {
   if (!key.startsWith('terminal:')) return
   if (!get().terminals.some((t) => t.key === key && t.projectPath === projectPath)) return
   if (get().sessions[key]) return
@@ -381,9 +382,7 @@ export const useApp = create<AppState>((set, get) => ({
     // 乐观更新：松手即本地排好序，避免等 IPC 回跳。
     set((state) => {
       const byPath = new Map(state.tree.map((n) => [n.project.path, n]))
-      const tree = orderedPaths
-        .map((p) => byPath.get(p))
-        .filter((n): n is ProjectNode => !!n)
+      const tree = orderedPaths.map((p) => byPath.get(p)).filter((n): n is ProjectNode => !!n)
       return { tree }
     })
     set({ tree: await window.api.reorderProjects(orderedPaths) })

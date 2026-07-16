@@ -9,7 +9,11 @@ import {
   Folder,
   FolderOpen,
   ListTree,
-  SquareArrowOutUpRight
+  Minus,
+  PanelRight,
+  Search,
+  SquareArrowOutUpRight,
+  X
 } from 'lucide-react'
 import { pushRecentPath, type FilesDirEntry, type FilesReadResult } from '@shared/files'
 import type { GitFileStatus } from '@shared/git'
@@ -30,13 +34,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
-import {
-  FILE_STATUS_COLOR,
-  workingTreeStatusByPath
-} from '@renderer/components/git/git-details'
+import { FILE_STATUS_COLOR, workingTreeStatusByPath } from '@renderer/components/git/git-details'
 
 const IDLE_SAVE_MS = 2000
-const TREE_W = 240
+const FILTER_DEBOUNCE_MS = 200
+const TREE_W = 280
 /** 交互对齐左树（选中色 / hover / transition）；尺寸更紧凑（非左树 h-10/14px）。 */
 const ROW =
   'flex h-8 w-full cursor-pointer items-center gap-1 rounded px-1.5 text-left text-[13px] text-foreground transition-colors'
@@ -80,11 +82,36 @@ export function FilesPane({
   const pendingScrollPath = useRef<string | null>(null)
   /** 同路径再次「在文件树中显示」时强制重跑滚动。 */
   const [revealTick, setRevealTick] = useState(0)
+  /** 右侧文件树可见性；不持久化，重挂载默认展开。 */
+  const [treeVisible, setTreeVisible] = useState(true)
   const [ready, setReady] = useState(false)
-  /** 忽略过期的 openFile / git status / 全部展开 响应。 */
+  /** 忽略过期的 openFile / git status / 全部展开 / 过滤扫盘 响应。 */
   const openSeqRef = useRef(0)
   const gitStatusSeqRef = useRef(0)
   const expandAllSeqRef = useRef(0)
+  const filterSeqRef = useRef(0)
+
+  const [filterQuery, setFilterQuery] = useState('')
+  const [filterScanning, setFilterScanning] = useState(false)
+  const [filterView, setFilterView] = useState<{
+    childrenByDir: Record<string, FilesDirEntry[]>
+    expanded: Set<string>
+  } | null>(null)
+  const expandedBeforeFilterRef = useRef<Set<string> | null>(null)
+  const filterInputRef = useRef<HTMLInputElement>(null)
+  const filterViewRef = useRef(filterView)
+  filterViewRef.current = filterView
+
+  const filtering = filterQuery.trim().length > 0
+  const displayChildren = filtering
+    ? (filterView?.childrenByDir ?? { [rootLogical]: [] })
+    : childrenByDir
+  const displayExpanded = filtering ? (filterView?.expanded ?? new Set([rootLogical])) : expanded
+  const filterEmpty =
+    filtering &&
+    !filterScanning &&
+    filterView !== null &&
+    (filterView.childrenByDir[rootLogical] ?? []).length === 0
 
   const refreshGitStatus = useCallback(async () => {
     const seq = ++gitStatusSeqRef.current
@@ -117,7 +144,7 @@ export function FilesPane({
       prevSelectedPath.current = selectedPath
       pendingScrollPath.current = selectedPath
     }
-    if (!visible || !pendingScrollPath.current) return
+    if (!visible || !treeVisible || !pendingScrollPath.current) return
     const root = treeScrollRef.current
     if (!root) return
     const el = root.querySelector(
@@ -126,7 +153,7 @@ export function FilesPane({
     if (!el) return
     el.scrollIntoView({ block: 'nearest' })
     pendingScrollPath.current = null
-  }, [visible, selectedPath, expanded, childrenByDir, revealTick])
+  }, [visible, treeVisible, selectedPath, displayExpanded, displayChildren, revealTick])
 
   const persistUi = useCallback(
     (openPath: string | null, expandedPaths: string[]) => {
@@ -224,6 +251,16 @@ export function FilesPane({
 
   const toggleDir = useCallback(
     async (dirPath: string) => {
+      const fv = filterViewRef.current
+      if (filterQuery.trim() && fv) {
+        const next = new Set(fv.expanded)
+        if (next.has(dirPath)) next.delete(dirPath)
+        else next.add(dirPath)
+        const snap = { childrenByDir: fv.childrenByDir, expanded: next }
+        filterViewRef.current = snap
+        setFilterView(snap)
+        return
+      }
       const willOpen = !expandedRef.current.has(dirPath)
       // 手动收起时作废进行中的「全部展开」，否则后续 flush 会把目录再次打开
       if (!willOpen) expandAllSeqRef.current++
@@ -235,24 +272,40 @@ export function FilesPane({
       setExpanded(next)
       persistUi(loadedRef.current?.path ?? null, [...next])
     },
-    [ensureDirLoaded, persistUi]
+    [ensureDirLoaded, filterQuery, persistUi]
   )
 
   const collapseAllDirs = useCallback(() => {
+    const fv = filterViewRef.current
+    if (filterQuery.trim() && fv) {
+      const snap = { childrenByDir: fv.childrenByDir, expanded: new Set<string>() }
+      filterViewRef.current = snap
+      setFilterView(snap)
+      return
+    }
     expandAllSeqRef.current++
     const next = new Set<string>()
     expandedRef.current = next
     setExpanded(next)
     persistUi(loadedRef.current?.path ?? null, [])
-  }, [persistUi])
+  }, [filterQuery, persistUi])
 
   /**
    * 递归加载并展开全部目录。
    * - 分批刷 UI；单目录失败不中断
    * - seq 作废后不再写 expanded（避免收起后又被内层 flush 展开）
    * - 永不把内部可变 Set 交给 state/ref（只提交拷贝）
+   * - 过滤态下只展开当前过滤树中的目录，不扫盘
    */
   const expandAllDirs = useCallback(async () => {
+    const fv = filterViewRef.current
+    if (filterQuery.trim() && fv) {
+      const next = new Set(Object.keys(fv.childrenByDir))
+      const snap = { childrenByDir: fv.childrenByDir, expanded: next }
+      filterViewRef.current = snap
+      setFilterView(snap)
+      return
+    }
     const seq = ++expandAllSeqRef.current
     const nextChildren: Record<string, FilesDirEntry[]> = { ...childrenByDirRef.current }
     const nextExpanded = new Set<string>()
@@ -308,15 +361,13 @@ export function FilesPane({
         persistUi(loadedRef.current?.path ?? null, [...expandedRef.current])
       }
     }
-  }, [persistUi, projectPath, rootLogical])
+  }, [filterQuery, persistUi, projectPath, rootLogical])
 
   /** 展开到目标：文件只展开祖先；目录连自身一并展开。 */
   const expandToPath = useCallback(
     async (logical: string, isDirectory: boolean): Promise<Set<string>> => {
       const toAdd: string[] = [rootLogical]
-      const rel = logical.startsWith(rootLogical + '/')
-        ? logical.slice(rootLogical.length + 1)
-        : ''
+      const rel = logical.startsWith(rootLogical + '/') ? logical.slice(rootLogical.length + 1) : ''
       if (rel) {
         const segs = rel.split('/')
         let prefix = rootLogical
@@ -349,6 +400,7 @@ export function FilesPane({
   /** 在右侧文件树展开并滚到目标（不打开/切换正文，除非本来就是该文件）。 */
   const revealInTree = useCallback(
     async (logical: string, isDirectory: boolean): Promise<void> => {
+      setTreeVisible(true)
       const next = await expandToPath(logical, isDirectory)
       setSelectedPath(logical)
       pendingScrollPath.current = logical
@@ -369,6 +421,94 @@ export function FilesPane({
     },
     [expandToFile, openFile]
   )
+
+  const exitFilter = useCallback(async () => {
+    filterSeqRef.current++
+    setFilterQuery('')
+    setFilterScanning(false)
+    filterViewRef.current = null
+    setFilterView(null)
+    const snap = expandedBeforeFilterRef.current
+    expandedBeforeFilterRef.current = null
+    if (snap) {
+      expandedRef.current = snap
+      setExpanded(snap)
+      persistUi(loadedRef.current?.path ?? null, [...snap])
+    }
+    const open = loadedRef.current?.path ?? selectedPath
+    if (open) await expandToFile(open)
+  }, [expandToFile, persistUi, selectedPath])
+
+  // 切走 Files Tab 时清空过滤（不持久化）
+  useEffect(() => {
+    if (visible) return
+    if (!filterQuery && !filterView) return
+    filterSeqRef.current++
+    setFilterQuery('')
+    setFilterScanning(false)
+    filterViewRef.current = null
+    setFilterView(null)
+    const snap = expandedBeforeFilterRef.current
+    expandedBeforeFilterRef.current = null
+    if (snap) {
+      expandedRef.current = snap
+      setExpanded(snap)
+      persistUi(loadedRef.current?.path ?? null, [...snap])
+    }
+  }, [visible, filterQuery, filterView, persistUi])
+
+  // 防抖扫盘过滤
+  useEffect(() => {
+    const q = filterQuery.trim()
+    if (!q) {
+      if (expandedBeforeFilterRef.current || filterViewRef.current) {
+        filterSeqRef.current++
+        setFilterScanning(false)
+        filterViewRef.current = null
+        setFilterView(null)
+        const snap = expandedBeforeFilterRef.current
+        expandedBeforeFilterRef.current = null
+        if (snap) {
+          expandedRef.current = snap
+          setExpanded(snap)
+          persistUi(loadedRef.current?.path ?? null, [...snap])
+          const open = loadedRef.current?.path
+          if (open) void expandToFile(open)
+        }
+      }
+      return
+    }
+    if (!expandedBeforeFilterRef.current) {
+      expandedBeforeFilterRef.current = new Set(expandedRef.current)
+    }
+    const seq = ++filterSeqRef.current
+    setFilterScanning(true)
+    const timer = setTimeout(() => {
+      void (async () => {
+        try {
+          const result = await window.api.filesFilterTree(projectPath, q)
+          if (seq !== filterSeqRef.current) return
+          const snap = {
+            childrenByDir: result.childrenByDir,
+            expanded: new Set(result.expandedPaths)
+          }
+          filterViewRef.current = snap
+          setFilterView(snap)
+        } catch {
+          if (seq !== filterSeqRef.current) return
+          const snap = {
+            childrenByDir: { [rootLogical]: [] as FilesDirEntry[] },
+            expanded: new Set([rootLogical])
+          }
+          filterViewRef.current = snap
+          setFilterView(snap)
+        } finally {
+          if (seq === filterSeqRef.current) setFilterScanning(false)
+        }
+      })()
+    }, FILTER_DEBOUNCE_MS)
+    return () => clearTimeout(timer)
+  }, [filterQuery, projectPath, rootLogical, persistUi, expandToFile])
 
   // 首次变为可见时：恢复树展开与上次打开（pending 由下一 effect 统一消费，避免竞态）
   useEffect(() => {
@@ -469,6 +609,9 @@ export function FilesPane({
               error={null}
               recentPaths={recentPaths}
               fileStatus={undefined}
+              treeVisible={treeVisible}
+              onShowTree={() => setTreeVisible(true)}
+              onToggleTree={() => setTreeVisible((v) => !v)}
               onRevealInTree={revealInTree}
               onOpenRecent={openFromRecent}
             />
@@ -485,6 +628,9 @@ export function FilesPane({
             error={saveError}
             recentPaths={recentPaths}
             fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
+            treeVisible={treeVisible}
+            onShowTree={() => setTreeVisible(true)}
+            onToggleTree={() => setTreeVisible((v) => !v)}
             onRevealInTree={revealInTree}
             onOpenRecent={openFromRecent}
             onChange={(v) => {
@@ -503,6 +649,9 @@ export function FilesPane({
               error={null}
               recentPaths={recentPaths}
               fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
+              treeVisible={treeVisible}
+              onShowTree={() => setTreeVisible(true)}
+              onToggleTree={() => setTreeVisible((v) => !v)}
               onRevealInTree={revealInTree}
               onOpenRecent={openFromRecent}
             />
@@ -523,6 +672,9 @@ export function FilesPane({
               error={null}
               recentPaths={recentPaths}
               fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
+              treeVisible={treeVisible}
+              onShowTree={() => setTreeVisible(true)}
+              onToggleTree={() => setTreeVisible((v) => !v)}
               onRevealInTree={revealInTree}
               onOpenRecent={openFromRecent}
             />
@@ -540,42 +692,112 @@ export function FilesPane({
           </div>
         )}
       </div>
-      <div
-        className="flex h-full shrink-0 flex-col border-l border-[var(--separator)] bg-panel"
-        style={{ width: TREE_W }}
-      >
-        <div className="flex h-10 shrink-0 items-center justify-end gap-0.5 border-b border-[var(--separator)] px-1.5">
-          <button
-            type="button"
-            title="全部展开"
-            className={TOOLBAR_BTN}
-            onClick={() => void expandAllDirs()}
+      {treeVisible && (
+        <div
+          className="flex h-full shrink-0 flex-col border-l border-[var(--separator)] bg-panel"
+          style={{ width: TREE_W }}
+        >
+          <div className="flex h-10 shrink-0 items-center gap-1 border-b border-[var(--separator)] px-1.5">
+            <div className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded px-1.5 transition-colors focus-within:bg-[var(--bg-row-hover)]">
+              <Search className="size-3.5 shrink-0 text-[color:var(--fg-disabled)]" />
+              <input
+                ref={filterInputRef}
+                value={filterQuery}
+                onChange={(e) => setFilterQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    e.stopPropagation()
+                    void exitFilter()
+                  }
+                }}
+                placeholder={filterScanning ? '筛选中…' : '筛选'}
+                className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-[color:var(--fg-disabled)]"
+              />
+              {filterQuery !== '' && (
+                <button
+                  type="button"
+                  title="清空"
+                  className="flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]"
+                  onClick={() => void exitFilter()}
+                >
+                  <X className="size-3" />
+                </button>
+              )}
+            </div>
+            <div className="flex shrink-0 items-center gap-0.5">
+              <button
+                type="button"
+                title="全部展开"
+                className={TOOLBAR_BTN}
+                onClick={() => void expandAllDirs()}
+              >
+                <ChevronsUpDown className="size-4" />
+              </button>
+              <button
+                type="button"
+                title="全部折叠"
+                className={TOOLBAR_BTN}
+                onClick={collapseAllDirs}
+              >
+                <ChevronsDownUp className="size-4" />
+              </button>
+              <button
+                type="button"
+                title="隐藏文件树"
+                className={TOOLBAR_BTN}
+                onClick={() => setTreeVisible(false)}
+              >
+                <Minus className="size-4" />
+              </button>
+            </div>
+          </div>
+          <div
+            ref={treeScrollRef}
+            tabIndex={0}
+            className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5 pt-1 outline-none"
+            onKeyDown={(e) => {
+              if (e.target instanceof HTMLInputElement) return
+              if (e.key === 'Escape') {
+                if (filterQuery.trim()) {
+                  e.preventDefault()
+                  void exitFilter()
+                }
+                return
+              }
+              if (e.key === 'Backspace' && filterQuery) {
+                e.preventDefault()
+                setFilterQuery((q) => q.slice(0, -1))
+                filterInputRef.current?.focus()
+                return
+              }
+              if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+                e.preventDefault()
+                setFilterQuery((q) => q + e.key)
+                filterInputRef.current?.focus()
+              }
+            }}
           >
-            <ChevronsUpDown className="size-4" />
-          </button>
-          <button
-            type="button"
-            title="全部折叠"
-            className={TOOLBAR_BTN}
-            onClick={collapseAllDirs}
-          >
-            <ChevronsDownUp className="size-4" />
-          </button>
+            {filterEmpty ? (
+              <div className="flex h-full min-h-full items-center justify-center px-1.5 text-[13px] text-muted-foreground">
+                无匹配文件
+              </div>
+            ) : (
+              <FileTreeNode
+                projectRoot={rootLogical}
+                dirPath={rootLogical}
+                depth={0}
+                expanded={displayExpanded}
+                childrenByDir={displayChildren}
+                selectedPath={selectedPath}
+                statusByRel={statusByRel}
+                onToggle={toggleDir}
+                onOpenFile={(p) => void openFile(p)}
+              />
+            )}
+          </div>
         </div>
-        <div ref={treeScrollRef} className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5 pt-1">
-          <FileTreeNode
-            projectRoot={rootLogical}
-            dirPath={rootLogical}
-            depth={0}
-            expanded={expanded}
-            childrenByDir={childrenByDir}
-            selectedPath={selectedPath}
-            statusByRel={statusByRel}
-            onToggle={toggleDir}
-            onOpenFile={(p) => void openFile(p)}
-          />
-        </div>
-      </div>
+      )}
 
       {conflict && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -630,6 +852,9 @@ function FilesTextEditor({
   error,
   recentPaths,
   fileStatus,
+  treeVisible,
+  onShowTree,
+  onToggleTree,
   onRevealInTree,
   onOpenRecent,
   onChange
@@ -640,17 +865,15 @@ function FilesTextEditor({
   error: string | null
   recentPaths: string[]
   fileStatus: GitFileStatus | undefined
+  treeVisible: boolean
+  onShowTree: () => void
+  onToggleTree: () => void
   onRevealInTree: (logical: string, isDirectory: boolean) => void | Promise<void>
   onOpenRecent: (logical: string) => void | Promise<void>
   onChange: (value: string) => void
 }): React.JSX.Element {
   const extensions = useMemo(
-    () => [
-      filesEditorTheme,
-      filesHighlighting,
-      filesEditorConfig,
-      languageExtensionForPath(path)
-    ],
+    () => [filesEditorTheme, filesHighlighting, filesEditorConfig, languageExtensionForPath(path)],
     [path]
   )
   return (
@@ -661,6 +884,9 @@ function FilesTextEditor({
         error={error}
         recentPaths={recentPaths}
         fileStatus={fileStatus}
+        treeVisible={treeVisible}
+        onShowTree={onShowTree}
+        onToggleTree={onToggleTree}
         onRevealInTree={onRevealInTree}
         onOpenRecent={onOpenRecent}
       />
@@ -690,6 +916,9 @@ function FilesToolbar({
   error,
   recentPaths,
   fileStatus,
+  treeVisible,
+  onShowTree,
+  onToggleTree,
   onRevealInTree,
   onOpenRecent
 }: {
@@ -698,41 +927,36 @@ function FilesToolbar({
   error: string | null
   recentPaths: string[]
   fileStatus: GitFileStatus | undefined
+  treeVisible: boolean
+  onShowTree: () => void
+  onToggleTree: () => void
   onRevealInTree: (logical: string, isDirectory: boolean) => void | Promise<void>
   onOpenRecent: (logical: string) => void | Promise<void>
 }): React.JSX.Element {
   const rel =
-    path && path.startsWith(projectRoot + '/')
-      ? path.slice(projectRoot.length + 1)
-      : (path ?? '')
+    path && path.startsWith(projectRoot + '/') ? path.slice(projectRoot.length + 1) : (path ?? '')
   const parts = rel.split('/').filter((p) => p.length > 0)
   const fileColour = fileStatus ? FILE_STATUS_COLOR[fileStatus] : undefined
   return (
-    <div className="flex h-10 shrink-0 items-center gap-2 border-b border-[var(--separator)] bg-panel px-2 text-[13px]">
-      <div
-        className="flex min-w-0 flex-1 items-center overflow-hidden"
-        title={path ?? undefined}
-      >
+    <div
+      className="flex h-10 shrink-0 cursor-default items-center gap-2 border-b border-[var(--separator)] bg-panel px-2 text-[13px] select-none"
+      onDoubleClick={onToggleTree}
+    >
+      <div className="flex min-w-0 flex-1 items-center overflow-hidden" title={path ?? undefined}>
         {path && (
           <div className="flex min-w-0 items-center gap-0.5 overflow-hidden">
             {parts.map((part, i) => {
               const last = i === parts.length - 1
-              const segmentPath = normalizePath(
-                projectRoot + '/' + parts.slice(0, i + 1).join('/')
-              )
+              const segmentPath = normalizePath(projectRoot + '/' + parts.slice(0, i + 1).join('/'))
               return (
                 <span key={`${i}:${part}`} className="flex min-w-0 items-center gap-0.5">
-                  {i > 0 && (
-                    <ChevronRight className="size-3 shrink-0 text-muted-foreground" />
-                  )}
+                  {i > 0 && <ChevronRight className="size-3 shrink-0 text-muted-foreground" />}
                   <button
                     type="button"
                     title={segmentPath}
                     className={cn(
                       'max-w-full cursor-pointer truncate transition-colors hover:text-[color:var(--fg-primary)]',
-                      last
-                        ? 'text-[color:var(--files-crumb-file)]'
-                        : 'text-muted-foreground'
+                      last ? 'text-[color:var(--files-crumb-file)]' : 'text-muted-foreground'
                     )}
                     style={
                       last
@@ -742,6 +966,7 @@ function FilesToolbar({
                         : undefined
                     }
                     onClick={() => void onRevealInTree(segmentPath, !last)}
+                    onDoubleClick={(e) => e.stopPropagation()}
                   >
                     {part}
                   </button>
@@ -752,7 +977,10 @@ function FilesToolbar({
         )}
       </div>
       {error && <span className="shrink-0 text-xs text-[var(--status-failed)]">{error}</span>}
-      <div className="flex shrink-0 items-center gap-0.5">
+      <div
+        className="flex shrink-0 items-center gap-0.5"
+        onDoubleClick={(e) => e.stopPropagation()}
+      >
         <DropdownMenu>
           <DropdownMenuTrigger title="最近打开文件" className={TOOLBAR_BTN}>
             <FileClock className="size-4" />
@@ -814,6 +1042,14 @@ function FilesToolbar({
             </button>
           </>
         )}
+        {!treeVisible && (
+          <>
+            <div className="mx-0.5 h-3 w-px shrink-0 bg-[var(--border-input)]" role="separator" />
+            <button type="button" title="显示文件树" className={TOOLBAR_BTN} onClick={onShowTree}>
+              <PanelRight className="size-4" />
+            </button>
+          </>
+        )}
       </div>
     </div>
   )
@@ -869,18 +1105,13 @@ function FileTreeNode({
           {indent(depth)}
           <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
             <ChevronRight
-              className={cn(
-                'size-3.5 transition-transform',
-                expanded.has(dirPath) && 'rotate-90'
-              )}
+              className={cn('size-3.5 transition-transform', expanded.has(dirPath) && 'rotate-90')}
             />
           </span>
           <Folder className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
           <span
             className="min-w-0 flex-1 truncate"
-            style={
-              selectedPath === dirPath ? { color: 'var(--fg-primary)' } : undefined
-            }
+            style={selectedPath === dirPath ? { color: 'var(--fg-primary)' } : undefined}
           >
             {dirPath.split('/').pop()}
           </span>
@@ -937,18 +1168,12 @@ function FileTreeFileRow({
     <button
       type="button"
       data-files-path={entry.path}
-      className={cn(
-        ROW,
-        selected ? 'bg-[var(--selection-row)]' : 'hover:bg-[var(--bg-row-hover)]'
-      )}
+      className={cn(ROW, selected ? 'bg-[var(--selection-row)]' : 'hover:bg-[var(--bg-row-hover)]')}
       onClick={onOpen}
     >
       {indent(depth)}
       <span className="size-3.5 shrink-0" />
-      <FileIcon
-        className="size-3.5 shrink-0"
-        style={{ color: colour ?? 'var(--fg-icon)' }}
-      />
+      <FileIcon className="size-3.5 shrink-0" style={{ color: colour ?? 'var(--fg-icon)' }} />
       <span
         className="min-w-0 flex-1 truncate"
         style={{ color: selected ? 'var(--fg-primary)' : colour }}

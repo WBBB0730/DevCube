@@ -1,11 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import {
-  configKey,
-  filesTabKey,
-  isFilesTabKey,
-  isResidentTabKey,
-  scriptKey
-} from './runnable'
+import { configKey, filesTabKey, isFilesTabKey, isResidentTabKey, scriptKey } from './runnable'
 import type { RunConfig } from './types'
 
 const SEP = String.fromCharCode(0)

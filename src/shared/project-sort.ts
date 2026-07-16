@@ -39,10 +39,7 @@ export function cycleProjectSort(
  * 按偏好排序项目节点。任意 mode 下先按 Pin 分区（置顶在前），再在各区内排序；
  * 自定义 = 各区内保持传入相对序（即落盘数组序）。
  */
-export function sortProjectNodes(
-  nodes: ProjectNode[],
-  prefs: ProjectSortPrefs
-): ProjectNode[] {
+export function sortProjectNodes(nodes: ProjectNode[], prefs: ProjectSortPrefs): ProjectNode[] {
   const pinned = nodes.filter((n) => n.project.pinned)
   const unpinned = nodes.filter((n) => !n.project.pinned)
   if (prefs.mode === 'custom') return [...pinned, ...unpinned]
@@ -85,11 +82,7 @@ export function filterProjectNodes(nodes: ProjectNode[], query: string): Project
  * 设置某项目的 Pin，并把它移到目标区块开头（置顶区 / 未置顶区）。
  * 路径不存在则原样返回；状态未变也仍移到目标区开头（与「再点一次置顶」可预期）。
  */
-export function applyProjectPinned(
-  projects: Project[],
-  path: string,
-  pinned: boolean
-): Project[] {
+export function applyProjectPinned(projects: Project[], path: string, pinned: boolean): Project[] {
   const i = projects.findIndex((p) => p.path === path)
   if (i < 0) return projects
   const updated: Project = { ...projects[i], pinned }

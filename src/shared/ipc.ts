@@ -35,6 +35,7 @@ export const IPC = {
   openPath: 'shell:open-path',
   openInFolder: 'shell:open-in-folder',
   filesListDir: 'files:list-dir',
+  filesFilterTree: 'files:filter-tree',
   filesRead: 'files:read',
   filesWrite: 'files:write',
   filesGetUi: 'files:ui-get',

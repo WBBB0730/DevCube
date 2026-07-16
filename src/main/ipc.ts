@@ -60,7 +60,13 @@ import {
   setProjectSortPrefs,
   setWorkspaceUi
 } from './store'
-import { listDir, readFileEntry, sanitizeFilesUi, writeFileEntry } from './files'
+import {
+  filterFilesTreeScan,
+  listDir,
+  readFileEntry,
+  sanitizeFilesUi,
+  writeFileEntry
+} from './files'
 import type { FilesUiState } from '../shared/files'
 import type { WorkspaceUiState } from '../shared/workspace'
 import { buildTree } from './tree'
@@ -282,6 +288,9 @@ export function registerIpc(win: BrowserWindow): void {
   // —— Files Tab ——
   ipcMain.handle(IPC.filesListDir, (_e, projectPath: string, dirPath: string) =>
     listDir(projectPath, dirPath)
+  )
+  ipcMain.handle(IPC.filesFilterTree, (_e, projectPath: string, query: string) =>
+    filterFilesTreeScan(projectPath, query)
   )
   ipcMain.handle(IPC.filesRead, (_e, projectPath: string, filePath: string) =>
     readFileEntry(projectPath, filePath)

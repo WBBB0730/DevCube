@@ -9,15 +9,12 @@ import {
 describe('mergeTerminalTabs', () => {
   it('仅盘上有壳时按序保留', () => {
     expect(
-      mergeTerminalTabs(
-        [],
-        {
-          '/p': [
-            { id: 'terminal:a', name: '构建' },
-            { id: 'terminal:b', name: '终端 (2)' }
-          ]
-        }
-      )
+      mergeTerminalTabs([], {
+        '/p': [
+          { id: 'terminal:a', name: '构建' },
+          { id: 'terminal:b', name: '终端 (2)' }
+        ]
+      })
     ).toEqual([
       { key: 'terminal:a', projectPath: '/p', name: '构建' },
       { key: 'terminal:b', projectPath: '/p', name: '终端 (2)' }
@@ -42,10 +39,9 @@ describe('mergeTerminalTabs', () => {
   })
 
   it('多项目互不干扰', () => {
-    const tabs = mergeTerminalTabs(
-      [{ key: 'terminal:x', projectPath: '/a' }],
-      { '/b': [{ id: 'terminal:y', name: 'Y' }] }
-    )
+    const tabs = mergeTerminalTabs([{ key: 'terminal:x', projectPath: '/a' }], {
+      '/b': [{ id: 'terminal:y', name: 'Y' }]
+    })
     expect(tabs).toEqual([
       { key: 'terminal:y', projectPath: '/b', name: 'Y' },
       { key: 'terminal:x', projectPath: '/a', name: '终端' }

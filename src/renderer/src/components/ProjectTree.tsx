@@ -1,4 +1,13 @@
-import { useCallback, useLayoutEffect, useMemo, useRef, useState, Fragment, type CSSProperties, type HTMLAttributes } from 'react'
+import {
+  useCallback,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  Fragment,
+  type CSSProperties,
+  type HTMLAttributes
+} from 'react'
 import { Menu } from '@base-ui-components/react/menu'
 import {
   AArrowDown,
@@ -21,7 +30,8 @@ import {
   Search,
   Square,
   Terminal,
-  Trash2
+  Trash2,
+  X
 } from 'lucide-react'
 import {
   DndContext,
@@ -148,14 +158,8 @@ export function ProjectTree(): React.JSX.Element {
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
   const filtered = filterProjectNodes(sortProjectNodes(tree, projectSortPrefs), projectFilter)
-  const pinnedNodes = useMemo(
-    () => filtered.filter((n) => n.project.pinned),
-    [filtered]
-  )
-  const unpinnedNodes = useMemo(
-    () => filtered.filter((n) => !n.project.pinned),
-    [filtered]
-  )
+  const pinnedNodes = useMemo(() => filtered.filter((n) => n.project.pinned), [filtered])
+  const unpinnedNodes = useMemo(() => filtered.filter((n) => !n.project.pinned), [filtered])
   const pinnedPathSet = useMemo(
     () => new Set(pinnedNodes.map((n) => n.project.path)),
     [pinnedNodes]
@@ -231,8 +235,7 @@ export function ProjectTree(): React.JSX.Element {
   const clearScrollToProjectPath = useApp((s) => s.clearScrollToProjectPath)
   // 置顶项目的展开态提到父级，供吸顶标题条与下方配置区共用（默认展开）。
   const [pinnedOpen, setPinnedOpen] = useState<Record<string, boolean>>({})
-  const isPinnedExpanded = (path: string): boolean =>
-    !forceCollapsed && pinnedOpen[path] !== false
+  const isPinnedExpanded = (path: string): boolean => !forceCollapsed && pinnedOpen[path] !== false
   const togglePinnedOpen = (path: string): void => {
     setPinnedOpen((prev) => ({ ...prev, [path]: !(prev[path] !== false) }))
   }
@@ -247,13 +250,15 @@ export function ProjectTree(): React.JSX.Element {
     if (idx !== firstInGroup) return
     const list = listRef.current
     if (!list) return
-    if (list.querySelector(`[data-project-scroll-anchor="${globalThis.CSS.escape(currentProjectPath)}"]`)) {
+    if (
+      list.querySelector(
+        `[data-project-scroll-anchor="${globalThis.CSS.escape(currentProjectPath)}"]`
+      )
+    ) {
       scrollProjectIntoView(list, currentProjectPath)
     } else {
       list
-        .querySelector(
-          `[data-project-path="${globalThis.CSS.escape(currentProjectPath)}"]`
-        )
+        .querySelector(`[data-project-path="${globalThis.CSS.escape(currentProjectPath)}"]`)
         ?.scrollIntoView({ block: 'nearest' })
     }
   }, [projectSortPrefs.mode, currentProjectPath, filtered])
@@ -269,9 +274,7 @@ export function ProjectTree(): React.JSX.Element {
       if (el) scrollProjectIntoView(list, scrollToProjectPath)
       else {
         list
-          .querySelector(
-            `[data-project-path="${globalThis.CSS.escape(scrollToProjectPath)}"]`
-          )
+          .querySelector(`[data-project-path="${globalThis.CSS.escape(scrollToProjectPath)}"]`)
           ?.scrollIntoView({ block: 'nearest' })
       }
     }
@@ -371,9 +374,7 @@ export function ProjectTree(): React.JSX.Element {
     ) as HTMLElement | null
     // 用视口 Y（非 offsetTop）：吸顶卡住时布局位置≠所见位置；收起后 sticky 会关掉，再靠 pad 对齐所见。
     collapseAnchorRef.current =
-      item && list
-        ? item.getBoundingClientRect().top - list.getBoundingClientRect().top
-        : null
+      item && list ? item.getBoundingClientRect().top - list.getBoundingClientRect().top : null
     setForceCollapsed(true)
   }
 
@@ -420,15 +421,13 @@ export function ProjectTree(): React.JSX.Element {
     clearCollapsePad()
   }
 
-  const emptyMessage =
-    tree.length === 0 ? '拖入文件夹，或点上方 + 新建 / 添加项目' : '无匹配项目'
+  const emptyMessage = tree.length === 0 ? '拖入文件夹，或点上方 + 新建 / 添加项目' : '无匹配项目'
 
   // 固定置顶开：标题摊平为列表直接子节点，才能跨整表叠放吸顶。
   // 关：每项包进段容器，sticky 只在本段内有效，下一段会把上一段顶走（而不是盖住）。
   const pinnedRows = pinnedNodes.map((node, pinStackIndex) => {
     const expanded = isPinnedExpanded(node.project.path)
-    const bodyVisible =
-      expanded && (node.configs.length > 0 || node.discovered.length > 0)
+    const bodyVisible = expanded && (node.configs.length > 0 || node.discovered.length > 0)
     const path = node.project.path
     const gapClass = bodyVisible ? undefined : 'mb-3'
     const block = (
@@ -533,38 +532,52 @@ export function ProjectTree(): React.JSX.Element {
             placeholder="筛选"
             className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-[color:var(--fg-disabled)]"
           />
+          {projectFilter !== '' && (
+            <button
+              type="button"
+              title="清空"
+              className="flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]"
+              onClick={() => setProjectFilter('')}
+            >
+              <X className="size-3" />
+            </button>
+          )}
         </div>
-        <SortMenu
-          mode={projectSortPrefs.mode}
-          direction={projectSortPrefs.direction}
-          pinSticky={pinSticky}
-          onSelect={cycleSortMode}
-          onPinStickyChange={setPinSticky}
-        />
-        <DropdownMenu>
-          <DropdownMenuTrigger
-            title="新建 / 添加项目"
-            className={cn(
-              BTN,
-              'text-muted-foreground hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
-            )}
-          >
-            <FolderPlus className="size-4" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent>
-            <DropdownMenuItem onClick={createProject}>新建项目…</DropdownMenuItem>
-            <DropdownMenuItem onClick={addProject}>添加现有项目…</DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <div className="flex shrink-0 items-center gap-0.5">
+          <SortMenu
+            mode={projectSortPrefs.mode}
+            direction={projectSortPrefs.direction}
+            pinSticky={pinSticky}
+            onSelect={cycleSortMode}
+            onPinStickyChange={setPinSticky}
+          />
+          <DropdownMenu>
+            <DropdownMenuTrigger
+              title="新建 / 添加项目"
+              className={cn(
+                BTN,
+                'text-muted-foreground hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
+              )}
+            >
+              <FolderPlus className="size-4" />
+            </DropdownMenuTrigger>
+            <DropdownMenuContent>
+              <DropdownMenuItem onClick={createProject}>新建项目…</DropdownMenuItem>
+              <DropdownMenuItem onClick={addProject}>添加现有项目…</DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
       </header>
 
       <div
         ref={listRef}
-        className="flex-1 overflow-auto px-1.5 pb-1.5"
+        className="min-h-0 flex-1 overflow-auto px-1.5 pb-1.5"
         onScroll={forceCollapsed ? handleListScroll : undefined}
       >
         {filtered.length === 0 ? (
-          <p className="px-3 py-6 text-center text-xs text-muted-foreground">{emptyMessage}</p>
+          <div className="flex h-full min-h-full items-center justify-center px-3 text-[13px] text-muted-foreground">
+            {emptyMessage}
+          </div>
         ) : canDrag ? (
           <DndContext
             sensors={sensors}
@@ -636,7 +649,7 @@ function SortMenu({
             </DropdownMenuItem>
           )
         })}
-        <div className="mx-1.5 my-1 h-px bg-[var(--separator)]" role="separator" />
+        <div className="mx-1.5 my-1 h-px bg-[var(--border-input)]" role="separator" />
         <DropdownMenuItem onClick={() => onPinStickyChange(!pinSticky)}>
           <span className="flex size-4 shrink-0 items-center justify-center">
             {pinSticky && <Check className="size-3.5" />}
@@ -1245,7 +1258,11 @@ function RunnableRow({
           config && (
             <MoreMenu
               config={config}
-              baseClass={cn(BTN, 'text-muted-foreground hover:text-[color:var(--fg-icon)]', btnHover)}
+              baseClass={cn(
+                BTN,
+                'text-muted-foreground hover:text-[color:var(--fg-icon)]',
+                btnHover
+              )}
               idleVis={idleVis}
             />
           )
@@ -1387,7 +1404,9 @@ function ProjectMoreMenu({
             pinned && 'absolute inset-0',
             'text-muted-foreground hover:text-[color:var(--fg-icon)]',
             // 选中（蓝底）行上的按钮 hover 用蓝色高亮，而非灰色。
-            selected ? 'hover:bg-[var(--selection-row-hover)]' : 'hover:bg-[var(--bg-button-hover)]',
+            selected
+              ? 'hover:bg-[var(--selection-row-hover)]'
+              : 'hover:bg-[var(--bg-button-hover)]',
             showMore ? 'flex' : 'hidden group-hover:flex'
           )}
           title="更多"

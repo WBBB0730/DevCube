@@ -3,6 +3,7 @@
 // Git 图谱（Git Tab）的域模型与 API 在 ./git.ts，经 GitAPI 并入 RunAPI。
 
 import type { FilesDirEntry, FilesReadResult, FilesUiState } from './files'
+import type { FilesTreeFilterResult } from './files-tree-search'
 import type { GitAPI, GitRepoSettings, GitViewPrefs } from './git'
 import type { WorkspaceUiState } from './workspace'
 
@@ -220,12 +221,9 @@ export interface RunAPI extends GitAPI {
 
   // —— Files Tab ——
   filesListDir(projectPath: string, dirPath: string): Promise<FilesDirEntry[]>
+  filesFilterTree(projectPath: string, query: string): Promise<FilesTreeFilterResult>
   filesRead(projectPath: string, filePath: string): Promise<FilesReadResult>
-  filesWrite(
-    projectPath: string,
-    filePath: string,
-    content: string
-  ): Promise<{ mtimeMs: number }>
+  filesWrite(projectPath: string, filePath: string, content: string): Promise<{ mtimeMs: number }>
   filesGetUi(projectPath: string): Promise<FilesUiState>
   filesSetUi(projectPath: string, patch: Partial<FilesUiState>): Promise<FilesUiState>
 

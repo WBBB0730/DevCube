@@ -55,6 +55,7 @@
 **进程/渲染分工。** 主进程持有全部有状态、有权限的部分：Project 注册表与配置存储（集中存 `userData` 的一份 JSON，见 ADR-0002）、`package.json`/lockfile 的文件监听、每个 Run Session 的 PTY 进程（见 ADR-0001）、由 lockfile 探测包管理器、以登录 shell 启动命令、以及"杀整棵进程树"的停止。渲染进程只负责 UI：左侧项目树、右侧以项目为维度的 Tab 栏（Git / 运行会话 / 终端）与 xterm、**激活运行会话 Tab 时 Tab 栏下方的操作栏**（运行·停止·清空），以及命令型配置的新建/编辑表单。清空输出经主进程同步清无头终端缓冲并换代 sid，避免切回时回填旧内容。
 
 **数据模型。**
+
 - **Project**：以**绝对路径**为标识的文件夹。
 - **Discovered Script**：从该 Project 顶层 `package.json` 的 `scripts` 实时派生，**不持久化**；只看顶层，不展开 workspace。
 - **Run Configuration**，两型：
@@ -63,6 +64,7 @@
 - **Run Session**：仅存在于主进程的临时执行实例；一条配置**至多一个活跃会话**（单实例）；不同配置可并发。
 
 **关键规则。**
+
 - **晋升**：运行一条 Discovered Script 即把它转成一条引用型 Run Configuration，按 `(Project, script 名)` 去重，候补区不再展示它。
 - **对账（reconcile）**：`package.json` 变化时和每次 App 启动时都重新派生 Discovered Script 并比对——新增的进候补，消失的对应引用型配置直接删除，script 改名视作"删旧出新"。
 - **执行**：引用型跑 `<探测到的 PM> run <script 名>`，cwd 恒为项目根（避免"解析哪个 package.json"的歧义）；命令型跑用户命令、cwd 按相对项目根解析；两者都经登录 shell 起 PTY。
@@ -77,6 +79,7 @@
 **好测试的标准。** 只测外部可观察行为，不测实现细节。绝大多数值得测的逻辑是主进程里的**纯领域规则**，应把"起进程"这件事抽象为可替换的 spawner，从而无需真的拉起进程即可测。
 
 **要测的模块/行为：**
+
 - **晋升与去重**：运行 Discovered Script 后它变成引用型配置、并从候补区按 `(Project, script 名)` 去重消失。
 - **对账**：`package.json` 增/删/改名 script 时，候补新增、引用型配置在 script 消失时被删、改名走"删旧出新"；App 启动时的一次性对账等价于监听路径。
 - **包管理器探测**：不同 lockfile 组合下解析出正确的 PM，无 lockfile 时回退 npm。

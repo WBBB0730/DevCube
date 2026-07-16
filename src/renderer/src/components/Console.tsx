@@ -99,9 +99,7 @@ export function Console(): React.JSX.Element {
         termTabs={termTabs}
         activeKey={activeKey}
       />
-      {activeRunTab && (
-        <RunActionBar projectPath={currentProjectPath} tab={activeRunTab} />
-      )}
+      {activeRunTab && <RunActionBar projectPath={currentProjectPath} tab={activeRunTab} />}
       <div className="relative min-h-0 flex-1">
         {/* Git 面板：每个项目常驻一个（切走仅隐藏；当前项目由 App 预加载，见 GitPane）。 */}
         {tree.map((n) => {

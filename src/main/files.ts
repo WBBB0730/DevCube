@@ -1,15 +1,23 @@
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
-import { classifyFilesOpenKind, resolveFilesOpenKind, type FilesOpenKind } from '../shared/files-kind'
+import {
+  classifyFilesOpenKind,
+  resolveFilesOpenKind,
+  type FilesOpenKind
+} from '../shared/files-kind'
 import { normalizePath, resolveWithinProject } from '../shared/files-path'
 import { isIdeIgnoredEntryName } from '../shared/files-tree-filter'
+import { filterFilesTree, type FilesTreeFilterResult } from '../shared/files-tree-search'
 import {
   FILES_RECENT_MAX,
   type FilesDirEntry,
   type FilesReadResult,
   type FilesUiState
 } from '../shared/files'
+import { execGit, resolveRepoRoot } from './git-exec'
 import { getProjects } from './store'
+
+const CHECK_IGNORE_BATCH = 100
 
 const MAX_TEXT_BYTES = 5 * 1024 * 1024
 
@@ -54,6 +62,93 @@ export async function listDir(projectPath: string, dirPath: string): Promise<Fil
     return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
   })
   return entries
+}
+
+function toRepoRel(repoRootLogical: string, logical: string): string {
+  const repo = normalizePath(repoRootLogical)
+  const p = normalizePath(logical)
+  if (p === repo) return '.'
+  if (p.startsWith(repo + '/')) return p.slice(repo.length + 1)
+  return p
+}
+
+/** 批量 `git check-ignore`；非仓库或调用失败 → 空集（不过滤）。 */
+async function collectIgnoredLogical(
+  repoRootLogical: string | null,
+  logicalPaths: string[]
+): Promise<Set<string>> {
+  const ignored = new Set<string>()
+  if (!repoRootLogical || logicalPaths.length === 0) return ignored
+
+  const pairs = logicalPaths.map((logical) => ({
+    logical: normalizePath(logical),
+    rel: toRepoRel(repoRootLogical, logical)
+  }))
+
+  for (let i = 0; i < pairs.length; i += CHECK_IGNORE_BATCH) {
+    const batch = pairs.slice(i, i + CHECK_IGNORE_BATCH)
+    // 不用 -z：Apple Git / 多数版本里 -z 仅配合 --stdin；命令行路径加 -z 会 fatal(128)，
+    // 导致整批跳过、扫进 node_modules 等被 ignore 的巨树。
+    const result = await execGit(toSys(repoRootLogical), [
+      'check-ignore',
+      '--',
+      ...batch.map((p) => p.rel)
+    ])
+    // 0 = 至少一个被 ignore；1 = 全未 ignore；其它 = 失败（当作本批无 ignore）
+    if (result.code !== 0) continue
+    const ignoredRels = new Set(
+      result.stdout
+        .toString('utf8')
+        .split(/\r?\n/)
+        .filter((p) => p !== '')
+    )
+    for (const p of batch) {
+      if (ignoredRels.has(p.rel)) ignored.add(p.logical)
+    }
+  }
+  return ignored
+}
+
+/**
+ * 树顶过滤：扫盘构建可搜索树（IDE 忽略 + gitignore），再按查询收窄。
+ * 空查询返回空展开、仅根列举（调用方应短路不调）。
+ */
+export async function filterFilesTreeScan(
+  projectPath: string,
+  query: string
+): Promise<FilesTreeFilterResult> {
+  const root = assertProjectRoot(projectPath)
+  const q = query.trim()
+  if (!q) {
+    return { childrenByDir: { [root]: await listDir(projectPath, root) }, expandedPaths: [] }
+  }
+
+  const repoRootSys = await resolveRepoRoot(toSys(root))
+  const repoRootLogical = repoRootSys ? normalizePath(repoRootSys) : null
+
+  const full: Record<string, FilesDirEntry[]> = {}
+
+  const walk = async (dirLogical: string): Promise<void> => {
+    let entries: FilesDirEntry[]
+    try {
+      entries = await listDir(projectPath, dirLogical)
+    } catch {
+      full[dirLogical] = []
+      return
+    }
+    const ignored = await collectIgnoredLogical(
+      repoRootLogical,
+      entries.map((e) => e.path)
+    )
+    const kept = entries.filter((e) => !ignored.has(normalizePath(e.path)))
+    full[dirLogical] = kept
+    for (const e of kept) {
+      if (e.isDirectory) await walk(e.path)
+    }
+  }
+
+  await walk(root)
+  return filterFilesTree(root, full, q)
 }
 
 export async function readFileEntry(

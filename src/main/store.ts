@@ -1,12 +1,7 @@
 import type ElectronStore from 'electron-store'
 import type { FilesUiState } from '../shared/files'
 import { DEFAULT_FILES_UI } from '../shared/files'
-import type {
-  PersistedState,
-  Project,
-  ProjectSortPrefs,
-  RunConfig
-} from '../shared/types'
+import type { PersistedState, Project, ProjectSortPrefs, RunConfig } from '../shared/types'
 import { DEFAULT_PROJECT_SORT_PREFS } from '../shared/types'
 import type { WorkspaceUiState } from '../shared/workspace'
 import { DEFAULT_WORKSPACE_UI } from '../shared/workspace'

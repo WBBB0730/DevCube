@@ -6,7 +6,12 @@ import {
   filterProjectNodes,
   sortProjectNodes
 } from './project-sort'
-import { DEFAULT_PROJECT_SORT_PREFS, type Project, type ProjectNode, type ProjectSortPrefs } from './types'
+import {
+  DEFAULT_PROJECT_SORT_PREFS,
+  type Project,
+  type ProjectNode,
+  type ProjectSortPrefs
+} from './types'
 
 function node(
   name: string,
@@ -91,35 +96,37 @@ describe('sortProjectNodes', () => {
   ]
 
   it('自定义保持原序', () => {
-    expect(sortProjectNodes(nodes, prefs({ mode: 'custom', direction: 'asc' })).map((n) => n.project.name)).toEqual([
-      'zeta',
-      'alpha',
-      'Beta'
-    ])
+    expect(
+      sortProjectNodes(nodes, prefs({ mode: 'custom', direction: 'asc' })).map(
+        (n) => n.project.name
+      )
+    ).toEqual(['zeta', 'alpha', 'Beta'])
   })
 
   it('名称升序忽略大小写', () => {
-    expect(sortProjectNodes(nodes, prefs({ mode: 'name', direction: 'asc' })).map((n) => n.project.name)).toEqual([
-      'alpha',
-      'Beta',
-      'zeta'
-    ])
+    expect(
+      sortProjectNodes(nodes, prefs({ mode: 'name', direction: 'asc' })).map((n) => n.project.name)
+    ).toEqual(['alpha', 'Beta', 'zeta'])
   })
 
   it('添加时间降序（新→旧）', () => {
-    expect(sortProjectNodes(nodes, prefs({ mode: 'addedAt', direction: 'desc' })).map((n) => n.project.path)).toEqual([
-      '/a',
-      '/b',
-      '/z'
-    ])
+    expect(
+      sortProjectNodes(nodes, prefs({ mode: 'addedAt', direction: 'desc' })).map(
+        (n) => n.project.path
+      )
+    ).toEqual(['/a', '/b', '/z'])
   })
 
   it('打开时间：固定最近→最远，null 永远排最后（忽略 direction）', () => {
     expect(
-      sortProjectNodes(nodes, prefs({ mode: 'lastOpenedAt', direction: 'desc' })).map((n) => n.project.path)
+      sortProjectNodes(nodes, prefs({ mode: 'lastOpenedAt', direction: 'desc' })).map(
+        (n) => n.project.path
+      )
     ).toEqual(['/b', '/z', '/a'])
     expect(
-      sortProjectNodes(nodes, prefs({ mode: 'lastOpenedAt', direction: 'asc' })).map((n) => n.project.path)
+      sortProjectNodes(nodes, prefs({ mode: 'lastOpenedAt', direction: 'asc' })).map(
+        (n) => n.project.path
+      )
     ).toEqual(['/b', '/z', '/a'])
   })
 
@@ -135,7 +142,9 @@ describe('sortProjectNodes', () => {
     ).toEqual(['/a', '/b', '/g', '/z'])
     // 自定义：各区保持传入相对序 → 置顶 alpha,Beta；未置顶 zeta,gamma
     expect(
-      sortProjectNodes(mixed, prefs({ mode: 'custom', direction: 'asc' })).map((n) => n.project.path)
+      sortProjectNodes(mixed, prefs({ mode: 'custom', direction: 'asc' })).map(
+        (n) => n.project.path
+      )
     ).toEqual(['/a', '/b', '/z', '/g'])
   })
 })
@@ -159,7 +168,9 @@ describe('filterProjectNodes', () => {
     ]
     const filtered = filterProjectNodes(mixed, 'al')
     expect(
-      sortProjectNodes(filtered, prefs({ mode: 'custom', direction: 'asc' })).map((n) => n.project.path)
+      sortProjectNodes(filtered, prefs({ mode: 'custom', direction: 'asc' })).map(
+        (n) => n.project.path
+      )
     ).toEqual(['/p', '/a'])
   })
 })

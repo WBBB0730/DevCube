@@ -45,10 +45,7 @@ export function mergeTerminalTabs(
     liveByProject.set(t.projectPath, list)
   }
 
-  const projectPaths = new Set<string>([
-    ...Object.keys(shellsByProject),
-    ...liveByProject.keys()
-  ])
+  const projectPaths = new Set<string>([...Object.keys(shellsByProject), ...liveByProject.keys()])
 
   const out: TerminalTabLike[] = []
   for (const projectPath of projectPaths) {
