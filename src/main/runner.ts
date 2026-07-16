@@ -221,8 +221,11 @@ export function run(target: RunTarget): void {
  * 与 Run Session 共用同一套输出/输入/缓冲通道，但无头部、不去重（每个终端独立）；
  * shell 自行结束（exit / Ctrl-D / 崩溃）即销毁并通知渲染端关闭其 Tab。
  */
-export function openTerminal(projectPath: string): string {
-  const key = `terminal:${randomUUID()}`
+export function openTerminal(projectPath: string, key?: string): string {
+  const sessionKey = key ?? `terminal:${randomUUID()}`
+  const existing = sessions.get(sessionKey)
+  if (existing) return sessionKey
+
   const { file, args } = buildShellSession(process.platform, process.env.SHELL)
   const pty = spawn(file, args, {
     name: 'xterm-256color',
@@ -234,7 +237,7 @@ export function openTerminal(projectPath: string): string {
 
   const { screen, serializer } = createScreen(DEFAULT_COLS, DEFAULT_ROWS)
   const session: Session = {
-    key,
+    key: sessionKey,
     kind: 'terminal',
     projectPath,
     sid: randomUUID(),
@@ -249,18 +252,18 @@ export function openTerminal(projectPath: string): string {
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS
   }
-  sessions.set(key, session)
+  sessions.set(sessionKey, session)
   emitStatus(session)
   pipeOutput(session)
 
   pty.onExit(() => {
-    if (sessions.get(key) !== session) return
+    if (sessions.get(sessionKey) !== session) return
     session.screen.dispose()
-    sessions.delete(key)
-    post(IPC.sessionRemoved, key)
+    sessions.delete(sessionKey)
+    post(IPC.sessionRemoved, sessionKey)
   })
 
-  return key
+  return sessionKey
 }
 
 export function getTerminals(): TerminalInfo[] {

@@ -23,7 +23,7 @@ _Avoid_: Task, Profile, Preset
 **Run Session（运行会话）**：某条 Run Configuration 的一次"活的执行"，拥有自己的进程、输出、状态（运行中 / 已退出 / 失败）与控制（停止、重跑）。一条配置**单实例**：同时最多只有一个活跃的 Run Session；对运行中的配置再次"运行"即"重新运行"（先停旧进程再起新的）。
 _Avoid_: Run, Process, Instance, Job
 
-**Terminal（终端）**：项目下的一个自由交互 shell 会话——在项目根目录起一个 `$SHELL`，可随意敲命令，**不绑定任何 Run Configuration / Discovered Script**。纯内存、不持久化；shell 进程结束即销毁。与 **Run Session** 并列但语义不同：Run Session 是"某条配置的一次执行"，Terminal 是"项目下的一个自由 shell"。一个项目可同时拥有任意多个 Terminal。
+**Terminal（终端）**：项目下的一个自由交互 shell 会话——在项目根目录起一个 `$SHELL`，可随意敲命令，**不绑定任何 Run Configuration / Discovered Script**。壳（稳定身份、显示名、在项目 Tab 栏中的顺序）可按项目持久化；**进程与输出不持久化**——重启后需再次拉起空 shell，历史输出不恢复。shell 进程结束即销毁其活会话并关闭对应 Tab。与 **Run Session** 并列但语义不同：Run Session 是"某条配置的一次执行"，Terminal 是"项目下的一个自由 shell"。一个项目可同时拥有任意多个 Terminal。
 _Avoid_: Shell（裸用）, 控制台
 
 **Git Tab（Git 标签页）**：项目的 Git 图谱视图——展示该项目仓库的提交历史图、引用与详情，并可从中执行 git 操作。每项目**恒有一个**、常驻 Tab 栏最前、不可关闭；它不是会话（无进程、无输出流），是 Tab 模型中的非会话 Tab 之一。项目不是 git 仓库时显示兜底提示与初始化仓库入口；仓库状态（是否仓库 / 仓库根）随文件系统变化自动跟进，不需要重新添加项目。
@@ -47,12 +47,12 @@ _Avoid_: 工作区行, WIP 行, 暂存行
 - **引用型**配置所引用的 script 若从 `package.json` 消失 → 该配置**自动删除**；script 改名视作"删旧出新"（旧配置删除，新名字作为全新 Discovered Script 候补重新出现）。
 - 一切自定义只落在**命令型**配置上；**引用型**不承载任何自定义，因而其自动删除永不丢失用户内容。
 - 一条 **Run Configuration** 至多对应一个活跃的 **Run Session**；不同配置的 Run Session 可并发存在。
-- 一个 **Project** 拥有 0..N 个 **Terminal**（cwd 为项目根、不绑定任何 Run Configuration、随其 shell 退出而销毁）。
+- 一个 **Project** 拥有 0..N 个 **Terminal**（cwd 为项目根、不绑定任何 Run Configuration；活 shell 随退出而销毁；壳可跨重启按项目恢复）。
 - **Terminal** 与 **Run Session** 都是"活的会话"，但 Terminal 不由任何配置派生、彼此独立——不做单实例去重，同一项目可并存任意多个。
 - 一个 **Project** 恒有一个 **Git Tab**（非会话、不可关闭、常驻其 Tab 栏最前）；它与 **Files Tab** / Run Session / Terminal 的 Tab 共用激活与循环规则。
 - 一个 **Project** 恒有一个 **Files Tab**（非会话、不可关闭、常驻其 Tab 栏第二位，紧接 Git Tab）；它与 Git Tab / Run Session / Terminal 的 Tab 共用激活与循环规则。一个 Files Tab 同一时刻至多打开一个条目。
 - 从 **Git Tab**「打开文件」进入该项目的 **Files Tab** 并打开对应路径；Files Tab 另提供「在其他应用中打开」（系统默认应用）。
-- **默认激活 Tab**（首次进入项目 / 解析默认）：若有运行中的 **Run Session**，取 Tab 栏从左到右第一个运行中的；否则按 Tab 栏顺序（常驻下即落在 **Git Tab**）。**关闭**激活 Tab 仍回落左邻，其次右邻（不套用上述默认规则）。
+- 工作台按项目记住激活 Tab，并全局记住当前 **Project** 与左树选中；合法记忆优先于默认激活。**默认激活 Tab**（无合法记忆 / 首次解析）：若有运行中的 **Run Session**，取 Tab 栏从左到右第一个运行中的；否则按 Tab 栏顺序（常驻下即落在 **Git Tab**）。**关闭**激活 Tab 仍回落左邻，其次右邻（不套用上述默认规则）。**Run Session** Tab 不随工作台落盘跨冷启动恢复。
 - 一个 **Git Tab** 的图谱含 0..1 个 **未提交更改行**（工作区有改动才合成）；它是该项目在 DevCube 内的提交入口。
 
 ## Example dialogue
@@ -64,7 +64,7 @@ _Avoid_: 工作区行, WIP 行, 暂存行
 > **开发者**：那我再手写一条 `docker compose up` 呢？
 > **领域专家**：那是第二种 **Run Configuration**——一条不依赖任何 script 的独立命令。
 > **开发者**：我想在这个项目里随手跑几条 `git`、`ls`，不想每次都建配置。
-> **领域专家**：那就在它下面开个 **Terminal**——项目根目录里的一个自由 shell，跟任何配置都无关，想开几个开几个，关掉就没了（不持久化）。它不是 **Run Session**，别混为一谈。
+> **领域专家**：那就在它下面开个 **Terminal**——项目根目录里的一个自由 shell，跟任何配置都无关，想开几个开几个。关掉或 shell 自己退出，Tab 就没了；重启后仍会按你留下的名字和顺序把壳找回来，但里面是新的空 shell，上次输出不保留。它不是 **Run Session**，别混为一谈。
 > **开发者**：`web` 我天天用，想让它永远在列表最上面，哪怕按名称排序。
 > **领域专家**：给它打上 **Pin**——已置顶的项目整段浮在未置顶之上；组内仍按你选的排序排。往下滚时，置顶项目的名字行会叠在列表顶上不走（中间留一条细缝），配置行照常滚；滚到未置顶项目时，它的名字行会贴在置顶堆下面，直到被下一个项目顶走。这和「新加的项目碰巧排到最前」不是一回事。
 > **开发者**：我想改一下 `src/app.ts`，又不想离开这个面板去开 WebStorm。

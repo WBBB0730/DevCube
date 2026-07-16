@@ -16,6 +16,12 @@ import {
   resolveActiveTabKey,
   resolveNeighborAfterClose
 } from '@shared/tab-activation'
+import {
+  mergeTerminalTabs,
+  resolvePersistedProjectPath,
+  resolvePersistedSelectedKey,
+  terminalsToShellsByProject
+} from '@shared/workspace'
 
 type CommandInput = Omit<CommandRunConfig, 'id' | 'kind'>
 
@@ -25,7 +31,7 @@ interface DialogState {
   config?: CommandRunConfig
 }
 
-/** 一个终端 Tab（Terminal）的渲染端状态：会话键 + 归属项目 + 可改的名字（纯内存）。 */
+/** 一个终端 Tab（Terminal）的渲染端状态：会话键 + 归属项目 + 可改的名字。 */
 export interface TerminalTab {
   key: string
   projectPath: string
@@ -49,6 +55,24 @@ function nextTerminalName(terminals: TerminalTab[], projectPath: string): string
   }
   const next = max + 1
   return next === 1 ? '终端' : `终端 (${next})`
+}
+
+function persistWorkspace(get: () => AppState): void {
+  const s = get()
+  void window.api.setWorkspaceUi({
+    currentProjectPath: s.currentProjectPath,
+    selectedKey: s.selectedKey,
+    activeTabByProject: s.activeTabByProject,
+    terminalsByProject: terminalsToShellsByProject(s.terminals)
+  })
+}
+
+/** 激活的 Terminal 若尚未 spawn，则用既有 id 拉起 shell。 */
+async function ensureTerminalSpawned(get: () => AppState, projectPath: string, key: string): Promise<void> {
+  if (!key.startsWith('terminal:')) return
+  if (!get().terminals.some((t) => t.key === key && t.projectPath === projectPath)) return
+  if (get().sessions[key]) return
+  await window.api.openTerminal(projectPath, key)
 }
 
 /** 某项目「实际显示」的 Tab 解析结果（Console / cycleTab / 关闭快捷键共用同一规则，避免三处不一致）。 */
@@ -165,7 +189,7 @@ interface AppState {
   /** 新建终端并聚焦；返回其会话键（供 Git 交互式 rebase 等向其写入命令） */
   newTerminal: (projectPath: string) => Promise<string>
   renameTerminal: (key: string, name: string) => void
-  /** 重排某项目终端 Tab 的顺序（纯内存，与终端本身一样不持久化） */
+  /** 重排某项目终端 Tab 的顺序（落盘） */
   reorderTerminals: (projectPath: string, orderedKeys: string[]) => void
   openCreateDialog: (projectPath: string) => void
   openEditDialog: (config: CommandRunConfig) => void
@@ -181,12 +205,16 @@ interface AppState {
  */
 async function applyAddedProject(
   set: (partial: Partial<AppState>) => void,
+  get: () => AppState,
   fetch: () => Promise<ProjectAddResult>
 ): Promise<void> {
   const { focusPath } = await fetch()
   if (!focusPath) return
   set({ selectedKey: null, currentProjectPath: focusPath })
   set({ tree: await window.api.touchProject(focusPath), scrollToProjectPath: focusPath })
+  persistWorkspace(get)
+  const { activeKey } = resolveTabs(get(), focusPath)
+  void ensureTerminalSpawned(get, focusPath, activeKey)
 }
 
 export const useApp = create<AppState>((set, get) => ({
@@ -203,7 +231,7 @@ export const useApp = create<AppState>((set, get) => ({
   scrollToProjectPath: null,
   setTree: (tree) => set({ tree }),
   setSession: (s) => set((state) => ({ sessions: { ...state.sessions, [s.key]: s } })),
-  handleSessionRemoved: (key) =>
+  handleSessionRemoved: (key) => {
     set((state) => {
       const sessions = { ...state.sessions }
       delete sessions[key]
@@ -224,7 +252,9 @@ export const useApp = create<AppState>((set, get) => ({
         activeTabByProject[proj] = resolveNeighborAfterClose(ordered, key)
       }
       return { sessions, runNonce, terminals, activeTabByProject }
-    }),
+    })
+    persistWorkspace(get)
+  },
   // 选中配置：有会话 → 聚焦其 Tab；没跑过 → 不动当前激活 Tab（正在看的内容保持原样）。
   // 切到另一项目时记一次打开时间。
   select: (key, projectPath) => {
@@ -236,7 +266,12 @@ export const useApp = create<AppState>((set, get) => ({
         ? { ...state.activeTabByProject, [projectPath]: key }
         : state.activeTabByProject
     }))
-    if (switched) void window.api.touchProject(projectPath).then((tree) => set({ tree }))
+    persistWorkspace(get)
+    if (switched) {
+      void window.api.touchProject(projectPath).then((tree) => set({ tree }))
+      const { activeKey } = resolveTabs(get(), projectPath)
+      void ensureTerminalSpawned(get, projectPath, activeKey)
+    }
   },
   // 选中探测脚本：先按普通配置选中（同步高亮），再晋升入列（引用型与脚本共用同一键，选中态无缝延续）。
   selectScript: async (projectPath, name, key) => {
@@ -246,7 +281,10 @@ export const useApp = create<AppState>((set, get) => ({
   // 选中项目本身：只切当前项目，保持该项目原激活 Tab；并记录打开时间。
   selectProject: (projectPath) => {
     set({ selectedKey: null, currentProjectPath: projectPath })
+    persistWorkspace(get)
     void window.api.touchProject(projectPath).then((tree) => set({ tree }))
+    const { activeKey } = resolveTabs(get(), projectPath)
+    void ensureTerminalSpawned(get, projectPath, activeKey)
   },
   activateTab: (projectPath, key) => {
     const switched = get().currentProjectPath !== projectPath
@@ -254,43 +292,72 @@ export const useApp = create<AppState>((set, get) => ({
       currentProjectPath: projectPath,
       activeTabByProject: { ...state.activeTabByProject, [projectPath]: key }
     }))
+    persistWorkspace(get)
     if (switched) void window.api.touchProject(projectPath).then((tree) => set({ tree }))
+    void ensureTerminalSpawned(get, projectPath, key)
   },
   // 关闭仅发请求；实际移除由 main 的 sessionRemoved 事件统一走 handleSessionRemoved。
-  // 常驻非会话 Tab（Git / Files）不可关闭。
+  // 常驻非会话 Tab（Git / Files）不可关闭。未 spawn 的终端壳主进程无会话，本地移除并落盘。
   closeTab: async (key) => {
     if (isResidentTabKey(key)) return
+    if (key.startsWith('terminal:') && !get().sessions[key]) {
+      get().handleSessionRemoved(key)
+      return
+    }
     return window.api.closeSession(key)
   },
   init: async () => {
-    const [tree, sessions, terminals, projectSortPrefs] = await Promise.all([
+    const [tree, sessions, liveTerminals, projectSortPrefs, workspace] = await Promise.all([
       window.api.getTree(),
       window.api.getSessions(),
       window.api.getTerminals(),
-      window.api.getProjectSortPrefs()
+      window.api.getProjectSortPrefs(),
+      window.api.getWorkspaceUi()
     ])
-    // 重建终端 Tab（如 dev 热重载后 main 仍有 shell 存活）；名字按项目内出现顺序回落默认名。
-    const seq: Record<string, number> = {}
-    const termTabs: TerminalTab[] = terminals.map((t) => {
-      const n = (seq[t.projectPath] = (seq[t.projectPath] ?? 0) + 1)
-      return { key: t.key, projectPath: t.projectPath, name: n === 1 ? '终端' : `终端 (${n})` }
-    })
+    const sessionsMap = Object.fromEntries(sessions.map((s) => [s.key, s]))
+    const terminals = mergeTerminalTabs(liveTerminals, workspace.terminalsByProject)
+    const projectPaths = new Set(tree.map((n) => n.project.path))
+    const configKeys = new Set(tree.flatMap((n) => n.configs.map((c) => configKey(c))))
+    const currentProjectPath = resolvePersistedProjectPath(
+      workspace.currentProjectPath,
+      projectPaths
+    )
+    let selectedKey = resolvePersistedSelectedKey(workspace.selectedKey, configKeys)
+    if (!currentProjectPath) {
+      selectedKey = null
+    } else if (selectedKey) {
+      const owner = tree.find((n) => n.configs.some((c) => configKey(c) === selectedKey))
+      if (!owner || owner.project.path !== currentProjectPath) selectedKey = null
+    }
+    const activeTabByProject = { ...workspace.activeTabByProject }
+    for (const p of Object.keys(activeTabByProject)) {
+      if (!projectPaths.has(p)) delete activeTabByProject[p]
+    }
     set({
       tree,
-      sessions: Object.fromEntries(sessions.map((s) => [s.key, s])),
-      terminals: termTabs,
-      projectSortPrefs
+      sessions: sessionsMap,
+      terminals,
+      projectSortPrefs,
+      currentProjectPath,
+      selectedKey,
+      activeTabByProject
     })
+    if (currentProjectPath) {
+      set({ tree: await window.api.touchProject(currentProjectPath) })
+      const { activeKey } = resolveTabs(get(), currentProjectPath)
+      await ensureTerminalSpawned(get, currentProjectPath, activeKey)
+    }
+    persistWorkspace(get)
   },
   // 添加成功或命中已有项目：选中并滚入视口；取消 / 无效路径则只刷新树。
   addProject: async () => {
-    await applyAddedProject(set, () => window.api.addProject())
+    await applyAddedProject(set, get, () => window.api.addProject())
   },
   addProjectByPath: async (path) => {
-    await applyAddedProject(set, () => window.api.addProjectByPath(path))
+    await applyAddedProject(set, get, () => window.api.addProjectByPath(path))
   },
   createProject: async () => {
-    await applyAddedProject(set, () => window.api.createProject())
+    await applyAddedProject(set, get, () => window.api.createProject())
   },
   removeProject: async (path) => {
     const tree = await window.api.removeProject(path)
@@ -298,14 +365,17 @@ export const useApp = create<AppState>((set, get) => ({
     set((state) => {
       const activeTabByProject = { ...state.activeTabByProject }
       delete activeTabByProject[path]
+      const terminals = state.terminals.filter((t) => t.projectPath !== path)
       const clearCurrent = state.currentProjectPath === path
       return {
         tree,
+        terminals,
         activeTabByProject,
         currentProjectPath: clearCurrent ? null : state.currentProjectPath,
         selectedKey: clearCurrent ? null : state.selectedKey
       }
     })
+    persistWorkspace(get)
   },
   reorderProjects: async (orderedPaths) => {
     // 乐观更新：松手即本地排好序，避免等 IPC 回跳。
@@ -342,6 +412,7 @@ export const useApp = create<AppState>((set, get) => ({
       activeTabByProject: { ...state.activeTabByProject, [projectPath]: key },
       runNonce: { ...state.runNonce, [key]: (state.runNonce[key] ?? 0) + 1 }
     }))
+    persistWorkspace(get)
     if (switched) void window.api.touchProject(projectPath).then((tree) => set({ tree }))
     await window.api.run(target)
   },
@@ -364,14 +435,17 @@ export const useApp = create<AppState>((set, get) => ({
       currentProjectPath: projectPath,
       activeTabByProject: { ...state.activeTabByProject, [projectPath]: key }
     }))
+    persistWorkspace(get)
     if (switched) void window.api.touchProject(projectPath).then((tree) => set({ tree }))
     return key
   },
-  renameTerminal: (key, name) =>
+  renameTerminal: (key, name) => {
     set((state) => ({
       terminals: state.terminals.map((t) => (t.key === key ? { ...t, name } : t))
-    })),
-  reorderTerminals: (projectPath, orderedKeys) =>
+    }))
+    persistWorkspace(get)
+  },
+  reorderTerminals: (projectPath, orderedKeys) => {
     set((state) => {
       const byKey = new Map(
         state.terminals.filter((t) => t.projectPath === projectPath).map((t) => [t.key, t])
@@ -380,7 +454,9 @@ export const useApp = create<AppState>((set, get) => ({
       return {
         terminals: [...state.terminals.filter((t) => t.projectPath !== projectPath), ...reordered]
       }
-    }),
+    })
+    persistWorkspace(get)
+  },
   openCreateDialog: (projectPath) => set({ dialog: { open: true, projectPath } }),
   openEditDialog: (config) =>
     set({ dialog: { open: true, projectPath: config.projectPath, config } }),

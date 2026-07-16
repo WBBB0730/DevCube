@@ -561,8 +561,10 @@ function TerminalPane({
   const [query, setQuery] = useState('')
   const [results, setResults] = useState({ index: -1, count: 0 })
   // 仅 run 模式订阅自己会话的运行序号 / 状态；终端模式取常量，避免无谓触发（如别的配置重跑）。
+  // 终端懒 spawn：会话从无到有时需重新回填快照（否则挂载时空缓冲会把 ready 置真并丢掉新 sid 输出）。
   const runNonce = useApp((s) => (mode === 'run' ? (s.runNonce[paneKey] ?? 0) : 0))
   const status = useApp((s) => (mode === 'run' ? s.sessions[paneKey]?.status : undefined))
+  const terminalLive = useApp((s) => (mode === 'terminal' ? !!s.sessions[paneKey] : true))
 
   // 供内容回填的异步回调判断「回填完成时是否可见」以决定聚焦（避免把 visible 塞进 deps 触发重跑）。
   useEffect(() => {
@@ -658,7 +660,8 @@ function TerminalPane({
     }
   }, [])
 
-  // 挂载 / 重跑（runNonce +1）：run 清屏后回填该会话快照；可见时聚焦。终端模式仅挂载时回填一次。
+  // 挂载 / 重跑（runNonce +1）：run 清屏后回填该会话快照；可见时聚焦。
+  // 终端模式在会话活着时回填（含懒 spawn 后）；未 spawn 时不置 ready，避免丢掉新 sid 输出。
   useEffect(() => {
     keyRef.current = paneKey
     readyRef.current = false
@@ -666,6 +669,7 @@ function TerminalPane({
     writtenRef.current = 0
     const term = termRef.current
     if (!term) return
+    if (mode === 'terminal' && !terminalLive) return
     if (mode === 'run') term.reset()
     // 过期回填必须作废：keyRef 挡不住「同 key 的上一代请求」（StrictMode 双挂载、快速重跑
     // 都会产生同 key 的在途快照）——旧快照若在 reset 后应用，会写入过期内容、污染 writtenRef
@@ -706,7 +710,7 @@ function TerminalPane({
     return () => {
       cancelled = true
     }
-  }, [paneKey, runNonce, mode])
+  }, [paneKey, runNonce, mode, terminalLive])
 
   // 变可见：隐藏期间 ResizeObserver 不触发，手动 refit + 聚焦。
   useEffect(() => {

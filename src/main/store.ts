@@ -8,6 +8,8 @@ import type {
   RunConfig
 } from '../shared/types'
 import { DEFAULT_PROJECT_SORT_PREFS } from '../shared/types'
+import type { WorkspaceUiState } from '../shared/workspace'
+import { DEFAULT_WORKSPACE_UI } from '../shared/workspace'
 import {
   DEFAULT_GIT_REPO_SETTINGS,
   DEFAULT_GIT_VIEW_PREFS,
@@ -28,7 +30,8 @@ export async function initStore(): Promise<void> {
       gitSettings: {},
       gitViewPrefs: DEFAULT_GIT_VIEW_PREFS,
       projectSortPrefs: DEFAULT_PROJECT_SORT_PREFS,
-      filesUi: {}
+      filesUi: {},
+      workspaceUi: DEFAULT_WORKSPACE_UI
     }
   })
 }
@@ -147,4 +150,47 @@ export function deleteFilesUi(projectPath: string): void {
   const all = { ...(store.get('filesUi') ?? {}) }
   delete all[projectPath]
   store.set('filesUi', all)
+}
+
+function normalizeWorkspaceUi(raw: Partial<WorkspaceUiState> | undefined): WorkspaceUiState {
+  const base = { ...DEFAULT_WORKSPACE_UI, ...pickKnownKeys(DEFAULT_WORKSPACE_UI, raw) }
+  return {
+    currentProjectPath:
+      typeof base.currentProjectPath === 'string' ? base.currentProjectPath : null,
+    selectedKey: typeof base.selectedKey === 'string' ? base.selectedKey : null,
+    activeTabByProject:
+      base.activeTabByProject && typeof base.activeTabByProject === 'object'
+        ? { ...base.activeTabByProject }
+        : {},
+    terminalsByProject:
+      base.terminalsByProject && typeof base.terminalsByProject === 'object'
+        ? { ...base.terminalsByProject }
+        : {}
+  }
+}
+
+export function getWorkspaceUi(): WorkspaceUiState {
+  return normalizeWorkspaceUi(store.get('workspaceUi'))
+}
+
+export function setWorkspaceUi(state: WorkspaceUiState): WorkspaceUiState {
+  const normalized = normalizeWorkspaceUi(state)
+  store.set('workspaceUi', normalized)
+  return normalized
+}
+
+/** 项目移除时清掉该路径下的激活 Tab / Terminal 壳；若当前项目或选中落在该项目则清空。 */
+export function deleteWorkspaceUiForProject(projectPath: string): void {
+  const cur = getWorkspaceUi()
+  const activeTabByProject = { ...cur.activeTabByProject }
+  delete activeTabByProject[projectPath]
+  const terminalsByProject = { ...cur.terminalsByProject }
+  delete terminalsByProject[projectPath]
+  const clearCurrent = cur.currentProjectPath === projectPath
+  setWorkspaceUi({
+    currentProjectPath: clearCurrent ? null : cur.currentProjectPath,
+    selectedKey: clearCurrent ? null : cur.selectedKey,
+    activeTabByProject,
+    terminalsByProject
+  })
 }

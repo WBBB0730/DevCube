@@ -4,6 +4,7 @@
 
 import type { FilesDirEntry, FilesReadResult, FilesUiState } from './files'
 import type { GitAPI, GitRepoSettings, GitViewPrefs } from './git'
+import type { WorkspaceUiState } from './workspace'
 
 export type PackageManager = 'pnpm' | 'yarn' | 'npm' | 'bun'
 
@@ -86,6 +87,8 @@ export interface PersistedState {
   projectSortPrefs: ProjectSortPrefs
   /** 每项目 Files Tab UI（键 = 项目绝对路径） */
   filesUi: Record<string, FilesUiState>
+  /** 工作台 Tab 现场（当前项目 / 选中 / 激活 Tab / Terminal 壳） */
+  workspaceUi: WorkspaceUiState
 }
 
 /** 一个项目在聚合面板里的完整视图。 */
@@ -181,8 +184,15 @@ export interface RunAPI extends GitAPI {
   getSessions(): Promise<SessionState[]>
 
   // —— 终端（Terminal，自由 shell） ——
-  /** 在项目根目录起一个交互 shell 的新 Terminal，返回其会话键 */
-  openTerminal(projectPath: string): Promise<string>
+  /**
+   * 在项目根目录起一个交互 shell 的 Terminal，返回其会话键。
+   * 传入 key 则用该键（懒 spawn / 对账）；已存在则原样返回。
+   */
+  openTerminal(projectPath: string, key?: string): Promise<string>
+  /** 读取工作台 UI 快照（ADR-0008） */
+  getWorkspaceUi(): Promise<WorkspaceUiState>
+  /** 整表覆写工作台 UI（渲染端为真相源，变更即写） */
+  setWorkspaceUi(state: WorkspaceUiState): Promise<WorkspaceUiState>
   /**
    * 关闭一个 Tab 对应的会话（Run Session 或 Terminal）：
    * 运行中则先 SIGTERM 温和停止（超时升级 SIGKILL），随即弃掉会话与输出。

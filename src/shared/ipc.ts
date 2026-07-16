@@ -24,6 +24,8 @@ export const IPC = {
   terminalOpen: 'terminal:open',
   sessionClose: 'session:close',
   terminals: 'terminal:list',
+  workspaceUiGet: 'workspace:ui-get',
+  workspaceUiSet: 'workspace:ui-set',
   configCreate: 'config:create',
   configUpdate: 'config:update',
   configDelete: 'config:delete',

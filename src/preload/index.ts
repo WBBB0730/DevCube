@@ -30,9 +30,11 @@ const api: RunAPI = {
   clearSessionOutput: (key) => ipcRenderer.invoke(IPC.sessionClear, key),
   getSessions: () => ipcRenderer.invoke(IPC.sessions),
 
-  openTerminal: (projectPath) => ipcRenderer.invoke(IPC.terminalOpen, projectPath),
+  openTerminal: (projectPath, key) => ipcRenderer.invoke(IPC.terminalOpen, projectPath, key),
   closeSession: (key) => ipcRenderer.invoke(IPC.sessionClose, key),
   getTerminals: () => ipcRenderer.invoke(IPC.terminals),
+  getWorkspaceUi: () => ipcRenderer.invoke(IPC.workspaceUiGet),
+  setWorkspaceUi: (state) => ipcRenderer.invoke(IPC.workspaceUiSet, state),
 
   createCommandConfig: (input: Omit<CommandRunConfig, 'id' | 'kind'>) =>
     ipcRenderer.invoke(IPC.configCreate, input),

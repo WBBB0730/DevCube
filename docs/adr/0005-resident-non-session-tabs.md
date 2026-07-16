@@ -14,6 +14,6 @@ ADR-0003 的 Tab 模型是「一个 Tab = 一个活的会话」，但 **Git Tab*
 ## Consequences
 
 - `resolveTabs` 恒含 `gitKey` 与 Files Tab 键；顺序为 Git → Files → 运行会话（树序）→ 终端。
-- 默认激活与关闭回落分离，见上文。
+- 默认激活与关闭回落分离，见上文；每项目激活 Tab 的记忆可跨重启持久（ADR-0008），合法记忆优先于默认激活。
 - `closeTab` / Cmd+W 对常驻非会话 Tab 为 no-op。
 - Git / Files 的面板态均「切走隐藏不卸载」；Files 另持久化每项目上次打开路径与树展开状态（见 Files 相关 PRD）。

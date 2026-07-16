@@ -46,19 +46,23 @@ import {
 import {
   deleteFilesUi,
   deleteGitSettings,
+  deleteWorkspaceUiForProject,
   getConfigs,
   getFilesUi,
   getGitSettings,
   getGitViewPrefs,
   getProjectSortPrefs,
   getProjects,
+  getWorkspaceUi,
   setFilesUi,
   setGitSettings,
   setGitViewPrefs,
-  setProjectSortPrefs
+  setProjectSortPrefs,
+  setWorkspaceUi
 } from './store'
 import { listDir, readFileEntry, sanitizeFilesUi, writeFileEntry } from './files'
 import type { FilesUiState } from '../shared/files'
+import type { WorkspaceUiState } from '../shared/workspace'
 import { buildTree } from './tree'
 import { syncWatchers } from './watcher'
 import {
@@ -173,6 +177,7 @@ export function registerIpc(win: BrowserWindow): void {
     removeProject(path)
     deleteGitSettings(path) // 连同它的 git 设置与仓库根缓存
     deleteFilesUi(path)
+    deleteWorkspaceUiForProject(path)
     clearRepoRootCache(path)
     refreshWatchers()
     return buildTree()
@@ -215,10 +220,16 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.sessions, () => getSessions())
 
   // —— 终端（Terminal，自由 shell）与 Tab 关闭 ——
-  ipcMain.handle(IPC.terminalOpen, (_e, projectPath: string) => openTerminal(projectPath))
+  ipcMain.handle(IPC.terminalOpen, (_e, projectPath: string, key?: string) =>
+    openTerminal(projectPath, key)
+  )
   // 用户关闭 Tab（Run Session / Terminal 通用）：温和停止 + 弃会话 + 通知渲染端移除 Tab。
   ipcMain.handle(IPC.sessionClose, (_e, key: string) => closeSession(key))
   ipcMain.handle(IPC.terminals, () => getTerminals())
+
+  // —— 工作台 UI（ADR-0008） ——
+  ipcMain.handle(IPC.workspaceUiGet, () => getWorkspaceUi())
+  ipcMain.handle(IPC.workspaceUiSet, (_e, state: WorkspaceUiState) => setWorkspaceUi(state))
 
   // 选中探测脚本即晋升为引用型配置（不必等运行；运行路径的晋升见 IPC.run）。
   ipcMain.handle(IPC.scriptPromote, (_e, projectPath: string, scriptName: string) => {
