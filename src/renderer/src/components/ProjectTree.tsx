@@ -91,13 +91,24 @@ const PIN_STICKY_SEAM: CSSProperties = {
 
 /**
  * sticky 标题在视口内时对其 scrollIntoView 不会动（已可见）。
- * 滚非 sticky 的段起点锚（对齐 Git 提交面板）；scroll-margin-top 预留叠放 / 当前段吸顶高度。
+ * 已滚过段起点：滚非 sticky 段锚 + start（scroll-margin-top 预留吸顶高度；对齐 Git 段头）。
+ * 否则：对标题行 nearest（已在视口不动，裁切才微滚）。
  */
 function scrollProjectIntoView(list: HTMLElement, path: string): void {
+  const esc = globalThis.CSS.escape(path)
   const anchor = list.querySelector(
-    `[data-project-scroll-anchor="${globalThis.CSS.escape(path)}"]`
+    `[data-project-scroll-anchor="${esc}"]`
   ) as HTMLElement | null
-  anchor?.scrollIntoView({ block: 'start' })
+  const row = list.querySelector(`[data-project-path="${esc}"]`) as HTMLElement | null
+  if (!anchor || !row) return
+
+  const listRect = list.getBoundingClientRect()
+  const marginTop = Number.parseFloat(getComputedStyle(anchor).scrollMarginTop) || 0
+  if (anchor.getBoundingClientRect().top < listRect.top + marginTop - 1) {
+    anchor.scrollIntoView({ block: 'start' })
+    return
+  }
+  row.scrollIntoView({ block: 'nearest' })
 }
 
 // 列表仅垂直排序，且钳制在父容器内（containerNodeRect 即被拖行的父容器）。
@@ -148,6 +159,7 @@ export function ProjectTree(): React.JSX.Element {
   const [forceCollapsed, setForceCollapsed] = useState(false)
   const listRef = useRef<HTMLDivElement>(null)
   const listContentRef = useRef<HTMLDivElement>(null)
+  const filterInputRef = useRef<HTMLInputElement>(null)
   const collapseAnchorRef = useRef<number | null>(null)
   const collapsePadRef = useRef(0)
   const lastScrollTopRef = useRef(0)
@@ -527,8 +539,15 @@ export function ProjectTree(): React.JSX.Element {
         <div className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded px-1.5 transition-colors focus-within:bg-[var(--bg-row-hover)]">
           <Search className="size-3.5 shrink-0 text-[color:var(--fg-disabled)]" />
           <input
+            ref={filterInputRef}
             value={projectFilter}
             onChange={(e) => setProjectFilter(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Escape' && projectFilter) {
+                e.preventDefault()
+                setProjectFilter('')
+              }
+            }}
             placeholder="筛选"
             className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-[color:var(--fg-disabled)]"
           />
@@ -571,8 +590,30 @@ export function ProjectTree(): React.JSX.Element {
 
       <div
         ref={listRef}
-        className="min-h-0 flex-1 overflow-auto px-1.5 pb-1.5"
+        tabIndex={0}
+        className="min-h-0 flex-1 overflow-auto px-1.5 pb-1.5 outline-none"
         onScroll={forceCollapsed ? handleListScroll : undefined}
+        onKeyDown={(e) => {
+          if (e.target instanceof HTMLInputElement) return
+          if (e.key === 'Escape') {
+            if (projectFilter) {
+              e.preventDefault()
+              setProjectFilter('')
+            }
+            return
+          }
+          if (e.key === 'Backspace' && projectFilter) {
+            e.preventDefault()
+            setProjectFilter(projectFilter.slice(0, -1))
+            filterInputRef.current?.focus()
+            return
+          }
+          if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+            e.preventDefault()
+            setProjectFilter(projectFilter + e.key)
+            filterInputRef.current?.focus()
+          }
+        }}
       >
         {filtered.length === 0 ? (
           <div className="flex h-full min-h-full items-center justify-center px-3 text-[13px] text-muted-foreground">
@@ -821,9 +862,9 @@ function ProjectHeader({
             e.stopPropagation()
             onToggleExpand()
           }}
-          className="flex size-4 shrink-0 items-center justify-center text-muted-foreground"
+          className="-m-1 flex size-6 shrink-0 items-center justify-center text-muted-foreground"
         >
-          <ChevronRight className={cn('size-4 transition-transform', expanded && 'rotate-90')} />
+          <ChevronRight className={cn('size-3.5 transition-transform', expanded && 'rotate-90')} />
         </button>
         <Folder className="size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate">{node.project.name}</span>
@@ -998,9 +1039,9 @@ function ProjectRow({
             e.stopPropagation()
             setOpen((v) => !v)
           }}
-          className="flex size-4 shrink-0 items-center justify-center text-muted-foreground"
+          className="-m-1 flex size-6 shrink-0 items-center justify-center text-muted-foreground"
         >
-          <ChevronRight className={cn('size-4 transition-transform', expanded && 'rotate-90')} />
+          <ChevronRight className={cn('size-3.5 transition-transform', expanded && 'rotate-90')} />
         </button>
         <Folder className="size-4 shrink-0 text-muted-foreground" />
         <span className="min-w-0 flex-1 truncate">{node.project.name}</span>
