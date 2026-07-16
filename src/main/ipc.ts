@@ -81,6 +81,7 @@ import {
 } from './git-data'
 import { runGitAction } from './git-actions'
 import { syncGitWatchers } from './git-watcher'
+import { syncFilesWatchers } from './files-watcher'
 import { clearRepoRootCache, execGit, resolveRepoRoot, revalidateRepoRoot } from './git-exec'
 
 let mainWindow: BrowserWindow | null = null
@@ -97,6 +98,13 @@ export function emitTree(): void {
 function emitGitChanged(projectPath: string): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(IPC.gitChanged, projectPath)
+  }
+}
+
+/** 某项目工作区文件变化：通知 Files Tab 重拉已缓存目录 / 同步打开文件。 */
+function emitFilesChanged(projectPath: string): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(IPC.filesChanged, projectPath)
   }
 }
 
@@ -135,10 +143,9 @@ const onWatchEvent = debounce(() => {
 }, 120)
 
 function refreshWatchers(): void {
-  syncWatchers(
-    getProjects().map((p) => p.path),
-    onWatchEvent
-  )
+  const paths = getProjects().map((p) => p.path)
+  syncWatchers(paths, onWatchEvent)
+  syncFilesWatchers(paths, emitFilesChanged)
   void refreshGitWatchers()
 }
 

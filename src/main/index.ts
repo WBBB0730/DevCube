@@ -8,6 +8,7 @@ import { registerIpc } from './ipc'
 import { killAllSessions } from './runner'
 import { closeAllWatchers } from './watcher'
 import { closeAllGitWatchers } from './git-watcher'
+import { closeAllFilesWatchers } from './files-watcher'
 
 // 必须在 app.ready 之前注册特权 scheme，否则渲染层无法用自定义协议播媒体。
 registerFilesMediaScheme()
@@ -77,6 +78,7 @@ app.on('window-all-closed', () => {
   // 真正退出时由 before-quit 统一杀进程树；非 mac 下面的 app.quit() 会触发它。
   closeAllWatchers()
   closeAllGitWatchers()
+  closeAllFilesWatchers()
   if (process.platform !== 'darwin') {
     app.quit()
   }

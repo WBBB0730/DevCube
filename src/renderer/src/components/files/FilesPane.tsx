@@ -18,6 +18,7 @@ import {
 import { pushRecentPath, type FilesDirEntry, type FilesReadResult } from '@shared/files'
 import type { GitFileStatus } from '@shared/git'
 import { normalizePath } from '@shared/files-path'
+import { mergeReloadedDirs, resolveOpenTextDiskSync } from '@shared/files-watch'
 import { cn } from '@renderer/lib/utils'
 import {
   FILES_BASIC_SETUP,
@@ -169,10 +170,11 @@ export function FilesPane({
     if (!cur || cur.kind !== 'text' || !cur.dirty) return true
     try {
       const { mtimeMs } = await window.api.filesWrite(projectPath, cur.path, cur.content)
+      // 同步写 ref，避免保存触发的 files:changed 仍读到旧 dirty/mtime 而误报冲突
+      const next = { ...cur, dirty: false, mtimeMs }
+      loadedRef.current = next
       setLoaded((prev) =>
-        prev && prev.kind === 'text' && prev.path === cur.path
-          ? { ...prev, dirty: false, mtimeMs }
-          : prev
+        prev && prev.kind === 'text' && prev.path === cur.path ? next : prev
       )
       setSaveError(null)
       void refreshGitStatus()
@@ -580,39 +582,129 @@ export function FilesPane({
     return () => window.removeEventListener('blur', onBlur)
   }, [flushSave])
 
-  // 外部变更：可见时周期性轻量检查 mtime（无 watcher 专用通道时的务实做法）
-  useEffect(() => {
-    if (!visible) return
-    const id = setInterval(() => {
-      void (async () => {
-        const cur = loadedRef.current
-        if (!cur || cur.kind !== 'text') return
-        const path = cur.path
-        const mtimeMs = cur.mtimeMs
-        try {
-          const fresh = await window.api.filesRead(projectPath, path)
-          const still = loadedRef.current
-          if (!still || still.kind !== 'text' || still.path !== path) return
-          if (fresh.kind !== 'text') return
-          if (fresh.mtimeMs === mtimeMs || fresh.mtimeMs === still.mtimeMs) return
-          if (still.dirty) {
-            setConflict({ disk: fresh.content, mtimeMs: fresh.mtimeMs })
-          } else {
-            setLoaded({
-              kind: 'text',
-              path: fresh.path,
-              content: fresh.content,
-              mtimeMs: fresh.mtimeMs,
-              dirty: false
-            })
+  /**
+   * 磁盘变更（ADR-0011）：重拉已缓存目录；过滤态重扫；同步当前打开文件。
+   * 隐藏不卸载时也跟进，切回 Files Tab 时树与正文已是新态。
+   */
+  const refreshFromDisk = useCallback(async () => {
+    const dirs = Object.keys(childrenByDirRef.current)
+    if (dirs.length > 0) {
+      const reloaded: Record<string, FilesDirEntry[] | null> = {}
+      await Promise.all(
+        dirs.map(async (dir) => {
+          try {
+            reloaded[dir] = await window.api.filesListDir(projectPath, dir)
+          } catch {
+            reloaded[dir] = null
           }
-        } catch {
-          /* 文件可能已删：静默 */
+        })
+      )
+      const merged = mergeReloadedDirs(childrenByDirRef.current, reloaded)
+      if (merged !== childrenByDirRef.current) {
+        childrenByDirRef.current = merged
+        setChildrenByDir(merged)
+        const nextExp = new Set<string>()
+        for (const d of expandedRef.current) {
+          if (d in merged) nextExp.add(d)
         }
-      })()
-    }, 2000)
-    return () => clearInterval(id)
-  }, [visible, projectPath])
+        if (nextExp.size !== expandedRef.current.size) {
+          expandedRef.current = nextExp
+          setExpanded(nextExp)
+          persistUi(loadedRef.current?.path ?? null, [...nextExp])
+        }
+      }
+    }
+
+    const q = filterQuery.trim()
+    if (q) {
+      const seq = ++filterSeqRef.current
+      setFilterScanning(true)
+      try {
+        const result = await window.api.filesFilterTree(projectPath, q)
+        if (seq !== filterSeqRef.current) return
+        const snap = {
+          childrenByDir: result.childrenByDir,
+          expanded: new Set(result.expandedPaths)
+        }
+        filterViewRef.current = snap
+        setFilterView(snap)
+      } catch {
+        if (seq !== filterSeqRef.current) return
+        const snap = {
+          childrenByDir: { [rootLogical]: [] as FilesDirEntry[] },
+          expanded: new Set([rootLogical])
+        }
+        filterViewRef.current = snap
+        setFilterView(snap)
+      } finally {
+        if (seq === filterSeqRef.current) setFilterScanning(false)
+      }
+    }
+
+    const cur = loadedRef.current
+    if (!cur) return
+    const path = cur.path
+    let fresh: FilesReadResult | null = null
+    try {
+      fresh = await window.api.filesRead(projectPath, path)
+    } catch {
+      fresh = null
+    }
+    const still = loadedRef.current
+    if (!still || still.path !== path) return
+
+    const clearOpen = (): void => {
+      setLoaded(null)
+      setSelectedPath(null)
+      setConflict(null)
+      const nextRecent = recentPathsRef.current.filter((p) => p !== path)
+      setRecentPaths(nextRecent)
+      void window.api.filesSetUi(projectPath, {
+        openPath: null,
+        expandedPaths: [...expandedRef.current],
+        recentPaths: nextRecent
+      })
+    }
+
+    if (still.kind === 'text') {
+      const decision = resolveOpenTextDiskSync(still, fresh)
+      if (decision.action === 'noop') return
+      if (decision.action === 'reload') {
+        setLoaded({
+          kind: 'text',
+          path,
+          content: decision.content,
+          mtimeMs: decision.mtimeMs,
+          dirty: false
+        })
+        return
+      }
+      if (decision.action === 'conflict') {
+        setConflict({ disk: decision.disk, mtimeMs: decision.mtimeMs })
+        return
+      }
+      if (decision.action === 'gone') {
+        clearOpen()
+        return
+      }
+      await openFile(path, { force: true })
+      return
+    }
+
+    if (!fresh) {
+      clearOpen()
+      return
+    }
+    if (fresh.kind !== still.kind) await openFile(path, { force: true })
+  }, [filterQuery, openFile, persistUi, projectPath, rootLogical])
+
+  useEffect(() => {
+    if (!ready) return
+    return window.api.onFilesChanged((p) => {
+      if (p !== projectPath) return
+      void refreshFromDisk()
+    })
+  }, [ready, projectPath, refreshFromDisk])
 
   return (
     <div className="flex h-full min-h-0">

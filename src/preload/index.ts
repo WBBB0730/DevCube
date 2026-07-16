@@ -58,6 +58,7 @@ const api: RunAPI = {
     ipcRenderer.invoke(IPC.filesWrite, projectPath, filePath, content),
   filesGetUi: (projectPath) => ipcRenderer.invoke(IPC.filesGetUi, projectPath),
   filesSetUi: (projectPath, patch) => ipcRenderer.invoke(IPC.filesSetUi, projectPath, patch),
+  onFilesChanged: (cb) => subscribe(IPC.filesChanged, cb),
 
   gitLoad: (projectPath, options: GitLoadOptions) =>
     ipcRenderer.invoke(IPC.gitLoad, projectPath, options),

@@ -40,6 +40,7 @@ export const IPC = {
   filesWrite: 'files:write',
   filesGetUi: 'files:ui-get',
   filesSetUi: 'files:ui-set',
+  filesChanged: 'files:changed',
   gitLoad: 'git:load',
   gitDetails: 'git:details',
   gitFileDiff: 'git:file-diff',

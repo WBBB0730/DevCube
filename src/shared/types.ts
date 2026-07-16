@@ -226,6 +226,8 @@ export interface RunAPI extends GitAPI {
   filesWrite(projectPath: string, filePath: string, content: string): Promise<{ mtimeMs: number }>
   filesGetUi(projectPath: string): Promise<FilesUiState>
   filesSetUi(projectPath: string, patch: Partial<FilesUiState>): Promise<FilesUiState>
+  /** 项目文件树相关磁盘变化：渲染端应重拉已缓存目录并同步当前打开文件 */
+  onFilesChanged(cb: (projectPath: string) => void): () => void
 
   // —— 事件订阅（返回取消函数） ——
   onTreeChanged(cb: (tree: ProjectNode[]) => void): () => void
