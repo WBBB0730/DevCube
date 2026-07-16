@@ -97,19 +97,23 @@ jobs:
         run: |
           : "${CSC_LINK:?Missing MAC_CSC_LINK}"
           : "${CSC_KEY_PASSWORD:?Missing MAC_CSC_KEY_PASSWORD}"
-          : "${APPLE_API_KEY_CONTENT:?Missing APPLE_API_KEY}"
+          : "${APPLE_API_KEY_BASE64:?Missing APPLE_API_KEY}"
           : "${APPLE_API_KEY_ID:?Missing APPLE_API_KEY_ID}"
           : "${APPLE_API_ISSUER:?Missing APPLE_API_ISSUER}"
           key_path="$RUNNER_TEMP/AuthKey_${APPLE_API_KEY_ID}.p8"
           trap 'rm -f "$key_path"' EXIT
-          printf '%s\n' "$APPLE_API_KEY_CONTENT" > "$key_path"
+          printf '%s' "$APPLE_API_KEY_BASE64" | base64 -D > "$key_path"
           chmod 600 "$key_path"
+          if ! openssl pkey -in "$key_path" -noout >/dev/null 2>&1; then
+            echo '::error::APPLE_API_KEY is not a valid PKCS#8 private key'
+            exit 1
+          fi
           export APPLE_API_KEY="$key_path"
           pnpm exec electron-builder --mac --publish never
         env:
           CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
           CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
-          APPLE_API_KEY_CONTENT: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_BASE64: ${{ secrets.APPLE_API_KEY }}
           APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
           APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
