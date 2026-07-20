@@ -54,5 +54,7 @@ export const IPC = {
   gitViewPrefsSet: 'git:view-prefs-set',
   gitChanged: 'git:changed',
   gitRevalidate: 'git:revalidate',
-  gitDefaultBranch: 'git:default-branch'
+  gitDefaultBranch: 'git:default-branch',
+  /** 主进程 before-input-event 命中后下发的应用快捷键 */
+  appShortcut: 'app:shortcut'
 } as const

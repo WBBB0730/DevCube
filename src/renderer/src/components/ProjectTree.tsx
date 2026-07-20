@@ -1,5 +1,6 @@
 import {
   useCallback,
+  useEffect,
   useLayoutEffect,
   useMemo,
   useRef,
@@ -61,6 +62,8 @@ import type {
 } from '@shared/types'
 import { configKey, scriptKey } from '@shared/runnable'
 import { filterProjectNodes, sortProjectNodes } from '@shared/project-sort'
+import { SHORTCUT } from '@shared/shortcut-label'
+import { shortcutLabel, shortcutTitle } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
 import {
@@ -139,6 +142,7 @@ export function ProjectTree(): React.JSX.Element {
   const projectSortPrefs = useApp((s) => s.projectSortPrefs)
   const projectFilter = useApp((s) => s.projectFilter)
   const setProjectFilter = useApp((s) => s.setProjectFilter)
+  const projectFilterFocusNonce = useApp((s) => s.projectFilterFocusNonce)
   const cycleSortMode = useApp((s) => s.cycleSortMode)
   const setPinSticky = useApp((s) => s.setPinSticky)
   const pinSticky = projectSortPrefs.pinSticky
@@ -158,6 +162,7 @@ export function ProjectTree(): React.JSX.Element {
   const listRef = useRef<HTMLDivElement>(null)
   const listContentRef = useRef<HTMLDivElement>(null)
   const filterInputRef = useRef<HTMLInputElement>(null)
+  const consumedFilterFocusNonce = useRef(0)
   const collapseAnchorRef = useRef<number | null>(null)
   const collapsePadRef = useRef(0)
   const lastScrollTopRef = useRef(0)
@@ -290,6 +295,17 @@ export function ProjectTree(): React.JSX.Element {
     }
     clearScrollToProjectPath()
   }, [scrollToProjectPath, filtered, pinnedPathSet, clearScrollToProjectPath])
+
+  // ⌥⌘P：聚焦项目筛选框并选中已有查询，方便直接覆盖输入。
+  useEffect(() => {
+    if (!projectFilterFocusNonce || projectFilterFocusNonce === consumedFilterFocusNonce.current)
+      return
+    consumedFilterFocusNonce.current = projectFilterFocusNonce
+    const input = filterInputRef.current
+    if (!input) return
+    input.focus()
+    input.select()
+  }, [projectFilterFocusNonce])
 
   useLayoutEffect(() => {
     const list = listRef.current
@@ -534,7 +550,10 @@ export function ProjectTree(): React.JSX.Element {
       }}
     >
       <header className="flex h-10 shrink-0 items-center gap-1 border-b border-[var(--separator)] px-1.5 text-muted-foreground">
-        <div className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded px-1.5 transition-colors focus-within:bg-[var(--bg-row-hover)]">
+        <div
+          title={shortcutTitle('筛选项目', SHORTCUT.projectFilter)}
+          className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded px-1.5 transition-colors focus-within:bg-[var(--bg-row-hover)]"
+        >
           <Search className="size-3.5 shrink-0 text-[color:var(--fg-disabled)]" />
           <input
             ref={filterInputRef}
@@ -589,6 +608,7 @@ export function ProjectTree(): React.JSX.Element {
       <div
         ref={listRef}
         tabIndex={0}
+        title={`切换项目 (${shortcutLabel(SHORTCUT.prevProject)} / ${shortcutLabel(SHORTCUT.nextProject)})`}
         className="min-h-0 flex-1 overflow-auto px-1.5 pb-1.5 outline-none"
         onScroll={forceCollapsed ? handleListScroll : undefined}
         onKeyDown={(e) => {

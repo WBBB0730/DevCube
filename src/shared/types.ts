@@ -2,6 +2,7 @@
 // 术语见 CONTEXT.md：Project / Discovered Script / Run Configuration（引用型·命令型）/ Run Session。
 // Git 图谱（Git Tab）的域模型与 API 在 ./git.ts，经 GitAPI 并入 RunAPI。
 
+import type { AppShortcut } from './app-shortcut'
 import type { FilesDirEntry, FilesReadResult, FilesUiState } from './files'
 import type { FilesTreeFilterResult } from './files-tree-search'
 import type { GitAPI, GitRepoSettings, GitViewPrefs } from './git'
@@ -235,4 +236,6 @@ export interface RunAPI extends GitAPI {
   onSessionStatus(cb: (e: SessionState) => void): () => void
   /** 会话被彻底销毁（配置删除/对账/项目移除），渲染端应清除其状态 */
   onSessionRemoved(cb: (key: string) => void): () => void
+  /** 主进程 before-input-event 命中的应用快捷键 */
+  onAppShortcut(cb: (shortcut: AppShortcut) => void): () => void
 }

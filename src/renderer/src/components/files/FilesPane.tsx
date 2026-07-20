@@ -19,6 +19,8 @@ import { pushRecentPath, type FilesDirEntry, type FilesReadResult } from '@share
 import type { GitFileStatus } from '@shared/git'
 import { normalizePath } from '@shared/files-path'
 import { mergeReloadedDirs, resolveOpenTextDiskSync } from '@shared/files-watch'
+import { SHORTCUT } from '@shared/shortcut-label'
+import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
 import {
   FILES_BASIC_SETUP,
@@ -108,6 +110,8 @@ export function FilesPane({
     expanded: Set<string>
   } | null>(null)
   const filterInputRef = useRef<HTMLInputElement>(null)
+  const consumedFilterFocusNonce = useRef(0)
+  const filterFocusNonce = useFiles((s) => s.filterFocusNonceByProject[projectPath] ?? 0)
   const filterViewRef = useRef(filterView)
 
   useLayoutEffect(() => {
@@ -560,6 +564,21 @@ export function FilesPane({
     })()
   }, [ready, pending, projectPath, expandToFile, openFile])
 
+  // ⌥⌘F：切到本 Tab 后聚焦文件树筛选；树隐藏时先展开再等下一拍聚焦。
+  useEffect(() => {
+    if (!filterFocusNonce || filterFocusNonce === consumedFilterFocusNonce.current) return
+    if (!visible) return
+    if (!treeVisible) {
+      setTreeVisible(true)
+      return
+    }
+    consumedFilterFocusNonce.current = filterFocusNonce
+    const input = filterInputRef.current
+    if (!input) return
+    input.focus()
+    input.select()
+  }, [filterFocusNonce, visible, treeVisible])
+
   // 离开 Files Tab / 失焦 → 保存
   useEffect(() => {
     if (!visible) void flushSave()
@@ -844,7 +863,10 @@ export function FilesPane({
           style={{ width: TREE_W }}
         >
           <div className="flex h-10 shrink-0 items-center gap-1 border-b border-[var(--separator)] px-1.5">
-            <div className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded px-1.5 transition-colors focus-within:bg-[var(--bg-row-hover)]">
+            <div
+              title={shortcutTitle('筛选文件', SHORTCUT.filesFilter)}
+              className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded px-1.5 transition-colors focus-within:bg-[var(--bg-row-hover)]"
+            >
               <Search className="size-3.5 shrink-0 text-[color:var(--fg-disabled)]" />
               <input
                 ref={filterInputRef}

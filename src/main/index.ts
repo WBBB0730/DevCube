@@ -3,6 +3,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { handleFilesMediaProtocol, registerFilesMediaScheme } from './files-media-protocol'
+import { wireAppShortcuts } from './app-shortcuts'
 import { initStore } from './store'
 import { registerIpc } from './ipc'
 import { killAllSessions } from './runner'
@@ -38,6 +39,9 @@ function createWindow(): BrowserWindow {
     shell.openExternal(details.url)
     return { action: 'deny' }
   })
+
+  // 应用快捷键：主进程 before-input-event 优先拦截（见 ADR-0013 / docs）。
+  wireAppShortcuts(mainWindow)
 
   // HMR for renderer base on electron-vite cli.
   // Load the remote URL for development or the local html file for production.

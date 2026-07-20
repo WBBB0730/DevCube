@@ -131,6 +131,20 @@ export function resolveTabs(
   return { gitKey, filesKey, runTabs, termTabs, activeKey }
 }
 
+/** Tab 栏从左到右的键序（与 cycleTab / ⌘1–9 共用）。 */
+export function orderedTabKeys(
+  s: {
+    tree: ProjectNode[]
+    sessions: Record<string, SessionState>
+    terminals: TerminalTab[]
+    activeTabByProject: Record<string, string | null>
+  },
+  projectPath: string
+): string[] {
+  const { gitKey, filesKey, runTabs, termTabs } = resolveTabs(s, projectPath)
+  return [gitKey, filesKey, ...runTabs.map((t) => t.key), ...termTabs.map((t) => t.key)]
+}
+
 interface AppState {
   tree: ProjectNode[]
   sessions: Record<string, SessionState>
@@ -152,6 +166,8 @@ interface AppState {
   projectSortPrefs: ProjectSortPrefs
   /** 左树项目名搜索（纯内存） */
   projectFilter: string
+  /** +1 驱动左树聚焦项目筛选框（⌥⌘P / Ctrl+Alt+P） */
+  projectFilterFocusNonce: number
   /** 添加项目后待滚入视口的路径；滚完即清 */
   scrollToProjectPath: string | null
   setTree: (tree: ProjectNode[]) => void
@@ -182,6 +198,8 @@ interface AppState {
   /** 开关已 Pin 项目行滚动吸顶 */
   setPinSticky: (pinSticky: boolean) => Promise<void>
   setProjectFilter: (query: string) => void
+  /** 聚焦左树项目筛选框 */
+  focusProjectFilter: () => void
   clearScrollToProjectPath: () => void
   run: (target: RunTarget, key: string, projectPath: string) => Promise<void>
   stop: (key: string) => Promise<void>
@@ -229,6 +247,7 @@ export const useApp = create<AppState>((set, get) => ({
   dialog: { open: false },
   projectSortPrefs: DEFAULT_PROJECT_SORT_PREFS,
   projectFilter: '',
+  projectFilterFocusNonce: 0,
   scrollToProjectPath: null,
   setTree: (tree) => set({ tree }),
   setSession: (s) => set((state) => ({ sessions: { ...state.sessions, [s.key]: s } })),
@@ -401,6 +420,8 @@ export const useApp = create<AppState>((set, get) => ({
     set({ projectSortPrefs: await window.api.setProjectSortPrefs({ pinSticky }) })
   },
   setProjectFilter: (query) => set({ projectFilter: query }),
+  focusProjectFilter: () =>
+    set((state) => ({ projectFilterFocusNonce: state.projectFilterFocusNonce + 1 })),
   clearScrollToProjectPath: () => set({ scrollToProjectPath: null }),
   run: async (target, key, projectPath) => {
     // 运行即选中该配置、聚焦（即将出现的）其 Tab，并为该会话 +1 运行序号（重跑清屏回填与聚焦）。

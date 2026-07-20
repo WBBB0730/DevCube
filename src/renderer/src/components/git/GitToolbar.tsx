@@ -14,7 +14,9 @@ import {
   Settings
 } from 'lucide-react'
 import { UNCOMMITTED } from '@shared/git'
+import { SHORTCUT } from '@shared/shortcut-label'
 import { gitState, useGit } from '@renderer/git-store'
+import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import { GitBranchDropdown } from './GitBranchDropdown'
 import { opBlockReason } from './GitOpStatusBar'
 import { GitViewOptions } from './GitViewOptions'
@@ -60,7 +62,7 @@ export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.
         <GitViewOptions projectPath={projectPath} />
         <button
           type="button"
-          title="查找 (⌘F)"
+          title={shortcutTitle('查找', SHORTCUT.find)}
           className={ICON_BTN}
           onClick={() => setFind(projectPath, { open: true })}
         >
@@ -80,7 +82,7 @@ export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.
         </button>
         <button
           type="button"
-          title="刷新（fetch + 重载）(⌘R)"
+          title={shortcutTitle('刷新（fetch + 重载）', SHORTCUT.refresh)}
           disabled={refreshing}
           className={ICON_BTN}
           onClick={() => void refresh(projectPath)}

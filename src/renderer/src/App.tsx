@@ -2,16 +2,19 @@ import { useEffect } from 'react'
 import { ProjectTree } from '@renderer/components/ProjectTree'
 import { Console } from '@renderer/components/Console'
 import { ConfigDialog } from '@renderer/components/ConfigDialog'
-import { resolveTabs, useApp } from '@renderer/store'
+import { useFiles } from '@renderer/files-store'
+import { orderedTabKeys, resolveTabs, useApp } from '@renderer/store'
 import { gitState, useGit } from '@renderer/git-store'
+import type { AppShortcut } from '@shared/app-shortcut'
+import { filterProjectNodes, sortProjectNodes } from '@shared/project-sort'
 import { isResidentTabKey } from '@shared/runnable'
 
 // 在当前项目的全部 Tab（Git + Files + 运行会话 + 终端）间循环。dir: +1 下一个 / -1 上一个。
-// 与 Console 共用 resolveTabs 解析。
 function cycleTab(projectPath: string, dir: 1 | -1): void {
   const st = useApp.getState()
-  const { gitKey, filesKey, runTabs, termTabs, activeKey } = resolveTabs(st, projectPath)
-  const ordered = [gitKey, filesKey, ...runTabs.map((t) => t.key), ...termTabs.map((t) => t.key)]
+  const ordered = orderedTabKeys(st, projectPath)
+  if (ordered.length === 0) return
+  const { activeKey } = resolveTabs(st, projectPath)
   const idx = ordered.indexOf(activeKey)
   const next =
     idx < 0
@@ -20,6 +23,82 @@ function cycleTab(projectPath: string, dir: 1 | -1): void {
         : ordered[ordered.length - 1]
       : ordered[(idx + dir + ordered.length) % ordered.length]
   st.activateTab(projectPath, next)
+}
+
+/** 直达当前项目第 n 个 Tab（1-based）；越界则忽略。 */
+function activateTabAt(projectPath: string, index1: number): void {
+  const st = useApp.getState()
+  const key = orderedTabKeys(st, projectPath)[index1 - 1]
+  if (key) st.activateTab(projectPath, key)
+}
+
+/**
+ * 在左树当前可见序（排序 + 筛选，含 Pin 分区）上切换项目。
+ * dir: -1 上一项 / +1 下一项；循环；滚入视口。
+ */
+function cycleProject(dir: 1 | -1): void {
+  const st = useApp.getState()
+  const nodes = filterProjectNodes(
+    sortProjectNodes(st.tree, st.projectSortPrefs),
+    st.projectFilter
+  )
+  if (nodes.length === 0) return
+  const idx = nodes.findIndex((n) => n.project.path === st.currentProjectPath)
+  const next =
+    idx < 0
+      ? dir === 1
+        ? nodes[0]
+        : nodes[nodes.length - 1]
+      : nodes[(idx + dir + nodes.length) % nodes.length]
+  const path = next.project.path
+  if (path === st.currentProjectPath) return
+  st.selectProject(path)
+  useApp.setState({ scrollToProjectPath: path })
+}
+
+function handleAppShortcut(shortcut: AppShortcut): void {
+  const st = useApp.getState()
+  const proj = st.currentProjectPath
+
+  switch (shortcut.id) {
+    case 'focusProjectFilter':
+      st.focusProjectFilter()
+      return
+    case 'focusFilesFilter':
+      if (proj) useFiles.getState().focusFilesFilter(proj)
+      return
+    case 'prevProject':
+      cycleProject(-1)
+      return
+    case 'nextProject':
+      cycleProject(1)
+      return
+    case 'prevTab':
+      if (proj) cycleTab(proj, -1)
+      return
+    case 'nextTab':
+      if (proj) cycleTab(proj, 1)
+      return
+    case 'tabAt':
+      if (proj) activateTabAt(proj, shortcut.index)
+      return
+    case 'newTerminal':
+      if (proj) void st.newTerminal(proj)
+      return
+    case 'closeTab': {
+      // 有当前项目即吞掉（主进程已 preventDefault），避免落到系统 Cmd+W 关窗。
+      if (!proj) return
+      const { activeKey } = resolveTabs(st, proj)
+      if (!isResidentTabKey(activeKey)) void st.closeTab(activeKey)
+      return
+    }
+    case 'cycleTabNext':
+      if (proj) cycleTab(proj, 1)
+      return
+    case 'cycleTabPrev':
+      if (proj) cycleTab(proj, -1)
+      return
+  }
 }
 
 function App(): React.JSX.Element {
@@ -51,11 +130,14 @@ function App(): React.JSX.Element {
       const git = useGit.getState()
       if (git.projects[projectPath]) void git.load(projectPath)
     })
+    // 应用快捷键：主进程 before-input-event → IPC（抢在 xterm / 编辑器 / Chromium 默认之前）。
+    const offShortcut = window.api.onAppShortcut(handleAppShortcut)
     return () => {
       offTree()
       offStatus()
       offRemoved()
       offGit()
+      offShortcut()
     }
   }, [init])
 
@@ -68,42 +150,6 @@ function App(): React.JSX.Element {
       void git.load(currentProjectPath)
     }
   }, [currentProjectPath])
-
-  // 终端 Tab 快捷键。capture 阶段拦截，抢在 xterm 之前，避免被下发给 pty。
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      const mod = e.metaKey || e.ctrlKey
-      // 焦点在真正的输入控件（命令对话框、Tab 改名框、搜索框等）时让位，不抢 T/W/Tab；
-      // xterm 自己的输入是 .xterm 内的 textarea，不算——终端聚焦时快捷键照常生效。
-      const el = e.target as HTMLElement | null
-      const editable =
-        !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
-      if (editable && !el.closest('.xterm')) return
-      const st = useApp.getState()
-      const proj = st.currentProjectPath
-      if (!proj) return
-      // Cmd/Ctrl+T：在当前项目新建终端。
-      if (mod && !e.shiftKey && (e.key === 't' || e.key === 'T')) {
-        e.preventDefault()
-        e.stopPropagation()
-        st.newTerminal(proj)
-      } else if (mod && !e.shiftKey && (e.key === 'w' || e.key === 'W')) {
-        // Cmd/Ctrl+W：关闭当前激活的会话 Tab；常驻 Git / Files 不可关。
-        // 当前项目存在即一律吞掉，绝不冒泡到系统默认 Cmd+W 误关窗口。
-        e.preventDefault()
-        e.stopPropagation()
-        const { activeKey } = resolveTabs(st, proj)
-        if (!isResidentTabKey(activeKey)) st.closeTab(activeKey)
-      } else if (e.ctrlKey && e.key === 'Tab') {
-        // Ctrl+Tab / Ctrl+Shift+Tab：在当前项目的 Tab 间循环。
-        e.preventDefault()
-        e.stopPropagation()
-        cycleTab(proj, e.shiftKey ? -1 : 1)
-      }
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [])
 
   return (
     <div className="flex h-full">

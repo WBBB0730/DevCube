@@ -2,7 +2,7 @@
 // 当前项目由 App 预加载（Tab 栏分支名）；本组件可见时若仍 idle 则补拉，已加载则重验仓库根。
 // 四态渲染（非仓库 / 空仓库 / 加载中 / 出错）+ 就绪表格；
 // 全局键盘只在可见时挂 capture 监听：Esc 分层关闭、Cmd/Ctrl+F 打开查找、Cmd/Ctrl+R 刷新
-// （fetch + 软刷新；App.tsx 只占用 T / W / Ctrl+Tab，无冲突）。
+// （fetch + 软刷新；导航类快捷键改由主进程 before-input-event；F/R 须排除 Alt）。
 import { useEffect } from 'react'
 import { LoaderCircle } from 'lucide-react'
 import { gitState, useGit } from '@renderer/git-store'
@@ -66,12 +66,12 @@ export function GitPane({
         else return // 无可关闭层：不吞事件
         e.preventDefault()
         e.stopPropagation()
-      } else if (mod && !e.shiftKey && (e.key === 'f' || e.key === 'F')) {
+      } else if (mod && !e.altKey && !e.shiftKey && (e.key === 'f' || e.key === 'F')) {
         // Cmd/Ctrl+F：打开查找（查找组件出现后自聚焦，见 G 的 GitFindWidget）
         e.preventDefault()
         e.stopPropagation()
         store.setFind(projectPath, { open: true })
-      } else if (mod && !e.shiftKey && (e.key === 'r' || e.key === 'R')) {
+      } else if (mod && !e.altKey && !e.shiftKey && (e.key === 'r' || e.key === 'R')) {
         // Cmd/Ctrl+R：刷新 = fetch + 软刷新（顺带拦下 Electron 默认的页面重载）
         e.preventDefault()
         e.stopPropagation()

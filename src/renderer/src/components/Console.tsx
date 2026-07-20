@@ -38,8 +38,10 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import type { SessionOutput, SessionStatus } from '@shared/types'
 import { configKey, filesTabKey, gitTabKey } from '@shared/runnable'
+import { SHORTCUT, tabAtShortcut } from '@shared/shortcut-label'
 import { useApp, resolveTabs, type RunTabInfo, type TerminalTab } from '@renderer/store'
 import { gitState, useGit } from '@renderer/git-store'
+import { shortcutLabel, shortcutTitle } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
 import { xtermTheme } from '@renderer/lib/xterm-theme'
 import { GitPane } from '@renderer/components/git/GitPane'
@@ -279,14 +281,23 @@ function TabBar({
   }
 
   return (
-    <div className="flex h-10 shrink-0 items-center overflow-x-auto border-b border-[var(--separator)] bg-panel px-2">
-      {/* Git Tab：每项目常驻第一个、不可关闭（ADR-0005）。 */}
+    <div
+      className="flex h-10 shrink-0 items-center overflow-x-auto border-b border-[var(--separator)] bg-panel px-2"
+      title={`切换 Tab (${shortcutLabel(SHORTCUT.prevTab)} / ${shortcutLabel(SHORTCUT.nextTab)}，或 ${shortcutLabel(SHORTCUT.cycleTabNext)})`}
+    >
+      {/* Git Tab：每项目常驻第一个、不可关闭（ADR-0005）。⌘1 */}
       <GitTabItem gitKey={gitKey} projectPath={projectPath} active={gitKey === activeKey} />
-      {/* Files Tab：常驻第二、不可关闭。 */}
+      {/* Files Tab：常驻第二、不可关闭。⌘2 */}
       <FilesTabItem filesKey={filesKey} projectPath={projectPath} active={filesKey === activeKey} />
       {/* 运行会话 Tab：每条有会话的配置一个，顺序跟随树中配置顺序。 */}
-      {runTabs.map((t) => (
-        <RunTabItem key={t.key} tab={t} active={t.key === activeKey} projectPath={projectPath} />
+      {runTabs.map((t, i) => (
+        <RunTabItem
+          key={t.key}
+          tab={t}
+          active={t.key === activeKey}
+          projectPath={projectPath}
+          tabIndex={i + 3}
+        />
       ))}
       {/* 终端 Tab：组内可拖拽排序（仅水平、不与运行会话组混排）。 */}
       <DndContext
@@ -300,15 +311,20 @@ function TabBar({
           strategy={horizontalListSortingStrategy}
         >
           <div className="flex h-full shrink-0 items-center">
-            {termTabs.map((t) => (
-              <TerminalTabItem key={t.key} tab={t} active={t.key === activeKey} />
+            {termTabs.map((t, i) => (
+              <TerminalTabItem
+                key={t.key}
+                tab={t}
+                active={t.key === activeKey}
+                tabIndex={3 + runTabs.length + i}
+              />
             ))}
           </div>
         </SortableContext>
       </DndContext>
       <button
         type="button"
-        title="新建终端 (⌘T)"
+        title={shortcutTitle('新建终端', SHORTCUT.newTerminal)}
         onClick={() => newTerminal(projectPath)}
         className="ml-1 flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]"
       >
@@ -339,14 +355,13 @@ function GitTabItem({
     <div
       className={cn(TAB, 'pl-3 pr-3')}
       style={active ? TAB_ACTIVE : undefined}
+      title={shortcutTitle('Git', tabAtShortcut(1))}
       onClick={() => activateTab(projectPath, gitKey)}
     >
       <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
       <span className="text-foreground">Git</span>
       {branch !== null && (
-        <span className="min-w-0 truncate text-muted-foreground" title={branch}>
-          ({branch})
-        </span>
+        <span className="min-w-0 truncate text-muted-foreground">({branch})</span>
       )}
     </div>
   )
@@ -366,6 +381,7 @@ function FilesTabItem({
     <div
       className={cn(TAB, 'pl-3 pr-3')}
       style={active ? TAB_ACTIVE : undefined}
+      title={shortcutTitle('文件', tabAtShortcut(2))}
       onClick={() => activateTab(projectPath, filesKey)}
     >
       <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
@@ -377,11 +393,14 @@ function FilesTabItem({
 function RunTabItem({
   tab,
   active,
-  projectPath
+  projectPath,
+  tabIndex
 }: {
   tab: RunTabInfo
   active: boolean
   projectPath: string
+  /** 栏内 1-based 位序；≤9 时 title 露出 ⌘N */
+  tabIndex: number
 }): React.JSX.Element {
   const activateTab = useApp((s) => s.activateTab)
   const closeTab = useApp((s) => s.closeTab)
@@ -390,6 +409,7 @@ function RunTabItem({
     <div
       className={cn(TAB, 'group pr-2')}
       style={active ? TAB_ACTIVE : undefined}
+      title={tabIndex <= 9 ? shortcutTitle(tab.label, tabAtShortcut(tabIndex)) : tab.label}
       onClick={() => activateTab(projectPath, tab.key)}
     >
       <span
@@ -399,7 +419,11 @@ function RunTabItem({
       <span className="min-w-0 truncate text-foreground">{tab.label}</span>
       <button
         type="button"
-        title={tab.status === 'running' ? '停止并关闭 (⌘W)' : '关闭 (⌘W)'}
+        title={
+          tab.status === 'running'
+            ? shortcutTitle('停止并关闭', SHORTCUT.closeTab)
+            : shortcutTitle('关闭', SHORTCUT.closeTab)
+        }
         onClick={(e) => {
           e.stopPropagation()
           closeTab(tab.key)
@@ -414,10 +438,13 @@ function RunTabItem({
 
 function TerminalTabItem({
   tab,
-  active
+  active,
+  tabIndex
 }: {
   tab: TerminalTab
   active: boolean
+  /** 栏内 1-based 位序；≤9 时 title 露出 ⌘N */
+  tabIndex: number
 }): React.JSX.Element {
   const activateTab = useApp((s) => s.activateTab)
   const closeTab = useApp((s) => s.closeTab)
@@ -457,6 +484,13 @@ function TerminalTabItem({
       ref={setNodeRef}
       style={style}
       className={cn(TAB, 'group pr-2')}
+      title={
+        editing
+          ? undefined
+          : tabIndex <= 9
+            ? shortcutTitle(tab.name, tabAtShortcut(tabIndex))
+            : tab.name
+      }
       {...attributes}
       {...(editing ? {} : listeners)}
       onClick={() => activateTab(tab.projectPath, tab.key)}
@@ -489,7 +523,7 @@ function TerminalTabItem({
       )}
       <button
         type="button"
-        title="关闭 (⌘W)"
+        title={shortcutTitle('关闭', SHORTCUT.closeTab)}
         onClick={(e) => {
           e.stopPropagation()
           closeTab(tab.key)
@@ -593,7 +627,7 @@ function TerminalPane({
     term.loadAddon(new Unicode11Addon())
     term.unicode.activeVersion = '11'
     term.attachCustomKeyEventHandler((e) => {
-      if (e.type === 'keydown' && (e.metaKey || e.ctrlKey) && e.key === 'f') {
+      if (e.type === 'keydown' && (e.metaKey || e.ctrlKey) && !e.altKey && e.key === 'f') {
         setSearchOpen(true)
         return false
       }

@@ -164,7 +164,23 @@ Git 图谱专用：`GitBranch`(Git Tab) · `SlidersHorizontal`(视图选项) · 
 
 **当前项目与选中**：左树**项目行与配置行是同一层级的互斥选中**——单击项目行＝选中「项目本身」（右侧切到它的 Tab 栏、项目行以 `--selection-row` 高亮、清空配置选中）；单击配置行＝选中该配置（只高亮配置行，不连带高亮其项目行）。**折叠 / 展开由左侧箭头或整行双击触发**。新建 / 点选某终端也会把其项目设为当前。当前项目与左树选中跨重启持久化（配置已删则回落项目行；恢复当前项目时更新 `lastOpenedAt`）。项目行上的「更多」按钮，其 hover 底色跟随行态（选中蓝底行用 `--selection-row-hover`）。空项目（尚无配置与探测脚本）亦可点行进入并新建终端。
 
-**终端交互**：终端**始终可交互**（不像运行会话退出后转只读）；切到 / 新建即自动聚焦、可直接输入；shell 自行结束（`exit` / Ctrl-D / 崩溃）即**自动关闭**该 Tab。xterm 能力（Cmd/Ctrl+F 搜索、链接点击、WebGL、Unicode 11）运行会话与终端一致。**快捷键**：`Cmd/Ctrl+T` 在当前项目新建终端、`Cmd/Ctrl+W` 关闭当前激活的 Tab（运行会话或终端；运行中温和停止；Git Tab 无操作）、`Ctrl+Tab` / `Ctrl+Shift+Tab` 在当前项目的全部 Tab 间循环。
+**终端交互**：终端**始终可交互**（不像运行会话退出后转只读）；切到 / 新建即自动聚焦、可直接输入；shell 自行结束（`exit` / Ctrl-D / 崩溃）即**自动关闭**该 Tab。xterm 能力（Cmd/Ctrl+F 搜索、链接点击、WebGL、Unicode 11）运行会话与终端一致。
+
+**快捷键**（逻辑键；UI `title` 文案走 `formatShortcutLabel`，见 ADR-0013）：
+
+| 动作 | 逻辑键 |
+| --- | --- |
+| 新建终端 | CmdOrCtrl+T |
+| 关闭当前会话/终端 Tab（常驻 Git/Files 无效） | CmdOrCtrl+W |
+| Tab 循环 下一 / 上一（顺手） | Alt+CmdOrCtrl+→ / ← |
+| Tab 循环 下一 / 上一（主流备选） | Ctrl+Tab / Ctrl+Shift+Tab |
+| 直达第 1–9 个 Tab（Git=1、Files=2，其后按栏序；越界忽略） | CmdOrCtrl+1…9 |
+| 聚焦左树项目筛选 | Alt+CmdOrCtrl+P |
+| 切 Files Tab 并聚焦文件树筛选 | Alt+CmdOrCtrl+F |
+| 上一 / 下一项目（左树当前排序+筛选可见序，循环） | Alt+CmdOrCtrl+↑ / ↓ |
+| Git：查找 / 刷新 | CmdOrCtrl+F / CmdOrCtrl+R（仅 Git Tab） |
+
+注册方式：主进程 `webContents.before-input-event` 匹配并 `preventDefault`，再 IPC 到渲染端执行（窗口聚焦时优先于页面/xterm/Chromium 默认；**不能**压过 macOS Mission Control 等系统级快捷键，也不使用 `globalShortcut` 抢其它 App）。文案规则见 ADR-0013。
 
 ## Git 图谱（Git Tab）
 

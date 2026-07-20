@@ -85,7 +85,8 @@ const api: RunAPI = {
   onTreeChanged: (cb) => subscribe(IPC.treeChanged, cb),
   onSessionOutput: (cb) => subscribe(IPC.sessionOutput, cb),
   onSessionStatus: (cb) => subscribe(IPC.sessionStatus, cb),
-  onSessionRemoved: (cb) => subscribe(IPC.sessionRemoved, cb)
+  onSessionRemoved: (cb) => subscribe(IPC.sessionRemoved, cb),
+  onAppShortcut: (cb) => subscribe(IPC.appShortcut, cb)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to renderer
