@@ -1,5 +1,6 @@
 import chokidar, { type FSWatcher } from 'chokidar'
 import { join } from 'path'
+import { isAppQuitting } from './app-shutdown'
 import { LOCKFILE_NAMES } from './discovery'
 
 // 只监听每个项目根的 package.json 与 lockfile —— 不递归项目树，避免 node_modules 事件风暴。
@@ -9,6 +10,7 @@ const watchers = new Map<string, FSWatcher>()
 
 /** 让监听集合与当前项目集合对齐：新增项目起监听，移除项目关监听。 */
 export function syncWatchers(projectPaths: string[], onChange: () => void): void {
+  if (isAppQuitting()) return
   for (const [path, watcher] of watchers) {
     if (!projectPaths.includes(path)) {
       void watcher.close()
@@ -24,7 +26,9 @@ export function syncWatchers(projectPaths: string[], onChange: () => void): void
   }
 }
 
-export function closeAllWatchers(): void {
-  for (const watcher of watchers.values()) void watcher.close()
+/** 关闭全部 package/lockfile watcher；await 后再退出，避免 fsevents 在进程销毁时 abort。 */
+export async function closeAllWatchers(): Promise<void> {
+  const closing = [...watchers.values()].map((watcher) => watcher.close())
   watchers.clear()
+  await Promise.all(closing)
 }

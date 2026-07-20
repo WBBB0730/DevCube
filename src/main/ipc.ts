@@ -70,6 +70,7 @@ import {
 import type { FilesUiState } from '../shared/files'
 import type { WorkspaceUiState } from '../shared/workspace'
 import { buildTree } from './tree'
+import { isAppQuitting } from './app-shutdown'
 import { syncWatchers } from './watcher'
 import {
   getDetails,
@@ -110,6 +111,7 @@ function emitFilesChanged(projectPath: string): void {
 
 // git 监听集合与项目集合对齐：先解析各项目的仓库根（非仓库为 null → 探测形态 watcher）。
 async function refreshGitWatchers(): Promise<void> {
+  if (isAppQuitting()) return
   const projects = await Promise.all(
     getProjects().map(async (p) => ({
       projectPath: p.path,
@@ -143,6 +145,7 @@ const onWatchEvent = debounce(() => {
 }, 120)
 
 function refreshWatchers(): void {
+  if (isAppQuitting()) return
   const paths = getProjects().map((p) => p.path)
   syncWatchers(paths, onWatchEvent)
   syncFilesWatchers(paths, emitFilesChanged)

@@ -12,6 +12,7 @@
 
 import chokidar, { type FSWatcher } from 'chokidar'
 import { join, relative } from 'path'
+import { isAppQuitting } from './app-shutdown'
 import { isGitActionRunning } from './git-actions'
 import { execGit } from './git-exec'
 
@@ -111,11 +112,12 @@ async function notifyIfNotIgnored(
 }
 
 /** 关掉一个项目的 watcher 并清掉未到期的防抖计时器。 */
-function disposeEntry(projectPath: string, entry: GitWatcherEntry): void {
+function disposeEntry(projectPath: string, entry: GitWatcherEntry): Promise<void> {
   if (entry.timer) clearTimeout(entry.timer)
-  void entry.watcher.close()
-  if (entry.worktreeWatcher !== null) void entry.worktreeWatcher.close()
   watchers.delete(projectPath)
+  const closing = [entry.watcher.close()]
+  if (entry.worktreeWatcher !== null) closing.push(entry.worktreeWatcher.close())
+  return Promise.all(closing).then(() => undefined)
 }
 
 /**
@@ -126,6 +128,7 @@ export function syncGitWatchers(
   projects: { projectPath: string; repoRoot: string | null }[],
   onChange: (projectPath: string) => void
 ): void {
+  if (isAppQuitting()) return
   // 期望集合：projectPath → repoRoot（null = 非仓库，期望探测形态）
   const wanted = new Map<string, string | null>()
   for (const project of projects) {
@@ -135,7 +138,7 @@ export function syncGitWatchers(
   // 关掉旧 watcher 让下面的新增分支重建
   for (const [projectPath, entry] of watchers) {
     if (!wanted.has(projectPath) || wanted.get(projectPath) !== entry.repoRoot) {
-      disposeEntry(projectPath, entry)
+      void disposeEntry(projectPath, entry)
     }
   }
   // 新增（含 repoRoot 变化后的重建）
@@ -193,7 +196,10 @@ export function syncGitWatchers(
   }
 }
 
-/** 关闭全部 git watcher（应用退出前兜底清理）。 */
-export function closeAllGitWatchers(): void {
-  for (const [projectPath, entry] of watchers) disposeEntry(projectPath, entry)
+/** 关闭全部 git watcher；await 后再退出，避免 fsevents 在进程销毁时 abort。 */
+export async function closeAllGitWatchers(): Promise<void> {
+  const closing = [...watchers.entries()].map(([projectPath, entry]) =>
+    disposeEntry(projectPath, entry)
+  )
+  await Promise.all(closing)
 }

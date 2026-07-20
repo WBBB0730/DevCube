@@ -5,6 +5,7 @@
 import chokidar, { type FSWatcher } from 'chokidar'
 import { basename } from 'node:path'
 import { isIdeIgnoredEntryName } from '../shared/files-tree-filter'
+import { isAppQuitting } from './app-shutdown'
 
 const DEBOUNCE_MS = 750
 
@@ -24,10 +25,10 @@ function shouldIgnoreWatchPath(fullPath: string): boolean {
   return isIdeIgnoredEntryName(basename(fullPath))
 }
 
-function disposeEntry(projectPath: string, entry: FilesWatcherEntry): void {
+function disposeEntry(projectPath: string, entry: FilesWatcherEntry): Promise<void> {
   if (entry.timer) clearTimeout(entry.timer)
-  void entry.watcher.close()
   watchers.delete(projectPath)
+  return entry.watcher.close()
 }
 
 function scheduleChange(projectPath: string, onChange: (projectPath: string) => void): void {
@@ -45,9 +46,10 @@ export function syncFilesWatchers(
   projectPaths: string[],
   onChange: (projectPath: string) => void
 ): void {
+  if (isAppQuitting()) return
   const wanted = new Set(projectPaths)
   for (const [projectPath, entry] of watchers) {
-    if (!wanted.has(projectPath)) disposeEntry(projectPath, entry)
+    if (!wanted.has(projectPath)) void disposeEntry(projectPath, entry)
   }
   for (const projectPath of wanted) {
     if (watchers.has(projectPath)) continue
@@ -60,6 +62,10 @@ export function syncFilesWatchers(
   }
 }
 
-export function closeAllFilesWatchers(): void {
-  for (const [projectPath, entry] of watchers) disposeEntry(projectPath, entry)
+/** 关闭全部 Files Tab watcher；await 后再退出，避免 fsevents 在进程销毁时 abort。 */
+export async function closeAllFilesWatchers(): Promise<void> {
+  const closing = [...watchers.entries()].map(([projectPath, entry]) =>
+    disposeEntry(projectPath, entry)
+  )
+  await Promise.all(closing)
 }
