@@ -82,8 +82,8 @@ function formatKeyLabel(key: string, platform: string): string {
 export function formatShortcutLabel(chord: ShortcutChord, platform: string): string {
   const labels = labelsFor(platform)
   let ctrlKey = !!chord.ctrl
-  let shiftKey = !!chord.shift
-  let altKey = !!chord.alt
+  const shiftKey = !!chord.shift
+  const altKey = !!chord.alt
   let metaKey = !!chord.meta
   if (chord.mod) {
     if (platform === 'darwin') metaKey = true

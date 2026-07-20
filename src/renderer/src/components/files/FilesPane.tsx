@@ -569,6 +569,7 @@ export function FilesPane({
     if (!filterFocusNonce || filterFocusNonce === consumedFilterFocusNonce.current) return
     if (!visible) return
     if (!treeVisible) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect -- 外部 nonce 驱动：先展开树，下一拍再聚焦筛选框
       setTreeVisible(true)
       return
     }

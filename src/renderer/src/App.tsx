@@ -38,10 +38,7 @@ function activateTabAt(projectPath: string, index1: number): void {
  */
 function cycleProject(dir: 1 | -1): void {
   const st = useApp.getState()
-  const nodes = filterProjectNodes(
-    sortProjectNodes(st.tree, st.projectSortPrefs),
-    st.projectFilter
-  )
+  const nodes = filterProjectNodes(sortProjectNodes(st.tree, st.projectSortPrefs), st.projectFilter)
   if (nodes.length === 0) return
   const idx = nodes.findIndex((n) => n.project.path === st.currentProjectPath)
   const next =

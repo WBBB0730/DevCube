@@ -40,9 +40,9 @@ describe('matchAppShortcut', () => {
     expect(matchAppShortcut(key({ code: 'Tab', key: 'Tab', control: true }))).toEqual({
       id: 'cycleTabNext'
     })
-    expect(
-      matchAppShortcut(key({ code: 'Tab', key: 'Tab', control: true, shift: true }))
-    ).toEqual({ id: 'cycleTabPrev' })
+    expect(matchAppShortcut(key({ code: 'Tab', key: 'Tab', control: true, shift: true }))).toEqual({
+      id: 'cycleTabPrev'
+    })
     expect(matchAppShortcut(key({ code: 'Tab', key: 'Tab', meta: true }))).toBeNull()
   })
 
