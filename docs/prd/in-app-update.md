@@ -45,7 +45,7 @@ DevCube 已能打 tag 发到 GitHub Releases，但用户仍须自己去网页下
 - **身份封闭（ADR-0014）**：检查结果在采纳前按当前 **Release Edition** 过滤——正式只接受非 Pre-release；Beta 只接受 Pre-release；可辅以制品名 / 身份字段校验。明确不用官方 `channel=beta`「beta ∪ latest」漏斗作主方案。
 - **可自动更新形态**：macOS 上的 `.app`（更新载体仍依赖 Release 上的 zip + `latest-mac.yml`）；Windows NSIS 安装版（`latest.yml` + setup）。Windows Portable：只检查与提示，点击顶栏按钮 / 关于入口打开对应 Release，不走 `quitAndInstall`。
 - **检查节奏**：包装后的应用——启动后短 jitter 再查；运行中约每 4 小时；关于页手动检查。未包装 / 开发模式：updater 全关。
-- **下载与安装**：`autoDownload` 开启（可自动更新形态）。顶栏更新按钮仅在「已下载可安装」时显示（便携：已知有新版本时显示同款按钮）。按钮不可关闭、不可跳过版本。可自动更新形态下 `autoInstallOnAppQuit`：已下好则正常退出时安装；顶栏按钮路径为立即 `quitAndInstall`（若有运行中 Run Session 先走退出确认）。
+- **下载与安装**：可自动更新形态由编排层在检查通过后显式 `downloadUpdate`（`autoDownload = false`，与身份过滤同一处控制）。顶栏更新按钮仅在「已下载可安装」时显示（便携：已知有新版本时显示同款按钮）。按钮不可关闭、不可跳过版本。`autoInstallOnAppQuit = false`：已下好则在正常退出清理完成后显式安装；顶栏按钮同样走 `app.quit` → 清理 → 安装（若有运行中 Run Session 先走退出确认）。macOS 安装前卸掉会拦截退出的监听并挂 `before-quit-for-update` + `app.exit`，保证 Squirrel.Mac 装完能重开（ADR-0016）。
 - **发布产物**：CI artifact / `gh release` 上传集增加 updater 元数据（至少每端的 `latest.yml` / `latest-mac.yml`），与现有 dmg/zip/exe/blockmap 一并挂到同一 Release；接受 Release 资产列表中可见 yml。
 - **制品文件名（ADR-0015）**：进 Release / 写入更新清单的文件名一律用无空格的 `${name}`（`devcube` / `devcube-beta`），不用带空格的 `productName`。mac zip 形如 `${name}-${version}-${arch}-mac.zip`，与 `latest-mac.yml` 的 url 及 GitHub 资产名一致。显示名「DevCube Beta」只用于 UI。
 - **窗口顶栏**：`titleBarStyle` 隐藏系统标题栏；macOS 保留原生红绿灯；Windows/Linux 用系统窗口按钮叠层（如 `titleBarOverlay`）。中间标题与现 `document.title` 逻辑一致（本轮仍写「DevCube」字面，不强制改成 Beta 显示名）。右侧：条件显示的更新按钮 + 设置齿轮。拖拽区与控件 `no-drag` 分区按平台留出安全区。

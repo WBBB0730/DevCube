@@ -13,7 +13,7 @@ import { closeAllGitWatchers } from './git-watcher'
 import { closeAllFilesWatchers } from './files-watcher'
 import { resolveReleaseEdition } from '../shared/release-edition'
 import { confirmQuitIfNeeded } from './quit-confirm'
-import { tryInstallUpdateOnQuit } from './app-updater'
+import { canInstallUpdateOnQuit, installDownloadedUpdate } from './app-updater'
 import { rememberWindowPlacement, resolveRememberedWindowPlacement } from './window-placement'
 import { registerBootstrapIpc } from './renderer-bootstrap'
 
@@ -144,8 +144,11 @@ app.on('before-quit', (event) => {
       // ignore
     }
 
-    if (tryInstallUpdateOnQuit()) {
+    // 有待装更新：标 exiting 后跳出 before-quit 再 install（Squirrel.Mac 忌在带
+    // preventDefault 的 before-quit 同步栈里 quitAndInstall，见 ADR-0016）。
+    if (canInstallUpdateOnQuit()) {
       quitPhase = 'exiting'
+      setImmediate(() => installDownloadedUpdate())
       return
     }
 

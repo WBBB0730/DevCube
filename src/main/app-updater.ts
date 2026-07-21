@@ -3,7 +3,7 @@
  * 策略纯函数见 shared/app-update；产品范围见 docs/prd/in-app-update.md。
  */
 
-import { app, BrowserWindow, shell } from 'electron'
+import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, shell } from 'electron'
 import { autoUpdater, type UpdateInfo } from 'electron-updater'
 import {
   canAutoDownload,
@@ -96,8 +96,10 @@ async function runCheck(): Promise<void> {
 
 function wireUpdater(): void {
   autoUpdater.autoDownload = false
-  // 退出安装由 tryInstallUpdateOnQuit 显式触发（与退出确认 / 清理编排配合）。
+  // 退出安装由清理完成后的 installDownloadedUpdate 显式触发（与退出确认 / 清理编排配合）。
   autoUpdater.autoInstallOnAppQuit = false
+  // mac 的 quitAndInstall 忽略 isForceRunAfter，只看此开关；Win/Linux 非静默安装也走它。
+  autoUpdater.autoRunAppAfterInstall = true
   autoUpdater.allowPrerelease = edition().channel === 'beta'
 
   autoUpdater.on('checking-for-update', () => {
@@ -197,7 +199,10 @@ export async function checkAppUpdates(): Promise<AppUpdateState> {
   return buildState()
 }
 
-/** 顶栏 / 关于：按形态安装或打开 Release。返回是否已触发退出安装。 */
+/**
+ * 顶栏 / 关于：按形态打开 Release，或走 `app.quit()` 让 before-quit 清理后安装。
+ * 不可在此处直接 `quitAndInstall`：会被 before-quit 的 preventDefault 吞掉（表现为按钮无反应）。
+ */
 export function performUpdateButtonAction(): { startedInstall: boolean } {
   const state = buildState()
   if (!state.showButton) return { startedInstall: false }
@@ -208,7 +213,7 @@ export function performUpdateButtonAction(): { startedInstall: boolean } {
   }
 
   if (phase !== 'ready') return { startedInstall: false }
-  autoUpdater.quitAndInstall(false, true)
+  app.quit()
   return { startedInstall: true }
 }
 
@@ -217,11 +222,34 @@ export function openAppReleasePage(): void {
   void shell.openExternal(state.releaseUrl)
 }
 
-/** 正常退出且已下载完成时安装；返回是否已开始 quitAndInstall。 */
-export function tryInstallUpdateOnQuit(): boolean {
-  if (phase !== 'ready' || !canAutoDownload(packaging)) return false
+/** 正常退出时是否应安装已下载更新（由 before-quit 在清理完成后调用 install）。 */
+export function canInstallUpdateOnQuit(): boolean {
+  return phase === 'ready' && canAutoDownload(packaging)
+}
+
+/**
+ * 安装已下载更新。调用前须已完成退出清理。
+ *
+ * macOS（Squirrel.Mac）：会拦截退出的 before-quit / window-all-closed / close 监听
+ * 必须先卸掉，并在 before-quit-for-update 里 app.exit，否则常出现装完不重开
+ *（electron-builder#8997 主流做法）。勿在带 preventDefault 的 before-quit 同步栈里调用。
+ */
+export function installDownloadedUpdate(): void {
+  autoUpdater.autoRunAppAfterInstall = true
+
+  if (process.platform === 'darwin') {
+    app.removeAllListeners('before-quit')
+    app.removeAllListeners('window-all-closed')
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (w.isDestroyed()) continue
+      w.removeAllListeners('close')
+    }
+    nativeAutoUpdater.once('before-quit-for-update', () => {
+      app.exit(0)
+    })
+  }
+
   autoUpdater.quitAndInstall(false, true)
-  return true
 }
 
 export function disposeAppUpdater(): void {
