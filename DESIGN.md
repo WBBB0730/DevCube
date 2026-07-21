@@ -114,7 +114,7 @@ ANSI 16 色（取自 JetBrains 终端真实 Console Colors 调色板）：
 
 Lucide（随 shadcn）：`Play`(运行) · `RotateCw`(重新运行 / Git 刷新) · `Square`(停止) · `Eraser`(清空运行会话输出) · `MoreVertical`(更多⋮) · `Pencil`(编辑) · `Trash2`(删除) · `ChevronRight`(树展开 / 弹层箭头) · `FolderPlus`(添加项目) · `FolderOpen`(打开文件夹 / Files Tab 标签「文件」 / Files「在文件夹中显示」) · `FileClock`(Files「最近打开文件」) · `ListTree`(Files「在文件树中显示」) · `Minus`(Files「隐藏文件树」) · `PanelRight`(Files「显示文件树」) · `SquareArrowOutUpRight`(Files「在其他应用中打开」) · `ChevronsUpDown`(Files 文件树「全部展开」) · `ChevronsDownUp`(Files 文件树「全部折叠」) · `FilePlusCorner`(新建配置) · `ArrowUpDown`(项目排序) · `AArrowDown`/`AArrowUp`(名称升/降序) · `ClockArrowDown`/`ClockArrowUp`(时间升/降序) · `Plus`(新建终端) · `Terminal`(终端 Tab) · `Search`(左栏项目筛选 / Files 树顶筛选 / 终端搜索框)/`ChevronUp`/`ChevronDown`/`X`(筛选清空 / 终端搜索框 / 关闭 Tab)。运行三角以 `--run-glyph` 上色。
 
-应用顶栏 / 设置：`Settings`(应用设置齿轮；Git 仓库设置仍用同图标) · 更新按钮图标对齐 WebStorm「有更新」圆点观感（具体 glyph 实现时定，有则显示、无则整颗隐藏）。
+应用顶栏 / 设置：`Settings`(应用设置齿轮；Git 仓库设置仍用同图标) · 更新按钮用 `CircleArrowUp`（有则显示、无则整颗隐藏）。
 
 Git 图谱专用：`GitBranch`(Git Tab) · `SlidersHorizontal`(视图选项) · `GitCommitHorizontal`(提交，等同点「未提交的更改」行) · `RotateCw`(刷新) · `CircleArrowDown`(拉取) · `CircleArrowUp`(推送) · `GitBranchPlus`(创建分支) · `Settings`(仓库设置) · `LoaderCircle`(加载 / 动作进行中) · `TriangleAlert`(操作失败) · `Ellipsis`(提交面板文件行 … 菜单)。
 

@@ -49,6 +49,10 @@ const config: Configuration = {
     entitlements: 'build/entitlements.mac.plist',
     entitlementsInherit: 'build/entitlements.mac.inherit.plist',
     notarize: releaseBuild,
+    // 更新制品名必须无空格：GitHub Release 会把空格改成 `.`，而 latest-mac.yml 常写成 `-`，
+    // productName「DevCube Beta」作默认 zip 名会让 url 与资产对不上（ADR-0015）。
+    // 用 ${name}（devcube / devcube-beta）与 Win / dmg 一致；显示名仍走 productName。
+    artifactName: '${name}-${version}-${arch}-mac.${ext}',
     target: [
       { target: 'dmg', arch: ['arm64'] },
       { target: 'zip', arch: ['arm64'] }

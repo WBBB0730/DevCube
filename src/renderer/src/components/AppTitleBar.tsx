@@ -1,4 +1,4 @@
-import { CircleDot, Settings } from 'lucide-react'
+import { CircleArrowUp, Settings } from 'lucide-react'
 import type { AppUpdateState } from '@shared/app-update-state'
 import { cn } from '@renderer/lib/utils'
 
@@ -49,7 +49,7 @@ export function AppTitleBar({
             onClick={onUpdateClick}
             className="inline-flex size-7 items-center justify-center rounded text-[#3574F0] hover:bg-[var(--bg-button-hover)]"
           >
-            <CircleDot className="size-4" />
+            <CircleArrowUp className="size-4" />
           </button>
         )}
         <button

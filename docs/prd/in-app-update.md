@@ -47,6 +47,7 @@ DevCube 已能打 tag 发到 GitHub Releases，但用户仍须自己去网页下
 - **检查节奏**：包装后的应用——启动后短 jitter 再查；运行中约每 4 小时；关于页手动检查。未包装 / 开发模式：updater 全关。
 - **下载与安装**：`autoDownload` 开启（可自动更新形态）。顶栏更新按钮仅在「已下载可安装」时显示（便携：已知有新版本时显示同款按钮）。按钮不可关闭、不可跳过版本。可自动更新形态下 `autoInstallOnAppQuit`：已下好则正常退出时安装；顶栏按钮路径为立即 `quitAndInstall`（若有运行中 Run Session 先走退出确认）。
 - **发布产物**：CI artifact / `gh release` 上传集增加 updater 元数据（至少每端的 `latest.yml` / `latest-mac.yml`），与现有 dmg/zip/exe/blockmap 一并挂到同一 Release；接受 Release 资产列表中可见 yml。
+- **制品文件名（ADR-0015）**：进 Release / 写入更新清单的文件名一律用无空格的 `${name}`（`devcube` / `devcube-beta`），不用带空格的 `productName`。mac zip 形如 `${name}-${version}-${arch}-mac.zip`，与 `latest-mac.yml` 的 url 及 GitHub 资产名一致。显示名「DevCube Beta」只用于 UI。
 - **窗口顶栏**：`titleBarStyle` 隐藏系统标题栏；macOS 保留原生红绿灯；Windows/Linux 用系统窗口按钮叠层（如 `titleBarOverlay`）。中间标题与现 `document.title` 逻辑一致（本轮仍写「DevCube」字面，不强制改成 Beta 显示名）。右侧：条件显示的更新按钮 + 设置齿轮。拖拽区与控件 `no-drag` 分区按平台留出安全区。
 - **设置弹层**：主窗口内全屏级模态（非第二 BrowserWindow）。结构对齐 WebStorm：左分类树、右内容，底仅「确定」关闭（主色；无取消/应用——改动即时生效）。本轮栏目：关于（做实）、快捷键（只读）；有真实偏好项之前不挂「偏好」栏、不写占位文案。应用设置与 Git 仓库设置共用同一外壳。
 - **退出确认**：任一会结束整个应用进程的路径，若存在状态为运行中的 **Run Session**，先确认；**Terminal** 不参与条件。macOS 仅关窗不退出不触发。确认文案含运行中 **Run Session** 数量提示（用「运行会话」表述）。更新重启安装走同一确认闸。
