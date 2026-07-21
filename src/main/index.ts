@@ -6,25 +6,51 @@ import { handleFilesMediaProtocol, registerFilesMediaScheme } from './files-medi
 import { wireAppShortcuts } from './app-shortcuts'
 import { initStore } from './store'
 import { registerIpc } from './ipc'
-import { isAppQuitting, markAppQuitting } from './app-shutdown'
+import { isAppQuitting, isQuitAllowed, markAppQuitting, markQuitAllowed } from './app-shutdown'
 import { killAllSessions } from './runner'
 import { closeAllWatchers } from './watcher'
 import { closeAllGitWatchers } from './git-watcher'
 import { closeAllFilesWatchers } from './files-watcher'
 import { resolveReleaseEdition } from '../shared/release-edition'
+import { confirmQuitIfNeeded } from './quit-confirm'
+import { tryInstallUpdateOnQuit } from './app-updater'
+import { rememberWindowPlacement, resolveRememberedWindowPlacement } from './window-placement'
+import { registerBootstrapIpc } from './renderer-bootstrap'
 
 // 必须在 app.ready 之前注册特权 scheme，否则渲染层无法用自定义协议播媒体。
 registerFilesMediaScheme()
 
+const WINDOW_DEFAULTS = {
+  width: 1100,
+  height: 720,
+  minWidth: 720,
+  minHeight: 480
+} as const
+
 function createWindow(): BrowserWindow {
+  const placement = resolveRememberedWindowPlacement(WINDOW_DEFAULTS)
   const mainWindow = new BrowserWindow({
-    width: 1100,
-    height: 720,
-    minWidth: 720,
-    minHeight: 480,
+    width: placement.width,
+    height: placement.height,
+    ...(placement.x !== undefined && placement.y !== undefined
+      ? { x: placement.x, y: placement.y }
+      : {}),
+    minWidth: WINDOW_DEFAULTS.minWidth,
+    minHeight: WINDOW_DEFAULTS.minHeight,
     show: false,
     autoHideMenuBar: true,
     backgroundColor: '#2b2d30',
+    titleBarStyle: 'hidden',
+    ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 16, y: 12 } } : {}),
+    ...(process.platform !== 'darwin'
+      ? {
+          titleBarOverlay: {
+            color: '#2b2d30',
+            symbolColor: '#ced0d6',
+            height: 40
+          }
+        }
+      : {}),
     ...(process.platform === 'linux' ? { icon } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
@@ -32,7 +58,14 @@ function createWindow(): BrowserWindow {
     }
   })
 
+  // 关窗前写入进程内记忆（macOS 点 Dock 重开时恢复；重启进程则清空）。
+  mainWindow.on('close', () => {
+    rememberWindowPlacement(mainWindow)
+  })
+
   mainWindow.on('ready-to-show', () => {
+    if (placement.isMaximized) mainWindow.maximize()
+    if (placement.isFullScreen) mainWindow.setFullScreen(true)
     mainWindow.show()
   })
 
@@ -67,6 +100,8 @@ app.whenReady().then(async () => {
 
   await initStore()
   handleFilesMediaProtocol()
+  // preload sendSync 依赖此通道；必须在 createWindow / loadURL 之前。
+  registerBootstrapIpc()
   registerIpc(createWindow())
 
   app.on('activate', function () {
@@ -94,13 +129,29 @@ app.on('before-quit', (event) => {
   if (quitPhase === 'exiting') return
   event.preventDefault()
   if (quitPhase === 'cleaning') return
-  quitPhase = 'cleaning'
-  void runQuitCleanup()
-    .catch(() => undefined)
-    .finally(() => {
+
+  void (async () => {
+    if (!isQuitAllowed()) {
+      const ok = await confirmQuitIfNeeded(BrowserWindow.getFocusedWindow())
+      if (!ok) return
+      markQuitAllowed()
+    }
+
+    quitPhase = 'cleaning'
+    try {
+      await runQuitCleanup()
+    } catch {
+      // ignore
+    }
+
+    if (tryInstallUpdateOnQuit()) {
       quitPhase = 'exiting'
-      app.exit(0)
-    })
+      return
+    }
+
+    quitPhase = 'exiting'
+    app.exit(0)
+  })()
 })
 
 // Quit when all windows are closed, except on macOS.

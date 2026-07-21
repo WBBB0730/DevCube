@@ -1,11 +1,12 @@
-// 仓库设置面板（toolbar-widgets §4）：居中弹层（骨架照 ConfigDialog 的手写 fixed 遮罩），
+// 仓库设置面板（toolbar-widgets §4）：外壳与应用设置共用 SettingsModal。
 // 三个区块 —— 隐藏的远程、用户信息、远程管理（三态开关与提交排序已移至工具栏的视图选项
 // Popover，见 GitViewOptions）。用户信息与远程 CRUD 走 runAction（进行中遮罩 / 错误框由
 // GitDialogs 统一呈现），成功后重拉 config。控件用 shadcn Checkbox / RadioGroup。
 import { useEffect, useRef, useState } from 'react'
-import { Eraser, Pencil, Plus, Trash2, X } from 'lucide-react'
+import { Eraser, Pencil, Plus, Trash2 } from 'lucide-react'
 import { type GitAction } from '@shared/git'
 import { gitState, useGit } from '@renderer/git-store'
+import { SettingsModal } from '@renderer/components/SettingsModal'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
 import { Checkbox } from '@renderer/components/ui/checkbox'
@@ -92,56 +93,46 @@ export function GitRepoSettings({
   if (!open) return null
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={onClose}
+    <SettingsModal
+      title="仓库设置"
+      onClose={onClose}
+      className="relative max-h-[85vh] w-[560px]"
     >
-      <div
-        className="relative flex max-h-[85vh] w-[560px] flex-col rounded border border-[color:var(--border-input)] bg-panel shadow-xl"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex items-center justify-between border-b px-4 py-2.5">
-          <span className="text-[13px] text-[color:var(--fg-dialog-title)]">仓库设置</span>
-          <button type="button" title="关闭 (Esc)" className={ICON_BTN} onClick={onClose}>
-            <X className="size-4" />
-          </button>
-        </div>
-        <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-3">
-          <HiddenRemotesSection projectPath={projectPath} />
-          <UserSection projectPath={projectPath} onConfirm={setConfirm} />
-          <RemotesSection projectPath={projectPath} onConfirm={setConfirm} />
-        </div>
-        {confirm !== null && (
+      <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-3">
+        <HiddenRemotesSection projectPath={projectPath} />
+        <UserSection projectPath={projectPath} onConfirm={setConfirm} />
+        <RemotesSection projectPath={projectPath} onConfirm={setConfirm} />
+      </div>
+      {confirm !== null && (
+        <div
+          className="absolute inset-0 z-10 flex items-center justify-center bg-black/40"
+          onClick={() => setConfirm(null)}
+        >
           <div
-            className="absolute inset-0 z-10 flex items-center justify-center bg-black/40"
-            onClick={() => setConfirm(null)}
+            className="w-96 rounded-xl border border-[color:var(--border-input)] bg-panel p-4 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
           >
-            <div
-              className="w-96 rounded border border-[color:var(--border-input)] bg-panel p-4 shadow-xl"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="select-text text-[13px] text-foreground">{confirm.message}</div>
-              <div className="mt-3 flex justify-end gap-2">
-                <Button variant="ghost" size="sm" onClick={() => setConfirm(null)}>
-                  取消
-                </Button>
-                <Button
-                  variant={confirm.destructive ? 'destructive' : 'default'}
-                  size="sm"
-                  onClick={() => {
-                    const run = confirm.run
-                    setConfirm(null)
-                    run()
-                  }}
-                >
-                  {confirm.actionLabel}
-                </Button>
-              </div>
+            <div className="select-text text-[13px] text-foreground">{confirm.message}</div>
+            <div className="mt-3 flex justify-end gap-2">
+              <Button variant="ghost" size="sm" onClick={() => setConfirm(null)}>
+                取消
+              </Button>
+              <Button
+                variant={confirm.destructive ? 'destructive' : 'default'}
+                size="sm"
+                onClick={() => {
+                  const run = confirm.run
+                  setConfirm(null)
+                  run()
+                }}
+              >
+                {confirm.actionLabel}
+              </Button>
             </div>
           </div>
-        )}
-      </div>
-    </div>
+        </div>
+      )}
+    </SettingsModal>
   )
 }
 

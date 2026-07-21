@@ -75,7 +75,9 @@ const config: Configuration = {
   },
   npmRebuild: false,
   publish: {
-    provider: 'github'
+    provider: 'github',
+    owner: 'WBBB0730',
+    repo: 'DevCube'
   },
   electronDownload: {
     mirror: 'https://npmmirror.com/mirrors/electron/'

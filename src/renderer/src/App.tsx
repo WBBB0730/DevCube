@@ -1,11 +1,14 @@
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 import { ProjectTree } from '@renderer/components/ProjectTree'
 import { Console } from '@renderer/components/Console'
 import { ConfigDialog } from '@renderer/components/ConfigDialog'
+import { AppTitleBar } from '@renderer/components/AppTitleBar'
+import { SettingsDialog } from '@renderer/components/SettingsDialog'
 import { useFiles } from '@renderer/files-store'
 import { orderedTabKeys, resolveTabs, useApp } from '@renderer/store'
 import { gitState, useGit } from '@renderer/git-store'
 import type { AppShortcut } from '@shared/app-shortcut'
+import type { AppUpdateState } from '@shared/app-update-state'
 import { filterProjectNodes, sortProjectNodes } from '@shared/project-sort'
 import { isResidentTabKey } from '@shared/runnable'
 
@@ -108,15 +111,19 @@ function App(): React.JSX.Element {
       : null
   )
 
+  const windowTitle = projectName ? `${projectName} — DevCube` : 'DevCube'
+
   // 窗口标题跟随当前选中的项目（主进程未固定 title、未拦 page-title-updated，document.title 会自动反映）。
   useEffect(() => {
-    document.title = projectName ? `${projectName} — DevCube` : 'DevCube'
-  }, [projectName])
+    document.title = windowTitle
+  }, [windowTitle])
 
   const currentProjectPath = useApp((s) => s.currentProjectPath)
+  const [settingsOpen, setSettingsOpen] = useState(false)
+  const [update, setUpdate] = useState<AppUpdateState | null>(null)
 
   useEffect(() => {
-    init()
+    void init()
     const offTree = window.api.onTreeChanged((tree) => useApp.getState().setTree(tree))
     const offStatus = window.api.onSessionStatus((s) => useApp.getState().setSession(s))
     const offRemoved = window.api.onSessionRemoved((key) =>
@@ -129,12 +136,15 @@ function App(): React.JSX.Element {
     })
     // 应用快捷键：主进程 before-input-event → IPC（抢在 xterm / 编辑器 / Chromium 默认之前）。
     const offShortcut = window.api.onAppShortcut(handleAppShortcut)
+    const offUpdate = window.api.onAppUpdateState(setUpdate)
+    void window.api.getAppUpdateState().then(setUpdate)
     return () => {
       offTree()
       offStatus()
       offRemoved()
       offGit()
       offShortcut()
+      offUpdate()
     }
   }, [init])
 
@@ -149,10 +159,31 @@ function App(): React.JSX.Element {
   }, [currentProjectPath])
 
   return (
-    <div className="flex h-full">
-      <ProjectTree />
-      <Console />
+    <div className="flex h-full flex-col">
+      <AppTitleBar
+        title={windowTitle}
+        update={update}
+        onOpenSettings={() => setSettingsOpen(true)}
+        onUpdateClick={() => void window.api.performAppUpdateAction()}
+      />
+      <div className="flex min-h-0 flex-1">
+        <ProjectTree />
+        <Console />
+      </div>
       {dialog.open && <ConfigDialog key={dialog.config?.id ?? 'new'} />}
+      {settingsOpen && (
+        <SettingsDialog
+          update={update}
+          onClose={() => setSettingsOpen(false)}
+          onCheckUpdate={async () => {
+            setUpdate(await window.api.checkAppUpdates())
+          }}
+          onOpenRelease={() => void window.api.openAppReleasePage()}
+          onOpenRepo={() => {
+            if (update) void window.api.openExternal(update.repoUrl)
+          }}
+        />
+      )}
     </div>
   )
 }

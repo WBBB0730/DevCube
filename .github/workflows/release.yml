@@ -142,6 +142,7 @@ jobs:
             dist/*.zip
             dist/*.exe
             dist/*.blockmap
+            dist/latest*.yml
           if-no-files-found: error
           compression-level: 0
 

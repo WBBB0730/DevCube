@@ -342,6 +342,11 @@ export function getSessions(): SessionState[] {
   return [...sessions.values()].map(snapshot)
 }
 
+/** 退出闸用：含 kind，供区分 Run Session / Terminal。 */
+export function getQuitGuardSessions(): { kind: 'run' | 'terminal'; status: SessionStatus }[] {
+  return [...sessions.values()].map((s) => ({ kind: s.kind, status: s.status }))
+}
+
 /**
  * 彻底销毁一个会话：在跑则先杀进程树，从 Map 移除，并通知渲染端清除其状态。
  * 用于配置被删除 / 对账移除 / 项目移除 —— 区别于用户「停止」（后者保留历史以便回看）。

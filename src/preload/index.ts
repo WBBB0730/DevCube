@@ -1,6 +1,7 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import { IPC } from '../shared/ipc'
+import type { RendererBootstrap } from '../shared/renderer-bootstrap'
 import type { CommandRunConfig, RunAPI, RunTarget } from '../shared/types'
 import type { GitAction, GitDetailsRequest, GitDiffRequest, GitLoadOptions } from '../shared/git'
 
@@ -10,7 +11,11 @@ function subscribe<T>(channel: string, cb: (arg: T) => void): () => void {
   return () => ipcRenderer.removeListener(channel, listener)
 }
 
+// 在页面脚本跑之前同步取快照，首帧 zustand 即可有树/工作台。
+const bootstrap = ipcRenderer.sendSync(IPC.bootstrapSync) as RendererBootstrap
+
 const api: RunAPI = {
+  getBootstrap: () => bootstrap,
   getTree: () => ipcRenderer.invoke(IPC.treeGet),
   addProject: () => ipcRenderer.invoke(IPC.projectAdd),
   addProjectByPath: (path) => ipcRenderer.invoke(IPC.projectAddByPath, path),
@@ -86,7 +91,13 @@ const api: RunAPI = {
   onSessionOutput: (cb) => subscribe(IPC.sessionOutput, cb),
   onSessionStatus: (cb) => subscribe(IPC.sessionStatus, cb),
   onSessionRemoved: (cb) => subscribe(IPC.sessionRemoved, cb),
-  onAppShortcut: (cb) => subscribe(IPC.appShortcut, cb)
+  onAppShortcut: (cb) => subscribe(IPC.appShortcut, cb),
+
+  getAppUpdateState: () => ipcRenderer.invoke(IPC.appUpdateGet),
+  checkAppUpdates: () => ipcRenderer.invoke(IPC.appUpdateCheck),
+  performAppUpdateAction: () => ipcRenderer.invoke(IPC.appUpdatePerform),
+  openAppReleasePage: () => ipcRenderer.invoke(IPC.appUpdateOpenRelease),
+  onAppUpdateState: (cb) => subscribe(IPC.appUpdateState, cb)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to renderer

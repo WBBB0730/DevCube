@@ -103,6 +103,7 @@ ANSI 16 色（取自 JetBrains 终端真实 Console Colors 调色板）：
 - **UI 字体**：Inter，13px，行高 ~20px（JetBrains New UI 默认）；**树行文字 14px**，**次要信息（角标 / 小标题）最小 12px**（终端搜索计数 11px 除外）。
 - **控制台字体**：JetBrains Mono，13px，行高 1.3，字重 500（补偿 WebGL 在 macOS 渲染偏细）。
 - **Files 编辑器字体**（对齐 WebStorm 默认编辑器 + `Dark.icls`）：JetBrains Mono，13px，字重 400，无连字；行高 CSS `1.7`（`.files-codemirror`）；文本选区 `--editor-selection` `#224283`；正文/行号/光标行/语法色见 `cm6-setup`（背景 `#1E1F22`、前景 `#BCBEC4`、行号 `#4B5059`、光标行 `#26282E` 等）。
+- **JetBrains Mono 来源**：自托管官方完整可变字体（`src/renderer/src/assets/fonts/jetbrains-mono/`，v2.304），**不用** `@fontsource-variable/jetbrains-mono` 子集——后者不含 `⇧⌃⌥⌘`，快捷键显示会回退杂字体。设置 → 快捷键列用 `font-mono`。
 - **侧栏**固定宽 **280px**（不可拖拽）。
 - **树行 / 触发行**固定高 40px（`h-10`，四周内边距 6px；固定高以免 hover 出按钮时整行跳动）；行内图标按钮 28px、图标 16px；状态点 8px。
 - **圆角**：按钮 / 弹出菜单 6px（`rounded-lg`）、条目/配置行高亮 4px（`rounded`）、面板 0。
@@ -113,12 +114,16 @@ ANSI 16 色（取自 JetBrains 终端真实 Console Colors 调色板）：
 
 Lucide（随 shadcn）：`Play`(运行) · `RotateCw`(重新运行 / Git 刷新) · `Square`(停止) · `Eraser`(清空运行会话输出) · `MoreVertical`(更多⋮) · `Pencil`(编辑) · `Trash2`(删除) · `ChevronRight`(树展开 / 弹层箭头) · `FolderPlus`(添加项目) · `FolderOpen`(打开文件夹 / Files Tab 标签「文件」 / Files「在文件夹中显示」) · `FileClock`(Files「最近打开文件」) · `ListTree`(Files「在文件树中显示」) · `Minus`(Files「隐藏文件树」) · `PanelRight`(Files「显示文件树」) · `SquareArrowOutUpRight`(Files「在其他应用中打开」) · `ChevronsUpDown`(Files 文件树「全部展开」) · `ChevronsDownUp`(Files 文件树「全部折叠」) · `FilePlusCorner`(新建配置) · `ArrowUpDown`(项目排序) · `AArrowDown`/`AArrowUp`(名称升/降序) · `ClockArrowDown`/`ClockArrowUp`(时间升/降序) · `Plus`(新建终端) · `Terminal`(终端 Tab) · `Search`(左栏项目筛选 / Files 树顶筛选 / 终端搜索框)/`ChevronUp`/`ChevronDown`/`X`(筛选清空 / 终端搜索框 / 关闭 Tab)。运行三角以 `--run-glyph` 上色。
 
+应用顶栏 / 设置：`Settings`(应用设置齿轮；Git 仓库设置仍用同图标) · 更新按钮图标对齐 WebStorm「有更新」圆点观感（具体 glyph 实现时定，有则显示、无则整颗隐藏）。
+
 Git 图谱专用：`GitBranch`(Git Tab) · `SlidersHorizontal`(视图选项) · `GitCommitHorizontal`(提交，等同点「未提交的更改」行) · `RotateCw`(刷新) · `CircleArrowDown`(拉取) · `CircleArrowUp`(推送) · `GitBranchPlus`(创建分支) · `Settings`(仓库设置) · `LoaderCircle`(加载 / 动作进行中) · `TriangleAlert`(操作失败) · `Ellipsis`(提交面板文件行 … 菜单)。
 
 ## 布局
 
 ```
-┌── 侧栏 280px 固定 ──┬────────────────────────────┐
+┌─────────────────── 应用顶栏 h-10 ───────────────────┐
+│ 红绿灯(mac) │   中间标题（同 document.title）  更新? ⚙ │
+├── 侧栏 280px 固定 ──┬────────────────────────────┤
 │ 左树面板 --bg-panel  │ 控制台区 --bg-deepest       │
 │                     │ Tab 栏                     │
 │ ▾ project-a  ＋ ✕   │ ┌ 操作栏: ▶ ■ ⌫       ┐ │
@@ -131,6 +136,10 @@ Git 图谱专用：`GitBranch`(Git Tab) · `SlidersHorizontal`(视图选项) · 
    项目间留白，配置不缩进，「检测到的配置」为底部触发的临时弹出菜单
 ```
 
+- **应用顶栏**（自定义窗口顶栏，高 40px、`--bg-panel`，对齐 WebStorm）：隐藏系统标题栏；macOS 保留原生红绿灯并留出安全拖拽区；Windows/Linux 用系统窗口按钮叠层。**中间**标题与 `document.title` 同一套——有当前 **Project** 为「`{名} — DevCube`」，否则「DevCube」——**加粗**（`font-bold` / 700），颜色与设置弹层标题同为 `--fg-dialog-title`。**右侧**：更新按钮（有待处理更新才显示，否则整颗隐藏）+ 设置齿轮（`Settings`）。可拖拽区与按钮 `no-drag` 分区。产品范围见 `docs/prd/in-app-update.md`。
+- **更新按钮**：可自动更新形态仅在「已下载可安装」时出现，点击→重启安装（有运行中 **Run Session** 时先走全局退出确认）；Windows Portable 外观相同，在已知有新版本时出现，点击→打开对应 GitHub Release。检查中/下载中/失败时不显示。不可关闭或跳过。
+- **设置弹层**（应用「设置」与 Git「仓库设置」共用 `SettingsModal` 外壳）：盖在主窗口上的全屏级模态（非第二窗口）——外框圆角 12px（`rounded-xl`）；顶栏标题居中、**加粗**（`font-bold`）、`--fg-dialog-title`；无标题栏关闭钮（Esc / 点遮罩关）；底栏仅「确定」（主色；点即关闭）。应用设置另有左侧分类树（无搜索）、右内容；分类项之间留 1px 缝（`gap-px`）。本轮栏目：关于（版本、**Release Edition**、更新状态、检查更新、仓库链接）、快捷键（只读）。有真实偏好项之前不挂「偏好」栏。
+- **退出确认**：凡会退出整个应用的路径，若仍有运行中的 **Run Session**，二次确认；**Terminal** 不计入。macOS 仅关窗不退出不触发。文案：「还有 N 个运行会话在运行」/「退出应用将结束这些会话。确定退出？」。
 - **左树**：固定 280px，**项目间留白**。Project（可折叠）下**直接列出 Run Configuration**（无「我的配置」小标题；**行背景不缩进、仅内容缩进对齐**——状态点对齐文件夹图标列、名称对齐项目名，靠"补空占位列 + 居中点盒"实现）；探测脚本收进一个**临时弹出菜单**（**Base UI Popover**，即项目组件库；**深色背景 `--bg-panel` 与列表一致**；点触发浮出、点外面 / Esc 关闭，**选中或运行菜单项即刻关闭**；菜单项与配置行同款样式）。触发行置于配置列表最下方，UI 标签为**「检测到的配置」**（**文案与配置状态点对齐**，**数字在箭头前**，**箭头在右**）。项目行 hover 显示「更多」⋮；项目行右键与「更多」共用菜单项：**打开文件夹**（`FolderOpen`）/ **新建终端**（`Terminal`）/ **新建配置**（`FilePlusCorner`）/ **置顶** 或 **取消置顶**（`Pin` / `PinOff`，在「移除」之上）/ **移除项目**。已 **Pin** 时空闲在「更多」同槽显示小图钉（muted），hover / 拖拽时**原地换成** ⋮（不挤到旁边）。无行内单独图钉按钮。项目名右侧显示包管理器角标（**pnpm 作为默认不显示**；hover 出按钮时让位隐藏）。
 - **Pin 与列表**：**Pin** 分区——已置顶整段在未置顶之上，组内仍走当前排序；新项目默认不 Pin。置顶 / 取消置顶分别进入目标区块**开头**（改落盘序，不自动切排序 mode）。置顶**标题行**为列表直接子节点；**默认** `position: sticky` 按序叠放（`top: n×(40+1)`，行间 1px 不透明缝）；排序菜单「固定置顶」可关叠放——关后每项包进段容器、当前段 `top:0` 吸顶，**下一段把上一段顶走**（不覆盖）。未置顶**标题行**在本项目块内吸顶，贴在置顶堆下方（被下一段顶走）。配置区照常滚走。**点击项目标题**：标题已完全在列表视口内则不滚；已滚过段起点（吸顶）则经非 sticky 段锚滚回段首（`scroll-margin-top` 预留吸顶高度；对齐 Git 段头跳转）。术语见 CONTEXT.md / `docs/prd/project-pin.md`。
 - **标题栏**：左侧低调筛选（透明底 + 小 `Search` 图标，聚焦时才出行 hover 底；有内容时右侧出清空 `X`；焦点在列表上可打印字写入、Esc 清空，同 Files 树顶筛选；按项目名大小写不敏感包含过滤，只显示匹配项；筛选结果仍保持 Pin 分区）。右侧排序按钮（`ArrowUpDown`）+ 新建/添加（`FolderPlus`）。排序菜单：自定义 / 名称 / 添加时间 / 打开时间；**分隔线**；**固定置顶**（勾选开关：开＝已 Pin 行滚动叠放吸顶；关＝不叠放，但视口最上的项目行仍当前段吸顶。默认开，持久化于 `projectSortPrefs.pinSticky`）。**默认添加时间倒序**（新→旧；已持久化偏好不覆盖）。名称与添加时间再点同一项翻转升/降序；**打开时间固定最近→最远、不可翻转**；自定义无方向。当前项左侧单一图标兼作选中——自定义用勾、名称用 `AArrowDown`/`AArrowUp`、添加时间用 `ClockArrowDown`/`ClockArrowUp`、打开时间只用 `ClockArrowDown`；「固定置顶」开时左侧勾。**打开时间排序下**选中/打开某项目后等它排到本组最前，再以 `scrollIntoView({ block: 'nearest' })` 滚入视口（不再特供滚到列表顶）。**新增项目**：插入落盘数组头（未置顶区靠前；勿与 **Pin** 混淆），并写入 `lastOpenedAt`；添加时间倒序靠 `addedAt` 自然靠前；名称 / 添加时间升序不强制靠前；**添加成功或命中已登记项目后均选中该项目**，并以 `scrollIntoView({ block: 'nearest' })` 滚入视口（已可见则不动，对齐 Git 父提交跳转）。底边 1px `--separator`（与右 Tab 栏同）。

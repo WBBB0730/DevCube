@@ -13,12 +13,25 @@ import { DEFAULT_PROJECT_SORT_PREFS } from '@shared/types'
 import { configKey, filesTabKey, gitTabKey, isResidentTabKey } from '@shared/runnable'
 import { cycleProjectSort } from '@shared/project-sort'
 import { resolveActiveTabKey, resolveNeighborAfterClose } from '@shared/tab-activation'
-import {
-  mergeTerminalTabs,
-  resolvePersistedProjectPath,
-  resolvePersistedSelectedKey,
-  terminalsToShellsByProject
-} from '@shared/workspace'
+import { workspaceSliceFromBootstrap } from '@shared/renderer-bootstrap'
+import { terminalsToShellsByProject } from '@shared/workspace'
+
+function initialWorkspaceSlice(): ReturnType<typeof workspaceSliceFromBootstrap> {
+  try {
+    return workspaceSliceFromBootstrap(window.api.getBootstrap())
+  } catch {
+    // vitest / 非 Electron 环境
+    return {
+      tree: [],
+      sessions: {},
+      terminals: [],
+      projectSortPrefs: DEFAULT_PROJECT_SORT_PREFS,
+      currentProjectPath: null,
+      selectedKey: null,
+      activeTabByProject: {}
+    }
+  }
+}
 
 type CommandInput = Omit<CommandRunConfig, 'id' | 'kind'>
 
@@ -237,15 +250,9 @@ async function applyAddedProject(
 }
 
 export const useApp = create<AppState>((set, get) => ({
-  tree: [],
-  sessions: {},
-  selectedKey: null,
-  currentProjectPath: null,
-  terminals: [],
-  activeTabByProject: {},
+  ...initialWorkspaceSlice(),
   runNonce: {},
   dialog: { open: false },
-  projectSortPrefs: DEFAULT_PROJECT_SORT_PREFS,
   projectFilter: '',
   projectFilterFocusNonce: 0,
   scrollToProjectPath: null,
@@ -326,42 +333,27 @@ export const useApp = create<AppState>((set, get) => ({
     }
     return window.api.closeSession(key)
   },
+  // 首屏已由 preload bootstrap 灌入；此处只做打开对账（touch / 懒 spawn）。HMR 时再拉一遍快照。
   init: async () => {
-    const [tree, sessions, liveTerminals, projectSortPrefs, workspace] = await Promise.all([
-      window.api.getTree(),
-      window.api.getSessions(),
-      window.api.getTerminals(),
-      window.api.getProjectSortPrefs(),
-      window.api.getWorkspaceUi()
-    ])
-    const sessionsMap = Object.fromEntries(sessions.map((s) => [s.key, s]))
-    const terminals = mergeTerminalTabs(liveTerminals, workspace.terminalsByProject)
-    const projectPaths = new Set(tree.map((n) => n.project.path))
-    const configKeys = new Set(tree.flatMap((n) => n.configs.map((c) => configKey(c))))
-    const currentProjectPath = resolvePersistedProjectPath(
-      workspace.currentProjectPath,
-      projectPaths
-    )
-    let selectedKey = resolvePersistedSelectedKey(workspace.selectedKey, configKeys)
-    if (!currentProjectPath) {
-      selectedKey = null
-    } else if (selectedKey) {
-      const owner = tree.find((n) => n.configs.some((c) => configKey(c) === selectedKey))
-      if (!owner || owner.project.path !== currentProjectPath) selectedKey = null
+    if (import.meta.env.DEV) {
+      const [tree, sessions, terminals, projectSortPrefs, workspace] = await Promise.all([
+        window.api.getTree(),
+        window.api.getSessions(),
+        window.api.getTerminals(),
+        window.api.getProjectSortPrefs(),
+        window.api.getWorkspaceUi()
+      ])
+      set(
+        workspaceSliceFromBootstrap({
+          tree,
+          sessions,
+          terminals,
+          projectSortPrefs,
+          workspace
+        })
+      )
     }
-    const activeTabByProject = { ...workspace.activeTabByProject }
-    for (const p of Object.keys(activeTabByProject)) {
-      if (!projectPaths.has(p)) delete activeTabByProject[p]
-    }
-    set({
-      tree,
-      sessions: sessionsMap,
-      terminals,
-      projectSortPrefs,
-      currentProjectPath,
-      selectedKey,
-      activeTabByProject
-    })
+    const currentProjectPath = get().currentProjectPath
     if (currentProjectPath) {
       set({ tree: await window.api.touchProject(currentProjectPath) })
       const { activeKey } = resolveTabs(get(), currentProjectPath)

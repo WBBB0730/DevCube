@@ -3,9 +3,11 @@
 // Git 图谱（Git Tab）的域模型与 API 在 ./git.ts，经 GitAPI 并入 RunAPI。
 
 import type { AppShortcut } from './app-shortcut'
+import type { AppUpdateState } from './app-update-state'
 import type { FilesDirEntry, FilesReadResult, FilesUiState } from './files'
 import type { FilesTreeFilterResult } from './files-tree-search'
 import type { GitAPI, GitRepoSettings, GitViewPrefs } from './git'
+import type { RendererBootstrap } from './renderer-bootstrap'
 import type { WorkspaceUiState } from './workspace'
 
 export type PackageManager = 'pnpm' | 'yarn' | 'npm' | 'bun'
@@ -155,6 +157,9 @@ export interface TerminalInfo {
 
 /** preload 经 contextBridge 暴露给渲染端的 API。随 slice 逐步实现；Git 部分见 GitAPI。 */
 export interface RunAPI extends GitAPI {
+  /** preload 阶段同步缓存的首屏快照（每窗口一次） */
+  getBootstrap(): RendererBootstrap
+
   // —— 项目 / 树（slice 1） ——
   getTree(): Promise<ProjectNode[]>
   /** 打开系统文件夹选择器新增项目；取消则 focusPath 为 null */
@@ -238,4 +243,12 @@ export interface RunAPI extends GitAPI {
   onSessionRemoved(cb: (key: string) => void): () => void
   /** 主进程 before-input-event 命中的应用快捷键 */
   onAppShortcut(cb: (shortcut: AppShortcut) => void): () => void
+
+  // —— 应用内更新 ——
+  getAppUpdateState(): Promise<AppUpdateState>
+  checkAppUpdates(): Promise<AppUpdateState>
+  /** 顶栏更新按钮：安装或打开 Release */
+  performAppUpdateAction(): Promise<{ startedInstall: boolean }>
+  openAppReleasePage(): Promise<void>
+  onAppUpdateState(cb: (state: AppUpdateState) => void): () => void
 }

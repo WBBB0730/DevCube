@@ -56,5 +56,13 @@ export const IPC = {
   gitRevalidate: 'git:revalidate',
   gitDefaultBranch: 'git:default-branch',
   /** 主进程 before-input-event 命中后下发的应用快捷键 */
-  appShortcut: 'app:shortcut'
+  appShortcut: 'app:shortcut',
+  /** preload 同步拉取首屏快照（须在 loadURL 前注册） */
+  bootstrapSync: 'bootstrap:sync',
+  /** 应用内更新 */
+  appUpdateGet: 'app-update:get',
+  appUpdateCheck: 'app-update:check',
+  appUpdatePerform: 'app-update:perform',
+  appUpdateOpenRelease: 'app-update:open-release',
+  appUpdateState: 'app-update:state'
 } as const

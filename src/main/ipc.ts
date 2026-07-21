@@ -84,6 +84,15 @@ import { runGitAction } from './git-actions'
 import { syncGitWatchers } from './git-watcher'
 import { syncFilesWatchers } from './files-watcher'
 import { clearRepoRootCache, execGit, resolveRepoRoot, revalidateRepoRoot } from './git-exec'
+import {
+  checkAppUpdates,
+  getAppUpdateState,
+  openAppReleasePage,
+  performUpdateButtonAction,
+  startAppUpdater
+} from './app-updater'
+import { confirmQuitIfNeeded } from './quit-confirm'
+import { markQuitAllowed } from './app-shutdown'
 
 let mainWindow: BrowserWindow | null = null
 let registered = false
@@ -155,6 +164,7 @@ function refreshWatchers(): void {
 export function registerIpc(win: BrowserWindow): void {
   mainWindow = win
   setRunnerWindow(win)
+  startAppUpdater(win)
   if (registered) {
     refreshWatchers()
     return
@@ -383,4 +393,21 @@ export function registerIpc(win: BrowserWindow): void {
   )
   ipcMain.handle(IPC.gitViewPrefsGet, () => getGitViewPrefs())
   ipcMain.handle(IPC.gitViewPrefsSet, (_e, patch: Partial<GitViewPrefs>) => setGitViewPrefs(patch))
+
+  // —— 应用内更新 ——
+  ipcMain.handle(IPC.appUpdateGet, () => getAppUpdateState())
+  ipcMain.handle(IPC.appUpdateCheck, () => checkAppUpdates())
+  ipcMain.handle(IPC.appUpdateOpenRelease, () => {
+    openAppReleasePage()
+  })
+  ipcMain.handle(IPC.appUpdatePerform, async () => {
+    const state = getAppUpdateState()
+    if (!state.showButton) return { startedInstall: false }
+    if (state.buttonAction === 'quitAndInstall') {
+      const ok = await confirmQuitIfNeeded(mainWindow)
+      if (!ok) return { startedInstall: false }
+      markQuitAllowed()
+    }
+    return performUpdateButtonAction()
+  })
 }
