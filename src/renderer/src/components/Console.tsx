@@ -606,7 +606,7 @@ function TerminalPane({
   // 终端随本组件挂载/卸载创建与销毁。
   useEffect(() => {
     const term = new Terminal({
-      fontFamily: "'JetBrains Mono Variable', ui-monospace, monospace",
+      fontFamily: "'JetBrains Mono', ui-monospace, monospace",
       fontSize: 13,
       lineHeight: 1.3,
       fontWeight: 500,

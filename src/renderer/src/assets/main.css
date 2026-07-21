@@ -1,8 +1,23 @@
 @import 'tailwindcss';
 @import 'tw-animate-css';
 @import '@fontsource-variable/inter';
-@import '@fontsource-variable/jetbrains-mono';
 @import '@git-diff-view/react/styles/diff-view.css';
+
+/* 官方完整 JetBrains Mono（含 ⇧⌃⌥⌘）；见 assets/fonts/jetbrains-mono/README.md */
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: normal;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('./fonts/jetbrains-mono/JetBrainsMono-wght.woff2') format('woff2-variations');
+}
+@font-face {
+  font-family: 'JetBrains Mono';
+  font-style: italic;
+  font-weight: 100 800;
+  font-display: swap;
+  src: url('./fonts/jetbrains-mono/JetBrainsMono-Italic-wght.woff2') format('woff2-variations');
+}
 
 /*
   Run — JetBrains New UI (Darcula) 深色主题。
@@ -136,7 +151,7 @@
   --color-git-status-ignored: var(--git-status-ignored);
 
   --font-sans: 'Inter Variable', system-ui, -apple-system, sans-serif;
-  --font-mono: 'JetBrains Mono Variable', ui-monospace, monospace;
+  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);

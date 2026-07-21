@@ -65,7 +65,7 @@ export const filesEditorTheme = EditorView.theme(
       backgroundColor: ICLS.bg
     },
     '.cm-scroller': {
-      fontFamily: '"JetBrains Mono Variable", "JetBrains Mono", monospace',
+      fontFamily: '"JetBrains Mono", monospace',
       fontWeight: '400',
       letterSpacing: '0',
       fontVariantLigatures: 'none',
