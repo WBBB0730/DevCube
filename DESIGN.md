@@ -137,6 +137,7 @@ Git 图谱专用：`GitBranch`(Git Tab) · `SlidersHorizontal`(视图选项) · 
 ```
 
 - **应用顶栏**（自定义窗口顶栏，高 40px、`--bg-panel`，对齐 WebStorm）：隐藏系统标题栏；macOS 保留原生红绿灯并留出安全拖拽区；Windows/Linux 用系统窗口按钮叠层。**中间**标题与 `document.title` 同一套——有当前 **Project** 为「`{名} — DevCube`」，否则「DevCube」——**加粗**（`font-bold` / 700），颜色与设置弹层标题同为 `--fg-dialog-title`。**右侧**：更新按钮（有待处理更新才显示，否则整颗隐藏）+ 设置齿轮（`Settings`）。可拖拽区与按钮 `no-drag` 分区。产品范围见 `docs/prd/in-app-update.md`。
+- **原生应用菜单**（系统菜单栏 / 窗口菜单栏，非应用内右键菜单）：生产环境 Windows/Linux **无**窗口菜单栏；macOS 仅系统栏精简 role 菜单（App / Edit / Window），**不含** Reload / 开发者工具。开发环境额外保留 View（含刷新与开发者工具）。取舍见 ADR-0019。
 - **更新按钮**：可自动更新形态仅在「已下载可安装」时出现，点击→重启安装（有运行中 **Run Session** 时先走全局退出确认）；Windows Portable 外观相同，在已知有新版本时出现，点击→打开对应 GitHub Release。检查中/下载中/失败时不显示。不可关闭或跳过。
 - **设置弹层**（应用「设置」与 Git「仓库设置」共用 `SettingsModal` 外壳）：盖在主窗口上的全屏级模态（非第二窗口）——外框圆角 12px（`rounded-xl`）；顶栏标题居中、**加粗**（`font-bold`）、`--fg-dialog-title`；无标题栏关闭钮（Esc / 点遮罩关）；底栏仅「确定」（主色；点即关闭）。应用设置另有左侧分类树（无搜索）、右内容；分类项之间留 1px 缝（`gap-px`）。本轮栏目：关于（版本、**Release Edition**、更新状态、检查更新、仓库链接）、快捷键（只读）。有真实偏好项之前不挂「偏好」栏。
 - **退出确认**：凡会退出整个应用的路径，若仍有运行中的 **Run Session**，二次确认；**Terminal** 不计入。macOS 仅关窗不退出不触发。文案：「还有 N 个运行会话在运行」/「退出应用将结束这些会话。确定退出？」。

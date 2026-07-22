@@ -3,6 +3,7 @@ import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import { handleFilesMediaProtocol, registerFilesMediaScheme } from './files-media-protocol'
+import { installAppMenu } from './app-menu'
 import { wireAppShortcuts } from './app-shortcuts'
 import { initStore } from './store'
 import { registerIpc } from './ipc'
@@ -19,6 +20,8 @@ import { registerBootstrapIpc } from './renderer-bootstrap'
 
 // 必须在 app.ready 之前注册特权 scheme，否则渲染层无法用自定义协议播媒体。
 registerFilesMediaScheme()
+// 必须在 app.ready 之前安装/清除应用菜单，否则 Electron 会挂上含 DevTools 的默认菜单。
+installAppMenu()
 
 const WINDOW_DEFAULTS = {
   width: 1100,
