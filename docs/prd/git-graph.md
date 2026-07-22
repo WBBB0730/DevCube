@@ -64,6 +64,7 @@
 - **入口与 Tab 模型**：Git Tab 是每项目常驻、非会话的 Tab，键 `git:<projectPath>`，恒排最前、不可关闭；与会话 Tab 共用激活/循环/回落规则（ADR-0005）。面板「切走隐藏不卸载」。项目成为当前项目时即全量预加载（仅 idle 触发），Tab 标签始终能显示当前分支名（括号包住，如 `Git (main)`；detached HEAD 回落缩写 hash）；打开 Git Tab 时若已就绪则只重验仓库根。此后随 git:changed 软刷新保鲜。
 - **数据源**：主进程直接 spawn git CLI（不经 shell），git 路径经用户登录 shell 解析一次并缓存（GUI 应用 PATH 缺失）；所有解析基于机器可读输出（自定义 --format 分隔符、-z NUL 分隔）；解析器是纯函数、与 IO 编排分层。
 - **对齐策略**：UI 层为 React 重写（原项目是命令式 DOM + webview，不可复用）；**纯逻辑层以参考项目原源码为唯一权威**——git 命令构造、解析规则、布局算法、菜单可见性、对话框默认值逐函数对照原实现，能照抄的函数体照抄（仅剥 vscode 依赖、调整类型），行为偏差按缺陷修正。
+- **右键菜单**：与项目树共用 `ui/context-menu`（Base UI ContextMenu + Backdrop）。图谱行 / 引用标签 / 详情与提交面板文件行等多入口经 store 记录目标与坐标后受控打开，Positioner 用虚拟 anchor（无法用单一行级 Trigger 包住全部入口）；菜单项可见性仍由纯函数 `buildMenuItems` 产出。
 - **IPC 契约**：读操作独立通道（load/details/file-diff/tag-details/repo-config/settings）；约 30 个写操作走单通道判别联合 GitAction，结果为判别联合（ok / error / push-tag-not-on-remote）；仓库变化推 git:changed 事件，渲染端只对已加载过的项目软刷新。
 - **加载语义**：一次 load 主进程内部串联仓库概要 + 提交列表 + refs 返回；初始 300 条、加载更多 +100 后整表重拉（哨兵 N+1 判断还有更多）；软刷新保持画面原地换数据，硬刷新（筛选/设置变更/重试）清空重来；空仓库与非仓库是明确的状态而非错误。
 - **图谱布局**：忠实移植参考项目的 Vertex/Branch/determinePath 算法为纯函数（网格坐标 → SVG 路径），12 色调色板循环，颜色经 CSS 变量引用。

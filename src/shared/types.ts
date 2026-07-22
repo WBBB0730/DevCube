@@ -7,6 +7,7 @@ import type { AppUpdateState } from './app-update-state'
 import type { FilesDirEntry, FilesReadResult, FilesUiState } from './files'
 import type { FilesTreeFilterResult } from './files-tree-search'
 import type { GitAPI, GitRepoSettings, GitViewPrefs } from './git'
+import type { OpenInAppId, OpenInAppResult, OpenInAppStatus } from './open-in-app'
 import type { RendererBootstrap } from './renderer-bootstrap'
 import type { WorkspaceUiState } from './workspace'
 
@@ -224,6 +225,10 @@ export interface RunAPI extends GitAPI {
   openPath(path: string): Promise<void>
   /** 在系统文件管理器中定位并选中该文件（「在文件夹中显示」） */
   revealInFolder(path: string): Promise<void>
+  /** 探测 Claude / Codex / Cursor 是否已安装（项目「打开于」子菜单） */
+  listOpenInApps(): Promise<OpenInAppStatus[]>
+  /** 在外部桌面工具中打开已登记项目根；未装或失败时返回 ok:false */
+  openInApp(id: OpenInAppId, projectPath: string): Promise<OpenInAppResult>
 
   // —— Files Tab ——
   filesListDir(projectPath: string, dirPath: string): Promise<FilesDirEntry[]>

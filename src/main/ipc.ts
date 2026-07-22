@@ -1,7 +1,9 @@
 import { ipcMain, BrowserWindow, shell } from 'electron'
 import { IPC } from '../shared/ipc'
 import { configKey } from '../shared/runnable'
+import { isOpenInAppId } from '../shared/open-in-app'
 import type { CommandRunConfig, ProjectSortPrefs, RunTarget } from '../shared/types'
+import { listOpenInApps, openInApp } from './open-in-app'
 import {
   resolveRepoSettings,
   type GitAction,
@@ -303,6 +305,17 @@ export function registerIpc(win: BrowserWindow): void {
     if (getProjects().some((p) => path.startsWith(p.path + '/') || path === p.path)) {
       shell.showItemInFolder(path)
     }
+  })
+  // 项目「打开于」：探测已装桌面工具；打开仅放行已登记项目根。
+  ipcMain.handle(IPC.openInAppList, () => listOpenInApps())
+  ipcMain.handle(IPC.openInApp, (_e, id: unknown, projectPath: unknown) => {
+    if (!isOpenInAppId(id) || typeof projectPath !== 'string') {
+      return { ok: false as const, error: '无效参数' }
+    }
+    if (!getProjects().some((p) => p.path === projectPath)) {
+      return { ok: false as const, error: '项目未登记' }
+    }
+    return openInApp(id, projectPath)
   })
 
   // —— Files Tab ——

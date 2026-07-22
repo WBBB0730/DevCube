@@ -53,6 +53,8 @@ const api: RunAPI = {
   openExternal: (url) => ipcRenderer.invoke(IPC.openExternal, url),
   openPath: (path) => ipcRenderer.invoke(IPC.openPath, path),
   revealInFolder: (path) => ipcRenderer.invoke(IPC.openInFolder, path),
+  listOpenInApps: () => ipcRenderer.invoke(IPC.openInAppList),
+  openInApp: (id, projectPath) => ipcRenderer.invoke(IPC.openInApp, id, projectPath),
 
   filesListDir: (projectPath, dirPath) =>
     ipcRenderer.invoke(IPC.filesListDir, projectPath, dirPath),

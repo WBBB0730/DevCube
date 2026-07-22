@@ -1,5 +1,5 @@
 // Git 图谱右键菜单（menus-dialogs §2）：菜单项定义是导出的纯函数 buildMenuItems（可测可审），
-// 组件层只负责用 Base UI Menu 受控渲染（虚拟 anchor 定位于鼠标点）与注入动作分发。
+// 组件层用 Base UI ContextMenu 受控渲染（store 记目标 + 鼠标点虚拟 anchor）与注入动作分发。
 // v1 取舍（原版有、此处不做）：
 // - PR 创建整组不做（无 pullRequestConfig 契约）；
 // - Issue 链接整组不做（产品演进中已删除该功能）；
@@ -8,8 +8,12 @@
 // - URL/链接菜单（§2.8）不做 —— GitMenuTarget 契约无该目标类型，详情面板链接直接外部打开；
 // - 文件行的「查看该版本的文件」不做（无文件内容查看器契约）、「标记为已审阅」组不做（无 Code Review）。
 import { Fragment, useMemo } from 'react'
-import { Menu } from '@base-ui-components/react/menu'
 import { Check } from 'lucide-react'
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem
+} from '@renderer/components/ui/context-menu'
 import {
   GIT_DEFAULTS,
   UNCOMMITTED,
@@ -670,10 +674,7 @@ export function groupMenuItems(items: (GitMenuItem | 'divider')[]): GitMenuItem[
 
 // —— 组件层 ——
 
-const MENU_ITEM =
-  'flex h-8 cursor-pointer select-none items-center gap-2 rounded px-2 text-[13px] text-foreground outline-none transition-colors data-[highlighted]:bg-[var(--bg-row-hover)]'
-
-/** 右键菜单组件：读 store 的 contextMenu，Base UI Menu 受控 open + 鼠标点虚拟 anchor。 */
+/** 右键菜单：读 store 的 contextMenu；多入口共用故用受控 ContextMenu + 虚拟 anchor（非行级 Trigger）。 */
 export function GitContextMenu({ projectPath }: { projectPath: string }): React.JSX.Element | null {
   const menu = useGit((s) => gitState(s, projectPath).contextMenu)
   const commits = useGit((s) => gitState(s, projectPath).commits)
@@ -722,12 +723,12 @@ export function GitContextMenu({ projectPath }: { projectPath: string }): React.
   const anchor = useMemo(
     () =>
       menu === null
-        ? null
+        ? undefined
         : { getBoundingClientRect: (): DOMRect => new DOMRect(menu.x, menu.y, 0, 0) },
     [menu]
   )
 
-  if (menu === null) return null
+  if (menu === null || !anchor) return null
   const groups = groupMenuItems(
     buildMenuItems(menu.target, {
       projectPath,
@@ -747,60 +748,41 @@ export function GitContextMenu({ projectPath }: { projectPath: string }): React.
   const checkedMode = menu.target.kind === 'header'
 
   return (
-    <Menu.Root
+    <ContextMenu
       open
-      modal={false}
-      onOpenChange={(open, eventDetails) => {
-        if (open) return
-        // 裸 Menu.Root（无 context-menu 父类型）会因 focus-out 等在鼠标移出/失焦时自动关；
-        // 右键菜单只在「明确关闭意图」时关：Esc / 点菜单项 / 点外部，其余原因（focus-out 等）忽略。
-        const reason = eventDetails?.reason
-        if (
-          reason === 'escape-key' ||
-          reason === 'outside-press' ||
-          reason === 'item-press' ||
-          reason === 'close-press' ||
-          reason === 'imperative-action'
-        ) {
-          useGit.getState().closeContextMenu(projectPath)
-        }
+      onOpenChange={(open) => {
+        if (!open) useGit.getState().closeContextMenu(projectPath)
       }}
     >
-      <Menu.Portal>
-        <Menu.Positioner
-          className="z-50"
-          anchor={anchor}
-          side="bottom"
-          align="start"
-          sideOffset={2}
-          collisionPadding={2}
-        >
-          <Menu.Popup className="min-w-44 rounded-lg border border-[color:var(--border-input)] bg-panel p-1.5 shadow-xl outline-none">
-            {groups.map((group, gi) => (
-              <Fragment key={gi}>
-                {gi > 0 && <div className="mx-1.5 my-1 h-px bg-[var(--separator)]" />}
-                {group.map((item, ii) => (
-                  <Menu.Item
-                    key={ii}
-                    // 置灰项：Base UI disabled 挡掉点击与键盘导航；title 给禁用原因
-                    disabled={item.disabled === true}
-                    title={item.disabled === true ? item.disabledReason : undefined}
-                    className={cn(MENU_ITEM, item.disabled === true && 'cursor-default opacity-50')}
-                    onClick={item.onClick}
-                  >
-                    {checkedMode && (
-                      <Check
-                        className={cn('size-3.5 shrink-0', item.checked !== true && 'invisible')}
-                      />
-                    )}
-                    <span className="whitespace-nowrap">{item.title}</span>
-                  </Menu.Item>
-                ))}
-              </Fragment>
+      <ContextMenuContent
+        className="min-w-44"
+        anchor={anchor}
+        side="bottom"
+        align="start"
+        sideOffset={2}
+        collisionPadding={2}
+      >
+        {groups.map((group, gi) => (
+          <Fragment key={gi}>
+            {gi > 0 && <div className="mx-1.5 my-1 h-px bg-[var(--separator)]" />}
+            {group.map((item, ii) => (
+              <ContextMenuItem
+                key={ii}
+                disabled={item.disabled === true}
+                title={item.disabled === true ? item.disabledReason : undefined}
+                onClick={item.onClick}
+              >
+                {checkedMode && (
+                  <Check
+                    className={cn('size-3.5 shrink-0', item.checked !== true && 'invisible')}
+                  />
+                )}
+                <span className="whitespace-nowrap">{item.title}</span>
+              </ContextMenuItem>
             ))}
-          </Menu.Popup>
-        </Menu.Positioner>
-      </Menu.Portal>
-    </Menu.Root>
+          </Fragment>
+        ))}
+      </ContextMenuContent>
+    </ContextMenu>
   )
 }
