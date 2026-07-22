@@ -1,7 +1,7 @@
 import { execFile } from 'node:child_process'
 import { access } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, posix } from 'node:path'
 import { promisify } from 'node:util'
 import { shell } from 'electron'
 import {
@@ -87,19 +87,20 @@ export function candidateAppPaths(
   home: string
 ): string[] {
   if (platform === 'darwin') {
+    // 用 posix.join：单测在 Windows CI 也会测 darwin 候选，避免 path.join 产出反斜杠。
     switch (id) {
       case 'cursor':
-        return ['/Applications/Cursor.app', join(home, 'Applications/Cursor.app')]
+        return ['/Applications/Cursor.app', posix.join(home, 'Applications/Cursor.app')]
       case 'codex':
         // Codex Desktop 现随 ChatGPT.app（bundle id com.openai.codex）分发
         return [
           '/Applications/ChatGPT.app',
           '/Applications/Codex.app',
-          join(home, 'Applications/ChatGPT.app'),
-          join(home, 'Applications/Codex.app')
+          posix.join(home, 'Applications/ChatGPT.app'),
+          posix.join(home, 'Applications/Codex.app')
         ]
       case 'claude':
-        return ['/Applications/Claude.app', join(home, 'Applications/Claude.app')]
+        return ['/Applications/Claude.app', posix.join(home, 'Applications/Claude.app')]
     }
   }
   if (platform === 'win32') {
