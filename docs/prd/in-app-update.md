@@ -22,7 +22,7 @@ DevCube 已能打 tag 发到 GitHub Releases，但用户仍须自己去网页下
 12. 作为 Windows Portable 用户，我想在已知有新版本时看到同款顶栏按钮，点击后打开对应 GitHub Release，以便自行下载便携包。
 13. 作为 Windows Portable 用户，我不想应用尝试对我做 NSIS 式静默安装，以便不出现失败或错包。
 14. 作为 macOS 用户，我想无论当初用 dmg 还是 zip 装上的 `.app` 都能完整应用内更新，以便行为一致。
-15. 作为用户，我想开发模式（未包装）完全不检查、不下载更新，以便本地开发不被误报打扰。
+15. 作为开发者，我想未包装开发模式与便携版一样能检查更新、用「立即更新」打开 GitHub Release，以便本地验证更新 UI（官方 `forceDevUpdateConfig`）；不在开发态静默下载安装。
 16. 作为用户，我想看到自定义窗口顶栏（隐藏系统标题栏），以便外观靠近 WebStorm。
 17. 作为用户，我想顶栏中间标题与现在窗口标题一致——有当前 **Project** 时为「项目名 — DevCube」，否则「DevCube」——以便不学两套文案。
 18. 作为用户，我想顶栏右侧有设置齿轮，以便进入应用设置。
@@ -33,7 +33,7 @@ DevCube 已能打 tag 发到 GitHub Releases，但用户仍须自己去网页下
 23. 作为用户，当还有运行中的 **Run Session** 时，我想 Cmd+Q、Windows/Linux 关窗退出、以及「重启以更新」等会退出整个应用的操作都先二次确认，以便不误杀正在跑的配置。
 24. 作为用户，当只有 **Terminal** 在跑、没有运行中的 **Run Session** 时，我不想被退出确认拦住，以便终端不挡退出。
 25. 作为 macOS 用户，我只关窗口、应用仍留在 Dock 时，不想被当成「退出应用」来确认，以便保持现有「关窗不退出」行为。
-26. 作为用户，我想检查失败时顶栏不吵、仅在关于里能看到状态/错误，以便网络抖动不弹骚扰。
+26. 作为用户，我想检查失败时当作「已是最新」、不展示错误文案，并在稍后自动重试，以便发版窗口期或网络抖动不骚扰。
 27. 作为维护者，我想 Release 上除安装包与 blockmap 外挂上 `latest.yml` / `latest-mac.yml`，以便 electron-updater 能校验并下载正确制品。
 28. 作为维护者，我想继续用现有「矩阵构建 → 收尾 `gh release`」流程补传 yml，而不是改回构建时 `--publish`，以便构建与发布仍然解耦。
 31. 作为维护者，我想公开仓库即可更新、不要求用户侧 GitHub Token，以便分发简单。
@@ -43,13 +43,13 @@ DevCube 已能打 tag 发到 GitHub Releases，但用户仍须自己去网页下
 
 - **更新源**：`electron-updater`，`publish.provider = github`，面向公开仓库 `WBBB0730/DevCube`。不以自建 generic 站、不以改回构建期 `--publish` 为主路径。
 - **身份封闭（ADR-0014）**：检查结果在采纳前按当前 **Release Edition** 过滤——正式只接受非 Pre-release；Beta 只接受 Pre-release；可辅以制品名 / 身份字段校验。明确不用官方 `channel=beta`「beta ∪ latest」漏斗作主方案。
-- **可自动更新形态**：macOS 上的 `.app`（更新载体仍依赖 Release 上的 zip + `latest-mac.yml`）；Windows NSIS 安装版（`latest.yml` + setup）。Windows Portable：只检查与提示，点击顶栏按钮 / 关于入口打开对应 Release，不走 `quitAndInstall`。
-- **检查节奏**：包装后的应用——启动后短 jitter 再查；运行中约每 4 小时；关于页手动检查。未包装 / 开发模式：updater 全关。
+- **可自动更新形态**：macOS 上的 `.app`（更新载体仍依赖 Release 上的 zip + `latest-mac.yml`）；Windows NSIS 安装版（`latest.yml` + setup）。**仅打开 Release 形态**：Windows Portable，以及未包装开发（`forceDevUpdateConfig` + 根目录 `dev-app-update.yml` 指向同一 GitHub 仓库）——只检查与提示，点击顶栏/「立即更新」打开对应 Release，不走下载/`quitAndInstall`（ADR-0017）。包装后仍解析为 `dev` 的平台（如 Linux）本轮不启用检查。
+- **检查节奏**：启用检查的形态——启动后短 jitter 再查；运行中约每 4 小时；进入设置→关于自动检查（与最近一次检查间隔不足 5 分钟则跳过）；手动「检查更新」可 force 绕过冷却。无独立 `idle` 阶段。检查失败（含发版窗口期 Atom 指向无资产 tag）：对外记为 `upToDate`、不推 `lastError`、约 15 分钟后静默重试；已有可用更新结果时复检不降级、不把 UI 打回 checking；下载中不打断。下载失败仍可在关于页提示。
 - **下载与安装**：可自动更新形态由编排层在检查通过后显式 `downloadUpdate`（`autoDownload = false`，与身份过滤同一处控制）。顶栏更新按钮仅在「已下载可安装」时显示（便携：已知有新版本时显示同款按钮）。按钮不可关闭、不可跳过版本。`autoInstallOnAppQuit = false`：已下好则在正常退出清理完成后显式安装；顶栏按钮同样走 `app.quit` → 清理 → 安装（若有运行中 Run Session 先走退出确认）。macOS 安装前卸掉会拦截退出的监听并挂 `before-quit-for-update` + `app.exit`，保证 Squirrel.Mac 装完能重开（ADR-0016）。
 - **发布产物**：CI artifact / `gh release` 上传集增加 updater 元数据（至少每端的 `latest.yml` / `latest-mac.yml`），与现有 dmg/zip/exe/blockmap 一并挂到同一 Release；接受 Release 资产列表中可见 yml。
 - **制品文件名（ADR-0015）**：进 Release / 写入更新清单的文件名一律用无空格的 `${name}`（`devcube` / `devcube-beta`），不用带空格的 `productName`。mac zip 形如 `${name}-${version}-${arch}-mac.zip`，与 `latest-mac.yml` 的 url 及 GitHub 资产名一致。显示名「DevCube Beta」只用于 UI。
 - **窗口顶栏**：`titleBarStyle` 隐藏系统标题栏；macOS 保留原生红绿灯；Windows/Linux 用系统窗口按钮叠层（如 `titleBarOverlay`）。中间标题与现 `document.title` 逻辑一致（本轮仍写「DevCube」字面，不强制改成 Beta 显示名）。右侧：条件显示的更新按钮 + 设置齿轮。拖拽区与控件 `no-drag` 分区按平台留出安全区。
-- **设置弹层**：主窗口内全屏级模态（非第二 BrowserWindow）。结构对齐 WebStorm：左分类树、右内容，底仅「确定」关闭（主色；无取消/应用——改动即时生效）。本轮栏目：关于（做实）、快捷键（只读）；有真实偏好项之前不挂「偏好」栏、不写占位文案。应用设置与 Git 仓库设置共用同一外壳。
+- **设置弹层**：主窗口内全屏级模态（非第二 BrowserWindow）。结构对齐 WebStorm：左分类树、右内容，底仅「确定」关闭（主色；无取消/应用——改动即时生效）。本轮栏目：关于（做实）、快捷键（只读）；有真实偏好项之前不挂「偏好」栏、不写占位文案。应用设置与 Git 仓库设置共用同一外壳。关于页状态与主按钮：进入关于即检查（`checksEnabled` 时），状态「正在检查更新」→结果；主按钮文案只有「检查更新」/「立即更新」两档（检查中、下载中仅禁用、不换 loading 文案）；可自动更新已下完，或便携/未包装开发有新版本时为「立即更新」。
 - **退出确认**：任一会结束整个应用进程的路径，若存在状态为运行中的 **Run Session**，先确认；**Terminal** 不参与条件。macOS 仅关窗不退出不触发。确认文案含运行中 **Run Session** 数量提示（用「运行会话」表述）。更新重启安装走同一确认闸。
 - **模块划分（深模块优先）**：
   - **更新策略纯函数**：输入当前版本 / **Release Edition** / 包装形态 / 候选更新信息 → 输出是否采纳、顶栏是否显示、点击动作（安装 vs 打开 Release）等；供单测。

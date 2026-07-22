@@ -43,7 +43,7 @@ export function AppTitleBar({
             type="button"
             title={
               update.buttonAction === 'openRelease'
-                ? `打开 GitHub Release（${update.availableVersion ?? ''}）`
+                ? `立即更新到 ${update.availableVersion ?? ''}`
                 : `重启以更新到 ${update.availableVersion ?? ''}`
             }
             onClick={onUpdateClick}

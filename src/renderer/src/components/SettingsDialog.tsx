@@ -16,29 +16,26 @@ const SECTIONS: { id: SectionId; label: string }[] = [
 type Props = {
   update: AppUpdateState | null
   onClose: () => void
-  onCheckUpdate: () => Promise<void>
-  onOpenRelease: () => void
+  /** @param force 手动按钮传 true，绕过进入关于的冷却 */
+  onCheckUpdate: (force?: boolean) => Promise<void>
+  onInstallUpdate: () => void
   onOpenRepo: () => void
 }
 
 function phaseLabel(state: AppUpdateState): string {
   switch (state.phase) {
-    case 'idle':
-      return '尚未检查'
     case 'checking':
-      return '正在检查…'
+      return '正在检查更新'
     case 'upToDate':
       return '已是最新'
     case 'available':
-      return state.packaging === 'portable'
-        ? `发现新版本 ${state.availableVersion ?? ''}（请前往 Release 下载）`
-        : `发现新版本 ${state.availableVersion ?? ''}`
+      return `发现新版本 ${state.availableVersion ?? ''}`
     case 'downloading':
       return `正在下载 ${state.availableVersion ?? ''}…`
     case 'ready':
       return `已下载 ${state.availableVersion ?? ''}，可重启安装`
     case 'error':
-      return state.lastError ? `检查失败：${state.lastError}` : '检查失败'
+      return state.lastError ? `下载失败：${state.lastError}` : '下载失败'
   }
 }
 
@@ -47,11 +44,10 @@ export function SettingsDialog({
   update,
   onClose,
   onCheckUpdate,
-  onOpenRelease,
+  onInstallUpdate,
   onOpenRepo
 }: Props): React.JSX.Element {
   const [section, setSection] = useState<SectionId>('about')
-  const [checking, setChecking] = useState(false)
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -61,14 +57,24 @@ export function SettingsDialog({
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
 
-  const check = async (): Promise<void> => {
-    setChecking(true)
-    try {
-      await onCheckUpdate()
-    } finally {
-      setChecking(false)
-    }
-  }
+  // 进入关于自动检查（受主进程 5 分钟冷却；后台 jitter / 周期仍独立）。
+  useEffect(() => {
+    if (section !== 'about') return
+    void onCheckUpdate(false)
+    // 只在切入关于时触发；onCheckUpdate 恒为「invoke 检查」，不必进依赖。
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
+  }, [section])
+
+  const canAutoInstall =
+    update != null && (update.packaging === 'macApp' || update.packaging === 'nsis')
+  const downloadInProgress =
+    canAutoInstall && (update.phase === 'available' || update.phase === 'downloading')
+  const checkBusy = update?.phase === 'checking' || downloadInProgress
+  /** 可自动更新已下完，或仅打开 Release 形态（便携 / 未包装开发）有新版本 →「立即更新」。 */
+  const showInstallAction =
+    (canAutoInstall && update.phase === 'ready') ||
+    ((update?.packaging === 'portable' || update?.packaging === 'dev') &&
+      update.phase === 'available')
 
   return (
     <SettingsModal
@@ -107,17 +113,18 @@ export function SettingsDialog({
               </div>
               <div>{phaseLabel(update)}</div>
               <div className="flex flex-wrap gap-2">
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={checking || update.packaging === 'dev'}
-                  onClick={() => void check()}
-                >
-                  {checking ? '检查中…' : '检查更新'}
-                </Button>
-                {(update.packaging === 'portable' || update.showButton) && (
-                  <Button type="button" size="sm" variant="ghost" onClick={onOpenRelease}>
-                    打开 GitHub Release
+                {showInstallAction ? (
+                  <Button type="button" size="sm" onClick={onInstallUpdate}>
+                    立即更新
+                  </Button>
+                ) : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    disabled={checkBusy || !update.checksEnabled}
+                    onClick={() => void onCheckUpdate(true)}
+                  >
+                    检查更新
                   </Button>
                 )}
               </div>

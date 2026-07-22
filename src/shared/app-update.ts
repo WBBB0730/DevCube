@@ -6,9 +6,8 @@ import { resolveReleaseEdition, type ReleaseEdition } from './release-edition'
 export type UpdatePackaging = 'dev' | 'macApp' | 'nsis' | 'portable'
 
 /** 更新流水线对外可观察阶段（供关于页与顶栏）。 */
-/** idle = 尚未检查；upToDate = 已检查且无适用更新。 */
+/** upToDate = 已检查且无适用更新（含启动后尚未完成首次检查前的占位）。 */
 export type AppUpdatePhase =
-  | 'idle'
   | 'checking'
   | 'upToDate'
   | 'available'
@@ -54,6 +53,11 @@ export function canAutoDownload(packaging: UpdatePackaging): boolean {
   return packaging === 'macApp' || packaging === 'nsis'
 }
 
+/** 只检查并打开 GitHub Release，不静默下载安装（便携 + 未包装开发）。 */
+export function isReleaseOnlyPackaging(packaging: UpdatePackaging): boolean {
+  return packaging === 'portable' || packaging === 'dev'
+}
+
 /**
  * 候选是否属于当前 Release Edition（身份封闭）。
  * 正式：非 Pre-release 且版本解析为正式；Beta：Pre-release 且版本解析为 beta。
@@ -77,12 +81,11 @@ export function isUpdateAllowedForEdition(
 
 /** 顶栏更新按钮是否显示。 */
 export function shouldShowUpdateButton(packaging: UpdatePackaging, phase: AppUpdatePhase): boolean {
-  if (packaging === 'dev') return false
-  if (packaging === 'portable') return phase === 'available'
+  if (isReleaseOnlyPackaging(packaging)) return phase === 'available'
   return phase === 'ready'
 }
 
 /** 顶栏更新按钮点击语义。 */
 export function updateButtonAction(packaging: UpdatePackaging): UpdateButtonAction {
-  return packaging === 'portable' ? 'openRelease' : 'quitAndInstall'
+  return isReleaseOnlyPackaging(packaging) ? 'openRelease' : 'quitAndInstall'
 }

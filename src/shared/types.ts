@@ -246,7 +246,8 @@ export interface RunAPI extends GitAPI {
 
   // —— 应用内更新 ——
   getAppUpdateState(): Promise<AppUpdateState>
-  checkAppUpdates(): Promise<AppUpdateState>
+  /** @param force 为 true 时绕过进入关于的冷却，用于手动「检查更新」 */
+  checkAppUpdates(force?: boolean): Promise<AppUpdateState>
   /** 顶栏更新按钮：安装或打开 Release */
   performAppUpdateAction(): Promise<{ startedInstall: boolean }>
   openAppReleasePage(): Promise<void>

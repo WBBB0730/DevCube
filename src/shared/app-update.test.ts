@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   canAutoDownload,
   githubReleaseUrl,
+  isReleaseOnlyPackaging,
   isUpdateAllowedForEdition,
   resolveUpdatePackaging,
   shouldShowUpdateButton,
@@ -82,17 +83,14 @@ describe('shouldShowUpdateButton / updateButtonAction', () => {
     expect(canAutoDownload('nsis')).toBe(true)
   })
 
-  it('便携版在 available 显示，动作为打开 Release', () => {
-    expect(shouldShowUpdateButton('portable', 'available')).toBe(true)
-    expect(shouldShowUpdateButton('portable', 'ready')).toBe(false)
-    expect(updateButtonAction('portable')).toBe('openRelease')
-    expect(canAutoDownload('portable')).toBe(false)
-  })
-
-  it('开发形态永不显示', () => {
-    expect(shouldShowUpdateButton('dev', 'ready')).toBe(false)
-    expect(shouldShowUpdateButton('dev', 'available')).toBe(false)
-    expect(canAutoDownload('dev')).toBe(false)
+  it('便携与开发在 available 显示，动作为打开 Release', () => {
+    for (const p of ['portable', 'dev'] as const) {
+      expect(shouldShowUpdateButton(p, 'available')).toBe(true)
+      expect(shouldShowUpdateButton(p, 'ready')).toBe(false)
+      expect(updateButtonAction(p)).toBe('openRelease')
+      expect(canAutoDownload(p)).toBe(false)
+      expect(isReleaseOnlyPackaging(p)).toBe(true)
+    }
   })
 })
 

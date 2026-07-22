@@ -396,7 +396,9 @@ export function registerIpc(win: BrowserWindow): void {
 
   // —— 应用内更新 ——
   ipcMain.handle(IPC.appUpdateGet, () => getAppUpdateState())
-  ipcMain.handle(IPC.appUpdateCheck, () => checkAppUpdates())
+  ipcMain.handle(IPC.appUpdateCheck, (_e, force?: boolean) =>
+    checkAppUpdates({ force: force === true })
+  )
   ipcMain.handle(IPC.appUpdateOpenRelease, () => {
     openAppReleasePage()
   })

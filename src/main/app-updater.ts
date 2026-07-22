@@ -9,6 +9,7 @@ import {
   canAutoDownload,
   GITHUB_REPO_URL,
   githubReleaseUrl,
+  isReleaseOnlyPackaging,
   isUpdateAllowedForEdition,
   resolveUpdatePackaging,
   shouldShowUpdateButton,
@@ -22,16 +23,26 @@ import { resolveReleaseEdition } from '../shared/release-edition'
 
 const STARTUP_JITTER_MAX_MS = 30_000
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
+/** 检查失败（如发版窗口期内 Atom 指向无资产 tag）后的静默重试间隔。 */
+const CHECK_RETRY_MS = 15 * 60 * 1000
+/** 进入关于自动检查的冷却（手动「检查更新」可 force 绕过）。 */
+const CHECK_COOLDOWN_MS = 5 * 60 * 1000
 
 let packaging: UpdatePackaging = 'dev'
-let phase: AppUpdatePhase = 'idle'
+let phase: AppUpdatePhase = 'upToDate'
 let availableVersion: string | null = null
 let lastError: string | null = null
 let win: BrowserWindow | null = null
 let started = false
+/** 是否接线并跑检查（未包装开发与可更新包装形态为 true）。 */
+let checksEnabled = false
 let startupTimer: ReturnType<typeof setTimeout> | null = null
 let intervalTimer: ReturnType<typeof setInterval> | null = null
-let checking = false
+let retryTimer: ReturnType<typeof setTimeout> | null = null
+/** 进行中的检查；并发调用共用同一 Promise，避免早退 snapshot 竞态。 */
+let checkPromise: Promise<void> | null = null
+/** 最近一次真正开始检查的时间（含后台 jitter / 周期）。 */
+let lastCheckStartedAt = 0
 
 function edition(): ReturnType<typeof resolveReleaseEdition> {
   return resolveReleaseEdition(app.getVersion())
@@ -50,6 +61,7 @@ function buildState(): AppUpdateState {
     availableVersion,
     showButton,
     buttonAction,
+    checksEnabled,
     lastError,
     repoUrl: GITHUB_REPO_URL,
     releaseUrl: availableVersion
@@ -78,19 +90,68 @@ function candidateFromInfo(info: UpdateInfo): { version: string; prerelease: boo
   }
 }
 
-async function runCheck(): Promise<void> {
-  if (packaging === 'dev' || checking) return
-  checking = true
+function clearRetryTimer(): void {
+  if (retryTimer) {
+    clearTimeout(retryTimer)
+    retryTimer = null
+  }
+}
+
+/** 已有「可安装 / 仅打开 Release」结果时，复检失败不降级。 */
+function shouldPreserveUpdateOffer(): boolean {
+  return phase === 'ready' || (phase === 'available' && isReleaseOnlyPackaging(packaging))
+}
+
+/** 检查失败：对外当无更新，不展示错误，稍后静默再查。已有可用更新时不降级。 */
+function treatCheckFailureAsUpToDate(err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err)
+  console.warn('[app-updater] check failed; treat as up to date, retry later:', message)
   lastError = null
-  setPhase('checking')
+  if (shouldPreserveUpdateOffer()) {
+    emit()
+    scheduleCheckRetry()
+    return
+  }
+  availableVersion = null
+  setPhase('upToDate')
+  scheduleCheckRetry()
+}
+
+function scheduleCheckRetry(): void {
+  if (!checksEnabled) return
+  clearRetryTimer()
+  retryTimer = setTimeout(() => {
+    retryTimer = null
+    void runCheck()
+  }, CHECK_RETRY_MS)
+}
+
+async function runCheck(): Promise<void> {
+  if (!checksEnabled) return
+  // 下载中不打断。
+  if (phase === 'downloading') return
+  if (checkPromise) {
+    await checkPromise
+    return
+  }
+
+  checkPromise = (async () => {
+    lastCheckStartedAt = Date.now()
+    clearRetryTimer()
+    lastError = null
+    // 已有可用更新结果时仍可复检，但不把 UI 打回 checking。
+    if (!shouldPreserveUpdateOffer()) setPhase('checking')
+    try {
+      await autoUpdater.checkForUpdates()
+    } catch (err) {
+      treatCheckFailureAsUpToDate(err)
+    }
+  })()
+
   try {
-    await autoUpdater.checkForUpdates()
-  } catch (err) {
-    lastError = err instanceof Error ? err.message : String(err)
-    availableVersion = null
-    setPhase('error')
+    await checkPromise
   } finally {
-    checking = false
+    checkPromise = null
   }
 }
 
@@ -101,10 +162,14 @@ function wireUpdater(): void {
   // mac 的 quitAndInstall 忽略 isForceRunAfter，只看此开关；Win/Linux 非静默安装也走它。
   autoUpdater.autoRunAppAfterInstall = true
   autoUpdater.allowPrerelease = edition().channel === 'beta'
+  // 官方：未包装测更新 UI 需 forceDevUpdateConfig + 根目录 dev-app-update.yml。
+  if (packaging === 'dev') {
+    autoUpdater.forceDevUpdateConfig = true
+  }
 
   autoUpdater.on('checking-for-update', () => {
     lastError = null
-    if (phase !== 'ready') setPhase('checking')
+    if (!shouldPreserveUpdateOffer()) setPhase('checking')
   })
 
   autoUpdater.on('update-available', (info) => {
@@ -129,7 +194,7 @@ function wireUpdater(): void {
   })
 
   autoUpdater.on('update-not-available', () => {
-    if (phase === 'ready') return
+    if (shouldPreserveUpdateOffer()) return
     availableVersion = null
     lastError = null
     setPhase('upToDate')
@@ -148,13 +213,25 @@ function wireUpdater(): void {
   })
 
   autoUpdater.on('error', (err) => {
-    lastError = err instanceof Error ? err.message : String(err)
-    if (phase !== 'ready') setPhase('error')
-    else emit()
+    // 下载失败仍标 error（关于页可提示）；检查失败静默当无更新。
+    if (phase === 'downloading') {
+      lastError = err instanceof Error ? err.message : String(err)
+      setPhase('error')
+      return
+    }
+    if (phase === 'ready') {
+      emit()
+      return
+    }
+    treatCheckFailureAsUpToDate(err)
   })
 }
 
-/** 应用就绪后启动：开发形态直接推 idle 状态，不查网。 */
+/**
+ * 应用就绪后启动。
+ * 未包装开发：官方 forceDevUpdateConfig，策略同便携（只检查 / 开 Release）。
+ * Linux 等仍解析为 `dev` 但已包装：本轮不启用检查。
+ */
 export function startAppUpdater(mainWindow: BrowserWindow): void {
   win = mainWindow
   packaging = resolveUpdatePackaging({
@@ -169,12 +246,15 @@ export function startAppUpdater(mainWindow: BrowserWindow): void {
   }
   started = true
 
-  if (packaging === 'dev') {
-    phase = 'idle'
+  // 包装后的 `dev`（如 Linux）本轮不更新；未包装开发与便携/可自动更新形态启用检查。
+  if (packaging === 'dev' && app.isPackaged) {
+    checksEnabled = false
+    phase = 'upToDate'
     emit()
     return
   }
 
+  checksEnabled = true
   wireUpdater()
   emit()
 
@@ -193,8 +273,26 @@ export function getAppUpdateState(): AppUpdateState {
   return buildState()
 }
 
-export async function checkAppUpdates(): Promise<AppUpdateState> {
-  if (packaging === 'dev') return buildState()
+/**
+ * 供关于页调用。
+ * - 默认受 5 分钟冷却（进入关于自动查）。
+ * - `force: true` 绕过冷却（手动点「检查更新」）。
+ * - 已有进行中的检查则等待汇合。
+ */
+export async function checkAppUpdates(opts?: { force?: boolean }): Promise<AppUpdateState> {
+  if (!checksEnabled) return buildState()
+  if (checkPromise) {
+    await checkPromise
+    return buildState()
+  }
+  const force = opts?.force === true
+  if (
+    !force &&
+    lastCheckStartedAt > 0 &&
+    Date.now() - lastCheckStartedAt < CHECK_COOLDOWN_MS
+  ) {
+    return buildState()
+  }
   await runCheck()
   return buildState()
 }
@@ -255,6 +353,7 @@ export function installDownloadedUpdate(): void {
 export function disposeAppUpdater(): void {
   if (startupTimer) clearTimeout(startupTimer)
   if (intervalTimer) clearInterval(intervalTimer)
+  clearRetryTimer()
   startupTimer = null
   intervalTimer = null
 }

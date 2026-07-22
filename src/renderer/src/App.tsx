@@ -175,10 +175,11 @@ function App(): React.JSX.Element {
         <SettingsDialog
           update={update}
           onClose={() => setSettingsOpen(false)}
-          onCheckUpdate={async () => {
-            setUpdate(await window.api.checkAppUpdates())
+          onCheckUpdate={async (force) => {
+            // 状态只经 IPC 推送，避免 invoke 返回值与 push 竞态盖掉更新结果。
+            await window.api.checkAppUpdates(force)
           }}
-          onOpenRelease={() => void window.api.openAppReleasePage()}
+          onInstallUpdate={() => void window.api.performAppUpdateAction()}
           onOpenRepo={() => {
             if (update) void window.api.openExternal(update.repoUrl)
           }}
