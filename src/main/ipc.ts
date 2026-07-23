@@ -76,7 +76,6 @@ import type { FilesUiState } from '../shared/files'
 import type { WorkspaceUiState } from '../shared/workspace'
 import { buildTree } from './tree'
 import { isAppQuitting } from './app-shutdown'
-import { syncWatchers } from './watcher'
 import {
   getDetails,
   getFileDiff,
@@ -86,8 +85,7 @@ import {
   loadRepo
 } from './git-data'
 import { runGitAction } from './git-actions'
-import { syncGitWatchers } from './git-watcher'
-import { syncFilesWatchers } from './files-watcher'
+import { syncProjectWatchers } from './project-watchers'
 import { clearRepoRootCache, execGit, resolveRepoRoot, revalidateRepoRoot } from './git-exec'
 import {
   checkAppUpdates,
@@ -123,8 +121,8 @@ function emitFilesChanged(projectPath: string): void {
   }
 }
 
-// git 监听集合与项目集合对齐：先解析各项目的仓库根（非仓库为 null → 探测形态 watcher）。
-async function refreshGitWatchers(): Promise<void> {
+// 每项目一条原生递归监听：解析仓库根后对齐（非仓库 repoRoot=null → 探测 .git 出现）。
+async function refreshProjectWatchers(): Promise<void> {
   if (isAppQuitting()) return
   const projects = await Promise.all(
     getProjects().map(async (p) => ({
@@ -132,14 +130,18 @@ async function refreshGitWatchers(): Promise<void> {
       repoRoot: await resolveRepoRoot(p.path)
     }))
   )
-  syncGitWatchers(projects, onGitWatcherChange)
+  syncProjectWatchers(projects, {
+    onDiscoveryChange: onDiscoveryWatchEvent,
+    onFilesChange: emitFilesChanged,
+    onGitChange: onGitWatcherChange
+  })
 }
 
 // watcher 防抖回调：先重验仓库根（init / .git 删除后缓存失真），变化则对齐 watcher 形态，
 // 再通知渲染端。不变时重验只多一个 rev-parse 进程（防抖收敛后频率很低）。
 function onGitWatcherChange(projectPath: string): void {
   void revalidateRepoRoot(projectPath).then(async ({ changed }) => {
-    if (changed) await refreshGitWatchers()
+    if (changed) await refreshProjectWatchers()
     emitGitChanged(projectPath)
   })
 }
@@ -152,18 +154,14 @@ function debounce(fn: () => void, ms: number): () => void {
   }
 }
 
-// 文件事件可能连发，防抖后先对账（删除引用悬空的配置、销毁其会话）再重建树推送。
-const onWatchEvent = debounce(() => {
+// 清单 / lockfile 事件可能连发，防抖后先对账再重建树推送。
+const onDiscoveryWatchEvent = debounce(() => {
   for (const removed of reconcileConfigs()) disposeSession(configKey(removed))
   emitTree()
 }, 120)
 
 function refreshWatchers(): void {
-  if (isAppQuitting()) return
-  const paths = getProjects().map((p) => p.path)
-  syncWatchers(paths, onWatchEvent)
-  syncFilesWatchers(paths, emitFilesChanged)
-  void refreshGitWatchers()
+  void refreshProjectWatchers()
 }
 
 export function registerIpc(win: BrowserWindow): void {
@@ -396,7 +394,7 @@ export function registerIpc(win: BrowserWindow): void {
         // init 会改变仓库根（非仓库 → 仓库）：显式重验 + 对齐 watcher 形态。不能依赖探测
         // watcher 的事件——动作执行期间（含余震窗口）watcher 静音，事件会被丢弃
         await revalidateRepoRoot(projectPath)
-        await refreshGitWatchers()
+        await refreshProjectWatchers()
       }
       if (opts?.silent !== true) emitGitChanged(projectPath)
       return result
@@ -406,7 +404,7 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.gitRevalidate, async (_e, projectPath: string) => {
     const { changed } = await revalidateRepoRoot(projectPath)
     if (changed) {
-      await refreshGitWatchers()
+      await refreshProjectWatchers()
       emitGitChanged(projectPath)
     }
     return changed

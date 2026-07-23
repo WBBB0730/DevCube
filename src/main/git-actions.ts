@@ -477,7 +477,7 @@ let lastActionEndedAt = 0
 /** 动作结束后的余震窗口：动作自身引发的 .git 文件事件可能晚到，这段时间内仍视为「进行中」。 */
 const ACTION_AFTERSHOCK_MS = 1500
 
-/** 是否有 git 动作正在执行（含结束后 1500ms 的余震窗口），供 git-watcher 静音自身事件。 */
+/** 是否有 git 动作正在执行（含结束后 1500ms 的余震窗口），供项目文件监听静音全部通道。 */
 export function isGitActionRunning(): boolean {
   return runningActions > 0 || Date.now() - lastActionEndedAt < ACTION_AFTERSHOCK_MS
 }
@@ -820,7 +820,8 @@ async function execAction(
 
 /**
  * 执行一个写动作：解析仓库根 → 分发执行 → 归并结果。执行期间（含结束后 1500ms 余震窗口）
- * isGitActionRunning() 为 true，git-watcher 据此丢弃动作自身引发的文件事件。
+ * isGitActionRunning() 为 true，项目文件监听据此丢弃动作自身引发的全部通道事件
+ * （discovery / files / git）。
  */
 export async function runGitAction(
   projectPath: string,

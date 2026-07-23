@@ -75,7 +75,7 @@
 
 **打开于。** 项目「更多」/右键菜单提供「打开于」子菜单（字母序：Claude、Codex、Cursor）。打开菜单时探测本机是否安装对应桌面端（应用路径或官方 CLI）；未装项置灰并 hover 说明原因。唤起方式见 ADR-0018：各工具走官方推荐入口，跨 macOS / Windows / Linux 适配。子项前缀品牌图标：Claude 用 Claude Desktop App 图标、Codex 用官方浅色标（蓝云 `>_`）、Cursor 用 Dock 同源 App icns（含 squircle 遮罩）。
 
-**文件监听。** 只监听每个 Project 的顶层 `package.json` 与 lockfile（不监听整个项目树，避免 `node_modules` 事件风暴），采用能稳妥处理编辑器原子写（写临时文件 + rename）的跨平台监听方案；具体库在落地时按项目 ctx7 规矩确认当前 API 后选用。
+**文件监听。** discovery 只**响应**每个 Project 顶层的 `package.json` / lockfile / 约定指纹（不因整树事件对账）；实现上与 Files / Git 共用每项目一条 @parcel/watcher 原生递归订阅（ADR-0021），由分类层挑出根级清单变更。
 
 ## Testing Decisions
 

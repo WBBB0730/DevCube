@@ -9,9 +9,7 @@ import { initStore } from './store'
 import { registerIpc } from './ipc'
 import { isAppQuitting, isQuitAllowed, markAppQuitting, markQuitAllowed } from './app-shutdown'
 import { killAllSessions } from './runner'
-import { closeAllWatchers } from './watcher'
-import { closeAllGitWatchers } from './git-watcher'
-import { closeAllFilesWatchers } from './files-watcher'
+import { closeAllProjectWatchers } from './project-watchers'
 import { resolveReleaseEdition } from '../shared/release-edition'
 import { confirmQuitIfNeeded } from './quit-confirm'
 import { canInstallUpdateOnQuit, installDownloadedUpdate } from './app-updater'
@@ -115,7 +113,7 @@ app.whenReady().then(async () => {
 })
 
 // Cmd+Q / app.quit() 会走 before-quit，但不会发 window-all-closed（Electron 官方说明）。
-// 退出清理必须在这里完成：先 await 关掉 chokidar/fsevents，再 app.exit（官方对原生 addon 的要求是
+// 退出清理必须在这里完成：先 await 关掉原生文件监听，再 app.exit（官方对原生 addon 的要求是
 // 退出前显式 destroy；用 app.exit 避免再入 before-quit）。清理期间禁止 sync* 重建监听。
 type QuitPhase = 'running' | 'cleaning' | 'exiting'
 let quitPhase: QuitPhase = 'running'
@@ -123,8 +121,8 @@ let quitPhase: QuitPhase = 'running'
 async function runQuitCleanup(): Promise<void> {
   markAppQuitting()
   killAllSessions()
-  await Promise.all([closeAllWatchers(), closeAllGitWatchers(), closeAllFilesWatchers()])
-  // 给 fsevents 原生 stop 一点时间收尾，再拆 Node Environment。
+  await closeAllProjectWatchers()
+  // 给原生 watcher stop 一点时间收尾，再拆 Node Environment。
   await new Promise<void>((resolve) => setTimeout(resolve, 50))
 }
 
@@ -165,7 +163,7 @@ app.on('window-all-closed', () => {
   // macOS 关窗不退出：保留运行中的会话进程，重开窗口后仍能恢复运行状态。
   // 真正退出清理在 before-quit；此处仅在「只关窗、不退出」时停掉无 UI 的文件监听。
   if (process.platform === 'darwin') {
-    void Promise.all([closeAllWatchers(), closeAllGitWatchers(), closeAllFilesWatchers()])
+    void closeAllProjectWatchers()
     return
   }
   app.quit()
