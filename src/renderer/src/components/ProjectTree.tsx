@@ -846,6 +846,8 @@ function ProjectHeader({
   dragHandleProps?: HTMLAttributes<HTMLDivElement>
 }): React.JSX.Element {
   const selectProject = useApp((s) => s.selectProject)
+  const isCurrent = useApp((s) => s.currentProjectPath === node.project.path)
+  // 蓝底仅当「项目本身」被选中（无配置选中）；当前项目另用浅底 + 加粗名标示。
   const selected = useApp(
     (s) => s.currentProjectPath === node.project.path && s.selectedKey === null
   )
@@ -874,7 +876,7 @@ function ProjectHeader({
           'select-none bg-panel text-foreground',
           selected
             ? 'bg-[var(--selection-row)]'
-            : rowHoverLike
+            : rowHoverLike || isCurrent
               ? 'bg-[var(--bg-row-hover)]'
               : 'hover:bg-[var(--bg-row-hover)]',
           className
@@ -899,7 +901,9 @@ function ProjectHeader({
           <ChevronRight className={cn('size-3.5 transition-transform', expanded && 'rotate-90')} />
         </button>
         <Folder className="size-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate">{node.project.name}</span>
+        <span className={cn('min-w-0 flex-1 truncate', isCurrent && 'font-semibold')}>
+          {node.project.name}
+        </span>
         {node.packageManager && node.packageManager !== 'pnpm' && (
           <span
             className={cn(
@@ -1013,7 +1017,8 @@ function ProjectRow({
 }): React.JSX.Element {
   const [open, setOpen] = useState(true)
   const selectProject = useApp((s) => s.selectProject)
-  // 与配置行同层级的互斥选中：仅当「项目本身」被选中（无配置选中）时高亮项目行。
+  const isCurrent = useApp((s) => s.currentProjectPath === node.project.path)
+  // 蓝底仅当「项目本身」被选中（无配置选中）；当前项目另用浅底 + 加粗名标示。
   const selected = useApp(
     (s) => s.currentProjectPath === node.project.path && s.selectedKey === null
   )
@@ -1049,7 +1054,7 @@ function ProjectRow({
             'select-none bg-panel text-foreground',
             selected
               ? 'bg-[var(--selection-row)]'
-              : rowHoverLike
+              : rowHoverLike || isCurrent
                 ? 'bg-[var(--bg-row-hover)]'
                 : 'hover:bg-[var(--bg-row-hover)]'
           )}
@@ -1075,7 +1080,9 @@ function ProjectRow({
             />
           </button>
           <Folder className="size-4 shrink-0 text-muted-foreground" />
-          <span className="min-w-0 flex-1 truncate">{node.project.name}</span>
+          <span className={cn('min-w-0 flex-1 truncate', isCurrent && 'font-semibold')}>
+            {node.project.name}
+          </span>
           {node.packageManager && node.packageManager !== 'pnpm' && (
             <span
               className={cn(
@@ -1276,12 +1283,16 @@ function RunnableRow({
   const select = useApp((s) => s.select)
   const selectScript = useApp((s) => s.selectScript)
   const running = status === 'running'
+  const [contextMenuOpen, setContextMenuOpen] = useState(false)
+  const [moreMenuOpen, setMoreMenuOpen] = useState(false)
+  // 菜单开着时指针已离行，`:hover` 会丢；保持与 hover 相同的行底 / 按钮可见性。
+  const rowHoverLike = !!isDragging || contextMenuOpen || moreMenuOpen
   // 选中蓝底行上的按钮 hover 用蓝色高亮，而非灰色。
   const btnHover = selected
     ? 'hover:bg-[var(--selection-row-hover)]'
     : 'hover:bg-[var(--bg-button-hover)]'
-  // 空闲时按钮仅 hover / 选中 / 拖拽中才显示；运行中的重跑与停止恒显。
-  const idleVis = selected || isDragging ? 'flex' : 'hidden group-hover:flex'
+  // 空闲时按钮仅 hover / 选中 / 拖拽中 / 菜单打开才显示；运行中的重跑与停止恒显。
+  const idleVis = selected || rowHoverLike ? 'flex' : 'hidden group-hover:flex'
 
   const row = (
     <>
@@ -1333,6 +1344,7 @@ function RunnableRow({
             config={config}
             baseClass={cn(BTN, 'text-muted-foreground hover:text-[color:var(--fg-icon)]', btnHover)}
             idleVis={idleVis}
+            onOpenChange={setMoreMenuOpen}
           />
         )
       )}
@@ -1343,7 +1355,7 @@ function RunnableRow({
     ROW,
     selected
       ? 'bg-[var(--selection-row)]'
-      : isDragging
+      : rowHoverLike
         ? 'bg-[var(--bg-row-hover)]'
         : 'hover:bg-[var(--bg-row-hover)]'
   )
@@ -1364,7 +1376,7 @@ function RunnableRow({
   }
 
   return (
-    <ContextMenu>
+    <ContextMenu onOpenChange={setContextMenuOpen}>
       <ContextMenuTrigger className={rowClass} onClick={onRowClick}>
         {row}
       </ContextMenuTrigger>
@@ -1396,16 +1408,24 @@ function ConfigMenuItems({ config }: { config: RunConfig }): React.JSX.Element {
 function MoreMenu({
   config,
   baseClass,
-  idleVis
+  idleVis,
+  onOpenChange
 }: {
   config: RunConfig
   baseClass: string
   idleVis: string
+  onOpenChange?: (open: boolean) => void
 }): React.JSX.Element {
   const [open, setOpen] = useState(false)
 
   return (
-    <DropdownMenu open={open} onOpenChange={(nextOpen) => setOpen(nextOpen)}>
+    <DropdownMenu
+      open={open}
+      onOpenChange={(nextOpen) => {
+        setOpen(nextOpen)
+        onOpenChange?.(nextOpen)
+      }}
+    >
       <DropdownMenuTrigger
         className={cn(baseClass, open ? 'flex' : idleVis)}
         title="更多"
