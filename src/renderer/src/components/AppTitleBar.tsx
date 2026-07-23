@@ -9,6 +9,11 @@ type Props = {
   onUpdateClick: () => void
 }
 
+/** 与 `size-7` / `gap-0.5` 对齐；标题两侧在控件占用之外再留的空隙。 */
+const BTN = 28
+const BTN_GAP = 2
+const TITLE_GAP = 8
+
 /** 自定义窗口顶栏：中间标题 + 右侧更新/设置；整条可拖拽，控件 no-drag。 */
 export function AppTitleBar({
   title,
@@ -19,17 +24,30 @@ export function AppTitleBar({
   const isMac = window.electron.process.platform === 'darwin'
   const showUpdate = update?.showButton === true
 
+  const leftReserve = isMac ? 78 : 12
+  const rightPad = isMac ? 8 : 138 + 8
+  const rightButtons = showUpdate ? BTN * 2 + BTN_GAP : BTN
+  const rightReserve = rightButtons + rightPad
+  const titleMaxWidth = `calc(100% - ${2 * (Math.max(leftReserve, rightReserve) + TITLE_GAP)}px)`
+
   return (
     <div
-      className="flex h-10 shrink-0 items-center border-b border-[color:var(--separator)] bg-panel"
+      className="relative flex h-10 shrink-0 items-center border-b border-[color:var(--separator)] bg-panel"
       style={{ WebkitAppRegion: 'drag' } as React.CSSProperties}
     >
+      <div className="pointer-events-none absolute inset-0 flex items-center justify-center">
+        <div
+          className="truncate text-center text-[13px] font-bold text-[color:var(--fg-dialog-title)]"
+          style={{ maxWidth: titleMaxWidth }}
+        >
+          {title}
+        </div>
+      </div>
+
       {/* macOS 红绿灯安全区 */}
       <div className={cn('shrink-0', isMac ? 'w-[78px]' : 'w-3')} />
 
-      <div className="min-w-0 flex-1 truncate text-center text-[13px] font-bold text-[color:var(--fg-dialog-title)]">
-        {title}
-      </div>
+      <div className="min-w-0 flex-1" />
 
       <div
         className={cn(

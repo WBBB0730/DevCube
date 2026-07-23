@@ -696,7 +696,7 @@ export function ProjectTree(): React.JSX.Element {
               <FolderPlus className="size-4" />
             </DropdownMenuTrigger>
             <DropdownMenuContent>
-              <DropdownMenuItem onClick={createProject}>新建项目…</DropdownMenuItem>
+              <DropdownMenuItem onClick={createProject}>新建空项目…</DropdownMenuItem>
               <DropdownMenuItem onClick={addProject}>添加现有项目…</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -732,7 +732,7 @@ export function ProjectTree(): React.JSX.Element {
         }}
       >
         {filtered.length === 0 ? (
-          <div className="flex h-full min-h-full items-center justify-center px-3 text-[13px] text-muted-foreground">
+          <div className="flex h-full min-h-full items-center justify-center px-3 pb-10 text-[13px] text-muted-foreground">
             {emptyMessage}
           </div>
         ) : canDrag ? (
