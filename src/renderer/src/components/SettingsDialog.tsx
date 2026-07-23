@@ -1,17 +1,33 @@
 import { useEffect, useState } from 'react'
 import type { AppUpdateState } from '@shared/app-update-state'
 import { APP_SHORTCUT_LIST } from '@shared/app-shortcut-list'
+import type { AppPrefs, WindowsShell, WindowsShellOption } from '@shared/types'
+import { DEFAULT_APP_PREFS } from '@shared/types'
 import { SettingsModal } from '@renderer/components/SettingsModal'
 import { Button } from '@renderer/components/ui/button'
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue
+} from '@renderer/components/ui/select'
 import { shortcutLabel } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
 
-type SectionId = 'about' | 'keymap'
+type SectionId = 'about' | 'prefs' | 'keymap'
 
 const SECTIONS: { id: SectionId; label: string }[] = [
   { id: 'about', label: '关于' },
+  { id: 'prefs', label: '偏好' },
   { id: 'keymap', label: '快捷键' }
 ]
+
+const WINDOWS_SHELL_LABELS: Record<WindowsShell, string> = {
+  'git-bash': 'Git Bash',
+  powershell: 'PowerShell',
+  cmd: '命令提示符 (cmd)'
+}
 
 type Props = {
   update: AppUpdateState | null
@@ -48,6 +64,11 @@ export function SettingsDialog({
   onOpenRepo
 }: Props): React.JSX.Element {
   const [section, setSection] = useState<SectionId>('about')
+  const [prefs, setPrefs] = useState<AppPrefs | null>(null)
+  const [shellOptions, setShellOptions] = useState<WindowsShellOption[] | null>(null)
+  const isWin = window.electron.process.platform === 'win32'
+  // 偏好目前仅 Windows「默认终端」；非 Windows 不挂空说明页。
+  const sections = isWin ? SECTIONS : SECTIONS.filter((s) => s.id !== 'prefs')
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
@@ -64,6 +85,24 @@ export function SettingsDialog({
     // 只在切入关于时触发；onCheckUpdate 恒为「invoke 检查」，不必进依赖。
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
   }, [section])
+
+  useEffect(() => {
+    if (section !== 'prefs') return
+    void Promise.all([window.api.getAppPrefs(), window.api.getWindowsShellOptions()]).then(
+      ([nextPrefs, options]) => {
+        setPrefs(nextPrefs)
+        setShellOptions(options)
+      }
+    )
+  }, [section])
+
+  const setWindowsShell = (windowsShell: WindowsShell): void => {
+    const opt = shellOptions?.find((o) => o.id === windowsShell)
+    if (opt && !opt.available) return
+    const next = { ...(prefs ?? DEFAULT_APP_PREFS), windowsShell }
+    setPrefs(next)
+    void window.api.setAppPrefs({ windowsShell }).then(setPrefs)
+  }
 
   const canAutoInstall =
     update != null && (update.packaging === 'macApp' || update.packaging === 'nsis')
@@ -85,7 +124,7 @@ export function SettingsDialog({
       <div className="flex min-h-0 flex-1">
         <aside className="flex w-56 shrink-0 flex-col border-r border-[color:var(--separator)]">
           <nav className="flex min-h-0 flex-1 flex-col gap-px overflow-auto p-2">
-            {SECTIONS.map((s) => (
+            {sections.map((s) => (
               <button
                 key={s.id}
                 type="button"
@@ -140,6 +179,37 @@ export function SettingsDialog({
 
           {section === 'about' && !update && (
             <div className="text-[color:var(--fg-muted)]">正在加载…</div>
+          )}
+
+          {section === 'prefs' && isWin && (
+            <div className="space-y-2">
+              <div className="text-[color:var(--fg-primary)]">默认终端</div>
+              {prefs && shellOptions ? (
+                <Select
+                  value={prefs.windowsShell}
+                  onValueChange={(v) => {
+                    if (v != null) setWindowsShell(v as WindowsShell)
+                  }}
+                  items={shellOptions.map((o) => ({
+                    value: o.id,
+                    label: WINDOWS_SHELL_LABELS[o.id]
+                  }))}
+                >
+                  <SelectTrigger className="w-[280px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {shellOptions.map((o) => (
+                      <SelectItem key={o.id} value={o.id} disabled={!o.available}>
+                        {WINDOWS_SHELL_LABELS[o.id]}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <div className="text-[color:var(--fg-muted)]">正在加载…</div>
+              )}
+            </div>
           )}
 
           {section === 'keymap' && (

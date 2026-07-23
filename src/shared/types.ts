@@ -51,6 +51,27 @@ export const DEFAULT_PROJECT_SORT_PREFS: ProjectSortPrefs = {
   pinSticky: true
 }
 
+/** Windows 上 Terminal / Run Session 共用的 shell 偏好。 */
+export type WindowsShell = 'git-bash' | 'powershell' | 'cmd'
+
+/** 跨平台应用偏好（当前仅 Windows shell；非 win32 忽略 windowsShell）。 */
+export interface AppPrefs {
+  windowsShell: WindowsShell
+}
+
+export const WINDOWS_SHELLS: readonly WindowsShell[] = ['git-bash', 'powershell', 'cmd']
+
+/** 默认 Git Bash；探测不到时运行时回退 PowerShell（见 ADR-0022）。 */
+export const DEFAULT_APP_PREFS: AppPrefs = {
+  windowsShell: 'git-bash'
+}
+
+/** Windows shell 选项及本机是否可用（供设置页置灰不可选项）。 */
+export interface WindowsShellOption {
+  id: WindowsShell
+  available: boolean
+}
+
 /** 从清单脚本或约定命令实时派生的只读候补，不持久化。 */
 export interface DiscoveredScript {
   projectPath: string
@@ -96,6 +117,8 @@ export interface PersistedState {
   gitViewPrefs: GitViewPrefs
   /** 左树项目列表排序偏好 */
   projectSortPrefs: ProjectSortPrefs
+  /** 应用偏好（Windows shell 等） */
+  appPrefs: AppPrefs
   /** 每项目 Files Tab UI（键 = 项目绝对路径） */
   filesUi: Record<string, FilesUiState>
   /** 工作台 Tab 现场（当前项目 / 选中 / 激活 Tab / Terminal 壳） */
@@ -185,6 +208,10 @@ export interface RunAPI extends GitAPI {
   setProjectPinned(path: string, pinned: boolean): Promise<ProjectNode[]>
   getProjectSortPrefs(): Promise<ProjectSortPrefs>
   setProjectSortPrefs(patch: Partial<ProjectSortPrefs>): Promise<ProjectSortPrefs>
+  getAppPrefs(): Promise<AppPrefs>
+  setAppPrefs(patch: Partial<AppPrefs>): Promise<AppPrefs>
+  /** Windows：列出 shell 选项及是否可用（非 win32 仍可调用，git-bash 通常为 false） */
+  getWindowsShellOptions(): Promise<WindowsShellOption[]>
 
   // —— 运行时（slice 3+） ——
   run(target: RunTarget): Promise<void>

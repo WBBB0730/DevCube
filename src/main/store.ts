@@ -1,8 +1,15 @@
 import type ElectronStore from 'electron-store'
 import type { FilesUiState } from '../shared/files'
 import { DEFAULT_FILES_UI } from '../shared/files'
-import type { PersistedState, Project, ProjectSortPrefs, RunConfig } from '../shared/types'
-import { DEFAULT_PROJECT_SORT_PREFS } from '../shared/types'
+import type {
+  AppPrefs,
+  PersistedState,
+  Project,
+  ProjectSortPrefs,
+  RunConfig,
+  WindowsShell
+} from '../shared/types'
+import { DEFAULT_APP_PREFS, DEFAULT_PROJECT_SORT_PREFS, WINDOWS_SHELLS } from '../shared/types'
 import type { WorkspaceUiState } from '../shared/workspace'
 import { DEFAULT_WORKSPACE_UI } from '../shared/workspace'
 import {
@@ -25,6 +32,7 @@ export async function initStore(): Promise<void> {
       gitSettings: {},
       gitViewPrefs: DEFAULT_GIT_VIEW_PREFS,
       projectSortPrefs: DEFAULT_PROJECT_SORT_PREFS,
+      appPrefs: DEFAULT_APP_PREFS,
       filesUi: {},
       workspaceUi: DEFAULT_WORKSPACE_UI
     }
@@ -122,6 +130,32 @@ export function getProjectSortPrefs(): ProjectSortPrefs {
 export function setProjectSortPrefs(patch: Partial<ProjectSortPrefs>): ProjectSortPrefs {
   const merged = { ...getProjectSortPrefs(), ...patch }
   store.set('projectSortPrefs', merged)
+  return merged
+}
+
+function normalizeWindowsShell(value: unknown): WindowsShell {
+  return typeof value === 'string' && (WINDOWS_SHELLS as readonly string[]).includes(value)
+    ? (value as WindowsShell)
+    : DEFAULT_APP_PREFS.windowsShell
+}
+
+export function getAppPrefs(): AppPrefs {
+  const stored = store.get('appPrefs')
+  return {
+    ...DEFAULT_APP_PREFS,
+    ...pickKnownKeys(DEFAULT_APP_PREFS, stored),
+    windowsShell: normalizeWindowsShell(stored?.windowsShell ?? DEFAULT_APP_PREFS.windowsShell)
+  }
+}
+
+export function setAppPrefs(patch: Partial<AppPrefs>): AppPrefs {
+  const current = getAppPrefs()
+  const merged: AppPrefs = {
+    ...current,
+    ...patch,
+    windowsShell: normalizeWindowsShell(patch.windowsShell ?? current.windowsShell)
+  }
+  store.set('appPrefs', merged)
   return merged
 }
 

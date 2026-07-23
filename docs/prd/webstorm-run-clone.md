@@ -44,6 +44,7 @@
 32. 作为用户，我想让控制台**正确渲染 ANSI 颜色、spinner、进度条、`\r` 覆盖行**，以便 vite/webpack 的输出原样好看。
 33. 作为用户，我想让 Discovered Script 用项目**探测到的包管理器**运行（由 lockfile 决定 pnpm/yarn/bun/npm），以便命令与我在终端里跑的一致。
 34. 作为用户，我想让命令通过**登录 shell** 启动，以便 `nvm`/自定义 PATH 被正确加载，不再 `command not found`。
+34a. 作为 Windows 用户，我想在设置「偏好」里选择 Terminal / Run 共用的 shell（Git Bash / PowerShell / cmd，默认 Git Bash；未检测到 Git Bash 时该项置灰，若偏好仍为它则运行时回退 PowerShell），以便与本机习惯一致。
 35. 作为用户，我想让**停止**杀掉整棵进程树，以便 dev server fork 出的子进程不残留为孤儿。
 36. 作为用户，我想在每条配置上看到**状态点**（空闲 / 运行中 / 成功退出 / 失败退出），以便一眼判断哪个在跑、哪个挂了。
 37. 作为用户，我想让工具**监听每个项目的 `package.json`（及 lockfile）**并即时更新候补与包管理器，以便我改了 scripts 立刻生效。
@@ -68,7 +69,7 @@
 
 - **晋升**：运行一条 Discovered Script 即把它转成一条引用型 Run Configuration，按 `(Project, script 名)` 去重，候补区不再展示它。
 - **对账（reconcile）**：`package.json` 变化时和每次 App 启动时都重新派生 Discovered Script 并比对——新增的进候补，消失的对应引用型配置直接删除，script 改名视作"删旧出新"。
-- **执行**：引用型跑 `<探测到的 PM> run <script 名>`，cwd 恒为项目根（避免"解析哪个 package.json"的歧义）；命令型跑用户命令、cwd 按相对项目根解析；两者都经登录 shell 起 PTY。
+- **执行**：引用型跑 `<探测到的 PM> run <script 名>`，cwd 恒为项目根（避免"解析哪个 package.json"的歧义）；命令型跑用户命令、cwd 按相对项目根解析；两者都经登录 shell 起 PTY。posix 用 `$SHELL`（缺省 zsh）；Windows 用应用偏好（默认 Git Bash，可改 PowerShell / cmd；选 Git Bash 但探测不到时回退 PowerShell，见 ADR-0022）。Terminal 与 Run Session 共用同一解析结果。
 - **重新运行**：先杀整棵进程树再重启，复用同一控制台。
 
 **IPC 契约（方向性，非具体签名）。** 渲染→主：添加/移除 Project、列出某 Project 的 Discovered Script 与 Run Configuration、运行/停止/重新运行某配置、向会话写 stdin、通知 PTY 尺寸变化、新建/编辑/删除命令型配置、**打开项目文件夹**（既有 `shell.openPath`，仅放行已登记项目路径）、**打开于外部编码桌面工具**（探测安装状态；仅放行已登记项目根；Claude / Codex / Cursor，见 ADR-0018）。主→渲染：会话输出增量、会话状态变更（运行中/成功/失败）、Discovered Script 增删、引用型配置被自动删除。

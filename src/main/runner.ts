@@ -16,10 +16,12 @@ import {
   buildShellInvocation,
   buildShellSession,
   resolveCwd,
-  resolveDiscoveredCommand
+  resolveDiscoveredCommand,
+  runHeaderShellFor,
+  wrapWithRunHeader
 } from './command'
 import { detectPackageManager, readFingerprints } from './discovery'
-import { getConfigs } from './store'
+import { getAppPrefs, getConfigs } from './store'
 
 interface Session {
   key: string
@@ -173,11 +175,6 @@ function killTree(session: Session, signal: NodeJS.Signals): void {
   }
 }
 
-// 运行前的头部：同一行「工作目录（灰） $ 命令（粗）」，像常见终端的提示符一样先交代「在哪跑、跑什么」。
-function runHeader(resolved: Resolved): string {
-  return `\x1b[90m${resolved.cwd} $\x1b[0m \x1b[1m${resolved.command}\x1b[0m\r\n`
-}
-
 export function run(target: RunTarget): void {
   const resolved = resolveTarget(target)
   if (!resolved) return
@@ -191,7 +188,17 @@ export function run(target: RunTarget): void {
     previous.screen.dispose() // 释放旧屏幕（新会话随即以同 key 顶替 Map 槽位）
   }
 
-  const { file, args } = buildShellInvocation(resolved.command, process.platform, process.env.SHELL)
+  // 运行头经 shell 真正打印（在 ConPTY 启动清屏之后），再跑用户命令——仍在输出流里（ADR-0023）。
+  const windowsShell = getAppPrefs().windowsShell
+  const command = wrapWithRunHeader(
+    resolved.command,
+    resolved.cwd,
+    runHeaderShellFor(process.platform, windowsShell)
+  )
+  const { file, args } = buildShellInvocation(command, process.platform, {
+    posixShell: process.env.SHELL,
+    windowsShell
+  })
   const pty = spawn(file, args, {
     name: 'xterm-256color',
     cols,
@@ -200,7 +207,6 @@ export function run(target: RunTarget): void {
     env: { ...process.env, ...resolved.env } as Record<string, string>
   })
 
-  const header = runHeader(resolved)
   const { screen, serializer } = createScreen(cols, rows)
   const session: Session = {
     key: resolved.key,
@@ -219,8 +225,6 @@ export function run(target: RunTarget): void {
   }
   sessions.set(resolved.key, session)
   emitStatus(session)
-  // 头部走同一输出管道：进无头终端、计入 bytes（渲染端回填去重依赖 bytes 与流内容一致）。
-  emitOutput(session, header)
   pipeOutput(session)
 
   pty.onExit(({ exitCode }) => {
@@ -245,7 +249,10 @@ export function openTerminal(projectPath: string, key?: string): string {
   const existing = sessions.get(sessionKey)
   if (existing) return sessionKey
 
-  const { file, args } = buildShellSession(process.platform, process.env.SHELL)
+  const { file, args } = buildShellSession(process.platform, {
+    posixShell: process.env.SHELL,
+    windowsShell: getAppPrefs().windowsShell
+  })
   const pty = spawn(file, args, {
     name: 'xterm-256color',
     cols: DEFAULT_COLS,

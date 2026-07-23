@@ -3,7 +3,13 @@ import { IPC } from '../shared/ipc'
 import { configKey } from '../shared/runnable'
 import { isOpenInAppId } from '../shared/open-in-app'
 import type { DiscoverSource } from '../shared/discover-source'
-import type { CommandRunConfig, ProjectSortPrefs, RunTarget } from '../shared/types'
+import type {
+  AppPrefs,
+  CommandRunConfig,
+  ProjectSortPrefs,
+  RunTarget,
+  WindowsShellOption
+} from '../shared/types'
 import { listOpenInApps, openInApp } from './open-in-app'
 import {
   resolveRepoSettings,
@@ -14,7 +20,7 @@ import {
   type GitRepoSettings,
   type GitViewPrefs
 } from '../shared/git'
-import { cwdFromPickedDir, resolveCwd } from './command'
+import { cwdFromPickedDir, findGitBash, resolveCwd } from './command'
 import {
   createCommandConfig,
   deleteConfig,
@@ -56,9 +62,11 @@ import {
   getFilesUi,
   getGitSettings,
   getGitViewPrefs,
+  getAppPrefs,
   getProjectSortPrefs,
   getProjects,
   getWorkspaceUi,
+  setAppPrefs,
   setFilesUi,
   setGitSettings,
   setGitViewPrefs,
@@ -231,6 +239,14 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.projectSortPrefsSet, (_e, patch: Partial<ProjectSortPrefs>) =>
     setProjectSortPrefs(patch)
   )
+
+  ipcMain.handle(IPC.appPrefsGet, () => getAppPrefs())
+  ipcMain.handle(IPC.appPrefsSet, (_e, patch: Partial<AppPrefs>) => setAppPrefs(patch))
+  ipcMain.handle(IPC.windowsShellOptions, (): WindowsShellOption[] => [
+    { id: 'git-bash', available: findGitBash() !== null },
+    { id: 'powershell', available: true },
+    { id: 'cmd', available: true }
+  ])
 
   // —— 运行时 ——
   ipcMain.handle(IPC.run, (_e, target: RunTarget) => {

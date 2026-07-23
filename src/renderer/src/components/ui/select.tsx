@@ -65,17 +65,20 @@ function SelectContent({
 function SelectItem({
   className,
   value,
+  disabled,
   children
 }: {
   className?: string
   value: string
+  disabled?: boolean
   children?: React.ReactNode
 }): React.JSX.Element {
   return (
     <BaseSelect.Item
       value={value}
+      disabled={disabled}
       className={cn(
-        'flex cursor-pointer select-none items-center gap-1.5 rounded px-1.5 py-1.5 text-[13px] text-foreground outline-none data-[highlighted]:bg-[var(--bg-row-hover)]',
+        'flex cursor-pointer select-none items-center gap-1.5 rounded px-1.5 py-1.5 text-[13px] text-foreground outline-none data-[highlighted]:bg-[var(--bg-row-hover)] data-[disabled]:pointer-events-none data-[disabled]:cursor-default data-[disabled]:text-[color:var(--fg-disabled)] data-[disabled]:opacity-50',
         className
       )}
     >

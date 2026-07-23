@@ -26,6 +26,9 @@ const api: RunAPI = {
   setProjectPinned: (path, pinned) => ipcRenderer.invoke(IPC.projectSetPinned, path, pinned),
   getProjectSortPrefs: () => ipcRenderer.invoke(IPC.projectSortPrefsGet),
   setProjectSortPrefs: (patch) => ipcRenderer.invoke(IPC.projectSortPrefsSet, patch),
+  getAppPrefs: () => ipcRenderer.invoke(IPC.appPrefsGet),
+  setAppPrefs: (patch) => ipcRenderer.invoke(IPC.appPrefsSet, patch),
+  getWindowsShellOptions: () => ipcRenderer.invoke(IPC.windowsShellOptions),
 
   run: (target: RunTarget) => ipcRenderer.invoke(IPC.run, target),
   stop: (key) => ipcRenderer.invoke(IPC.stop, key),
