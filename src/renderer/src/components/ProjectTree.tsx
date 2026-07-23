@@ -102,10 +102,14 @@ const pinStickyTop = (index: number): number => index * (PROJECT_ROW_H + PIN_STI
 /** 未置顶「当前段」吸顶贴在整叠置顶下方（含置顶间间隙）。 */
 const unpinnedStickyTop = (pinnedCount: number): number =>
   pinnedCount * (PROJECT_ROW_H + PIN_STICKY_GAP)
+/** 吸顶堆再让一行（当前未置顶项目常驻吸顶时，其它段顶下移）。 */
+const belowStickyRow = (top: number): number => top + PROJECT_ROW_H + PIN_STICKY_GAP
 /** 吸顶时画在行下的 1px 不透明缝（不占布局，配合 pinStickyTop 的空档）。 */
 const PIN_STICKY_SEAM: CSSProperties = {
   boxShadow: `0 ${PIN_STICKY_GAP}px 0 0 var(--bg-panel)`
 }
+/** 当前未置顶项目常驻吸顶 z：低于置顶叠放（20+），高于普通段吸顶（15）。 */
+const CURRENT_STICKY_Z = 19
 
 /**
  * sticky 标题在视口内时对其 scrollIntoView 不会动（已可见）。
@@ -263,11 +267,16 @@ export function ProjectTree(): React.JSX.Element {
   const currentProjectPath = useApp((s) => s.currentProjectPath)
   const scrollToProjectPath = useApp((s) => s.scrollToProjectPath)
   const clearScrollToProjectPath = useApp((s) => s.clearScrollToProjectPath)
-  // 置顶项目的展开态提到父级，供吸顶标题条与下方配置区共用（默认展开）。
+  // 展开态提到父级：置顶供标题/配置区共用；未置顶避免「当前」结构切换时丢折叠。
   const [pinnedOpen, setPinnedOpen] = useState<Record<string, boolean>>({})
+  const [unpinnedOpen, setUnpinnedOpen] = useState<Record<string, boolean>>({})
   const isPinnedExpanded = (path: string): boolean => !forceCollapsed && pinnedOpen[path] !== false
   const togglePinnedOpen = (path: string): void => {
     setPinnedOpen((prev) => ({ ...prev, [path]: !(prev[path] !== false) }))
+  }
+  const isUnpinnedOpen = (path: string): boolean => unpinnedOpen[path] !== false
+  const toggleUnpinnedOpen = (path: string): void => {
+    setUnpinnedOpen((prev) => ({ ...prev, [path]: !(prev[path] !== false) }))
   }
 
   // 打开时间排序：等 touch 回写、当前项已排到本组最前之后，再滚入视口（有 Pin 时不滚到列表顶）。
@@ -464,20 +473,59 @@ export function ProjectTree(): React.JSX.Element {
 
   const emptyMessage = tree.length === 0 ? '拖入文件夹，或点上方 + 新建 / 添加项目' : '无匹配项目'
 
+  // 当前项目常驻吸顶（滚过自身后钉住，再往下也不走）：
+  // - 未置顶：摊平钉在置顶堆下；仅「排在其后」的未置顶段顶 +1 行（其前仍用原 top，避免空一截）
+  // - 已置顶 + 固定置顶开：已在叠放堆里，不再叠
+  // - 已置顶 + 固定置顶关：摊平钉在 top:0；其后置顶段 / 全部未置顶再让一行
+  const currentPinnedIdx = currentProjectPath
+    ? pinnedNodes.findIndex((n) => n.project.path === currentProjectPath)
+    : -1
+  const currentUnpinnedIdx = currentProjectPath
+    ? unpinnedNodes.findIndex((n) => n.project.path === currentProjectPath)
+    : -1
+  const currentPinnedPersist = !pinSticky && currentPinnedIdx >= 0
+  const currentUnpinnedPersist = currentUnpinnedIdx >= 0
+  const pinStackCount = pinSticky ? pinnedNodes.length : 0
+  const unpinnedBaseTop = currentPinnedPersist
+    ? belowStickyRow(0)
+    : unpinnedStickyTop(pinStackCount)
+
   // 固定置顶开：标题摊平为列表直接子节点，才能跨整表叠放吸顶。
   // 关：每项包进段容器，sticky 只在本段内有效，下一段会把上一段顶走（而不是盖住）。
+  // 当前置顶且需常驻时：即使关叠放也摊平。
   const pinnedRows = pinnedNodes.map((node, pinStackIndex) => {
     const expanded = isPinnedExpanded(node.project.path)
     const bodyVisible = expanded && (node.configs.length > 0 || node.discovered.length > 0)
     const path = node.project.path
+    const isCurrentPersist = currentPinnedPersist && pinStackIndex === currentPinnedIdx
+    const flatten = pinSticky || isCurrentPersist
+    const headerStickTop = pinSticky
+      ? pinStickyTop(pinStackIndex)
+      : isCurrentPersist
+        ? 0
+        : currentPinnedPersist && pinStackIndex > currentPinnedIdx
+          ? belowStickyRow(0)
+          : 0
     const gapClass = bodyVisible ? undefined : 'mb-3'
+    const scrollIntoPlace = (): void => {
+      const list = listRef.current
+      if (list) scrollProjectIntoView(list, path)
+    }
+    const headerStick =
+      !pinSticky || isCurrentPersist
+        ? {
+            stickTop: headerStickTop,
+            stickSeam: isCurrentPersist || pinSticky,
+            stickZIndex: isCurrentPersist ? CURRENT_STICKY_Z : undefined
+          }
+        : {}
     const block = (
       <>
         {/* 段起点锚（0 高、非 sticky）：点吸顶标题经它 scrollIntoView——标题已在视口时直接滚它不动。 */}
         <div
           data-project-scroll-anchor={path}
           aria-hidden
-          style={{ scrollMarginTop: pinSticky ? pinStickyTop(pinStackIndex) : 0 }}
+          style={{ scrollMarginTop: headerStickTop }}
         />
         {canDrag ? (
           <SortableProjectHeader
@@ -486,11 +534,9 @@ export function ProjectTree(): React.JSX.Element {
             pinStackIndex={pinStackIndex}
             forceCollapsed={forceCollapsed}
             pinSticky={pinSticky}
-            className={pinSticky ? gapClass : undefined}
-            onScrollIntoPlace={() => {
-              const list = listRef.current
-              if (list) scrollProjectIntoView(list, path)
-            }}
+            {...headerStick}
+            className={flatten ? gapClass : undefined}
+            onScrollIntoPlace={scrollIntoPlace}
             onToggleExpand={() => togglePinnedOpen(path)}
           />
         ) : (
@@ -499,22 +545,35 @@ export function ProjectTree(): React.JSX.Element {
             expanded={expanded}
             pinStackIndex={pinStackIndex}
             pinSticky={pinSticky}
-            className={pinSticky ? gapClass : undefined}
-            onScrollIntoPlace={() => {
-              const list = listRef.current
-              if (list) scrollProjectIntoView(list, path)
-            }}
+            className={flatten ? gapClass : undefined}
+            style={
+              flatten || !pinSticky
+                ? forceCollapsed
+                  ? { position: 'relative' }
+                  : {
+                      position: 'sticky',
+                      top: headerStickTop,
+                      zIndex: isCurrentPersist
+                        ? CURRENT_STICKY_Z
+                        : pinSticky
+                          ? 20 + pinStackIndex
+                          : 15,
+                      ...(isCurrentPersist || pinSticky ? PIN_STICKY_SEAM : {})
+                    }
+                : undefined
+            }
+            onScrollIntoPlace={scrollIntoPlace}
             onToggleExpand={() => togglePinnedOpen(path)}
           />
         )}
         <PinnedProjectBody
           node={node}
           expanded={expanded}
-          className={pinSticky ? 'mb-3' : undefined}
+          className={flatten ? 'mb-3' : undefined}
         />
       </>
     )
-    if (pinSticky) {
+    if (flatten) {
       return <Fragment key={path}>{block}</Fragment>
     }
     return (
@@ -524,19 +583,41 @@ export function ProjectTree(): React.JSX.Element {
     )
   })
 
-  const unpinnedSticky = unpinnedStickyTop(pinSticky ? pinnedNodes.length : 0)
-  const unpinnedRows = unpinnedNodes.map((node) => {
+  const unpinnedRows = unpinnedNodes.map((node, index) => {
     const path = node.project.path
     const scrollIntoPlace = (): void => {
       const list = listRef.current
       if (list) scrollProjectIntoView(list, path)
     }
+    const open = isUnpinnedOpen(path)
+    const onToggleOpen = (): void => toggleUnpinnedOpen(path)
+    if (currentUnpinnedPersist && index === currentUnpinnedIdx) {
+      return (
+        <CurrentUnpinnedProject
+          key={path}
+          node={node}
+          forceCollapsed={forceCollapsed}
+          stickTop={unpinnedBaseTop}
+          canDrag={canDrag}
+          open={open}
+          onToggleOpen={onToggleOpen}
+          onScrollIntoPlace={scrollIntoPlace}
+        />
+      )
+    }
+    // 仅当前之后的未置顶让一行；当前之前保持原 top，避免上方空一截。
+    const stickyTop =
+      currentUnpinnedPersist && index > currentUnpinnedIdx
+        ? belowStickyRow(unpinnedBaseTop)
+        : unpinnedBaseTop
     return canDrag ? (
       <SortableProjectRow
         key={path}
         node={node}
         forceCollapsed={forceCollapsed}
-        stickyTop={unpinnedSticky}
+        stickyTop={stickyTop}
+        open={open}
+        onToggleOpen={onToggleOpen}
         className="mb-3"
         onScrollIntoPlace={scrollIntoPlace}
       />
@@ -545,7 +626,9 @@ export function ProjectTree(): React.JSX.Element {
         key={path}
         node={node}
         forceCollapsed={forceCollapsed}
-        stickyTop={forceCollapsed ? null : unpinnedSticky}
+        stickyTop={forceCollapsed ? null : stickyTop}
+        open={open}
+        onToggleOpen={onToggleOpen}
         className="mb-3"
         onScrollIntoPlace={scrollIntoPlace}
       />
@@ -766,6 +849,9 @@ function SortableProjectHeader({
   pinStackIndex,
   forceCollapsed,
   pinSticky,
+  stickTop,
+  stickSeam,
+  stickZIndex,
   className,
   onScrollIntoPlace,
   onToggleExpand
@@ -776,6 +862,10 @@ function SortableProjectHeader({
   /** 拖拽收起补偿期间关掉 sticky，避免与 padding 补偿抢位置 */
   forceCollapsed: boolean
   pinSticky: boolean
+  /** 覆盖默认 top（段吸顶 / 当前项目常驻）。 */
+  stickTop?: number
+  stickSeam?: boolean
+  stickZIndex?: number
   className?: string
   onScrollIntoPlace: () => void
   onToggleExpand: () => void
@@ -787,16 +877,27 @@ function SortableProjectHeader({
   // 收起补偿期间关掉 sticky。偏好开：叠放吸顶；关：段内吸顶（下一段顶走上一段，不覆盖）。
   const sorting = transform !== null
   const stick = !forceCollapsed && !sorting
+  const override = stickTop != null
   const style: CSSProperties = {
     transform: DndCSS.Transform.toString(transform),
     transition,
     opacity: isDragging ? 0.6 : undefined,
     // 叠放时按序抬高 z；段吸顶用同一 z，避免后一段盖住前一段被顶走的过程。
-    zIndex: isDragging ? 40 : sorting ? 10 : pinSticky ? 20 + pinStackIndex : 15,
+    zIndex: isDragging
+      ? 40
+      : sorting
+        ? 10
+        : (stickZIndex ?? (pinSticky ? 20 + pinStackIndex : 15)),
     ...(stick
-      ? pinSticky
-        ? { position: 'sticky', top: pinStickyTop(pinStackIndex), ...PIN_STICKY_SEAM }
-        : { position: 'sticky', top: 0 }
+      ? override
+        ? {
+            position: 'sticky',
+            top: stickTop,
+            ...(stickSeam ? PIN_STICKY_SEAM : {})
+          }
+        : pinSticky
+          ? { position: 'sticky', top: pinStickyTop(pinStackIndex), ...PIN_STICKY_SEAM }
+          : { position: 'sticky', top: 0 }
       : { position: 'relative' })
   }
   return (
@@ -814,6 +915,76 @@ function SortableProjectHeader({
       onToggleExpand={onToggleExpand}
       dragHandleProps={{ ...attributes, ...listeners }}
     />
+  )
+}
+
+/**
+ * 当前未置顶项目：标题摊平为列表直接子节点，钉在置顶堆下，滚过其它项目仍保持可见。
+ * 写法对齐固定置顶（Header + Body 兄弟，勿包进段容器）。展开态由父级托管。
+ */
+function CurrentUnpinnedProject({
+  node,
+  forceCollapsed,
+  stickTop,
+  canDrag,
+  open,
+  onToggleOpen,
+  onScrollIntoPlace
+}: {
+  node: ProjectNode
+  forceCollapsed: boolean
+  stickTop: number
+  canDrag: boolean
+  open: boolean
+  onToggleOpen: () => void
+  onScrollIntoPlace: () => void
+}): React.JSX.Element {
+  const expanded = open && !forceCollapsed
+  const bodyVisible = expanded && (node.configs.length > 0 || node.discovered.length > 0)
+  const gapClass = bodyVisible ? undefined : 'mb-3'
+  const path = node.project.path
+  const headerStyle: CSSProperties = {
+    position: 'sticky',
+    top: stickTop,
+    zIndex: CURRENT_STICKY_Z,
+    ...PIN_STICKY_SEAM
+  }
+
+  return (
+    <>
+      <div
+        data-project-scroll-anchor={path}
+        aria-hidden
+        style={{ scrollMarginTop: stickTop }}
+      />
+      {canDrag ? (
+        <SortableProjectHeader
+          node={node}
+          expanded={expanded}
+          pinStackIndex={0}
+          forceCollapsed={forceCollapsed}
+          pinSticky={false}
+          stickTop={stickTop}
+          stickSeam
+          stickZIndex={CURRENT_STICKY_Z}
+          className={gapClass}
+          onScrollIntoPlace={onScrollIntoPlace}
+          onToggleExpand={onToggleOpen}
+        />
+      ) : (
+        <ProjectHeader
+          node={node}
+          expanded={expanded}
+          pinStackIndex={0}
+          pinSticky={false}
+          className={gapClass}
+          style={forceCollapsed ? { position: 'relative' } : headerStyle}
+          onScrollIntoPlace={onScrollIntoPlace}
+          onToggleExpand={onToggleOpen}
+        />
+      )}
+      <PinnedProjectBody node={node} expanded={expanded} className="mb-3" />
+    </>
   )
 }
 
@@ -953,6 +1124,8 @@ function SortableProjectRow({
   node,
   forceCollapsed,
   stickyTop,
+  open,
+  onToggleOpen,
   className,
   onScrollIntoPlace
 }: {
@@ -960,6 +1133,8 @@ function SortableProjectRow({
   forceCollapsed: boolean
   /** 未置顶当前段吸顶 top（置顶堆下方）；拖拽/收起补偿期间关掉。 */
   stickyTop: number
+  open: boolean
+  onToggleOpen: () => void
   className?: string
   onScrollIntoPlace: () => void
 }): React.JSX.Element {
@@ -988,6 +1163,8 @@ function SortableProjectRow({
         node={node}
         forceCollapsed={forceCollapsed}
         stickyTop={stick ? stickyTop : null}
+        open={open}
+        onToggleOpen={onToggleOpen}
         isDragging={isDragging}
         onScrollIntoPlace={onScrollIntoPlace}
         dragHandleProps={{ ...attributes, ...listeners }}
@@ -1000,6 +1177,8 @@ function ProjectRow({
   node,
   forceCollapsed,
   stickyTop,
+  open,
+  onToggleOpen,
   className,
   isDragging,
   onScrollIntoPlace,
@@ -1009,13 +1188,15 @@ function ProjectRow({
   forceCollapsed: boolean
   /** 非 null 时项目行在本块内吸顶（贴在置顶堆下）。 */
   stickyTop?: number | null
+  /** 由父级托管，避免与当前项目摊平结构切换时丢折叠。 */
+  open: boolean
+  onToggleOpen: () => void
   className?: string
   isDragging?: boolean
   onScrollIntoPlace: () => void
   /** 项目拖拽句柄（仅挂在行头） */
   dragHandleProps?: HTMLAttributes<HTMLDivElement>
 }): React.JSX.Element {
-  const [open, setOpen] = useState(true)
   const selectProject = useApp((s) => s.selectProject)
   const isCurrent = useApp((s) => s.currentProjectPath === node.project.path)
   // 蓝底仅当「项目本身」被选中（无配置选中）；当前项目另用浅底 + 加粗名标示。
@@ -1064,14 +1245,14 @@ function ProjectRow({
             selectProject(node.project.path)
             onScrollIntoPlace()
           }}
-          onDoubleClick={() => setOpen((v) => !v)}
+          onDoubleClick={onToggleOpen}
         >
           <button
             type="button"
             title={expanded ? '折叠' : '展开'}
             onClick={(e) => {
               e.stopPropagation()
-              setOpen((v) => !v)
+              onToggleOpen()
             }}
             className="-m-1 flex size-6 shrink-0 items-center justify-center text-muted-foreground"
           >
