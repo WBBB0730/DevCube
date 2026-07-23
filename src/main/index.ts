@@ -1,7 +1,8 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, shell, BrowserWindow, nativeTheme } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
+import iconWin from '../../resources/icon-win.png?asset'
 import { handleFilesMediaProtocol, registerFilesMediaScheme } from './files-media-protocol'
 import { installAppMenu } from './app-menu'
 import { wireAppShortcuts } from './app-shortcuts'
@@ -15,6 +16,10 @@ import { confirmQuitIfNeeded } from './quit-confirm'
 import { canInstallUpdateOnQuit, installDownloadedUpdate } from './app-updater'
 import { rememberWindowPlacement, resolveRememberedWindowPlacement } from './window-placement'
 import { registerBootstrapIpc } from './renderer-bootstrap'
+import { disposeTray, installTray } from './tray'
+
+// 仅深色：强制原生菜单（含 Windows 托盘）走深色，不跟系统浅色。
+nativeTheme.themeSource = 'dark'
 
 // 必须在 app.ready 之前注册特权 scheme，否则渲染层无法用自定义协议播媒体。
 registerFilesMediaScheme()
@@ -53,6 +58,7 @@ function createWindow(): BrowserWindow {
         }
       : {}),
     ...(process.platform === 'linux' ? { icon } : {}),
+    ...(process.platform === 'win32' ? { icon: iconWin } : {}),
     webPreferences: {
       preload: join(__dirname, '../preload/index.js'),
       sandbox: false
@@ -60,8 +66,13 @@ function createWindow(): BrowserWindow {
   })
 
   // 关窗前写入进程内记忆（macOS 点 Dock 重开时恢复；重启进程则清空）。
-  mainWindow.on('close', () => {
+  // Windows：点关闭隐藏到托盘，真正退出走托盘「退出」/ before-quit。
+  mainWindow.on('close', (event) => {
     rememberWindowPlacement(mainWindow)
+    if (process.platform === 'win32' && !isAppQuitting()) {
+      event.preventDefault()
+      mainWindow.hide()
+    }
   })
 
   mainWindow.on('ready-to-show', () => {
@@ -103,12 +114,18 @@ app.whenReady().then(async () => {
   handleFilesMediaProtocol()
   // preload sendSync 依赖此通道；必须在 createWindow / loadURL 之前。
   registerBootstrapIpc()
-  registerIpc(createWindow())
+  const openMainWindow = (): BrowserWindow => {
+    const win = createWindow()
+    registerIpc(win)
+    return win
+  }
+  openMainWindow()
+  installTray(openMainWindow)
 
   app.on('activate', function () {
     // On macOS re-create a window when the dock icon is clicked and none are open.
     if (isAppQuitting()) return
-    if (BrowserWindow.getAllWindows().length === 0) registerIpc(createWindow())
+    if (BrowserWindow.getAllWindows().length === 0) openMainWindow()
   })
 })
 
@@ -120,6 +137,7 @@ let quitPhase: QuitPhase = 'running'
 
 async function runQuitCleanup(): Promise<void> {
   markAppQuitting()
+  disposeTray()
   killAllSessions()
   await closeAllProjectWatchers()
   // 给原生 watcher stop 一点时间收尾，再拆 Node Environment。
@@ -158,11 +176,12 @@ app.on('before-quit', (event) => {
   })()
 })
 
-// Quit when all windows are closed, except on macOS.
+// Quit when all windows are closed, except on macOS / Windows（托盘驻留）。
 app.on('window-all-closed', () => {
-  // macOS 关窗不退出：保留运行中的会话进程，重开窗口后仍能恢复运行状态。
+  // macOS / Windows 关窗不退出：保留运行中的会话进程，重开后仍能恢复运行状态。
   // 真正退出清理在 before-quit；此处仅在「只关窗、不退出」时停掉无 UI 的文件监听。
-  if (process.platform === 'darwin') {
+  // Windows 正常点关闭是 hide 不会进这里；窗口被销毁时仍不 quit。
+  if (process.platform === 'darwin' || process.platform === 'win32') {
     void closeAllProjectWatchers()
     return
   }

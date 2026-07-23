@@ -13,8 +13,10 @@ export type ReleaseEdition = {
   name: string
   /** electron-builder `directories.buildResources` */
   buildResources: string
-  /** 应用图标（相对仓库根） */
+  /** 应用图标（相对仓库根；macOS / Linux 保留安全边距） */
   icon: string
+  /** Windows 安装包 / 快捷方式图标（已裁掉透明边距） */
+  winIcon: string
 }
 
 const STABLE: ReleaseEdition = {
@@ -25,7 +27,8 @@ const STABLE: ReleaseEdition = {
   executableName: 'devcube',
   name: 'devcube',
   buildResources: 'build',
-  icon: 'build/icon.png'
+  icon: 'build/icon.png',
+  winIcon: 'build/icon-win.png'
 }
 
 const BETA: ReleaseEdition = {
@@ -36,7 +39,8 @@ const BETA: ReleaseEdition = {
   executableName: 'devcube-beta',
   name: 'devcube-beta',
   buildResources: 'build/beta',
-  icon: 'build/beta/icon.png'
+  icon: 'build/beta/icon.png',
+  winIcon: 'build/beta/icon-win.png'
 }
 
 /** 只接受正式版与 beta / beta.N；其它 prerelease 必须阻止发版。 */

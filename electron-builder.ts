@@ -29,6 +29,7 @@ const config: Configuration = {
   asarUnpack: ['resources/**', '**/{@parcel/watcher,@parcel/watcher-*}/**'],
   win: {
     executableName: edition.executableName,
+    icon: edition.winIcon,
     target: [
       { target: 'nsis', arch: ['x64'] },
       { target: 'portable', arch: ['x64'] }

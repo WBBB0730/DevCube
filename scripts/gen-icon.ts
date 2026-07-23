@@ -1,5 +1,6 @@
 /**
  * Rebuild DevCube app icons: WebStorm base + DEV block (+ diagonal BETA ribbon for beta).
+ * Also writes Windows crops (transparent safe-margin removed) as `icon-win.png`.
  *
  * Geometry matches the original Claude/Pillow recipe (1024 canvas, 2× supersample).
  *
@@ -23,7 +24,9 @@ const FONT = '/System/Library/Fonts/Supplemental/Arial Bold.ttf'
 const WEBSTORM_ICNS = '/Applications/WebStorm.app/Contents/Resources/webstorm.icns'
 
 const STABLE_TARGETS = [join(ROOT, 'build/icon.png'), join(ROOT, 'resources/icon.png')]
+const STABLE_WIN_TARGETS = [join(ROOT, 'build/icon-win.png'), join(ROOT, 'resources/icon-win.png')]
 const BETA_TARGETS = [join(ROOT, 'build/beta/icon.png')]
+const BETA_WIN_TARGETS = [join(ROOT, 'build/beta/icon-win.png')]
 
 const BLACK = [248, 248, 775, 775] as const
 const CAP_TOP = 331
@@ -137,6 +140,18 @@ function writePng(targets: string[], png: Buffer, label: string): void {
   }
 }
 
+/** Windows：去掉 WebStorm 安全边距，把不透明内容铺满画布（任务栏/托盘更清晰）。 */
+function cropTransparentMargin(source: Canvas): Buffer {
+  const ctx = source.getContext('2d')
+  const { minX, minY, size } = opaqueBounds(ctx, SIZE, SIZE)
+  const out = createCanvas(SIZE, SIZE)
+  const octx = out.getContext('2d')
+  octx.imageSmoothingEnabled = true
+  octx.imageSmoothingQuality = 'high'
+  octx.drawImage(source, minX, minY, size, size, 0, 0, SIZE, SIZE)
+  return out.toBuffer('image/png')
+}
+
 async function main(): Promise<void> {
   if (!GlobalFonts.registerFromPath(FONT, 'ArialBold')) {
     throw new Error(`Failed to register font: ${FONT}`)
@@ -151,6 +166,7 @@ async function main(): Promise<void> {
   sctx.drawImage(bg, 0, 0, SIZE, SIZE)
   sctx.drawImage(overlay, 0, 0)
   writePng(STABLE_TARGETS, stable.toBuffer('image/png'), 'stable')
+  writePng(STABLE_WIN_TARGETS, cropTransparentMargin(stable), 'stable-win')
 
   const bounds = opaqueBounds(sctx, SIZE, SIZE)
   const beta = createCanvas(SIZE, SIZE)
@@ -166,6 +182,7 @@ async function main(): Promise<void> {
   bctx.drawImage(ribbonLayer, 0, 0)
 
   writePng(BETA_TARGETS, beta.toBuffer('image/png'), 'beta')
+  writePng(BETA_WIN_TARGETS, cropTransparentMargin(beta), 'beta-win')
 }
 
 main().catch((err) => {

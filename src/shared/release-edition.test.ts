@@ -11,7 +11,8 @@ describe('resolveReleaseEdition', () => {
       executableName: 'devcube',
       name: 'devcube',
       buildResources: 'build',
-      icon: 'build/icon.png'
+      icon: 'build/icon.png',
+      winIcon: 'build/icon-win.png'
     })
   })
 
@@ -24,7 +25,8 @@ describe('resolveReleaseEdition', () => {
       executableName: 'devcube-beta',
       name: 'devcube-beta',
       buildResources: 'build/beta',
-      icon: 'build/beta/icon.png'
+      icon: 'build/beta/icon.png',
+      winIcon: 'build/beta/icon-win.png'
     })
     expect(resolveReleaseEdition('1.2.3-beta+sha.abc').channel).toBe('beta')
     expect(resolveReleaseEdition('1.2.3-beta.12').channel).toBe('beta')
