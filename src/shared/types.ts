@@ -4,12 +4,15 @@
 
 import type { AppShortcut } from './app-shortcut'
 import type { AppUpdateState } from './app-update-state'
+import type { DiscoverSource } from './discover-source'
 import type { FilesDirEntry, FilesReadResult, FilesUiState } from './files'
 import type { FilesTreeFilterResult } from './files-tree-search'
 import type { GitAPI, GitRepoSettings, GitViewPrefs } from './git'
 import type { OpenInAppId, OpenInAppResult, OpenInAppStatus } from './open-in-app'
 import type { RendererBootstrap } from './renderer-bootstrap'
 import type { WorkspaceUiState } from './workspace'
+
+export type { DiscoverSource } from './discover-source'
 
 export type PackageManager = 'pnpm' | 'yarn' | 'npm' | 'bun'
 
@@ -48,20 +51,23 @@ export const DEFAULT_PROJECT_SORT_PREFS: ProjectSortPrefs = {
   pinSticky: true
 }
 
-/** 从 package.json 的 scripts 实时派生的只读候补，不持久化。 */
+/** 从清单脚本或约定命令实时派生的只读候补，不持久化。 */
 export interface DiscoveredScript {
   projectPath: string
-  /** script 名 */
+  /** 来源：清单脚本或某类约定指纹 */
+  source: DiscoverSource
+  /** 在该来源下的名 */
   name: string
-  /** package.json 里该 script 的原始命令，用于展示 */
+  /** 展示用命令行（清单脚本为 package.json 原文；约定为固定命令） */
   command: string
 }
 
-/** 引用型：晋升自 Discovered Script，纯引用 (projectPath, scriptName)，不可自定义。 */
+/** 引用型：晋升自 Discovered Script，纯引用 (projectPath, source, scriptName)，不可自定义。 */
 export interface ReferencedRunConfig {
   id: string
   kind: 'referenced'
   projectPath: string
+  source: DiscoverSource
   scriptName: string
 }
 
@@ -114,7 +120,8 @@ export type SessionStatus = 'running' | 'exited' | 'failed'
 
 /** 运行目标：一条探测脚本，或一条已保存配置。 */
 export type RunTarget =
-  { type: 'script'; projectPath: string; name: string } | { type: 'config'; id: string }
+  | { type: 'script'; projectPath: string; source: DiscoverSource; name: string }
+  | { type: 'config'; id: string }
 
 /** 渲染端看到的会话快照。key 为配置唯一键，同一 script/config 单实例。 */
 export interface SessionState {
@@ -215,8 +222,17 @@ export interface RunAPI extends GitAPI {
   deleteConfig(id: string): Promise<ProjectNode[]>
   /** 重排某项目下「我的配置」的顺序 */
   reorderConfigs(projectPath: string, orderedIds: string[]): Promise<ProjectNode[]>
+  /**
+   * 为命令型配置挑选工作目录。仅放行已登记项目；
+   * 返回写入表单的 cwd（项目根下为相对路径，否则绝对；根目录本身为空串）；取消为 null。
+   */
+  pickConfigCwd(projectPath: string, currentCwd?: string): Promise<string | null>
   /** 把一条探测脚本晋升为引用型配置（选中即入列，不必等运行）；返回更新后的树 */
-  promoteScript(projectPath: string, scriptName: string): Promise<ProjectNode[]>
+  promoteScript(
+    projectPath: string,
+    source: DiscoverSource,
+    scriptName: string
+  ): Promise<ProjectNode[]>
 
   // —— 外链 ——
   /** 在系统默认浏览器打开 http/https 链接（终端可点击链接） */

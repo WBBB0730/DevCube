@@ -1,17 +1,19 @@
+import type { DiscoverSource } from './discover-source'
 import type { RunConfig } from './types'
 
 // 「配置唯一键」：同一 script/config 单实例的依据（探测脚本与晋升后的引用型配置共享）。
-// 引用型配置与同名探测脚本共享同一 key —— 保证探测脚本晋升为引用型配置后，会话连续、不重开。
-// 分隔符用 NUL：路径与 script 名都不可能包含它。
+// 引用型配置与同源同名探测脚本共享同一 key —— 保证探测脚本晋升为引用型配置后，会话连续、不重开。
+// 分隔符用 NUL：路径 / 来源 / script 名都不可能包含它。
+// 形状：projectPath \0 source \0 name（ADR-0020）。
 const SEP = String.fromCharCode(0)
 
-export function scriptKey(projectPath: string, scriptName: string): string {
-  return `${projectPath}${SEP}${scriptName}`
+export function scriptKey(projectPath: string, source: DiscoverSource, scriptName: string): string {
+  return `${projectPath}${SEP}${source}${SEP}${scriptName}`
 }
 
 export function configKey(config: RunConfig): string {
   return config.kind === 'referenced'
-    ? scriptKey(config.projectPath, config.scriptName)
+    ? scriptKey(config.projectPath, config.source, config.scriptName)
     : `cmd${SEP}${config.id}`
 }
 

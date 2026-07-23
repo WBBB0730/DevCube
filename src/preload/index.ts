@@ -47,8 +47,10 @@ const api: RunAPI = {
   deleteConfig: (id) => ipcRenderer.invoke(IPC.configDelete, id),
   reorderConfigs: (projectPath, orderedIds) =>
     ipcRenderer.invoke(IPC.configReorder, projectPath, orderedIds),
-  promoteScript: (projectPath, scriptName) =>
-    ipcRenderer.invoke(IPC.scriptPromote, projectPath, scriptName),
+  pickConfigCwd: (projectPath, currentCwd) =>
+    ipcRenderer.invoke(IPC.configPickCwd, projectPath, currentCwd),
+  promoteScript: (projectPath, source, scriptName) =>
+    ipcRenderer.invoke(IPC.scriptPromote, projectPath, source, scriptName),
 
   openExternal: (url) => ipcRenderer.invoke(IPC.openExternal, url),
   openPath: (path) => ipcRenderer.invoke(IPC.openPath, path),

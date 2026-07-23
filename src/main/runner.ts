@@ -12,8 +12,13 @@ import type {
   SessionStatus,
   TerminalInfo
 } from '../shared/types'
-import { buildScriptCommand, buildShellInvocation, buildShellSession, resolveCwd } from './command'
-import { detectPackageManager } from './discovery'
+import {
+  buildShellInvocation,
+  buildShellSession,
+  resolveCwd,
+  resolveDiscoveredCommand
+} from './command'
+import { detectPackageManager, readFingerprints } from './discovery'
 import { getConfigs } from './store'
 
 interface Session {
@@ -88,18 +93,32 @@ interface Resolved {
 
 function resolveTarget(target: RunTarget): Resolved | null {
   if (target.type === 'script') {
+    const command = resolveDiscoveredCommand(
+      target.source,
+      target.name,
+      detectPackageManager(target.projectPath),
+      readFingerprints(target.projectPath)
+    )
+    if (!command) return null
     return {
-      key: scriptKey(target.projectPath, target.name),
-      command: buildScriptCommand(detectPackageManager(target.projectPath), target.name),
+      key: scriptKey(target.projectPath, target.source, target.name),
+      command,
       cwd: target.projectPath
     }
   }
   const config = getConfigs().find((c) => c.id === target.id)
   if (!config) return null
   if (config.kind === 'referenced') {
+    const command = resolveDiscoveredCommand(
+      config.source,
+      config.scriptName,
+      detectPackageManager(config.projectPath),
+      readFingerprints(config.projectPath)
+    )
+    if (!command) return null
     return {
       key: configKey(config),
-      command: buildScriptCommand(detectPackageManager(config.projectPath), config.scriptName),
+      command,
       cwd: config.projectPath
     }
   }

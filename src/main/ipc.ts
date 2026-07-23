@@ -2,6 +2,7 @@ import { ipcMain, BrowserWindow, shell } from 'electron'
 import { IPC } from '../shared/ipc'
 import { configKey } from '../shared/runnable'
 import { isOpenInAppId } from '../shared/open-in-app'
+import type { DiscoverSource } from '../shared/discover-source'
 import type { CommandRunConfig, ProjectSortPrefs, RunTarget } from '../shared/types'
 import { listOpenInApps, openInApp } from './open-in-app'
 import {
@@ -13,6 +14,7 @@ import {
   type GitRepoSettings,
   type GitViewPrefs
 } from '../shared/git'
+import { cwdFromPickedDir, resolveCwd } from './command'
 import {
   createCommandConfig,
   deleteConfig,
@@ -21,6 +23,7 @@ import {
   reorderConfigs,
   updateCommandConfig
 } from './configs'
+import { pickDirectory } from './dialogs'
 import {
   addProjectByPath,
   createAndAddProject,
@@ -235,7 +238,7 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.run, (_e, target: RunTarget) => {
     // 运行探测脚本即晋升为引用型配置：它随即从候补区移到「我的配置」。
     if (target.type === 'script') {
-      promoteScript(target.projectPath, target.name)
+      promoteScript(target.projectPath, target.source, target.name)
       emitTree()
     }
     run(target)
@@ -260,10 +263,13 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.workspaceUiSet, (_e, state: WorkspaceUiState) => setWorkspaceUi(state))
 
   // 选中探测脚本即晋升为引用型配置（不必等运行；运行路径的晋升见 IPC.run）。
-  ipcMain.handle(IPC.scriptPromote, (_e, projectPath: string, scriptName: string) => {
-    promoteScript(projectPath, scriptName)
-    return buildTree()
-  })
+  ipcMain.handle(
+    IPC.scriptPromote,
+    (_e, projectPath: string, source: DiscoverSource, scriptName: string) => {
+      promoteScript(projectPath, source, scriptName)
+      return buildTree()
+    }
+  )
 
   // —— 命令型配置 CRUD ——
   ipcMain.handle(IPC.configCreate, (_e, input: Omit<CommandRunConfig, 'id' | 'kind'>) => {
@@ -288,6 +294,18 @@ export function registerIpc(win: BrowserWindow): void {
     reorderConfigs(projectPath, orderedIds)
     return buildTree()
   })
+
+  ipcMain.handle(
+    IPC.configPickCwd,
+    async (_e, projectPath: unknown, currentCwd: unknown) => {
+      if (typeof projectPath !== 'string') return null
+      if (!getProjects().some((p) => p.path === projectPath)) return null
+      const cwd = typeof currentCwd === 'string' && currentCwd !== '' ? currentCwd : undefined
+      const picked = await pickDirectory(resolveCwd(projectPath, cwd), mainWindow)
+      if (!picked) return null
+      return cwdFromPickedDir(projectPath, picked)
+    }
+  )
 
   // —— 外链 ——
   // 终端/详情里点击链接 → 系统默认浏览器；放行 http/https 与 mailto（作者邮箱），杜绝 file:// 等其他协议。

@@ -1,6 +1,23 @@
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { buildScriptCommand, buildShellInvocation, buildShellSession, resolveCwd } from './command'
+import { SCRIPT_SOURCE } from '../shared/discover-source'
+import {
+  buildScriptCommand,
+  buildShellInvocation,
+  buildShellSession,
+  cwdFromPickedDir,
+  resolveCwd,
+  resolveDiscoveredCommand
+} from './command'
+import type { ProjectFingerprints } from './discovery'
+
+const none: ProjectFingerprints = {
+  hasGoMod: false,
+  hasCargoToml: false,
+  isFlutter: false,
+  hasDotnet: false,
+  hasCompose: false
+}
 
 describe('buildScriptCommand', () => {
   it('用探测到的 PM 运行 script', () => {
@@ -9,6 +26,22 @@ describe('buildScriptCommand', () => {
   })
   it('无 PM 时回退 npm', () => {
     expect(buildScriptCommand(null, 'dev')).toBe('npm run dev')
+  })
+})
+
+describe('resolveDiscoveredCommand', () => {
+  it('清单脚本走包管理器', () => {
+    expect(resolveDiscoveredCommand(SCRIPT_SOURCE, 'dev', 'pnpm', none)).toBe('pnpm run dev')
+  })
+
+  it('约定命令查指纹目录', () => {
+    expect(resolveDiscoveredCommand('go', 'test', null, { ...none, hasGoMod: true })).toBe(
+      'go test ./...'
+    )
+  })
+
+  it('指纹未命中时约定命令为 null', () => {
+    expect(resolveDiscoveredCommand('go', 'test', null, none)).toBeNull()
   })
 })
 
@@ -21,6 +54,18 @@ describe('resolveCwd', () => {
   })
   it('绝对路径原样返回', () => {
     expect(resolveCwd('/p', '/abs/dir')).toBe('/abs/dir')
+  })
+})
+
+describe('cwdFromPickedDir', () => {
+  it('选中项目根时返回空串', () => {
+    expect(cwdFromPickedDir('/p', '/p')).toBe('')
+  })
+  it('项目根下子目录返回相对路径', () => {
+    expect(cwdFromPickedDir('/p', join('/p', 'packages/api'))).toBe(join('packages', 'api'))
+  })
+  it('项目外目录保留绝对路径', () => {
+    expect(cwdFromPickedDir('/p', '/other')).toBe('/other')
   })
 })
 

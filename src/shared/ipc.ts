@@ -30,6 +30,8 @@ export const IPC = {
   configUpdate: 'config:update',
   configDelete: 'config:delete',
   configReorder: 'config:reorder',
+  /** 为命令型配置挑选工作目录（返回相对项目根或绝对路径；取消为 null） */
+  configPickCwd: 'config:pick-cwd',
   scriptPromote: 'script:promote',
   openExternal: 'shell:open-external',
   openPath: 'shell:open-path',

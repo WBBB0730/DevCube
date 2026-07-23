@@ -1,6 +1,7 @@
 import { create } from 'zustand'
 import type {
   CommandRunConfig,
+  DiscoverSource,
   ProjectAddResult,
   ProjectNode,
   ProjectSortPrefs,
@@ -190,7 +191,12 @@ interface AppState {
   /** 选中一条配置：有会话则聚焦其 Tab，没有则不动当前激活 Tab */
   select: (key: string, projectPath: string) => void
   /** 选中一条探测脚本：立即晋升为引用型配置进入「我的配置」（不必等运行），并按普通配置选中 */
-  selectScript: (projectPath: string, name: string, key: string) => Promise<void>
+  selectScript: (
+    projectPath: string,
+    source: DiscoverSource,
+    name: string,
+    key: string
+  ) => Promise<void>
   /** 选中「项目本身」（点项目行）：切当前项目，保持该项目原激活 Tab */
   selectProject: (projectPath: string) => void
   /** 激活一个 Tab（运行会话或终端通用）；不动树选择 */
@@ -301,9 +307,9 @@ export const useApp = create<AppState>((set, get) => ({
     }
   },
   // 选中探测脚本：先按普通配置选中（同步高亮），再晋升入列（引用型与脚本共用同一键，选中态无缝延续）。
-  selectScript: async (projectPath, name, key) => {
+  selectScript: async (projectPath, source, name, key) => {
     get().select(key, projectPath)
-    set({ tree: await window.api.promoteScript(projectPath, name) })
+    set({ tree: await window.api.promoteScript(projectPath, source, name) })
   },
   // 选中项目本身：只切当前项目，保持该项目原激活 Tab；并记录打开时间。
   selectProject: (projectPath) => {

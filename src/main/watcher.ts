@@ -1,10 +1,14 @@
 import chokidar, { type FSWatcher } from 'chokidar'
-import { join } from 'path'
+import { basename, join } from 'path'
 import { isAppQuitting } from './app-shutdown'
-import { LOCKFILE_NAMES } from './discovery'
+import { CONVENTION_WATCH_FILES, isDotnetProjectFile, LOCKFILE_NAMES } from './discovery'
 
-// 只监听每个项目根的 package.json 与 lockfile —— 不递归项目树，避免 node_modules 事件风暴。
-const WATCH_FILES = ['package.json', ...LOCKFILE_NAMES]
+// 只监听项目根的清单 / lockfile / 约定指纹 —— 不递归项目树，避免 node_modules 事件风暴。
+const FIXED_WATCH_FILES = ['package.json', ...LOCKFILE_NAMES, ...CONVENTION_WATCH_FILES]
+
+function isRelevantRootName(name: string): boolean {
+  return FIXED_WATCH_FILES.includes(name) || isDotnetProjectFile(name)
+}
 
 const watchers = new Map<string, FSWatcher>()
 
@@ -19,9 +23,14 @@ export function syncWatchers(projectPaths: string[], onChange: () => void): void
   }
   for (const path of projectPaths) {
     if (watchers.has(path)) continue
-    const targets = WATCH_FILES.map((f) => join(path, f))
-    const watcher = chokidar.watch(targets, { ignoreInitial: true })
-    watcher.on('all', onChange)
+    // 固定文件名 + 项目根（depth 0 仅用于捕获根目录新增的 *.csproj / *.sln）。
+    // 不把「项目根目录自身」的事件当成变更——否则 addDir 等会误触发全量对账。
+    const targets = [...FIXED_WATCH_FILES.map((f) => join(path, f)), path]
+    const watcher = chokidar.watch(targets, { ignoreInitial: true, depth: 0 })
+    watcher.on('all', (_event, changedPath) => {
+      if (changedPath === path) return
+      if (isRelevantRootName(basename(changedPath))) onChange()
+    })
     watchers.set(path, watcher)
   }
 }

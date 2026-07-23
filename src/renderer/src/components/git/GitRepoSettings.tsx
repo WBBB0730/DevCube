@@ -359,7 +359,6 @@ function UserSection({
         <div className="space-y-2">
           <FormRow label="用户名">
             <Input
-              className="h-7"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               autoFocus
@@ -367,7 +366,6 @@ function UserSection({
           </FormRow>
           <FormRow label="邮箱">
             <Input
-              className="h-7"
               value={form.email}
               onChange={(e) => setForm({ ...form, email: e.target.value })}
             />
@@ -573,7 +571,7 @@ function RemotesSection({
           </div>
           <FormRow label="名称">
             <Input
-              className="h-7 font-mono"
+              className="font-mono"
               value={form.name}
               onChange={(e) => setForm({ ...form, name: e.target.value })}
               autoFocus
@@ -581,14 +579,14 @@ function RemotesSection({
           </FormRow>
           <FormRow label="Fetch URL">
             <Input
-              className="h-7 font-mono"
+              className="font-mono"
               value={form.url}
               onChange={(e) => setForm({ ...form, url: e.target.value })}
             />
           </FormRow>
           <FormRow label="Push URL">
             <Input
-              className="h-7 font-mono"
+              className="font-mono"
               value={form.pushUrl}
               onChange={(e) => setForm({ ...form, pushUrl: e.target.value })}
               placeholder="留空则使用 Fetch URL"

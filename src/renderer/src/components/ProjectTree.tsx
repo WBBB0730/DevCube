@@ -60,6 +60,11 @@ import type {
   RunTarget,
   SessionStatus
 } from '@shared/types'
+import {
+  DISCOVER_SOURCE_LABELS,
+  DISCOVER_SOURCE_ORDER,
+  type DiscoverSource
+} from '@shared/discover-source'
 import { configKey, scriptKey } from '@shared/runnable'
 import { filterProjectNodes, sortProjectNodes } from '@shared/project-sort'
 import { SHORTCUT } from '@shared/shortcut-label'
@@ -1144,6 +1149,21 @@ function ProjectConfigList({ node }: { node: ProjectNode }): React.JSX.Element {
   )
 }
 
+function groupDiscovered(
+  discovered: DiscoveredScript[]
+): Array<{ source: DiscoverSource; items: DiscoveredScript[] }> {
+  const bySource = new Map<DiscoverSource, DiscoveredScript[]>()
+  for (const s of discovered) {
+    const list = bySource.get(s.source)
+    if (list) list.push(s)
+    else bySource.set(s.source, [s])
+  }
+  return DISCOVER_SOURCE_ORDER.filter((source) => bySource.has(source)).map((source) => ({
+    source,
+    items: bySource.get(source)!
+  }))
+}
+
 // 探测脚本收进一个临时弹出菜单（Base UI Popover），菜单项与配置行同款样式。
 // 受控 open：菜单项被选中或运行即刻关闭（选中即晋升，行随之移出候补区）。
 function DiscoveredMenu({ discovered }: { discovered: DiscoveredScript[] }): React.JSX.Element {
@@ -1166,16 +1186,28 @@ function DiscoveredMenu({ discovered }: { discovered: DiscoveredScript[] }): Rea
             <ChevronRight className="size-4 shrink-0" />
           </span>
         </PopoverTrigger>
-        <PopoverContent align="end" className="w-60">
-          {discovered.map((s) => (
-            <RunnableRow
-              key={s.name}
-              label={s.name}
-              rkey={scriptKey(s.projectPath, s.name)}
-              target={{ type: 'script', projectPath: s.projectPath, name: s.name }}
-              projectPath={s.projectPath}
-              onAction={() => setOpen(false)}
-            />
+        <PopoverContent align="end" className="w-60 p-1">
+          {groupDiscovered(discovered).map(({ source, items }) => (
+            <div key={source} className="mb-1 last:mb-0">
+              <div className="px-2 py-1 text-[11px] font-medium text-[var(--fg-disabled)]">
+                {DISCOVER_SOURCE_LABELS[source]}
+              </div>
+              {items.map((s) => (
+                <RunnableRow
+                  key={`${s.source}\0${s.name}`}
+                  label={s.name}
+                  rkey={scriptKey(s.projectPath, s.source, s.name)}
+                  target={{
+                    type: 'script',
+                    projectPath: s.projectPath,
+                    source: s.source,
+                    name: s.name
+                  }}
+                  projectPath={s.projectPath}
+                  onAction={() => setOpen(false)}
+                />
+              ))}
+            </div>
           ))}
         </PopoverContent>
       </Popover>
@@ -1318,7 +1350,8 @@ function RunnableRow({
   const onRowClick = (): void => {
     onAction?.()
     // 探测脚本选中即晋升进「我的配置」，不必等运行。
-    if (target.type === 'script') selectScript(target.projectPath, target.name, rkey)
+    if (target.type === 'script')
+      selectScript(target.projectPath, target.source, target.name, rkey)
     else select(rkey, projectPath)
   }
 
