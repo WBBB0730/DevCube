@@ -74,11 +74,14 @@ import {
   setWorkspaceUi
 } from './store'
 import {
+  createEntry,
   filterFilesTreeScan,
   listDir,
   readFileEntry,
   readHeadText,
+  renameEntry,
   sanitizeFilesUi,
+  trashEntry,
   writeFileEntry
 } from './files'
 import type { FilesUiState } from '../shared/files'
@@ -310,17 +313,14 @@ export function registerIpc(win: BrowserWindow): void {
     return buildTree()
   })
 
-  ipcMain.handle(
-    IPC.configPickCwd,
-    async (_e, projectPath: unknown, currentCwd: unknown) => {
-      if (typeof projectPath !== 'string') return null
-      if (!getProjects().some((p) => p.path === projectPath)) return null
-      const cwd = typeof currentCwd === 'string' && currentCwd !== '' ? currentCwd : undefined
-      const picked = await pickDirectory(resolveCwd(projectPath, cwd), mainWindow)
-      if (!picked) return null
-      return cwdFromPickedDir(projectPath, picked)
-    }
-  )
+  ipcMain.handle(IPC.configPickCwd, async (_e, projectPath: unknown, currentCwd: unknown) => {
+    if (typeof projectPath !== 'string') return null
+    if (!getProjects().some((p) => p.path === projectPath)) return null
+    const cwd = typeof currentCwd === 'string' && currentCwd !== '' ? currentCwd : undefined
+    const picked = await pickDirectory(resolveCwd(projectPath, cwd), mainWindow)
+    if (!picked) return null
+    return cwdFromPickedDir(projectPath, picked)
+  })
 
   // —— 外链 ——
   // 终端/详情里点击链接 → 系统默认浏览器；放行 http/https 与 mailto（作者邮箱），杜绝 file:// 等其他协议。
@@ -366,6 +366,17 @@ export function registerIpc(win: BrowserWindow): void {
   )
   ipcMain.handle(IPC.filesHeadText, (_e, projectPath: string, filePath: string) =>
     readHeadText(projectPath, filePath)
+  )
+  ipcMain.handle(
+    IPC.filesCreate,
+    (_e, projectPath: string, dirPath: string, name: string, kind: 'file' | 'directory') =>
+      createEntry(projectPath, dirPath, name, kind)
+  )
+  ipcMain.handle(IPC.filesRename, (_e, projectPath: string, entryPath: string, newName: string) =>
+    renameEntry(projectPath, entryPath, newName)
+  )
+  ipcMain.handle(IPC.filesTrash, (_e, projectPath: string, entryPath: string) =>
+    trashEntry(projectPath, entryPath)
   )
   ipcMain.handle(IPC.filesGetUi, async (_e, projectPath: string) => {
     const ui = getFilesUi(projectPath)

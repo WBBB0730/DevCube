@@ -19,7 +19,7 @@ import {
 } from 'lucide-react'
 import { pushRecentPath, type FilesDirEntry, type FilesReadResult } from '@shared/files'
 import type { GitFileStatus } from '@shared/git'
-import { normalizePath } from '@shared/files-path'
+import { normalizePath, remapPathPrefix } from '@shared/files-path'
 import { mergeReloadedDirs, resolveOpenTextDiskSync } from '@shared/files-watch'
 import { SHORTCUT } from '@shared/shortcut-label'
 import { shortcutTitle } from '@renderer/lib/shortcut-label'
@@ -34,6 +34,8 @@ import {
 import { gitDiffGutter } from '@renderer/lib/cm6-git-gutter'
 import { isMarkdownPath } from '@shared/files-kind'
 import { FilesMarkdownPreview } from './FilesMarkdownPreview'
+import { FilesEntryDialog, type FilesEntryDialogRequest } from './FilesEntryDialog'
+import { FilesTreeMenu, type FilesTreeMenuTarget } from './FilesTreeMenu'
 import { useFiles } from '@renderer/files-store'
 import { Button } from '@renderer/components/ui/button'
 import {
@@ -105,6 +107,9 @@ export function FilesPane({
   const [treeVisible, setTreeVisible] = useState(true)
   /** Markdown 编辑 ↔ 预览两态；会话内保持，不持久化，默认编辑。 */
   const [mdPreview, setMdPreview] = useState(false)
+  /** 文件树右键菜单目标与条目操作弹窗（新建 / 重命名 / 删除）。 */
+  const [treeMenu, setTreeMenu] = useState<FilesTreeMenuTarget | null>(null)
+  const [entryDialog, setEntryDialog] = useState<FilesEntryDialogRequest | null>(null)
   const [ready, setReady] = useState(false)
   /** 忽略过期的 openFile / git status / 全部展开 / 过滤扫盘 响应。 */
   const openSeqRef = useRef(0)
@@ -758,6 +763,98 @@ export function FilesPane({
     })
   }, [ready, projectPath, refreshFromDisk])
 
+  /** 树行 / 空白区右键 → 打开条目菜单。 */
+  const openTreeMenu = useCallback((path: string, isDirectory: boolean, e: React.MouseEvent) => {
+    e.preventDefault()
+    e.stopPropagation()
+    setTreeMenu({ x: e.clientX, y: e.clientY, path, isDirectory })
+  }, [])
+
+  /**
+   * 条目操作执行（弹窗确认后）：主进程落盘 → 本地状态联动 → 统一从磁盘刷新树。
+   * 抛错交由弹窗就地展示（弹窗保持打开）。
+   */
+  const submitEntryDialog = useCallback(
+    async (req: FilesEntryDialogRequest, name: string) => {
+      if (req.kind === 'create-file' || req.kind === 'create-dir') {
+        const entry = await window.api.filesCreate(
+          projectPath,
+          req.dir,
+          name,
+          req.kind === 'create-dir' ? 'directory' : 'file'
+        )
+        setEntryDialog(null)
+        await refreshFromDisk()
+        if (entry.isDirectory) {
+          await revealInTree(entry.path, true)
+        } else {
+          await expandToFile(entry.path)
+          await openFile(entry.path)
+        }
+        return
+      }
+
+      if (req.kind === 'rename') {
+        // 先落未保存的编辑（旧路径此刻仍在），失败则不动文件
+        const saved = await flushSave()
+        if (!saved) throw new Error('有未保存的更改且写入失败，已取消重命名')
+        const { path: newPath } = await window.api.filesRename(projectPath, req.path, name)
+        setEntryDialog(null)
+        if (newPath === req.path) return
+        const remap = (p: string): string => remapPathPrefix(p, req.path, newPath)
+        const nextExpanded = new Set([...expandedRef.current].map(remap))
+        expandedRef.current = nextExpanded
+        setExpanded(nextExpanded)
+        setSelectedPath((prev) => (prev === null ? null : remap(prev)))
+        const nextRecent = recentPathsRef.current.map(remap)
+        setRecentPaths(nextRecent)
+        const cur = loadedRef.current
+        const openRemapped = cur === null ? null : remap(cur.path)
+        void window.api.filesSetUi(projectPath, {
+          openPath: openRemapped,
+          expandedPaths: [...nextExpanded],
+          recentPaths: nextRecent
+        })
+        // 先把打开文件切到新路径，refreshFromDisk 才不会把旧路径当「已消失」清掉
+        if (cur !== null && openRemapped !== null && openRemapped !== cur.path) {
+          await openFile(openRemapped, { force: true })
+        }
+        await refreshFromDisk()
+        // 重命名子树下已展开的目录换了 key，补载新路径的目录列表
+        for (const dir of nextExpanded) {
+          if (dir === newPath || dir.startsWith(newPath + '/')) {
+            await ensureDirLoaded(dir).catch(() => undefined)
+          }
+        }
+        return
+      }
+
+      await window.api.filesTrash(projectPath, req.path)
+      setEntryDialog(null)
+      const gone = (p: string): boolean => p === req.path || p.startsWith(req.path + '/')
+      const cur = loadedRef.current
+      if (cur !== null && gone(cur.path)) {
+        // 撤掉挂起的自动保存，避免把刚删除的文件写回来
+        if (idleTimer.current) {
+          clearTimeout(idleTimer.current)
+          idleTimer.current = null
+        }
+        setLoaded(null)
+        setConflict(null)
+        const nextRecent = recentPathsRef.current.filter((p) => !gone(p))
+        setRecentPaths(nextRecent)
+        void window.api.filesSetUi(projectPath, {
+          openPath: null,
+          expandedPaths: [...expandedRef.current].filter((p) => !gone(p)),
+          recentPaths: nextRecent
+        })
+      }
+      setSelectedPath((prev) => (prev !== null && gone(prev) ? null : prev))
+      await refreshFromDisk()
+    },
+    [projectPath, refreshFromDisk, revealInTree, expandToFile, openFile, flushSave, ensureDirLoaded]
+  )
+
   return (
     <div className="flex h-full min-h-0">
       <div className="relative min-h-0 min-w-0 flex-1 bg-deepest">
@@ -974,6 +1071,7 @@ export function FilesPane({
             ref={treeScrollRef}
             tabIndex={0}
             className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5 pt-1 outline-none"
+            onContextMenu={(e) => openTreeMenu(rootLogical, true, e)}
             onKeyDown={(e) => {
               if (e.target instanceof HTMLInputElement) return
               if (e.key === 'Escape') {
@@ -1011,10 +1109,26 @@ export function FilesPane({
                 statusByRel={statusByRel}
                 onToggle={toggleDir}
                 onOpenFile={(p) => void openFile(p)}
+                onEntryMenu={openTreeMenu}
               />
             )}
           </div>
         </div>
+      )}
+
+      <FilesTreeMenu
+        projectRoot={rootLogical}
+        menu={treeMenu}
+        onClose={() => setTreeMenu(null)}
+        onRequest={setEntryDialog}
+      />
+      {entryDialog !== null && (
+        <FilesEntryDialog
+          key={`${entryDialog.kind}:${'dir' in entryDialog ? entryDialog.dir : entryDialog.path}`}
+          request={entryDialog}
+          onClose={() => setEntryDialog(null)}
+          onSubmit={(name) => submitEntryDialog(entryDialog, name)}
+        />
       )}
 
       {conflict && (
@@ -1324,7 +1438,8 @@ function FileTreeNode({
   selectedPath,
   statusByRel,
   onToggle,
-  onOpenFile
+  onOpenFile,
+  onEntryMenu
 }: {
   projectRoot: string
   dirPath: string
@@ -1335,6 +1450,7 @@ function FileTreeNode({
   statusByRel: Map<string, GitFileStatus>
   onToggle: (dir: string) => void
   onOpenFile: (path: string) => void
+  onEntryMenu: (path: string, isDirectory: boolean, e: React.MouseEvent) => void
 }): React.JSX.Element {
   const entries = childrenByDir[dirPath] ?? []
   const isRoot = dirPath === projectRoot
@@ -1355,6 +1471,7 @@ function FileTreeNode({
               : 'hover:bg-[var(--bg-row-hover)]'
           )}
           onClick={() => onToggle(dirPath)}
+          onContextMenu={(e) => onEntryMenu(dirPath, true, e)}
         >
           {indent(depth)}
           <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
@@ -1385,6 +1502,7 @@ function FileTreeNode({
               statusByRel={statusByRel}
               onToggle={onToggle}
               onOpenFile={onOpenFile}
+              onEntryMenu={onEntryMenu}
             />
           ) : (
             <FileTreeFileRow
@@ -1395,6 +1513,7 @@ function FileTreeNode({
               status={statusByRel.get(relPathUnderRoot(projectRoot, e.path))}
               indent={indent}
               onOpen={() => onOpenFile(e.path)}
+              onMenu={(ev) => onEntryMenu(e.path, false, ev)}
             />
           )
         )}
@@ -1408,7 +1527,8 @@ function FileTreeFileRow({
   selected,
   status,
   indent,
-  onOpen
+  onOpen,
+  onMenu
 }: {
   entry: FilesDirEntry
   depth: number
@@ -1416,6 +1536,7 @@ function FileTreeFileRow({
   status: GitFileStatus | undefined
   indent: (levels: number) => React.JSX.Element | null
   onOpen: () => void
+  onMenu: (e: React.MouseEvent) => void
 }): React.JSX.Element {
   const colour = status ? FILE_STATUS_COLOR[status] : undefined
   return (
@@ -1424,6 +1545,7 @@ function FileTreeFileRow({
       data-files-path={entry.path}
       className={cn(ROW, selected ? 'bg-[var(--selection-row)]' : 'hover:bg-[var(--bg-row-hover)]')}
       onClick={onOpen}
+      onContextMenu={onMenu}
     >
       {indent(depth)}
       <span className="size-3.5 shrink-0" />

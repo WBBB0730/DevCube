@@ -1,3 +1,4 @@
+import { shell } from 'electron'
 import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { detectAv } from '@file-type/av'
@@ -273,6 +274,63 @@ export async function writeFileEntry(
   await fs.writeFile(sys, content, 'utf8')
   const st = await fs.stat(sys)
   return { mtimeMs: st.mtimeMs }
+}
+
+/** 新建 / 重命名的名称校验：单段、非空、不含分隔符；其余交由文件系统报错。 */
+function assertEntryName(name: string): void {
+  if (name === '' || name === '.' || name === '..' || /[/\\]/.test(name)) {
+    throw new Error('名称无效')
+  }
+}
+
+export async function createEntry(
+  projectPath: string,
+  dirPath: string,
+  name: string,
+  kind: 'file' | 'directory'
+): Promise<FilesDirEntry> {
+  const parent = within(projectPath, dirPath)
+  assertEntryName(name)
+  const logical = normalizePath(parent + '/' + name)
+  const sys = toSys(logical)
+  try {
+    // wx / mkdir：已存在即失败，创建与查重原子完成
+    if (kind === 'directory') await fs.mkdir(sys)
+    else await fs.writeFile(sys, '', { flag: 'wx' })
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code === 'EEXIST') throw new Error('已存在同名条目')
+    throw e
+  }
+  return { name, path: logical, isDirectory: kind === 'directory' }
+}
+
+/** 就地重命名（不跨目录）；大小写不敏感文件系统上允许仅改大小写。 */
+export async function renameEntry(
+  projectPath: string,
+  entryPath: string,
+  newName: string
+): Promise<{ path: string }> {
+  const logical = within(projectPath, entryPath)
+  if (logical === normalizePath(projectPath)) throw new Error('不能重命名项目根目录')
+  assertEntryName(newName)
+  const parent = logical.slice(0, logical.lastIndexOf('/'))
+  const target = normalizePath(parent + '/' + newName)
+  if (target === logical) return { path: logical }
+  const caseOnly = target.toLowerCase() === logical.toLowerCase()
+  const exists = await fs.access(toSys(target)).then(
+    () => true,
+    () => false
+  )
+  if (exists && !caseOnly) throw new Error('已存在同名条目')
+  await fs.rename(toSys(logical), toSys(target))
+  return { path: target }
+}
+
+/** 移入系统回收站（可恢复；不做永久删除）。 */
+export async function trashEntry(projectPath: string, entryPath: string): Promise<void> {
+  const logical = within(projectPath, entryPath)
+  if (logical === normalizePath(projectPath)) throw new Error('不能删除项目根目录')
+  await shell.trashItem(toSys(logical))
 }
 
 export async function fileExists(projectPath: string, filePath: string): Promise<boolean> {

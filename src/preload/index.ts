@@ -70,6 +70,12 @@ const api: RunAPI = {
     ipcRenderer.invoke(IPC.filesWrite, projectPath, filePath, content),
   filesHeadText: (projectPath, filePath) =>
     ipcRenderer.invoke(IPC.filesHeadText, projectPath, filePath),
+  filesCreate: (projectPath, dirPath, name, kind) =>
+    ipcRenderer.invoke(IPC.filesCreate, projectPath, dirPath, name, kind),
+  filesRename: (projectPath, entryPath, newName) =>
+    ipcRenderer.invoke(IPC.filesRename, projectPath, entryPath, newName),
+  filesTrash: (projectPath, entryPath) =>
+    ipcRenderer.invoke(IPC.filesTrash, projectPath, entryPath),
   filesGetUi: (projectPath) => ipcRenderer.invoke(IPC.filesGetUi, projectPath),
   filesSetUi: (projectPath, patch) => ipcRenderer.invoke(IPC.filesSetUi, projectPath, patch),
   onFilesChanged: (cb) => subscribe(IPC.filesChanged, cb),

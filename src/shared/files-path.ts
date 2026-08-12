@@ -39,6 +39,16 @@ export function normalizePath(p: string): string {
   return out.join('/')
 }
 
+/**
+ * 前缀重映射（重命名后同步展开 / 打开 / 最近路径）：
+ * p 等于 oldBase 或位于其内时替换前缀为 newBase，否则原样返回。
+ */
+export function remapPathPrefix(p: string, oldBase: string, newBase: string): string {
+  if (p === oldBase) return newBase
+  if (p.startsWith(oldBase + '/')) return newBase + p.slice(oldBase.length)
+  return p
+}
+
 export function resolveWithinProject(projectRoot: string, candidate: string): string | null {
   if (!projectRoot || !candidate) return null
   const root = normalizePath(projectRoot)

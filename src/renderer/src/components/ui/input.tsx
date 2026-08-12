@@ -1,9 +1,6 @@
 import { cn } from '@renderer/lib/utils'
 
-function Input({
-  className,
-  ...props
-}: React.InputHTMLAttributes<HTMLInputElement>): React.JSX.Element {
+function Input({ className, ...props }: React.ComponentProps<'input'>): React.JSX.Element {
   return (
     <input
       className={cn(

@@ -1,9 +1,24 @@
 import { describe, expect, it } from 'vitest'
-import { normalizePath, resolveWithinProject } from './files-path'
+import { normalizePath, remapPathPrefix, resolveWithinProject } from './files-path'
 
 describe('normalizePath', () => {
   it('折叠 . 与 ..', () => {
     expect(normalizePath('/a/./b/../c')).toBe('/a/c')
+  })
+})
+
+describe('remapPathPrefix', () => {
+  it('命中自身与后代时替换前缀', () => {
+    expect(remapPathPrefix('/p/a', '/p/a', '/p/b')).toBe('/p/b')
+    expect(remapPathPrefix('/p/a/x/y', '/p/a', '/p/b')).toBe('/p/b/x/y')
+  })
+
+  it('同名前缀但非路径边界不误伤', () => {
+    expect(remapPathPrefix('/p/ab/x', '/p/a', '/p/b')).toBe('/p/ab/x')
+  })
+
+  it('无关路径原样返回', () => {
+    expect(remapPathPrefix('/q/c', '/p/a', '/p/b')).toBe('/q/c')
   })
 })
 
