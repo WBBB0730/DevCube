@@ -2,6 +2,8 @@
 
 DevCube 是个人的多项目聚合器，运行配置属于"用户的工作台"而非某个仓库的资产。因此把项目列表与 Run Configuration 集中存在 Electron `userData` 的一份 JSON 里，不在任何项目文件夹内落盘。同一份 JSON 也可存放工作台 UI 现场（当前项目、选中、激活 Tab、Terminal 壳等，见 ADR-0008）。Discovered Script 与 **Run Session**（进程 / 输出 / 运行 Tab）不持久化。
 
+Stable、Beta 与未包装 Dev 均在 Electron `appData` 下显式固定 `userData` / `sessionData` 目录，依次为 `DevCube`、`DevCube Beta`、`DevCube Dev`。前两个名称与既有 Electron 默认目录完全一致，因此不迁移数据；显式声明让目录不再随显示名变化。三者不共享或自动复制数据，避免开发中的写入和数据结构变化污染已安装版本。
+
 ## Considered Options
 
 - **集中存 userData**（选中）：零仓库侵入、不与 WebStorm `.idea/` 冲突、模型简单。代价：配置不随仓库走、不可与队友共享；项目按绝对路径识别，文件夹搬家会失联。

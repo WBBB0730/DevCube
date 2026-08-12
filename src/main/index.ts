@@ -17,6 +17,10 @@ import { canInstallUpdateOnQuit, installDownloadedUpdate } from './app-updater'
 import { rememberWindowPlacement, resolveRememberedWindowPlacement } from './window-placement'
 import { registerBootstrapIpc } from './renderer-bootstrap'
 import { disposeTray, installTray } from './tray'
+import { configureUserData } from './user-data'
+
+// 必须早于 app.ready、Store 初始化和 Chromium Session 创建，隔离 Stable / Beta / Dev。
+configureUserData(app)
 
 // 仅深色：强制原生菜单（含 Windows 托盘）走深色，不跟系统浅色。
 nativeTheme.themeSource = 'dark'

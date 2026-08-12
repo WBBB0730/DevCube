@@ -1,6 +1,6 @@
 # 正式版与 Beta 使用不同安装身份、可并行安装
 
-需要同时分发正式版与 beta，且两者可装在同一台机器上互不影响。因此用不同的 `appId` / 显示名 / 图标区分安装身份（`com.wbbb.devcube` 与 `com.wbbb.devcube.beta`），本地用户数据随之隔离；而不是共用同一 `appId`、仅靠版本通道或 GitHub Pre-release 区分。
+需要同时分发正式版与 beta，且两者可装在同一台机器上互不影响。因此用不同的 `appId` / 显示名 / 图标区分安装身份（`com.wbbb.devcube` 与 `com.wbbb.devcube.beta`），并显式固定各自的 `userData` / `sessionData` 目录（`DevCube` 与 `DevCube Beta`）；而不是共用同一 `appId`、仅靠版本通道或 GitHub Pre-release 区分。目录名保持既有默认值以免迁移，同时与显示名解耦，后续改名不会丢失数据。
 
 ## Considered Options
 

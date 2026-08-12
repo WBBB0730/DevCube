@@ -48,7 +48,7 @@ DevCube 目前只能在本机手动打包，没有可重复的 Win / Mac 发布�
 
 - **版本与触发**：维护者本地执行 bumpp（已有 `release` 脚本）升级 `package.json` version、提交并创建 `v*` tag 后推送。仅 `push` tags 匹配 `v*` 触发发布 workflow；workflow 校验该 tag 的 commit 是 `main` 的祖先（或等价「在 main 上」），否则失败。
 - **通道判定**：从 version 解析——无 prerelease → 正式身份；prerelease 仅接受 `-beta` / `-beta.N` → beta 身份。其它 prerelease 直接报错并阻止构建或发版。
-- **安装身份（ADR-0012）**：正式：`appId` `com.wbbb.devcube`，`productName` DevCube，Windows 可执行名 `devcube`。beta：`appId` `com.wbbb.devcube.beta`，`productName` DevCube Beta，可执行名 `devcube-beta`。打包元数据与 Windows 运行时 AppUserModelID 消费同一份身份解析结果；不同身份带来隔离的用户数据目录，不另做数据共享。
+- **安装与数据身份（ADR-0012）**：正式：`appId` `com.wbbb.devcube`，`productName` DevCube，Windows 可执行名 `devcube`，数据目录 `DevCube`。beta：`appId` `com.wbbb.devcube.beta`，`productName` DevCube Beta，可执行名 `devcube-beta`，数据目录 `DevCube Beta`。打包元数据、Windows 运行时 AppUserModelID 与启动期 `userData` / `sessionData` 配置消费同一份身份解析结果；目录名保持既有默认值，数据身份不再依赖显示名，也不跨身份共享。
 - **构建配置模块**：使用 electron-builder 自动发现的 TypeScript 配置，由 version 派生身份字段、图标目录与 `extraMetadata`。默认/正式字段与现网一致；beta 覆盖上述差异。避免维护两份易漂移的静态 YAML，也不依赖命令行额外传入配置路径。
 - **制品矩阵**：`macos` runner → arm64 的 `dmg` + `zip`；`windows` runner → x64 的 `nsis` + `portable`。不打 Linux；不打 Mac universal / Win arm64。文件名用 `${name}`（无空格），见 ADR-0015。
 - **发布编排**：矩阵 job 只构建并 `upload-artifact`；全部成功后，收尾 job 用官方 GitHub CLI 创建 Release、上传全部 artifact，再发布——正式非 prerelease、beta 为 Pre-release，**body 留空**。不在各矩阵 job 里竞态 `electron-builder --publish`，也不暴露半成品 Release。
@@ -57,7 +57,7 @@ DevCube 目前只能在本机手动打包，没有可重复的 Win / Mac 发布�
 - **自动更新**：应用内更新见 `docs/prd/in-app-update.md`；本流水线须把 `latest.yml` / `latest-mac.yml` 与安装包一并挂到 GitHub Release（`publish.provider = github`，构建仍 `--publish never`，由收尾 `gh release` 上传）。
 - **质量门禁与缓存**：`push` 到 `main` 时 Win + Mac 矩阵执行 lint、test、typecheck 与应用构建，缓存 pnpm store和 Electron 二进制；不运行 electron-builder、不缓存其未产生的数据、不上传 Release。tag workflow 先在同一提交执行相同门禁；打包 job 复用 pnpm / Electron 缓存，并独立缓存真实产生的 electron-builder 数据。
 - **图标**：改造 gen-icon——去掉全部 CLI 参数；一次运行写出正式 / beta 目标路径，并额外写出裁掉透明安全边距的 Windows 图标（`icon-win.png`）。共用 WebStorm 底 + 黑块 + `DEV` + 横线；仅 beta 再叠斜向 beta 标（几何/颜色允许后续改脚本微调）。生成物提交入库；动态配置按身份指向对应图标，`win.icon` 用裁切版。
-- **深模块（可单测）**：抽出「version → 发行身份」纯函数：输入版本字符串，输出正式/beta 判别及身份字段集合（appId、productName、executableName、是否 Pre-release、图标侧标识等）。动态配置、Windows 运行时身份与 CI 元数据脚本都消费同一语义，避免多处复制字符串规则。
+- **深模块（可单测）**：抽出「version → 发行身份」纯函数：输入版本字符串，输出正式/beta 判别及身份字段集合（appId、productName、userDataDirectory、executableName、是否 Pre-release、图标侧标识等）。动态配置、Windows 运行时身份、数据路径与 CI 元数据脚本都消费同一语义，避免多处复制字符串规则。
 - **Actions 安全**：第三方与官方 Actions 均固定到审核过的完整 commit SHA。workflow 默认 `contents: read`，只有最终发布 job 获取 `contents: write`。
 
 ## Testing Decisions
@@ -66,7 +66,8 @@ DevCube 目前只能在本机手动打包，没有可重复的 Win / Mac 发布�
 
 要测的模块：
 
-- **发行身份解析**：`1.0.0` → 正式；`1.0.0-beta.1` / `1.2.3-beta` → beta；字段（appId、productName、executableName、prerelease 标志）与约定一致；`alpha` / `rc` / 非法 beta 标识会失败。
+- **发行身份解析**：`1.0.0` → 正式；`1.0.0-beta.1` / `1.2.3-beta` → beta；字段（appId、productName、userDataDirectory、executableName、prerelease 标志）与约定一致；`alpha` / `rc` / 非法 beta 标识会失败。
+- **数据路径配置**：Stable、Beta 与未包装 Dev 分别把 `userData` / `sessionData` 指向 `appData` 下的 `DevCube`、`DevCube Beta`、`DevCube Dev`；目标目录在设置前已创建。
 
 不写 workflow 的 e2e；图标像素与 Apple 公证靠维护者在 CI/真机冒烟。
 

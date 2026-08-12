@@ -8,6 +8,8 @@ export type ReleaseEdition = {
   prerelease: boolean
   appId: string
   productName: string
+  /** Electron `appData` 下固定的 userData / sessionData 目录名 */
+  userDataDirectory: string
   executableName: string
   /** npm `name` / 制品名里的 ${name} */
   name: string
@@ -24,6 +26,7 @@ const STABLE: ReleaseEdition = {
   prerelease: false,
   appId: 'com.wbbb.devcube',
   productName: 'DevCube',
+  userDataDirectory: 'DevCube',
   executableName: 'devcube',
   name: 'devcube',
   buildResources: 'build',
@@ -36,6 +39,7 @@ const BETA: ReleaseEdition = {
   prerelease: true,
   appId: 'com.wbbb.devcube.beta',
   productName: 'DevCube Beta',
+  userDataDirectory: 'DevCube Beta',
   executableName: 'devcube-beta',
   name: 'devcube-beta',
   buildResources: 'build/beta',

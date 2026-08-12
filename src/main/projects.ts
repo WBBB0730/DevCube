@@ -1,9 +1,14 @@
 import { dialog } from 'electron'
 import { mkdirSync, statSync } from 'fs'
-import { basename } from 'path'
+import { basename, dirname } from 'path'
 import { applyProjectPinned } from '../shared/project-sort'
-import { getConfigs, getProjects, setConfigs, setProjects } from './store'
+import { getAppPrefs, getConfigs, getProjects, setAppPrefs, setConfigs, setProjects } from './store'
 import type { Project } from '../shared/types'
+
+/** 记住所选项目文件夹的父目录，作为下次新建 / 添加项目对话框的默认位置。 */
+function rememberProjectParentDir(projectPath: string): void {
+  setAppPrefs({ lastProjectParentDir: dirname(projectPath) })
+}
 
 /** 按绝对路径去重登记一个项目；已存在则原样返回该路径。非目录返回 null。 */
 export function addProjectByPath(dir: string): string | null {
@@ -31,9 +36,15 @@ export function addProjectByPath(dir: string): string | null {
 
 /** 打开系统文件夹选择器并登记。用户取消返回 null。 */
 export async function pickAndAddProject(): Promise<string | null> {
-  const result = await dialog.showOpenDialog({ properties: ['openDirectory'] })
+  const defaultPath = getAppPrefs().lastProjectParentDir
+  const result = await dialog.showOpenDialog({
+    properties: ['openDirectory'],
+    ...(defaultPath ? { defaultPath } : {})
+  })
   if (result.canceled || result.filePaths.length === 0) return null
-  return addProjectByPath(result.filePaths[0])
+  const dir = result.filePaths[0]
+  rememberProjectParentDir(dir)
+  return addProjectByPath(dir)
 }
 
 /**
@@ -41,11 +52,13 @@ export async function pickAndAddProject(): Promise<string | null> {
  * 所填路径已存在同名目录时不删不动，直接登记（等同添加现有项目）。
  */
 export async function createAndAddProject(): Promise<string | null> {
+  const defaultPath = getAppPrefs().lastProjectParentDir
   const result = await dialog.showSaveDialog({
     title: '新建项目',
     buttonLabel: '创建',
     nameFieldLabel: '项目名称',
-    properties: ['createDirectory', 'showOverwriteConfirmation']
+    properties: ['createDirectory', 'showOverwriteConfirmation'],
+    ...(defaultPath ? { defaultPath } : {})
   })
   if (result.canceled || result.filePath === undefined || result.filePath === '') return null
   try {
@@ -53,6 +66,7 @@ export async function createAndAddProject(): Promise<string | null> {
   } catch {
     return null // 创建失败（权限 / 同名文件占位等）：不登记
   }
+  rememberProjectParentDir(result.filePath)
   return addProjectByPath(result.filePath)
 }
 

@@ -57,13 +57,16 @@ export type WindowsShell = 'git-bash' | 'powershell' | 'cmd'
 /** 跨平台应用偏好（当前仅 Windows shell；非 win32 忽略 windowsShell）。 */
 export interface AppPrefs {
   windowsShell: WindowsShell
+  /** 上次新建 / 添加项目时，所选项目文件夹的父目录，作为下次对话框的默认位置。 */
+  lastProjectParentDir?: string
 }
 
 export const WINDOWS_SHELLS: readonly WindowsShell[] = ['git-bash', 'powershell', 'cmd']
 
 /** 默认 Git Bash；探测不到时运行时回退 PowerShell（见 ADR-0022）。 */
 export const DEFAULT_APP_PREFS: AppPrefs = {
-  windowsShell: 'git-bash'
+  windowsShell: 'git-bash',
+  lastProjectParentDir: undefined
 }
 
 /** Windows shell 选项及本机是否可用（供设置页置灰不可选项）。 */
