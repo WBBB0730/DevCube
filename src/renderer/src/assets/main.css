@@ -196,6 +196,38 @@
   ::-webkit-scrollbar-thumb:hover {
     background: var(--scrollbar-thumb-hover);
   }
+  .tab-bar-scroll::-webkit-scrollbar {
+    display: none;
+  }
+  .tab-bar-frame::before,
+  .tab-bar-frame::after {
+    position: absolute;
+    z-index: 20;
+    top: 0;
+    bottom: 1px;
+    width: 16px;
+    pointer-events: none;
+    content: '';
+    @apply transition-opacity;
+  }
+  .tab-bar-frame::before {
+    left: 0;
+    background: linear-gradient(
+      to right,
+      var(--bg-panel),
+      rgb(from var(--bg-panel) r g b / 0)
+    );
+    opacity: var(--tab-fade-left-opacity, 0);
+  }
+  .tab-bar-frame::after {
+    right: 0;
+    background: linear-gradient(
+      to left,
+      var(--bg-panel),
+      rgb(from var(--bg-panel) r g b / 0)
+    );
+    opacity: var(--tab-fade-right-opacity, 0);
+  }
 
   /* 左树拖拽中：其它元素不响应 :hover（dnd 仍靠指针坐标做碰撞，不依赖元素 pointer-events） */
   [data-project-tree]:has([data-dragging-project]) *,

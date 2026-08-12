@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   ChevronDown,
   ChevronUp,
@@ -227,7 +227,7 @@ const STATUS_DOT: Record<SessionStatus | 'idle', string> = {
 // 单个 Tab 外壳样式：与左标题栏同高、无圆角、彼此紧贴；选中态用主色下描边（inset box-shadow，不占布局）。
 // 右内边距 8px：12px 的 × 图标在 16px 按钮内居中内缩 2px，8+2=10px 即图标到右边缘的距离。
 const TAB =
-  'flex h-full max-w-[220px] cursor-pointer select-none items-center gap-1.5 pl-2.5 text-[14px] transition-colors hover:bg-[var(--bg-row-hover)]'
+  'flex h-full max-w-[220px] shrink-0 cursor-pointer select-none items-center gap-1.5 whitespace-nowrap pl-2.5 text-[14px] transition-colors hover:bg-[var(--bg-row-hover)]'
 const TAB_ACTIVE = { boxShadow: 'inset 0 -3px 0 0 var(--primary)' } as const
 
 // 关闭键（运行会话/终端 Tab 共用）：16px 按钮 + 12px 图标；常驻，背景仅 hover 显示（圆形 + 颜色过渡）。
@@ -268,7 +268,76 @@ function TabBar({
 }): React.JSX.Element {
   const newTerminal = useApp((s) => s.newTerminal)
   const reorderTerminals = useApp((s) => s.reorderTerminals)
+  const tabBarFrameRef = useRef<HTMLDivElement>(null)
+  const tabBarRef = useRef<HTMLDivElement>(null)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
+
+  useLayoutEffect(() => {
+    const scroller = tabBarRef.current
+    if (!scroller) return
+    scroller
+      .querySelector(`[data-tab-key="${globalThis.CSS.escape(activeKey)}"]`)
+      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
+  }, [projectPath, activeKey])
+
+  useEffect(() => {
+    const scroller = tabBarRef.current
+    if (!scroller) return
+
+    const handleWheel = (e: WheelEvent): void => {
+      if (scroller.scrollWidth <= scroller.clientWidth) return
+
+      // 鼠标纵向滚轮直接横移；触控板已有横向意图时保留其方向。
+      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
+      if (delta === 0) return
+
+      const scale =
+        e.deltaMode === WheelEvent.DOM_DELTA_LINE
+          ? 16
+          : e.deltaMode === WheelEvent.DOM_DELTA_PAGE
+            ? scroller.clientWidth
+            : 1
+      const previous = scroller.scrollLeft
+      scroller.scrollLeft += delta * scale
+      if (scroller.scrollLeft !== previous) e.preventDefault()
+    }
+
+    scroller.addEventListener('wheel', handleWheel, { passive: false })
+    return () => scroller.removeEventListener('wheel', handleWheel)
+  }, [])
+
+  useEffect(() => {
+    const frame = tabBarFrameRef.current
+    const scroller = tabBarRef.current
+    if (!frame || !scroller) return
+
+    const edgeTolerance = 1
+    const updateFadeOpacity = (): void => {
+      const maxScrollLeft = Math.max(scroller.scrollWidth - scroller.clientWidth, 0)
+      const scrollLeft = Math.min(Math.max(scroller.scrollLeft, 0), maxScrollLeft)
+      const remaining = maxScrollLeft - scrollLeft
+
+      frame.style.setProperty('--tab-fade-left-opacity', scrollLeft > edgeTolerance ? '1' : '0')
+      frame.style.setProperty('--tab-fade-right-opacity', remaining > edgeTolerance ? '1' : '0')
+    }
+
+    const observeChildren = (): void => {
+      for (const child of scroller.children) resizeObserver.observe(child)
+      updateFadeOpacity()
+    }
+    const resizeObserver = new ResizeObserver(updateFadeOpacity)
+    const mutationObserver = new MutationObserver(observeChildren)
+    resizeObserver.observe(scroller)
+    observeChildren()
+    mutationObserver.observe(scroller, { childList: true })
+    scroller.addEventListener('scroll', updateFadeOpacity, { passive: true })
+
+    return () => {
+      mutationObserver.disconnect()
+      resizeObserver.disconnect()
+      scroller.removeEventListener('scroll', updateFadeOpacity)
+    }
+  }, [])
 
   const handleDragEnd = (e: DragEndEvent): void => {
     const { active, over } = e
@@ -282,54 +351,65 @@ function TabBar({
 
   return (
     <div
-      className="flex h-10 shrink-0 items-center overflow-x-auto border-b border-[var(--separator)] bg-panel px-2"
-      title={`切换 Tab (${shortcutLabel(SHORTCUT.prevTab)} / ${shortcutLabel(SHORTCUT.nextTab)}，或 ${shortcutLabel(SHORTCUT.cycleTabNext)})`}
+      ref={tabBarFrameRef}
+      className="tab-bar-frame relative h-10 shrink-0 border-b border-[var(--separator)] bg-panel"
     >
-      {/* Git Tab：每项目常驻第一个、不可关闭（ADR-0005）。⌘1 */}
-      <GitTabItem gitKey={gitKey} projectPath={projectPath} active={gitKey === activeKey} />
-      {/* Files Tab：常驻第二、不可关闭。⌘2 */}
-      <FilesTabItem filesKey={filesKey} projectPath={projectPath} active={filesKey === activeKey} />
-      {/* 运行会话 Tab：每条有会话的配置一个，顺序跟随树中配置顺序。 */}
-      {runTabs.map((t, i) => (
-        <RunTabItem
-          key={t.key}
-          tab={t}
-          active={t.key === activeKey}
+      <div
+        ref={tabBarRef}
+        className="tab-bar-scroll flex h-full flex-nowrap items-center overflow-x-auto overflow-y-hidden scroll-px-4"
+        title={`切换 Tab (${shortcutLabel(SHORTCUT.prevTab)} / ${shortcutLabel(SHORTCUT.nextTab)}，或 ${shortcutLabel(SHORTCUT.cycleTabNext)})`}
+      >
+        {/* Git Tab：每项目常驻第一个、不可关闭（ADR-0005）。⌘1 */}
+        <GitTabItem gitKey={gitKey} projectPath={projectPath} active={gitKey === activeKey} />
+        {/* Files Tab：常驻第二、不可关闭。⌘2 */}
+        <FilesTabItem
+          filesKey={filesKey}
           projectPath={projectPath}
-          tabIndex={i + 3}
+          active={filesKey === activeKey}
         />
-      ))}
-      {/* 终端 Tab：组内可拖拽排序（仅水平、不与运行会话组混排）。 */}
-      <DndContext
-        sensors={sensors}
-        collisionDetection={closestCenter}
-        modifiers={[restrictToHorizontalWithinList]}
-        onDragEnd={handleDragEnd}
-      >
-        <SortableContext
-          items={termTabs.map((t) => t.key)}
-          strategy={horizontalListSortingStrategy}
+        {/* 运行会话 Tab：每条有会话的配置一个，顺序跟随树中配置顺序。 */}
+        {runTabs.map((t, i) => (
+          <RunTabItem
+            key={t.key}
+            tab={t}
+            active={t.key === activeKey}
+            projectPath={projectPath}
+            tabIndex={i + 3}
+          />
+        ))}
+        {/* 终端 Tab：组内可拖拽排序（仅水平、不与运行会话组混排）。 */}
+        <DndContext
+          sensors={sensors}
+          collisionDetection={closestCenter}
+          modifiers={[restrictToHorizontalWithinList]}
+          onDragEnd={handleDragEnd}
         >
-          <div className="flex h-full shrink-0 items-center">
-            {termTabs.map((t, i) => (
-              <TerminalTabItem
-                key={t.key}
-                tab={t}
-                active={t.key === activeKey}
-                tabIndex={3 + runTabs.length + i}
-              />
-            ))}
-          </div>
-        </SortableContext>
-      </DndContext>
-      <button
-        type="button"
-        title={shortcutTitle('新建终端', SHORTCUT.newTerminal)}
-        onClick={() => newTerminal(projectPath)}
-        className="ml-1 flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]"
-      >
-        <Plus className="size-4" />
-      </button>
+          <SortableContext
+            items={termTabs.map((t) => t.key)}
+            strategy={horizontalListSortingStrategy}
+          >
+            <div className="flex h-full shrink-0 items-center">
+              {termTabs.map((t, i) => (
+                <TerminalTabItem
+                  key={t.key}
+                  tab={t}
+                  active={t.key === activeKey}
+                  tabIndex={3 + runTabs.length + i}
+                />
+              ))}
+            </div>
+          </SortableContext>
+        </DndContext>
+        <button
+          type="button"
+          title={shortcutTitle('新建终端', SHORTCUT.newTerminal)}
+          onClick={() => newTerminal(projectPath)}
+          className="ml-1 flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]"
+        >
+          <Plus className="size-4" />
+        </button>
+        <span aria-hidden className="w-2 shrink-0" />
+      </div>
     </div>
   )
 }
@@ -353,6 +433,7 @@ function GitTabItem({
   })
   return (
     <div
+      data-tab-key={gitKey}
       className={cn(TAB, 'pl-3 pr-3')}
       style={active ? TAB_ACTIVE : undefined}
       title={shortcutTitle('Git', tabAtShortcut(1))}
@@ -379,6 +460,7 @@ function FilesTabItem({
   const activateTab = useApp((s) => s.activateTab)
   return (
     <div
+      data-tab-key={filesKey}
       className={cn(TAB, 'pl-3 pr-3')}
       style={active ? TAB_ACTIVE : undefined}
       title={shortcutTitle('文件', tabAtShortcut(2))}
@@ -407,6 +489,7 @@ function RunTabItem({
 
   return (
     <div
+      data-tab-key={tab.key}
       className={cn(TAB, 'group pr-2')}
       style={active ? TAB_ACTIVE : undefined}
       title={tabIndex <= 9 ? shortcutTitle(tab.label, tabAtShortcut(tabIndex)) : tab.label}
@@ -482,6 +565,7 @@ function TerminalTabItem({
   return (
     <div
       ref={setNodeRef}
+      data-tab-key={tab.key}
       style={style}
       className={cn(TAB, 'group pr-2')}
       title={
