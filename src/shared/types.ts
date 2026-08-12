@@ -281,6 +281,8 @@ export interface RunAPI extends GitAPI {
   filesFilterTree(projectPath: string, query: string): Promise<FilesTreeFilterResult>
   filesRead(projectPath: string, filePath: string): Promise<FilesReadResult>
   filesWrite(projectPath: string, filePath: string, content: string): Promise<{ mtimeMs: number }>
+  /** 文件在 HEAD 的基线文本（编辑器 gutter diff）；无基线（非仓库 / 未跟踪 / 二进制 / 超限）为 null */
+  filesHeadText(projectPath: string, filePath: string): Promise<string | null>
   filesGetUi(projectPath: string): Promise<FilesUiState>
   filesSetUi(projectPath: string, patch: Partial<FilesUiState>): Promise<FilesUiState>
   /** 项目文件树相关磁盘变化：渲染端应重拉已缓存目录并同步当前打开文件 */

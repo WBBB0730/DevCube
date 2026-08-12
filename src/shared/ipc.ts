@@ -45,6 +45,7 @@ export const IPC = {
   filesFilterTree: 'files:filter-tree',
   filesRead: 'files:read',
   filesWrite: 'files:write',
+  filesHeadText: 'files:head-text',
   filesGetUi: 'files:ui-get',
   filesSetUi: 'files:ui-set',
   filesChanged: 'files:changed',

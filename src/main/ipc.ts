@@ -77,6 +77,7 @@ import {
   filterFilesTreeScan,
   listDir,
   readFileEntry,
+  readHeadText,
   sanitizeFilesUi,
   writeFileEntry
 } from './files'
@@ -362,6 +363,9 @@ export function registerIpc(win: BrowserWindow): void {
   )
   ipcMain.handle(IPC.filesWrite, (_e, projectPath: string, filePath: string, content: string) =>
     writeFileEntry(projectPath, filePath, content)
+  )
+  ipcMain.handle(IPC.filesHeadText, (_e, projectPath: string, filePath: string) =>
+    readHeadText(projectPath, filePath)
   )
   ipcMain.handle(IPC.filesGetUi, async (_e, projectPath: string) => {
     const ui = getFilesUi(projectPath)

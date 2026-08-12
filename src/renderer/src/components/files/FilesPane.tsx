@@ -29,6 +29,7 @@ import {
   filesHighlighting,
   languageExtensionForPath
 } from '@renderer/lib/cm6-setup'
+import { gitDiffGutter } from '@renderer/lib/cm6-git-gutter'
 import { useFiles } from '@renderer/files-store'
 import { Button } from '@renderer/components/ui/button'
 import {
@@ -81,6 +82,8 @@ export function FilesPane({
   const [conflict, setConflict] = useState<{ disk: string; mtimeMs: number } | null>(null)
   /** 相对项目根路径 → 工作区 Git 状态（与提交面板文件树上色同源） */
   const [statusByRel, setStatusByRel] = useState<Map<string, GitFileStatus>>(() => new Map())
+  /** 当前打开文本文件在 HEAD 的基线（gutter diff 条纹）；无基线为 null */
+  const [headText, setHeadText] = useState<{ path: string; content: string } | null>(null)
   const [recentPaths, setRecentPaths] = useState<string[]>([])
 
   const loadedRef = useRef(loaded)
@@ -173,6 +176,38 @@ export function FilesPane({
     })
     return dispose
   }, [visible, projectPath, refreshGitStatus])
+
+  // 打开文本文件时取 HEAD 基线（gutter diff）；提交 / 暂存等 git 变化后重取
+  const openTextPath = loaded?.kind === 'text' ? loaded.path : null
+  useEffect(() => {
+    if (!visible || openTextPath === null) return
+    let stale = false
+    const load = (): void => {
+      window.api
+        .filesHeadText(projectPath, openTextPath)
+        .then((content) => {
+          if (stale) return
+          setHeadText((prev) =>
+            content === null
+              ? null
+              : prev && prev.path === openTextPath && prev.content === content
+                ? prev
+                : { path: openTextPath, content }
+          )
+        })
+        .catch(() => {
+          if (!stale) setHeadText(null)
+        })
+    }
+    load()
+    const dispose = window.api.onGitChanged((p) => {
+      if (p === projectPath) load()
+    })
+    return () => {
+      stale = true
+      dispose()
+    }
+  }, [visible, openTextPath, projectPath])
 
   // 打开文件 / 显式定位后滚入视口；展开目录等只在挂起未完成时重试
   useLayoutEffect(() => {
@@ -743,6 +778,7 @@ export function FilesPane({
           <FilesTextEditor
             path={loaded.path}
             content={loaded.content}
+            baseline={headText !== null && headText.path === loaded.path ? headText.content : null}
             projectRoot={rootLogical}
             error={saveError}
             recentPaths={recentPaths}
@@ -1017,6 +1053,7 @@ export function FilesPane({
 function FilesTextEditor({
   path,
   content,
+  baseline,
   projectRoot,
   error,
   recentPaths,
@@ -1030,6 +1067,8 @@ function FilesTextEditor({
 }: {
   path: string
   content: string
+  /** HEAD 基线文本；null = 不显示 gutter diff 条纹 */
+  baseline: string | null
   projectRoot: string
   error: string | null
   recentPaths: string[]
@@ -1042,8 +1081,14 @@ function FilesTextEditor({
   onChange: (value: string) => void
 }): React.JSX.Element {
   const extensions = useMemo(
-    () => [filesEditorTheme, filesHighlighting, filesEditorConfig, languageExtensionForPath(path)],
-    [path]
+    () => [
+      filesEditorTheme,
+      filesHighlighting,
+      filesEditorConfig,
+      languageExtensionForPath(path),
+      ...(baseline === null ? [] : [gitDiffGutter(baseline)])
+    ],
+    [path, baseline]
   )
   return (
     <div className="flex h-full min-h-0 flex-col">

@@ -246,6 +246,23 @@ export async function readFileEntry(
   return { kind: 'other', path: logical, size: buf.length }
 }
 
+/**
+ * 读取文件在 HEAD 的基线文本（编辑器 gutter diff 条纹的对比端）。
+ * 非仓库 / HEAD 无此路径（未跟踪、未出生、重命名未提交）/ 二进制 / 超限 → null（不显示条纹）。
+ */
+export async function readHeadText(projectPath: string, filePath: string): Promise<string | null> {
+  const logical = within(projectPath, filePath)
+  const repoRootSys = await resolveRepoRoot(toSys(normalizePath(projectPath)))
+  if (!repoRootSys) return null
+  const rel = toRepoRel(normalizePath(repoRootSys), logical)
+  if (rel === '.') return null
+  const result = await execGit(repoRootSys, ['show', `HEAD:${rel}`])
+  if (result.code !== 0) return null
+  const buf = result.stdout
+  if (buf.length > MAX_TEXT_BYTES || !sniffTextBuffer(buf)) return null
+  return buf.toString('utf8')
+}
+
 export async function writeFileEntry(
   projectPath: string,
   filePath: string,
