@@ -4,6 +4,7 @@ import {
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
+  Eye,
   File as FileIcon,
   FileClock,
   Folder,
@@ -11,6 +12,7 @@ import {
   ListTree,
   Minus,
   PanelRight,
+  Pencil,
   Search,
   SquareArrowOutUpRight,
   X
@@ -30,6 +32,8 @@ import {
   languageExtensionForPath
 } from '@renderer/lib/cm6-setup'
 import { gitDiffGutter } from '@renderer/lib/cm6-git-gutter'
+import { isMarkdownPath } from '@shared/files-kind'
+import { FilesMarkdownPreview } from './FilesMarkdownPreview'
 import { useFiles } from '@renderer/files-store'
 import { Button } from '@renderer/components/ui/button'
 import {
@@ -99,6 +103,8 @@ export function FilesPane({
   const [revealTick, setRevealTick] = useState(0)
   /** 右侧文件树可见性；不持久化，重挂载默认展开。 */
   const [treeVisible, setTreeVisible] = useState(true)
+  /** Markdown 编辑 ↔ 预览两态；会话内保持，不持久化，默认编辑。 */
+  const [mdPreview, setMdPreview] = useState(false)
   const [ready, setReady] = useState(false)
   /** 忽略过期的 openFile / git status / 全部展开 / 过滤扫盘 响应。 */
   const openSeqRef = useRef(0)
@@ -784,6 +790,13 @@ export function FilesPane({
             recentPaths={recentPaths}
             fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
             treeVisible={treeVisible}
+            mdPreview={mdPreview}
+            onToggleMdPreview={() => {
+              const next = !mdPreview
+              // 切到预览前落盘，预览与磁盘一致
+              if (next) void flushSave()
+              setMdPreview(next)
+            }}
             onShowTree={() => setTreeVisible(true)}
             onToggleTree={() => setTreeVisible((v) => !v)}
             onRevealInTree={revealInTree}
@@ -1059,6 +1072,8 @@ function FilesTextEditor({
   recentPaths,
   fileStatus,
   treeVisible,
+  mdPreview,
+  onToggleMdPreview,
   onShowTree,
   onToggleTree,
   onRevealInTree,
@@ -1074,12 +1089,16 @@ function FilesTextEditor({
   recentPaths: string[]
   fileStatus: GitFileStatus | undefined
   treeVisible: boolean
+  /** Markdown 两态：true = 预览正文；非 Markdown 文件忽略 */
+  mdPreview: boolean
+  onToggleMdPreview: () => void
   onShowTree: () => void
   onToggleTree: () => void
   onRevealInTree: (logical: string, isDirectory: boolean) => void | Promise<void>
   onOpenRecent: (logical: string) => void | Promise<void>
   onChange: (value: string) => void
 }): React.JSX.Element {
+  const markdown = isMarkdownPath(path)
   const extensions = useMemo(
     () => [
       filesEditorTheme,
@@ -1099,23 +1118,29 @@ function FilesTextEditor({
         recentPaths={recentPaths}
         fileStatus={fileStatus}
         treeVisible={treeVisible}
+        mdPreview={markdown ? mdPreview : null}
+        onToggleMdPreview={onToggleMdPreview}
         onShowTree={onShowTree}
         onToggleTree={onToggleTree}
         onRevealInTree={onRevealInTree}
         onOpenRecent={onOpenRecent}
       />
-      <div className="files-codemirror min-h-0 flex-1 overflow-hidden bg-[#1E1F22]">
-        <CodeMirror
-          key={path}
-          value={content}
-          height="100%"
-          theme="none"
-          extensions={extensions}
-          basicSetup={FILES_BASIC_SETUP}
-          onChange={onChange}
-          className="h-full [&_.cm-editor]:h-full [&_.cm-editor]:outline-none"
-        />
-      </div>
+      {markdown && mdPreview ? (
+        <FilesMarkdownPreview path={path} content={content} projectRoot={projectRoot} />
+      ) : (
+        <div className="files-codemirror min-h-0 flex-1 overflow-hidden bg-[#1E1F22]">
+          <CodeMirror
+            key={path}
+            value={content}
+            height="100%"
+            theme="none"
+            extensions={extensions}
+            basicSetup={FILES_BASIC_SETUP}
+            onChange={onChange}
+            className="h-full [&_.cm-editor]:h-full [&_.cm-editor]:outline-none"
+          />
+        </div>
+      )}
     </div>
   )
 }
@@ -1131,6 +1156,8 @@ function FilesToolbar({
   recentPaths,
   fileStatus,
   treeVisible,
+  mdPreview = null,
+  onToggleMdPreview,
   onShowTree,
   onToggleTree,
   onRevealInTree,
@@ -1142,6 +1169,9 @@ function FilesToolbar({
   recentPaths: string[]
   fileStatus: GitFileStatus | undefined
   treeVisible: boolean
+  /** Markdown 编辑 ↔ 预览切换钮：null = 不显示（非 Markdown / 非文本） */
+  mdPreview?: boolean | null
+  onToggleMdPreview?: () => void
   onShowTree: () => void
   onToggleTree: () => void
   onRevealInTree: (logical: string, isDirectory: boolean) => void | Promise<void>
@@ -1230,6 +1260,16 @@ function FilesToolbar({
         </DropdownMenu>
         {path && (
           <>
+            {mdPreview !== null && (
+              <button
+                type="button"
+                title={mdPreview ? '编辑' : '预览'}
+                className={TOOLBAR_BTN}
+                onClick={onToggleMdPreview}
+              >
+                {mdPreview ? <Pencil className="size-4" /> : <Eye className="size-4" />}
+              </button>
+            )}
             <button
               type="button"
               title="在文件树中显示"

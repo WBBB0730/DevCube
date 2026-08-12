@@ -145,6 +145,12 @@ export function filesOpenKindFromMime(mime: string): FilesOpenKind | null {
   return null
 }
 
+/** Markdown 文件（Files 编辑器对其提供编辑 ↔ 预览两态）。 */
+export function isMarkdownPath(path: string): boolean {
+  const lower = path.toLowerCase()
+  return lower.endsWith('.md') || lower.endsWith('.markdown')
+}
+
 /**
  * 按文件名（含扩展名）判定打开分流。
  * `.svg` 走文本（可编辑）；位图走图片预览。音视频以内容 MIME 为准，不靠扩展名。

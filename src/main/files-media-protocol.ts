@@ -31,15 +31,6 @@ export function registerFilesMediaScheme(): void {
   ])
 }
 
-/** 构建仅限本应用渲染层使用的媒体 URL（项目根、文件路径、MIME）。 */
-export function buildFilesMediaUrl(projectPath: string, filePath: string, mime: string): string {
-  const u = new URL(`${FILES_MEDIA_SCHEME}://local/`)
-  u.searchParams.set('p', normalizePath(projectPath))
-  u.searchParams.set('f', normalizePath(filePath))
-  u.searchParams.set('m', mime)
-  return u.toString()
-}
-
 function fileStreamResponse(
   sysPath: string,
   status: number,

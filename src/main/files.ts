@@ -14,11 +14,11 @@ import { isIdeIgnoredEntryName } from '../shared/files-tree-filter'
 import { filterFilesTree, type FilesTreeFilterResult } from '../shared/files-tree-search'
 import {
   FILES_RECENT_MAX,
+  buildFilesMediaUrl,
   type FilesDirEntry,
   type FilesReadResult,
   type FilesUiState
 } from '../shared/files'
-import { buildFilesMediaUrl } from './files-media-protocol'
 import { execGit, resolveRepoRoot } from './git-exec'
 import { getProjects } from './store'
 

@@ -1,4 +1,5 @@
 /** Files Tab 相关共享类型（术语见 CONTEXT.md）。 */
+import { normalizePath } from './files-path'
 
 export interface FilesDirEntry {
   name: string
@@ -14,8 +15,17 @@ export type FilesReadResult =
   | { kind: 'video'; path: string; mediaUrl: string; mime: string }
   | { kind: 'other'; path: string; size: number }
 
-/** Files Tab 音视频预览自定义协议（主进程 stream，渲染层 `<audio>`/`<video>`）。 */
+/** Files Tab 媒体预览自定义协议（主进程 stream，渲染层 `<audio>`/`<video>`/`<img>`）。 */
 export const FILES_MEDIA_SCHEME = 'dc-media'
+
+/** 构建仅限本应用渲染层使用的媒体 URL（项目根、文件路径、MIME）；主进程协议只放行登记项目内路径。 */
+export function buildFilesMediaUrl(projectPath: string, filePath: string, mime: string): string {
+  const u = new URL(`${FILES_MEDIA_SCHEME}://local/`)
+  u.searchParams.set('p', normalizePath(projectPath))
+  u.searchParams.set('f', normalizePath(filePath))
+  u.searchParams.set('m', mime)
+  return u.toString()
+}
 
 /** 每项目 Files Tab UI 持久化（上次打开路径 + 树展开 + 最近打开）。 */
 export interface FilesUiState {
