@@ -65,7 +65,7 @@ export function AppTitleBar({
                 : `重启以更新到 ${update.availableVersion ?? ''}`
             }
             onClick={onUpdateClick}
-            className="inline-flex size-7 items-center justify-center rounded text-[#3574F0] hover:bg-[var(--bg-button-hover)]"
+            className="inline-flex size-7 items-center justify-center rounded text-primary hover:bg-[var(--bg-button-hover)]"
           >
             <CircleArrowUp className="size-4" />
           </button>

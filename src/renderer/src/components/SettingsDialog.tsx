@@ -169,7 +169,7 @@ export function SettingsDialog({
               </div>
               <button
                 type="button"
-                className="text-[#548AF7] hover:underline"
+                className="text-[color:var(--link)] hover:underline"
                 onClick={onOpenRepo}
               >
                 {update.repoUrl}
@@ -234,7 +234,6 @@ export function SettingsDialog({
               })}
             </div>
           )}
-
         </main>
       </div>
     </SettingsModal>

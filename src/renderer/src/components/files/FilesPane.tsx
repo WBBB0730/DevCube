@@ -1242,7 +1242,7 @@ function FilesTextEditor({
       {markdown && mdPreview ? (
         <FilesMarkdownPreview path={path} content={content} projectRoot={projectRoot} />
       ) : (
-        <div className="files-codemirror min-h-0 flex-1 overflow-hidden bg-[#1E1F22]">
+        <div className="files-codemirror min-h-0 flex-1 overflow-hidden bg-deepest">
           <CodeMirror
             key={path}
             value={content}

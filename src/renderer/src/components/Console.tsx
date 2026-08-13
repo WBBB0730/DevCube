@@ -621,6 +621,8 @@ function TerminalTabItem({
 }
 
 // 搜索高亮配色：取自 Shell.icls 的 SEARCH_RESULT（绿）；activeMatch 取更亮的绿。
+// ⚠ 与 main.css 的 --find-match-bg / --find-match-active-bg 同值双写——xterm 是 JS API
+// 吃不了 CSS 变量，改动需两处同步。
 const SEARCH_OPTS: ISearchOptions = {
   decorations: {
     matchBackground: '#2d543f',
