@@ -7,7 +7,7 @@ import { python } from '@codemirror/lang-python'
 import { xml } from '@codemirror/lang-xml'
 import { yaml } from '@codemirror/lang-yaml'
 import { HighlightStyle, foldGutter, syntaxHighlighting, syntaxTree } from '@codemirror/language'
-import { EditorState, RangeSetBuilder, StateField, type Extension } from '@codemirror/state'
+import { EditorState, RangeSetBuilder, type Extension } from '@codemirror/state'
 import {
   Decoration,
   EditorView,
@@ -17,6 +17,7 @@ import {
 } from '@codemirror/view'
 import { tags as t } from '@lezer/highlight'
 import { filesLineNumbers } from './cm6-git-gutter'
+import { filesSelectionLayer } from './cm6-selection-layer'
 
 /**
  * WebStorm Dark.icls（2026.1 · parent Darcula）编辑器色。
@@ -84,19 +85,16 @@ export const filesEditorTheme = EditorView.theme(
       borderLeftColor: ICLS.caret,
       borderLeftWidth: '2px'
     },
-    // 默认选区层在内容层之下，会被 .cm-activeLine 盖住；改由行内 mark 叠在活动行上（见 filesSelectionMarkup）
+    // 官方 drawSelection 的选区层置透明：选区由 cm6-selection-layer 自绘（整行高 / 换行格 / 圆角），
+    // 光标层仍用官方
     '&.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground, .cm-selectionLayer .cm-selectionBackground':
       {
         backgroundColor: 'transparent !important'
       },
-    '.cm-filesSelectionMark': {
-      backgroundColor: ICLS.selection
-    },
-    '&.cm-focused ::selection, ::selection': {
-      backgroundColor: ICLS.selection
-    },
+    // 活动行用等效半透明叠色（One Dark 同款惯例）：叠在 #1E1F22 上精确等于 CARET_ROW_COLOR
+    // #26282E，且不遮挡画在内容层之下的选区层
     '.cm-activeLine': {
-      backgroundColor: ICLS.caretRow
+      backgroundColor: 'rgba(163, 181, 234, 0.06)'
     },
     '.cm-gutters': {
       backgroundColor: ICLS.bg,
@@ -248,29 +246,8 @@ const darculaHighlight = HighlightStyle.define(
   { themeType: 'dark' }
 )
 
-const selectionMark = Decoration.mark({ class: 'cm-filesSelectionMark' })
-
-/** 选区画在行内 mark 上，叠在活动行背景之上，两者可同时可见（CM 默认选区层在内容下）。 */
-const filesSelectionMarkup = StateField.define({
-  create(state) {
-    return selectionDecorations(state)
-  },
-  update(value, tr) {
-    return tr.selection || tr.docChanged ? selectionDecorations(tr.state) : value
-  },
-  provide: (f) => EditorView.decorations.from(f)
-})
-
-function selectionDecorations(state: EditorState): DecorationSet {
-  const builder = new RangeSetBuilder<Decoration>()
-  for (const r of state.selection.ranges) {
-    if (!r.empty) builder.add(r.from, r.to, selectionMark)
-  }
-  return builder.finish()
-}
-
-/** tab 宽 + 行内选区（与活动行并存）。 */
-export const filesEditorConfig: Extension = [EditorState.tabSize.of(4), filesSelectionMarkup]
+/** tab 宽 + 自绘选区层（整行高 / 换行格 / 圆角，见 cm6-selection-layer）。 */
+export const filesEditorConfig: Extension = [EditorState.tabSize.of(4), filesSelectionLayer]
 
 /**
  * Files 编辑器的 gutter 列：行号（带 diff 标记点击接线）在左、折叠在右。
