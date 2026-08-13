@@ -8,11 +8,11 @@ import { RangeSetBuilder, StateField, type EditorState, type Extension } from '@
 import type { RangeSet, Text } from '@codemirror/state'
 import { EditorView, GutterMarker, lineNumberMarkers } from '@codemirror/view'
 
-/** Dark.icls VCS 行状态色：ADDED / MODIFIED / DELETED_LINES_COLOR。 */
+/** Dark.icls（docs/reference/Dark.icls）VCS 行状态色：ADDED / MODIFIED / DELETED_LINES_COLOR。 */
 const VCS_LINE = {
-  added: '#447152',
-  modified: '#43698D',
-  deleted: '#656E76'
+  added: '#549159',
+  modified: '#375FAD',
+  deleted: '#868A91'
 } as const
 
 export type GitLineKind = keyof typeof VCS_LINE

@@ -2,7 +2,7 @@
 
 **定位**：像素级复刻 WebStorm（JetBrains New UI · Darcula · 2026.1）的**深色**外观；仅深色主题。UI 底座 **shadcn（Base UI）+ Tailwind**，JetBrains 观感通过覆写 CSS 变量实现（圆角砍到近 0、密度压紧）。控制台 **xterm.js + JetBrains Mono**。
 
-**色彩来源**：两套互补权威来源——① IDE UI 主题（面板 / 树选中 / 运行按钮等，用户手取）；② 编辑器/控制台配色 `Dark.icls`（Darcula 2026.1，控制台背景 / ANSI / 输出 / 语法色取自它）。两处 1 单位手取误差以 .icls 为准：最深/控制台背景 `#1E1F22`（非 `#1E2022`）、行 hover `#43454A`（非 `#43444A`）。
+**色彩来源**：两套互补权威来源——① IDE UI 主题（面板 / 树选中 / 运行按钮等，用户手取）；② 编辑器/控制台配色 `Dark.icls`（Darcula 2026.1，控制台背景 / ANSI / 输出 / 语法色、VCS 行状态色取自它；**原件已入库 `docs/reference/Dark.icls`**，取色一律以它为准、不凭记忆）。两处 1 单位手取误差以 .icls 为准：最深/控制台背景 `#1E1F22`（非 `#1E2022`）、行 hover `#43454A`（非 `#43444A`）。
 
 ## 设计 Token（仅深色）
 
