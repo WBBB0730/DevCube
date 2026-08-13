@@ -392,6 +392,16 @@ function FileSection({
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set())
   /** 整段折叠态（标题行即本段顶级目录）：默认展开，折叠时段内容整体隐藏。 */
   const [sectionOpen, setSectionOpen] = useState(true)
+  /**
+   * 行尾 ⋯ 菜单打开中的文件行：保持 hover 行底 + ⋯ 常显（指针移入菜单会丢 :hover）。
+   * 右键路径不需要——右键会先把行重置为选区（蓝底自然持久）。
+   */
+  const menuFilePath = useGit((s) => {
+    const t = gitState(s, projectPath).contextMenu?.target
+    return t !== undefined && t.kind === 'uncommitted-file' && t.section === section
+      ? t.file.newFilePath
+      : null
+  })
   const tree = useMemo(() => buildFileTree(files), [files])
   const rows = useMemo(() => flattenFileTree(tree, closed), [tree, closed])
   const isStaged = section === 'staged'
@@ -569,6 +579,7 @@ function FileSection({
     const file = files[row.index]
     const colour = FILE_STATUS_COLOR[file.type]
     const isSelected = selectedKeys.has(file.newFilePath)
+    const menuActive = menuFilePath === file.newFilePath
     const vDepth = row.depth + 1
     return (
       <div
@@ -577,8 +588,12 @@ function FileSection({
         className={cn(
           // mx-1 + rounded：行背景内缩成圆角块，观感对齐最左配置行
           'group mx-1 flex h-[22px] cursor-pointer items-center gap-1.5 rounded pr-2 text-[13px] transition-colors',
-          // 选中行高亮（蓝底固定，不随 hover 变色，同左侧项目树）
-          isSelected ? 'bg-[var(--selection-row)]' : 'hover:bg-[var(--bg-row-hover)]'
+          // 选中行高亮（蓝底固定，不随 hover 变色，同左侧项目树）；⋯ 菜单打开期间保持 hover 行底
+          isSelected
+            ? 'bg-[var(--selection-row)]'
+            : menuActive
+              ? 'bg-[var(--bg-row-hover)]'
+              : 'hover:bg-[var(--bg-row-hover)]'
         )}
         // checkbox 与文件夹行对齐置首位，其后补 chevron 列占位让文件图标与文件夹图标对齐
         style={{ paddingLeft: 8 + vDepth * 16 }}
@@ -619,11 +634,14 @@ function FileSection({
               </span>
             </span>
           )}
-        {/* 行尾 … 菜单钮：默认隐藏、行 hover 才浮出（避免每行常驻噪点） */}
+        {/* 行尾 … 菜单钮：默认隐藏、行 hover 才浮出（避免每行常驻噪点）；菜单打开期间常显 */}
         <button
           type="button"
           title="更多操作"
-          className="ml-auto flex size-6 shrink-0 items-center justify-center rounded opacity-0 transition-colors hover:bg-[var(--bg-button-hover)] group-hover:opacity-100"
+          className={cn(
+            'ml-auto flex size-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-[var(--bg-button-hover)]',
+            menuActive ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'
+          )}
           onClick={(e) => {
             e.stopPropagation()
             const rect = e.currentTarget.getBoundingClientRect()

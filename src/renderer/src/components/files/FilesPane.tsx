@@ -1118,6 +1118,7 @@ export function FilesPane({
                 expanded={displayExpanded}
                 childrenByDir={displayChildren}
                 selectedPath={selectedPath}
+                menuPath={treeMenu !== null && treeMenu.path !== rootLogical ? treeMenu.path : null}
                 statusByRel={statusByRel}
                 onToggle={toggleDir}
                 onOpenFile={(p) => void openFile(p)}
@@ -1461,6 +1462,7 @@ function FileTreeNode({
   expanded,
   childrenByDir,
   selectedPath,
+  menuPath,
   statusByRel,
   onToggle,
   onOpenFile,
@@ -1472,6 +1474,8 @@ function FileTreeNode({
   expanded: Set<string>
   childrenByDir: Record<string, FilesDirEntry[]>
   selectedPath: string | null
+  /** 右键菜单打开中的目标行（保持 hover 行底；根 / 空白区为 null） */
+  menuPath: string | null
   statusByRel: Map<string, GitFileStatus>
   onToggle: (dir: string) => void
   onOpenFile: (path: string) => void
@@ -1493,7 +1497,9 @@ function FileTreeNode({
             ROW,
             selectedPath === dirPath
               ? 'bg-[var(--selection-row)]'
-              : 'hover:bg-[var(--bg-row-hover)]'
+              : menuPath === dirPath
+                ? 'bg-[var(--bg-row-hover)]'
+                : 'hover:bg-[var(--bg-row-hover)]'
           )}
           onClick={() => onToggle(dirPath)}
           onContextMenu={(e) => onEntryMenu(dirPath, true, e)}
@@ -1524,6 +1530,7 @@ function FileTreeNode({
               expanded={expanded}
               childrenByDir={childrenByDir}
               selectedPath={selectedPath}
+              menuPath={menuPath}
               statusByRel={statusByRel}
               onToggle={onToggle}
               onOpenFile={onOpenFile}
@@ -1535,6 +1542,7 @@ function FileTreeNode({
               entry={e}
               depth={isRoot ? depth : depth + 1}
               selected={selectedPath === e.path}
+              menuActive={menuPath === e.path}
               status={statusByRel.get(relPathUnderRoot(projectRoot, e.path))}
               indent={indent}
               onOpen={() => onOpenFile(e.path)}
@@ -1550,6 +1558,7 @@ function FileTreeFileRow({
   entry,
   depth,
   selected,
+  menuActive,
   status,
   indent,
   onOpen,
@@ -1558,6 +1567,8 @@ function FileTreeFileRow({
   entry: FilesDirEntry
   depth: number
   selected: boolean
+  /** 右键菜单打开中：保持 hover 行底（指针已移入菜单会丢 :hover） */
+  menuActive: boolean
   status: GitFileStatus | undefined
   indent: (levels: number) => React.JSX.Element | null
   onOpen: () => void
@@ -1568,7 +1579,14 @@ function FileTreeFileRow({
     <button
       type="button"
       data-files-path={entry.path}
-      className={cn(ROW, selected ? 'bg-[var(--selection-row)]' : 'hover:bg-[var(--bg-row-hover)]')}
+      className={cn(
+        ROW,
+        selected
+          ? 'bg-[var(--selection-row)]'
+          : menuActive
+            ? 'bg-[var(--bg-row-hover)]'
+            : 'hover:bg-[var(--bg-row-hover)]'
+      )}
       onClick={onOpen}
       onContextMenu={onMenu}
     >

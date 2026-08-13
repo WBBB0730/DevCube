@@ -385,6 +385,13 @@ function FileTreePane({
     const d = gitState(s, projectPath).diffView
     return d !== null ? `${d.fromHash}|${d.toHash}|${d.file.newFilePath}` : null
   })
+  // 右键菜单打开中的文件行（保持 hover 行底：指针已移入菜单会丢 :hover，同左树项目行）
+  const menuKey = useGit((s) => {
+    const t = gitState(s, projectPath).contextMenu?.target
+    return t !== undefined && t.kind === 'file'
+      ? `${t.fromHash}|${t.toHash}|${t.file.newFilePath}`
+      : null
+  })
 
   if (files.length === 0) {
     return (
@@ -449,7 +456,8 @@ function FileTreePane({
     const clickable = diffPossible(file)
     const colour = FILE_STATUS_COLOR[file.type]
     const { fromHash: dFrom, toHash: dTo } = resolveDiffEndpoints(file, exp, rowIndexOf)
-    const isSelected = selectedKey === `${dFrom}|${dTo}|${file.newFilePath}`
+    const rowKey = `${dFrom}|${dTo}|${file.newFilePath}`
+    const isSelected = selectedKey === rowKey
     return (
       <div
         key={`f-${row.index}`}
@@ -457,8 +465,13 @@ function FileTreePane({
         className={cn(
           'mx-1 flex h-[22px] items-center gap-1.5 rounded pr-2 text-[13px] transition-colors',
           clickable ? 'cursor-pointer' : 'cursor-default',
-          // 当前打开 diff 的文件行高亮（选中蓝底固定，不随 hover 变色，同左侧项目树）
-          isSelected ? 'bg-[var(--selection-row)]' : 'hover:bg-[var(--bg-row-hover)]'
+          // 当前打开 diff 的文件行高亮（选中蓝底固定，不随 hover 变色，同左侧项目树）；
+          // 右键菜单打开期间保持 hover 行底
+          isSelected
+            ? 'bg-[var(--selection-row)]'
+            : menuKey === rowKey
+              ? 'bg-[var(--bg-row-hover)]'
+              : 'hover:bg-[var(--bg-row-hover)]'
         )}
         // 额外 +18px 缩进：与文件夹行的 chevron 区对齐
         style={{ paddingLeft: 8 + row.depth * 16 + 18 }}

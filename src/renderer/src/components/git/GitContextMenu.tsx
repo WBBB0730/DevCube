@@ -755,7 +755,6 @@ export function GitContextMenu({ projectPath }: { projectPath: string }): React.
       }}
     >
       <ContextMenuContent
-        className="min-w-44"
         anchor={anchor}
         side="bottom"
         align="start"
