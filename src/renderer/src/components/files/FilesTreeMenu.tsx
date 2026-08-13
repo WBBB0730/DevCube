@@ -2,7 +2,7 @@
 // 虚拟 anchor（同 GitContextMenu 模式，非行级 Trigger）。菜单只产出操作请求，
 // 实际执行与状态联动由 FilesPane 统一承接。
 import { useMemo } from 'react'
-import { FilePlus, FolderPlus, Pencil, Trash2 } from 'lucide-react'
+import { FilePen, FilePlus, FolderOpen, FolderPen, FolderPlus, Trash2 } from 'lucide-react'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -77,7 +77,8 @@ export function FilesTreeMenu({
                 request({ kind: 'rename', path: menu.path, isDirectory: menu.isDirectory })
               }
             >
-              <Pencil className="size-4" /> 重命名
+              {menu.isDirectory ? <FolderPen className="size-4" /> : <FilePen className="size-4" />}{' '}
+              重命名
             </ContextMenuItem>
             <ContextMenuItem
               onClick={() =>
@@ -88,6 +89,15 @@ export function FilesTreeMenu({
             </ContextMenuItem>
           </>
         )}
+        <div className="mx-1.5 my-1 h-px bg-[var(--separator)]" />
+        <ContextMenuItem
+          onClick={() => {
+            onClose()
+            void window.api.revealInFolder(menu.path)
+          }}
+        >
+          <FolderOpen className="size-4" /> 在文件夹中显示
+        </ContextMenuItem>
       </ContextMenuContent>
     </ContextMenu>
   )
