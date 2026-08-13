@@ -1,8 +1,8 @@
 // Files 编辑器行号栏 diff 条纹（对齐 WebStorm VCS gutter）：基线 = 文件在 HEAD 的文本，
 // 与当前文档做行级 diff（jsdiff diffLines——与 VS Code / JetBrains 行状态同款的按行比较，
 // 行语义与 git 一致，无字符级 diff 的末尾换行歧义）。标记经官方 lineNumberMarkers facet
-// 附着到行号元素——新增绿条 / 修改蓝条画在行号列右缘，删除以小三角标在被删位置的下一行
-// 顶部。基线变化（提交 / 暂存等）由 FilesPane 重建本扩展（换 extensions 数组即重配）。
+// 附着到行号元素——新增绿条 / 修改蓝条画在行号列右缘，删除以同款短竖条骑在被删位置的
+// 行顶边界。基线变化（提交 / 暂存等）由 FilesPane 重建本扩展（换 extensions 数组即重配）。
 import { diffLines } from 'diff'
 import { RangeSetBuilder, StateField, type EditorState, type Extension } from '@codemirror/state'
 import type { RangeSet, Text } from '@codemirror/state'
@@ -95,7 +95,8 @@ function buildLineMarkers(doc: Text, kinds: Map<number, GitLineKind>): RangeSet<
 
 /**
  * 条纹 4px 画在行号元素右缘（::before，水平贴边不偏移）；连续段中段顶满相连，
- * 段首/段尾上下各收 2px 并圆头——段与段之间由此留出上下空隙。删除三角骑在行顶边界上。
+ * 段首/段尾上下各收 2px 并圆头——段与段之间由此留出上下空隙。
+ * 删除为同宽 6px 高的圆头短条，骑在被删位置的行顶边界上（上下各探 3px）。
  */
 const gutterTheme = EditorView.baseTheme({
   '.cm-lineNumbers .cm-gutterElement': { position: 'relative' },
@@ -127,10 +128,11 @@ const gutterTheme = EditorView.baseTheme({
     content: "''",
     position: 'absolute',
     right: '0',
-    top: '-4px',
-    borderTop: '4px solid transparent',
-    borderBottom: '4px solid transparent',
-    borderLeft: `5px solid ${VCS_LINE.deleted}`
+    top: '-3px',
+    width: '4px',
+    height: '6px',
+    borderRadius: '2px',
+    backgroundColor: VCS_LINE.deleted
   }
 })
 
