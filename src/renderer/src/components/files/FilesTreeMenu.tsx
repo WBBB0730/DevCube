@@ -52,7 +52,6 @@ export function FilesTreeMenu({
       }}
     >
       <ContextMenuContent
-        className="min-w-44"
         anchor={anchor}
         side="bottom"
         align="start"
