@@ -88,56 +88,61 @@ function layerBase(view: EditorView): { left: number; top: number } {
   }
 }
 
-/** 一个选区在视口内的逐行矩形；换行符在选区内的行，右缘并入一格空格宽。 */
+/**
+ * 一个选区在视口内的逐视觉行矩形（按行块迭代，跨折叠区一块一行）；
+ * 换行符在选区内的行，右缘并入一格空格宽。零宽行（结束位置恰在行首的尾行）
+ * 不产出矩形——否则上一行的外露圆角会被它误判成对齐接缝。
+ */
 function rectanglesForRange(view: EditorView, range: SelectionRange): RectangleMarker[] {
   const from = Math.max(range.from, view.viewport.from)
   const to = Math.min(range.to, view.viewport.to)
   if (from > to) return []
   const base = layerBase(view)
   const rows: Array<{ left: number; right: number; top: number; height: number }> = []
-  const doc = view.state.doc
   let pos = from
   for (;;) {
-    const line = doc.lineAt(pos)
-    const start = view.coordsAtPos(Math.max(range.from, line.from), 1)
-    const end = view.coordsAtPos(Math.min(range.to, line.to), -1)
+    const block = view.lineBlockAt(pos)
+    const start = view.coordsAtPos(Math.max(range.from, block.from), 1)
+    const end = view.coordsAtPos(Math.min(range.to, block.to), -1)
     if (start && end) {
-      const block = view.lineBlockAt(line.from)
-      const includesBreak = range.to > line.to
-      rows.push({
-        left: start.left - base.left,
-        right: end.right - base.left + (includesBreak ? view.defaultCharacterWidth : 0),
-        top: block.top + view.documentTop - base.top,
-        height: block.height
-      })
+      const includesBreak = range.to > block.to
+      const width = end.right - start.left + (includesBreak ? view.defaultCharacterWidth : 0)
+      if (width > 0) {
+        rows.push({
+          left: start.left - base.left,
+          right: end.right - base.left + (includesBreak ? view.defaultCharacterWidth : 0),
+          top: block.top + view.documentTop - base.top,
+          height: block.height
+        })
+      }
     }
-    if (line.to >= to) break
-    pos = line.to + 1
+    if (block.to >= to) break
+    pos = block.to + 1
   }
   return layoutSelectionEdges(rows).flatMap((edge, i) => {
     const row = rows[i]
     const markers: RectangleMarker[] = []
     // 凹角反圆角补丁（VS Code 同款两层）：选区色垫底、编辑器底色带单角圆角覆盖，
-    // 露出的弧即内圆。层在文字之下，补丁不遮字。
-    if (edge.tl === 'intern' || edge.bl === 'intern') {
-      const left = edge.left - NOTCH_W
-      markers.push(new RectangleMarker(RECT_CLASS, left, row.top, NOTCH_W, row.height))
-      const cls = [
+    // 露出的弧即内圆。层在文字之下，补丁不遮字。补丁上的圆角落在贴近选区矩形的那一侧。
+    const notch = (
+      left: number,
+      top: SelectionCorner,
+      bottom: SelectionCorner,
+      cls: [string, string]
+    ): void => {
+      if (top !== 'intern' && bottom !== 'intern') return
+      const bg = [
         NOTCH_CLASS,
-        ...(edge.tl === 'intern' ? ['cm-filesSelTR'] : []),
-        ...(edge.bl === 'intern' ? ['cm-filesSelBR'] : [])
+        ...(top === 'intern' ? [cls[0]] : []),
+        ...(bottom === 'intern' ? [cls[1]] : [])
       ].join(' ')
-      markers.push(new RectangleMarker(cls, left, row.top, NOTCH_W, row.height))
+      markers.push(
+        new RectangleMarker(RECT_CLASS, left, row.top, NOTCH_W, row.height),
+        new RectangleMarker(bg, left, row.top, NOTCH_W, row.height)
+      )
     }
-    if (edge.tr === 'intern' || edge.br === 'intern') {
-      markers.push(new RectangleMarker(RECT_CLASS, edge.right, row.top, NOTCH_W, row.height))
-      const cls = [
-        NOTCH_CLASS,
-        ...(edge.tr === 'intern' ? ['cm-filesSelTL'] : []),
-        ...(edge.br === 'intern' ? ['cm-filesSelBL'] : [])
-      ].join(' ')
-      markers.push(new RectangleMarker(cls, edge.right, row.top, NOTCH_W, row.height))
-    }
+    notch(edge.left - NOTCH_W, edge.tl, edge.bl, ['cm-filesSelTR', 'cm-filesSelBR'])
+    notch(edge.right, edge.tr, edge.br, ['cm-filesSelTL', 'cm-filesSelBL'])
     const main = [
       RECT_CLASS,
       ...(edge.tl === 'round' ? ['cm-filesSelTL'] : []),

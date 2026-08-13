@@ -111,7 +111,7 @@ ANSI 16 色（取自 JetBrains 终端真实 Console Colors 调色板）：
 
 - **UI 字体**：Inter，13px，行高 ~20px（JetBrains New UI 默认）；**树行文字 14px**，**次要信息（角标 / 小标题）最小 12px**（终端搜索计数 11px 除外）。
 - **控制台字体**：JetBrains Mono，13px，行高 1.3，字重 500（补偿 WebGL 在 macOS 渲染偏细）。
-- **Files 编辑器字体**（对齐 WebStorm 默认编辑器 + `Dark.icls`）：JetBrains Mono，13px，字重 400，无连字；行高 CSS `1.7`（`.files-codemirror`）；文本选区 `--editor-selection` `#224283`，自绘分层矩形（官方 `layer()` 扩展点，见 `cm6-selection-layer`）——按整行块高度画（行距平摊、多行连续无缝）、跨行时行末并入一格空格宽代表换行符、圆角按外轮廓合成（VS Code selections.ts 同款三态角：相邻行边缘亚像素吸附，对齐接缝平直贯通、外露角圆 3px、凹角以「反圆角补丁」出内圆弧——选区色垫底 + 编辑器底色单角圆角覆盖；凹角判定带水平重叠守卫，行中起选等不重叠场景按外露圆角）；活动行为等效半透明叠色（`rgba(163,181,234,.06)`，叠在底色上精确等于 `#26282E`），选区从其下透出；正文/行号/语法色见 `cm6-setup`（背景 `#1E1F22`、前景 `#BCBEC4`、行号 `#4B5059` 等）。
+- **Files 编辑器字体**（对齐 WebStorm 默认编辑器 + `Dark.icls`）：JetBrains Mono，13px，字重 400，无连字；行高 CSS `1.7`（`.files-codemirror`）；文本选区 `--editor-selection` `#224283`，自绘分层矩形（官方 `layer()` 扩展点，见 `cm6-selection-layer`）——按整行块高度画（行距平摊、多行连续无缝）、跨行时行末并入一格空格宽代表换行符、圆角按外轮廓合成（VS Code selections.ts 同款三态角：相邻行边缘亚像素吸附，对齐接缝平直贯通、外露角圆 3px、凹角以「反圆角补丁」出内圆弧——选区色垫底 + 编辑器底色单角圆角覆盖；凹角判定带水平重叠守卫，行中起选等不重叠场景按外露圆角；按视觉行块迭代（跨折叠一块一行），结束在行首的零宽尾行不产出矩形）；活动行为等效半透明叠色（`rgba(163,181,234,.06)`，叠在底色上精确等于 `#26282E`），选区从其下透出；正文/行号/语法色见 `cm6-setup`（背景 `#1E1F22`、前景 `#BCBEC4`、行号 `#4B5059` 等）。
 - **JetBrains Mono 来源**：自托管官方完整可变字体（`src/renderer/src/assets/fonts/jetbrains-mono/`，v2.304），**不用** `@fontsource-variable/jetbrains-mono` 子集——后者不含 `⇧⌃⌥⌘`，快捷键显示会回退杂字体。设置 → 快捷键列用 `font-mono`。
 - **侧栏**固定宽 **280px**（不可拖拽）。
 - **树行 / 触发行**固定高 40px（`h-10`，四周内边距 6px；固定高以免 hover 出按钮时整行跳动）；行内图标按钮 28px、图标 16px；状态点 8px。共享 `Input` 高 28px（`h-7`），与常规图标钮对齐。
