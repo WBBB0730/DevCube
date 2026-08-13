@@ -58,30 +58,70 @@ class LineKindMarker extends GutterMarker {
   }
 }
 
-const MARKER: Record<GitLineKind, GutterMarker> = {
-  added: new LineKindMarker('cm-gitLineAdded'),
-  modified: new LineKindMarker('cm-gitLineModified'),
-  deleted: new LineKindMarker('cm-gitLineDeleted')
+/** kind × 段首 × 段尾 → 单例 marker（identity eq，让 gutter 增量更新少重绘）。 */
+const markerCache = new Map<string, LineKindMarker>()
+
+function markerFor(kind: GitLineKind, first: boolean, last: boolean): LineKindMarker {
+  const key = `${kind}:${first}:${last}`
+  let marker = markerCache.get(key)
+  if (marker === undefined) {
+    const cls =
+      kind === 'deleted'
+        ? 'cm-gitLineDeleted'
+        : [
+            'cm-gitLineBar',
+            kind === 'added' ? 'cm-gitLineAdded' : 'cm-gitLineModified',
+            ...(first ? ['cm-gitRunFirst'] : []),
+            ...(last ? ['cm-gitRunLast'] : [])
+          ].join(' ')
+    marker = new LineKindMarker(cls)
+    markerCache.set(key, marker)
+  }
+  return marker
 }
 
 function buildLineMarkers(doc: Text, kinds: Map<number, GitLineKind>): RangeSet<GutterMarker> {
   const builder = new RangeSetBuilder<GutterMarker>()
   for (const [lineNo, kind] of [...kinds].sort((a, b) => a[0] - b[0])) {
     if (lineNo > doc.lines) continue
+    // 连续同状态行连成一段：仅段首圆上端、段尾圆下端，中段两端顶满相连
+    const first = kinds.get(lineNo - 1) !== kind
+    const last = kinds.get(lineNo + 1) !== kind
     const from = doc.line(lineNo).from
-    builder.add(from, from, MARKER[kind])
+    builder.add(from, from, markerFor(kind, first, last))
   }
   return builder.finish()
 }
 
-/** 条纹 3px 画在行号元素右缘；删除三角骑在行顶边界上。 */
+/**
+ * 条纹 4px 画在行号元素右缘（::before，水平贴边不偏移）；连续段中段顶满相连，
+ * 段首/段尾上下各收 2px 并圆头——段与段之间由此留出上下空隙。删除三角骑在行顶边界上。
+ */
 const gutterTheme = EditorView.baseTheme({
   '.cm-lineNumbers .cm-gutterElement': { position: 'relative' },
-  '.cm-lineNumbers .cm-gitLineAdded': {
-    boxShadow: `inset -3px 0 0 0 ${VCS_LINE.added}`
+  '.cm-lineNumbers .cm-gitLineBar::before': {
+    content: "''",
+    position: 'absolute',
+    top: '0',
+    bottom: '0',
+    right: '0',
+    width: '4px'
   },
-  '.cm-lineNumbers .cm-gitLineModified': {
-    boxShadow: `inset -3px 0 0 0 ${VCS_LINE.modified}`
+  '.cm-lineNumbers .cm-gitLineAdded::before': {
+    backgroundColor: VCS_LINE.added
+  },
+  '.cm-lineNumbers .cm-gitLineModified::before': {
+    backgroundColor: VCS_LINE.modified
+  },
+  '.cm-lineNumbers .cm-gitRunFirst::before': {
+    top: '2px',
+    borderTopLeftRadius: '2px',
+    borderTopRightRadius: '2px'
+  },
+  '.cm-lineNumbers .cm-gitRunLast::before': {
+    bottom: '2px',
+    borderBottomLeftRadius: '2px',
+    borderBottomRightRadius: '2px'
   },
   '.cm-lineNumbers .cm-gitLineDeleted::after': {
     content: "''",
