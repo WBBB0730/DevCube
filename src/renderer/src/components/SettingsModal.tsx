@@ -26,7 +26,7 @@ function DefaultFooter({ onClose }: { onClose: () => void }): React.JSX.Element 
 }
 
 /**
- * 设置类弹层共用外壳：遮罩 + rounded-xl 面板 + 居中加粗标题 + 底栏。
+ * 设置类弹层共用外壳：遮罩 + rounded-dialog（10px，对齐 macOS 窗口圆角）面板 + 居中加粗标题 + 底栏。
  * Esc / 点遮罩关闭由调用方自行挂键；点面板不冒泡。
  */
 export function SettingsModal({
@@ -45,7 +45,7 @@ export function SettingsModal({
     >
       <div
         className={cn(
-          'flex flex-col overflow-hidden rounded-xl border border-[color:var(--border-input)] bg-panel shadow-xl',
+          'flex flex-col overflow-hidden rounded-dialog border border-[color:var(--border-input)] bg-panel shadow-xl',
           className
         )}
         onClick={(e) => e.stopPropagation()}

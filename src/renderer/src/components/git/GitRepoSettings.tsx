@@ -93,11 +93,7 @@ export function GitRepoSettings({
   if (!open) return null
 
   return (
-    <SettingsModal
-      title="仓库设置"
-      onClose={onClose}
-      className="relative max-h-[85vh] w-[560px]"
-    >
+    <SettingsModal title="仓库设置" onClose={onClose} className="relative max-h-[85vh] w-[560px]">
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-3">
         <HiddenRemotesSection projectPath={projectPath} />
         <UserSection projectPath={projectPath} onConfirm={setConfirm} />
@@ -109,7 +105,7 @@ export function GitRepoSettings({
           onClick={() => setConfirm(null)}
         >
           <div
-            className="w-96 rounded-xl border border-[color:var(--border-input)] bg-panel p-4 shadow-xl"
+            className="w-96 rounded-dialog border border-[color:var(--border-input)] bg-panel p-4 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="select-text text-[13px] text-foreground">{confirm.message}</div>

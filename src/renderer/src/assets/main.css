@@ -166,6 +166,8 @@
   --radius-sm: calc(var(--radius) - 2px);
   --radius-md: var(--radius);
   --radius-lg: calc(var(--radius) + 2px);
+  /* 弹窗类表面（设置弹层 / 小对话框）：对齐 macOS 窗口系统圆角（Big Sur+ ≈10pt） */
+  --radius-dialog: 10px;
 }
 
 @layer base {

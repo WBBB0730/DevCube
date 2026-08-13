@@ -36,7 +36,7 @@ export function DialogPanel({
   return (
     <div
       className={cn(
-        'w-[440px] rounded border border-[color:var(--border-input)] bg-panel shadow-xl',
+        'w-[440px] rounded-dialog border border-[color:var(--border-input)] bg-panel shadow-xl',
         className
       )}
       onClick={(e) => e.stopPropagation()}
