@@ -6,7 +6,7 @@ import { markdown } from '@codemirror/lang-markdown'
 import { python } from '@codemirror/lang-python'
 import { xml } from '@codemirror/lang-xml'
 import { yaml } from '@codemirror/lang-yaml'
-import { HighlightStyle, syntaxHighlighting, syntaxTree } from '@codemirror/language'
+import { HighlightStyle, foldGutter, syntaxHighlighting, syntaxTree } from '@codemirror/language'
 import { EditorState, RangeSetBuilder, StateField, type Extension } from '@codemirror/state'
 import {
   Decoration,
@@ -16,6 +16,7 @@ import {
   type ViewUpdate
 } from '@codemirror/view'
 import { tags as t } from '@lezer/highlight'
+import { filesLineNumbers } from './cm6-git-gutter'
 
 /**
  * WebStorm Dark.icls（2026.1 · parent Darcula）编辑器色。
@@ -271,6 +272,13 @@ function selectionDecorations(state: EditorState): DecorationSet {
 /** tab 宽 + 行内选区（与活动行并存）。 */
 export const filesEditorConfig: Extension = [EditorState.tabSize.of(4), filesSelectionMarkup]
 
+/**
+ * Files 编辑器的 gutter 列：行号（带 diff 标记点击接线）在左、折叠在右。
+ * basicSetup 的同款两项已关闭——gutter 顺序跟随扩展顺序，若仍由 basicSetup 提供行号，
+ * 追加的点击接线版会落到折叠列右侧。
+ */
+export const filesGutters: Extension = [filesLineNumbers, foldGutter()]
+
 const jsdocMark = Decoration.mark({ class: 'cm-jsdoc' })
 const jsdocTagMark = Decoration.mark({ class: 'cm-jsdoc-tag' })
 
@@ -362,11 +370,11 @@ export function languageExtensionForPath(filePath: string): Extension {
 
 /** basicSetup：关掉默认高亮/补全；高亮改由 filesHighlighting（Dark.icls）提供。 */
 export const FILES_BASIC_SETUP = {
-  lineNumbers: true,
+  lineNumbers: false, // 由 filesGutters 提供（带 diff 标记点击接线）
   highlightActiveLineGutter: true,
   highlightSpecialChars: true,
   history: true,
-  foldGutter: true,
+  foldGutter: false, // 由 filesGutters 提供（保证列序：行号左、折叠右）
   drawSelection: true,
   dropCursor: true,
   allowMultipleSelections: true,

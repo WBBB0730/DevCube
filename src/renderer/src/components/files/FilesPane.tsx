@@ -28,11 +28,13 @@ import {
   FILES_BASIC_SETUP,
   filesEditorConfig,
   filesEditorTheme,
+  filesGutters,
   filesHighlighting,
   languageExtensionForPath
 } from '@renderer/lib/cm6-setup'
-import { gitDiffGutter } from '@renderer/lib/cm6-git-gutter'
+import { gitDiffGutter, type GitGutterHunkClickPayload } from '@renderer/lib/cm6-git-gutter'
 import { isMarkdownPath } from '@shared/files-kind'
+import { FilesGutterHunkPopover } from './FilesGutterHunkPopover'
 import { FilesMarkdownPreview } from './FilesMarkdownPreview'
 import { FilesEntryDialog, type FilesEntryDialogRequest } from './FilesEntryDialog'
 import { FilesTreeMenu, type FilesTreeMenuTarget } from './FilesTreeMenu'
@@ -110,6 +112,8 @@ export function FilesPane({
   /** 文件树右键菜单目标与条目操作弹窗（新建 / 重命名 / 删除）。 */
   const [treeMenu, setTreeMenu] = useState<FilesTreeMenuTarget | null>(null)
   const [entryDialog, setEntryDialog] = useState<FilesEntryDialogRequest | null>(null)
+  /** gutter diff 弹窗（点击标记行号格子；文档一变即关，见 onChange / openFile）。 */
+  const [hunkPopup, setHunkPopup] = useState<GitGutterHunkClickPayload | null>(null)
   const [ready, setReady] = useState(false)
   /** 忽略过期的 openFile / git status / 全部展开 / 过滤扫盘 响应。 */
   const openSeqRef = useRef(0)
@@ -136,7 +140,7 @@ export function FilesPane({
     filterViewRef.current = filterView
   }, [loaded, recentPaths, expanded, childrenByDir, filterView])
 
-  // 隐藏时丢弃临时过滤；其它 Files 状态继续常驻。
+  // 隐藏时丢弃临时过滤与 gutter 弹窗；其它 Files 状态继续常驻。
   const [filterVisible, setFilterVisible] = useState(visible)
   if (filterVisible !== visible) {
     setFilterVisible(visible)
@@ -144,6 +148,7 @@ export function FilesPane({
       setFilterQuery('')
       setFilterScanning(false)
       setFilterView(null)
+      setHunkPopup(null)
     }
   }
 
@@ -271,6 +276,7 @@ export function FilesPane({
 
   const openFile = useCallback(
     async (filePath: string, opts?: { force?: boolean }) => {
+      setHunkPopup(null)
       if (idleTimer.current) {
         clearTimeout(idleTimer.current)
         idleTimer.current = null
@@ -855,6 +861,8 @@ export function FilesPane({
     [projectPath, refreshFromDisk, revealInTree, expandToFile, openFile, flushSave, ensureDirLoaded]
   )
 
+  const filterHint = shortcutTitle('筛选文件', SHORTCUT.filesFilter)
+
   return (
     <div className="flex h-full min-h-0">
       <div className="relative min-h-0 min-w-0 flex-1 bg-deepest">
@@ -890,15 +898,19 @@ export function FilesPane({
             mdPreview={mdPreview}
             onToggleMdPreview={() => {
               const next = !mdPreview
-              // 切到预览前落盘，预览与磁盘一致
+              // 切到预览前落盘，预览与磁盘一致；编辑器卸载，gutter 弹窗一并关闭
               if (next) void flushSave()
+              setHunkPopup(null)
               setMdPreview(next)
             }}
             onShowTree={() => setTreeVisible(true)}
             onToggleTree={() => setTreeVisible((v) => !v)}
             onRevealInTree={revealInTree}
             onOpenRecent={openFromRecent}
+            onHunkClick={setHunkPopup}
             onChange={(v) => {
+              // 文档一变，gutter 弹窗的 hunk 即过期，统一在此关闭（含弹窗内回滚）
+              setHunkPopup(null)
               setLoaded((prev) =>
                 prev && prev.kind === 'text' ? { ...prev, content: v, dirty: true } : prev
               )
@@ -1011,7 +1023,7 @@ export function FilesPane({
         >
           <div className="flex h-10 shrink-0 items-center gap-1 border-b border-[var(--separator)] px-1.5">
             <div
-              title={shortcutTitle('筛选文件', SHORTCUT.filesFilter)}
+              title={filterHint}
               className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded px-1.5 transition-colors focus-within:bg-[var(--bg-row-hover)]"
             >
               <Search className="size-3.5 shrink-0 text-[color:var(--fg-disabled)]" />
@@ -1026,7 +1038,7 @@ export function FilesPane({
                     void exitFilter()
                   }
                 }}
-                placeholder={filterScanning ? '筛选中…' : '筛选'}
+                placeholder={filterScanning ? '筛选中…' : filterHint}
                 className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-[color:var(--fg-disabled)]"
               />
               {filterQuery !== '' && (
@@ -1116,6 +1128,15 @@ export function FilesPane({
         </div>
       )}
 
+      {hunkPopup !== null && loaded?.kind === 'text' && (
+        <FilesGutterHunkPopover
+          popup={hunkPopup}
+          filePath={loaded.path}
+          onUpdate={setHunkPopup}
+          onClose={() => setHunkPopup(null)}
+        />
+      )}
+
       <FilesTreeMenu
         projectRoot={rootLogical}
         menu={treeMenu}
@@ -1192,6 +1213,7 @@ function FilesTextEditor({
   onToggleTree,
   onRevealInTree,
   onOpenRecent,
+  onHunkClick,
   onChange
 }: {
   path: string
@@ -1210,6 +1232,8 @@ function FilesTextEditor({
   onToggleTree: () => void
   onRevealInTree: (logical: string, isDirectory: boolean) => void | Promise<void>
   onOpenRecent: (logical: string) => void | Promise<void>
+  /** 点击 gutter 标记行 → 打开 diff 弹窗 */
+  onHunkClick: (payload: GitGutterHunkClickPayload) => void
   onChange: (value: string) => void
 }): React.JSX.Element {
   const markdown = isMarkdownPath(path)
@@ -1218,10 +1242,11 @@ function FilesTextEditor({
       filesEditorTheme,
       filesHighlighting,
       filesEditorConfig,
+      filesGutters,
       languageExtensionForPath(path),
-      ...(baseline === null ? [] : [gitDiffGutter(baseline)])
+      ...(baseline === null ? [] : [gitDiffGutter(baseline, onHunkClick)])
     ],
-    [path, baseline]
+    [path, baseline, onHunkClick]
   )
   return (
     <div className="flex h-full min-h-0 flex-col">

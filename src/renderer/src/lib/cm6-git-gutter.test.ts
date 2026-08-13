@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { gitGutterLineKinds } from './cm6-git-gutter'
+import { Text } from '@codemirror/state'
+import { gitGutterHunks, gitGutterLineKinds, hunkRollbackChange } from './cm6-git-gutter'
 
 describe('gitGutterLineKinds', () => {
   it('无差异 → 无标记', () => {
@@ -69,5 +70,77 @@ describe('gitGutterLineKinds', () => {
         [2, 'added']
       ])
     )
+  })
+})
+
+describe('gitGutterHunks', () => {
+  it('modified 块带基线旧行', () => {
+    expect(gitGutterHunks('a\nb\nc\n', 'a\nB\nc\n')).toEqual([
+      { kind: 'modified', fromLine: 2, toLine: 2, oldLines: ['b'] }
+    ])
+  })
+
+  it('added 块 oldLines 为空', () => {
+    expect(gitGutterHunks('a\nb\n', 'a\nx\nb\n')).toEqual([
+      { kind: 'added', fromLine: 2, toLine: 2, oldLines: [] }
+    ])
+  })
+
+  it('deleted 块标记行为被删位置下一行并带旧行', () => {
+    expect(gitGutterHunks('a\nb\nc\n', 'a\nc\n')).toEqual([
+      { kind: 'deleted', fromLine: 2, toLine: 2, oldLines: ['b'] }
+    ])
+  })
+
+  it('文末删除标 atEof', () => {
+    expect(gitGutterHunks('a\nb\n', 'a\n')).toEqual([
+      { kind: 'deleted', fromLine: 1, toLine: 1, oldLines: ['b'], atEof: true }
+    ])
+  })
+})
+
+describe('hunkRollbackChange', () => {
+  /** 对唯一 hunk 执行回滚，断言恢复为基线原文。 */
+  function rollbackRoundtrip(baseline: string, current: string): string {
+    const hunks = gitGutterHunks(baseline, current)
+    expect(hunks).toHaveLength(1)
+    const { from, to, insert } = hunkRollbackChange(Text.of(current.split('\n')), hunks[0])
+    return current.slice(0, from) + insert + current.slice(to)
+  }
+
+  it('modified：换回旧行', () => {
+    expect(rollbackRoundtrip('a\nb\nc\n', 'a\nX\nc\n')).toBe('a\nb\nc\n')
+  })
+
+  it('modified 覆盖末行（无尾换行追加场景）', () => {
+    expect(rollbackRoundtrip('a', 'a\nx')).toBe('a')
+  })
+
+  it('added：删中间行', () => {
+    expect(rollbackRoundtrip('a\nb\n', 'a\nx\nb\n')).toBe('a\nb\n')
+  })
+
+  it('added：删文末追加（README 场景，基线尾换行保留）', () => {
+    expect(rollbackRoundtrip('a\nb\n', 'a\nb\n\n1')).toBe('a\nb\n')
+  })
+
+  it('added：删文末单行（无尾换行）', () => {
+    expect(rollbackRoundtrip('a\n', 'a\nx')).toBe('a\n')
+  })
+
+  it('added：整个文档都是新增（基线为空）', () => {
+    expect(rollbackRoundtrip('', 'a\nb')).toBe('')
+  })
+
+  it('deleted：插回中间被删行', () => {
+    expect(rollbackRoundtrip('a\nb\nc\n', 'a\nc\n')).toBe('a\nb\nc\n')
+  })
+
+  it('deleted：插回文末被删行（atEof）', () => {
+    expect(rollbackRoundtrip('a\nb\n', 'a\n')).toBe('a\nb\n')
+  })
+
+  it('deleted：插回连续多行', () => {
+    expect(rollbackRoundtrip('a\nb\nc\nd\n', 'a\nd\n')).toBe('a\nb\nc\nd\n')
   })
 })

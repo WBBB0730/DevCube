@@ -7,19 +7,28 @@ const PopoverTrigger = BasePopover.Trigger
 function PopoverContent({
   className,
   children,
+  anchor,
   side = 'bottom',
   align = 'start',
   sideOffset = 4
 }: {
   className?: string
   children?: React.ReactNode
+  /** 虚拟锚点（如行号格子矩形）；缺省锚在 Trigger 上 */
+  anchor?: { getBoundingClientRect: () => DOMRect }
   side?: 'top' | 'right' | 'bottom' | 'left'
   align?: 'start' | 'center' | 'end'
   sideOffset?: number
 }): React.JSX.Element {
   return (
     <BasePopover.Portal>
-      <BasePopover.Positioner className="z-50" side={side} align={align} sideOffset={sideOffset}>
+      <BasePopover.Positioner
+        className="z-50"
+        anchor={anchor}
+        side={side}
+        align={align}
+        sideOffset={sideOffset}
+      >
         <BasePopover.Popup
           className={cn(
             'max-h-72 min-w-56 overflow-auto rounded-lg border border-[color:var(--border-input)] bg-panel p-1.5 shadow-xl outline-none',
