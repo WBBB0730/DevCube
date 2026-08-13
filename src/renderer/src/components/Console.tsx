@@ -437,7 +437,12 @@ function GitTabItem({
       className={cn(TAB, 'pl-3 pr-3')}
       style={active ? TAB_ACTIVE : undefined}
       title={shortcutTitle('Git', tabAtShortcut(1))}
-      onClick={() => activateTab(projectPath, gitKey)}
+      onClick={() => {
+        activateTab(projectPath, gitKey)
+        // Diff 是临时盖板：再点 Git Tab 也关（切走关见 GitPane）。
+        const store = useGit.getState()
+        if (gitState(store, projectPath).diffView) store.closeDiff(projectPath)
+      }}
     >
       <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
       <span className="text-foreground">Git</span>

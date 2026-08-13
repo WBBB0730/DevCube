@@ -10,12 +10,14 @@ import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronRight, Ellipsis, File as FileIcon, Folder } from 'lucide-react'
 import type { GitFileChange } from '@shared/git'
 import { gitState, useGit } from '@renderer/git-store'
+import { useFiles } from '@renderer/files-store'
 import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui/button'
 import { Checkbox } from '@renderer/components/ui/checkbox'
 import {
   FILE_STATUS_COLOR,
   buildFileTree,
+  canOpenWorkingTreeFile,
   canPushAfterCommit,
   diffPossible,
   fileRowTitle,
@@ -437,6 +439,11 @@ function FileSection({
     void useGit.getState().openDiff(projectPath, file, secFrom, secTo)
   }
 
+  const openInFilesTab = (file: GitFileChange): void => {
+    if (!canOpenWorkingTreeFile(file)) return
+    useFiles.getState().openInFiles(projectPath, `${projectPath}/${file.newFilePath}`)
+  }
+
   /** 行的稳定选中 key：目录用 folderPath、文件用 newFilePath（同段内互不冲突）。 */
   const rowKey = (row: FileTreeRow): string =>
     row.kind === 'folder' ? row.folderPath : files[row.index].newFilePath
@@ -598,6 +605,7 @@ function FileSection({
         // checkbox 与文件夹行对齐置首位，其后补 chevron 列占位让文件图标与文件夹图标对齐
         style={{ paddingLeft: 8 + vDepth * 16 }}
         onClick={(e) => selectRow(e, row)}
+        onDoubleClick={() => openInFilesTab(file)}
         onContextMenu={(e) => openRowMenu(e, row)}
       >
         {/* chevron 列占位（对齐文件夹箭头）；复选框放其后、紧挨文件名 */}

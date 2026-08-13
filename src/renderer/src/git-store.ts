@@ -29,6 +29,7 @@ import type {
   GitFindState,
   GitMenuTarget
 } from '@renderer/components/git/git-view-types'
+import { reconcileDiffView } from '@renderer/components/git/git-details'
 
 /** 单个项目的 Git 图谱状态桶（冻结契约，foundation.md §D）。 */
 export interface GitProjectState {
@@ -107,12 +108,13 @@ export interface GitStoreState {
   /** 打开两提交比较；请求前按行序归一化 from=较老一方 */
   openCompare(projectPath: string, hashA: string, hashB: string): Promise<void>
   closeDetails(projectPath: string): void
-  /** 打开单文件 diff（from/to 由调用方按「from=较老」传入） */
+  /** 打开单文件 diff（from/to 由调用方按「from=较老」传入）；keepContent 时保留旧正文直到新数据落地 */
   openDiff(
     projectPath: string,
     file: GitFileChange,
     fromHash: string,
-    toHash: string
+    toHash: string,
+    opts?: { keepContent?: boolean }
   ): Promise<void>
   closeDiff(projectPath: string): void
   openContextMenu(projectPath: string, menu: GitContextMenuState): void
@@ -342,6 +344,8 @@ const loadGen = new Map<string, number>()
  * （hash/compareWith）恒相同，仅靠目标校验拦不住乱序落地——旧快照后到会覆盖新快照。
  */
 const refetchGen = new Map<string, number>()
+/** 每项目 openDiff 代际号：连点/后台重拉时丢弃过期响应。 */
+const diffGen = new Map<string, number>()
 /** refresh 在途标记（防 ⌘R 连按并发多个 fetch --all，且防 fetching 被先完成者提前复位）。 */
 const refreshing = new Set<string>()
 /**
@@ -393,6 +397,25 @@ export const useGit = create<GitStoreState>((set, get) => {
         loading: false,
         error: result.error
       }
+    })
+    await syncDiffView(projectPath)
+  }
+
+  /**
+   * 详情落地后对齐打开中的 diff：文件不在当前树里就关；活端点重拉（同身份保留旧正文防闪）。
+   * 树还没落地时 reconcile 返回 keep，此处直接返回。
+   */
+  const syncDiffView = async (projectPath: string): Promise<void> => {
+    const st = gitState(get(), projectPath)
+    if (st.diffView === null) return
+    const decision = reconcileDiffView(st.diffView, st.expanded)
+    if (decision.action === 'close') {
+      get().closeDiff(projectPath)
+      return
+    }
+    if (decision.action === 'keep') return
+    await get().openDiff(projectPath, decision.file, decision.fromHash, decision.toHash, {
+      keepContent: true
     })
   }
 
@@ -489,6 +512,9 @@ export const useGit = create<GitStoreState>((set, get) => {
         (after.hash === UNCOMMITTED || after.compareWith === UNCOMMITTED)
       ) {
         await refetchExpanded(projectPath).catch(() => {})
+      } else {
+        // 历史提交详情不会重拉，但「与工作区对比」仍是活端点，软刷新后要对齐
+        await syncDiffView(projectPath).catch(() => {})
       }
       // config 已经拉过的项目顺带后台保鲜（工具栏拉取按钮的 upstream 判断依赖它；
       // 上游关系可能被动作改写，如 push --set-upstream）
@@ -651,9 +677,31 @@ export const useGit = create<GitStoreState>((set, get) => {
       patchProject(projectPath, { expanded: null, diffView: null })
     },
 
-    openDiff: async (projectPath, file, fromHash, toHash) => {
+    openDiff: async (projectPath, file, fromHash, toHash, opts) => {
+      const prev = gitState(get(), projectPath).diffView
+      // 后台对齐：面板已关或已换成别的文件时不要把旧 diff 抢回来
+      if (
+        opts?.keepContent === true &&
+        (prev === null || prev.file.newFilePath !== file.newFilePath)
+      ) {
+        return
+      }
+      const keep =
+        opts?.keepContent === true &&
+        prev !== null &&
+        prev.fromHash === fromHash &&
+        prev.toHash === toHash
+      const gen = (diffGen.get(projectPath) ?? 0) + 1
+      diffGen.set(projectPath, gen)
       patchProject(projectPath, {
-        diffView: { file, fromHash, toHash, data: null, loading: true, error: null }
+        diffView: {
+          file,
+          fromHash,
+          toHash,
+          data: keep ? prev.data : null,
+          loading: true,
+          error: keep ? prev.error : null
+        }
       })
       const result = await window.api.gitFileDiff(projectPath, {
         fromHash,
@@ -662,6 +710,7 @@ export const useGit = create<GitStoreState>((set, get) => {
         newFilePath: file.newFilePath,
         type: file.type
       })
+      if (diffGen.get(projectPath) !== gen) return
       const cur = gitState(get(), projectPath).diffView
       if (
         !cur ||
@@ -672,11 +721,12 @@ export const useGit = create<GitStoreState>((set, get) => {
         return // 已切换到别的文件/关闭，丢弃过期响应
       }
       patchProject(projectPath, {
-        diffView: { ...cur, data: result.diff, loading: false, error: result.error }
+        diffView: { ...cur, file, data: result.diff, loading: false, error: result.error }
       })
     },
 
     closeDiff: (projectPath) => {
+      diffGen.set(projectPath, (diffGen.get(projectPath) ?? 0) + 1)
       patchProject(projectPath, { diffView: null })
     },
 

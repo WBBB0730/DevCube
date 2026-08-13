@@ -58,6 +58,9 @@
 48. 作为开发者，我想点冲突文件时能看到其带冲突标记的差异内容（或明确的兜底说明），而不是文件凭空消失。
 49. 作为开发者，我想在没有任何改动时也能从工具栏打开提交面板（例如只勾「修正上次提交」改提交信息），且提交完全部改动后面板不被强制关闭。
 50. 作为开发者，我想在 Git Tab 的标签上始终看到当前分支名（用括号包住，如 `Git (main)`；detached HEAD 时显示缩写 hash），不必先点开 Git Tab，这样不用切到 Git Tab 也知道项目在哪个分支。
+51. 作为开发者，我想 diff 面板是临时盖板：切走 Git Tab、再点一次 Git Tab、换一条提交、或这文件已经不在当前文件树里时自动关掉，这样回来不会还盖着旧 diff。
+52. 作为开发者，我想未暂存 / 已暂存 / 与工作区对比的 diff 跟着仓库变，而不是钉死在打开那一瞬间，这样暂存或外面改了文件时看到的是现在的差异。
+53. 作为开发者，我想双击文件行在 Files Tab 打开工作区里那份文件，这样看完 diff 能直接去改。
 
 ## Implementation Decisions
 
@@ -69,6 +72,7 @@
 - **加载语义**：一次 load 主进程内部串联仓库概要 + 提交列表 + refs 返回；初始 300 条、加载更多 +100 后整表重拉（哨兵 N+1 判断还有更多）；软刷新保持画面原地换数据，硬刷新（筛选/设置变更/重试）清空重来；空仓库与非仓库是明确的状态而非错误。
 - **图谱布局**：忠实移植参考项目的 Vertex/Branch/determinePath 算法为纯函数（网格坐标 → SVG 路径），12 色调色板循环，颜色经 CSS 变量引用。
 - **详情与 diff**：详情面板 v1 采用吊底停靠（非参考默认的行内嵌入——React 表格行内嵌套复杂度高，作为已知取舍）；diff 面板由 `@git-diff-view/react` 渲染（语法高亮、词级 diff、统一/左右对比内置；无虚拟滚动，大文件全量渲染，见 ADR-0007），数据为主进程透传的原始 unified diff 文本（git diff -U3，二进制判定仍在主进程）；比较方向恒按行序归一化（老→新），未提交端恒为 to。文件行一律可点开 diff（未跟踪目录整体条目除外）——是否二进制由点开后的 diff 正文判定并在面板内说明，列表阶段不预判；未跟踪文件的行数由主进程读工作区文件补算（numstat 口径，二进制/超大文件保持无统计）。二进制中的图片文件（png/jpg/gif/webp 等，svg 走文本 diff）在 diff 面板内给新旧预览（object-contain 带边距，M 双栏对照、A/U/D 单栏；数据经 gitFileImage 通道按需取，端点语义同 gitFileDiff，旧端在「提交自身变更」场景取 hash^）；无 hunk 的 diff（纯重命名 / 模式变更等）统一显示「没有差异内容」。工作区监听（ADR-0021，@parcel/watcher 与 Files/discovery 共用订阅）忽略规则零硬编码：`.git` 仅放行白名单元数据（HEAD/index/config/refs），工作区事件路径在防抖到期后经 `git check-ignore` 批量过滤（.gitignore / info/exclude / 全局 excludesfile 全部由 git 裁决），全部被忽略的事件不触发刷新。
+- **Diff 面板是临时盖板**：Git Tab 不可见即关（切走 / 切项目 / 双击进 Files Tab 都算）；再点一次 Git Tab 也关；换详情目标（另一条提交 / 比较 / 提交面板）即关；当前这份详情或提交面板的文件树里找不到该文件即关（「在树里」= 已暂存 + 未暂存 + 冲突；刷新过程中树还没落地不误关）。Esc / × 仍可关。暂存、拉取、刷新、fetch、外面改文件不单独关——提交后文件不在未提交树里则走「不在树里」。活端点（已暂存 HEAD→index、未暂存 index→工作区、与工作区对比）随详情/图谱软刷新重拉，同文件换段则端点跟着走、尽量保住滚动位置；历史提交两端都是 hash 的不刷。单击文件开 diff；双击打开工作区那份进 **Files Tab**（已删除 / 未跟踪目录除外；双击会先闪一下 diff 再切走，接受）。
 - **写操作安全**：动作对话框与追问链对齐参考（强删确认、重名替换、push tag 预检）；「不再提示」标记持久化于跨项目视图偏好；动作执行期间项目文件监听**全部通道**静音（discovery / files / git，含 1500ms 余震），完成后主动推刷新。
 - **凭证**：依赖系统凭证助手（ssh-agent/钥匙串），注入 GIT_TERMINAL_PROMPT=0 快速失败，错误原样呈现；不做 askpass。
 - **交互式变基**：不在主进程跑——渲染端在该项目新建 Terminal 并写入 `git rebase --interactive` 命令行。
@@ -84,7 +88,7 @@
 
 ## Testing Decisions
 
-只测纯函数、零 mock（项目既有约定）：git stdout 解析器用真实样本字符串（含二进制 numstat、rename 跨 NUL 段、annotated tag 双行、空仓库等参考实现的已知坑）；动作层测参数构造纯函数与错误聚合语义；布局引擎测列分配/线段坐标/路径 d 串到具体数值；日期格式化测阈值边界。先例：src/main/*.test.ts 与 src/shared/runnable.test.ts 的「构造输入 → 断言输出」风格。不写 UI/e2e 测试。新增：暂存/未暂存/未跟踪的 git 输出解析（`git diff --cached` / `git diff` / status）用真实样本测（含同一文件同时落在两段的场景），沿用纯函数零 mock 约定；stage/unstage/commit 动作层测参数构造；日期格式化改测中文 Intl 输出的边界串。未跟踪行数补算的 countLinesInBuffer 测空内容 / 末行无换行 / NUL 判二进制。拉取/推送对话框升级新增的参数构造纯函数（pull 整合方式三态、push 的 `local:target` refspec 与标签 refspec 拼装、fetch 逐 remote atomic 展开）沿用同一风格。冲突处理新增：porcelain 冲突桶解析（UU/AA/DD/DU 等真实样本）、继续/跳过/中止的参数构造与 --skip 版本 gate 文案。监听路径分类（`project-watch-classify`）：`.git` 白名单 → git-meta；objects 噪声忽略；工作区路径 → git-worktree（是否刷新仍靠运行时 check-ignore，单测不起真实 git）。
+只测纯函数、零 mock（项目既有约定）：git stdout 解析器用真实样本字符串（含二进制 numstat、rename 跨 NUL 段、annotated tag 双行、空仓库等参考实现的已知坑）；动作层测参数构造纯函数与错误聚合语义；布局引擎测列分配/线段坐标/路径 d 串到具体数值；日期格式化测阈值边界。先例：src/main/*.test.ts 与 src/shared/runnable.test.ts 的「构造输入 → 断言输出」风格。不写 UI/e2e 测试。新增：暂存/未暂存/未跟踪的 git 输出解析（`git diff --cached` / `git diff` / status）用真实样本测（含同一文件同时落在两段的场景），沿用纯函数零 mock 约定；stage/unstage/commit 动作层测参数构造；日期格式化改测中文 Intl 输出的边界串。未跟踪行数补算的 countLinesInBuffer 测空内容 / 末行无换行 / NUL 判二进制。拉取/推送对话框升级新增的参数构造纯函数（pull 整合方式三态、push 的 `local:target` refspec 与标签 refspec 拼装、fetch 逐 remote atomic 展开）沿用同一风格。冲突处理新增：porcelain 冲突桶解析（UU/AA/DD/DU 等真实样本）、继续/跳过/中止的参数构造与 --skip 版本 gate 文案。监听路径分类（`project-watch-classify`）：`.git` 白名单 → git-meta；objects 噪声忽略；工作区路径 → git-worktree（是否刷新仍靠运行时 check-ignore，单测不起真实 git）。diff 盖板收口：`reconcileDiffView` 表驱动（关 / 留着 / 换段重拉），含树未落地不误关、冲突算在树里、历史 hash 不刷。
 
 ## Out of Scope
 

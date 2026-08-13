@@ -1,5 +1,5 @@
 // Git 提交详情 / diff 面板的纯逻辑（details-diff 规格）：文件树构建与单链压缩展平、
-// 提交信息正文分词（URL 自动链接）、单文件 diff 端点解析、超大 diff 截断。
+// 提交信息正文分词（URL 自动链接）、单文件 diff 端点解析、diff 盖板收口、超大 diff 截断。
 // 与 React 无关；组件文件受 react-refresh only-export-components 限制不宜导出纯函数，
 // 故独立成模块供 GitCommitDetails / GitDiffView 消费并单测（写法对齐 git-format.ts）。
 
@@ -189,9 +189,18 @@ export function canPushAfterCommit(currentBranch: string | null, headHash: strin
   return currentBranch !== null || headHash === null
 }
 
+/** 文件行能否在 Files Tab 打开工作区那份：已删除没有工作区文件，未跟踪目录不是单文件。 */
+export function canOpenWorkingTreeFile(file: GitFileChange): boolean {
+  return file.type !== 'D' && file.isDir !== true
+}
+
 /** 文件行 tooltip（§7.4）：可点性提示 • 状态文案，rename 附「旧 → 新」。 */
 export function fileRowTitle(file: GitFileChange): string {
-  const click = diffPossible(file) ? '点击查看差异' : '无法查看差异（这是一个未跟踪目录）'
+  const click = !diffPossible(file)
+    ? '无法查看差异（这是一个未跟踪目录）'
+    : canOpenWorkingTreeFile(file)
+      ? '点击查看差异，双击打开文件'
+      : '点击查看差异'
   const status =
     file.type === 'R'
       ? `${FILE_STATUS_LABEL.R} (${file.oldFilePath} → ${file.newFilePath})`
@@ -255,6 +264,80 @@ export function uncommittedDiffEndpoints(section: 'staged' | 'unstaged'): {
   return section === 'staged'
     ? { fromHash: 'HEAD', toHash: GIT_INDEX }
     : { fromHash: GIT_INDEX, toHash: UNCOMMITTED }
+}
+
+// —— Diff 盖板收口（临时面板：树里没了就关，活端点跟着刷） ——
+
+/** 详情展开态里 reconcileDiffView 需要的切片。 */
+export interface DiffReconcileExpanded {
+  loading: boolean
+  hash: string
+  compareWith: string | null
+  details: { fileChanges: GitFileChange[] } | null
+  fileChanges: GitFileChange[] | null
+  uncommitted: GitUncommittedDetails | null
+}
+
+export type DiffReconcileResult =
+  | { action: 'keep' }
+  | { action: 'close' }
+  | { action: 'refresh'; file: GitFileChange; fromHash: string; toHash: string }
+
+/** 活端点：已暂存 / 未暂存 / 与工作区对比。两端都是提交 hash 的是历史 diff，不刷。 */
+export function isLiveDiff(fromHash: string, toHash: string): boolean {
+  return fromHash === GIT_INDEX || toHash === GIT_INDEX || toHash === UNCOMMITTED
+}
+
+function findByPath(files: readonly GitFileChange[], path: string): GitFileChange | undefined {
+  return files.find((f) => f.newFilePath === path)
+}
+
+/**
+ * 详情/文件树刷新后，当前打开的 diff 该关、该留，还是换端点重拉。
+ * 树还没落地（loading / 列表 null）不当「不存在」，避免软刷新闪关。
+ */
+export function reconcileDiffView(
+  diff: { file: GitFileChange; fromHash: string; toHash: string },
+  expanded: DiffReconcileExpanded | null
+): DiffReconcileResult {
+  if (expanded === null) return { action: 'close' }
+  if (expanded.loading) return { action: 'keep' }
+
+  const path = diff.file.newFilePath
+  const isCommitPanel = expanded.hash === UNCOMMITTED && expanded.compareWith === null
+
+  if (isCommitPanel) {
+    const u = expanded.uncommitted
+    if (u === null) return { action: 'keep' }
+    const inStaged = findByPath(u.staged, path)
+    const inUnstaged = findByPath(u.unstaged, path) ?? findByPath(u.conflicted, path)
+    if (inStaged === undefined && inUnstaged === undefined) return { action: 'close' }
+
+    const unstagedEp = uncommittedDiffEndpoints('unstaged')
+    const stagedEp = uncommittedDiffEndpoints('staged')
+    const onUnstaged = diff.fromHash === unstagedEp.fromHash && diff.toHash === unstagedEp.toHash
+    const onStaged = diff.fromHash === stagedEp.fromHash && diff.toHash === stagedEp.toHash
+
+    if (onUnstaged && inUnstaged !== undefined) {
+      return { action: 'refresh', file: inUnstaged, ...unstagedEp }
+    }
+    if (onStaged && inStaged !== undefined) {
+      return { action: 'refresh', file: inStaged, ...stagedEp }
+    }
+    if (inUnstaged !== undefined) return { action: 'refresh', file: inUnstaged, ...unstagedEp }
+    if (inStaged !== undefined) return { action: 'refresh', file: inStaged, ...stagedEp }
+    return { action: 'close' }
+  }
+
+  const files =
+    expanded.compareWith !== null ? expanded.fileChanges : (expanded.details?.fileChanges ?? null)
+  if (files === null) return { action: 'keep' }
+  const found = findByPath(files, path)
+  if (found === undefined) return { action: 'close' }
+  if (isLiveDiff(diff.fromHash, diff.toHash)) {
+    return { action: 'refresh', file: found, fromHash: diff.fromHash, toHash: diff.toHash }
+  }
+  return { action: 'keep' }
 }
 
 // —— 提交信息正文分词（§5.1：URL 自动链接；哈希链接 v1 不做） ——

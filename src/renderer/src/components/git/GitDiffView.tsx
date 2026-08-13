@@ -4,7 +4,7 @@
 // （split）经 diffViewMode 切换、偏好跨会话记忆（viewPrefs.diffSplitView）、语法高亮与词级 diff
 // 由库内置；配色在 main.css 覆盖库的 CSS 主题变量对齐 Darcula。
 // 二进制 / 空 diff / 延迟加载骨架 / 错误 四态兜底。Esc 关闭由 GitPane 统一处理。
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { AlignJustify, Columns2, LoaderCircle, X } from 'lucide-react'
 import { DiffFile, DiffModeEnum, DiffView } from '@git-diff-view/react'
 import {
@@ -47,6 +47,8 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
   const setViewPrefs = useGit((s) => s.setViewPrefs)
   /** 加载骨架延迟 120ms 出现（防快速响应时闪烁，§10.2） */
   const [showLoading, setShowLoading] = useState(false)
+  const bodyRef = useRef<HTMLDivElement>(null)
+  const scrollPos = useRef({ key: '', top: 0, left: 0 })
 
   // 文件身份：端点 + 新路径（换文件时重置加载骨架的计时）。
   const fileKey = diffView
@@ -74,6 +76,28 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
     instance.initRaw()
     return instance
   }, [srcFile, raw])
+
+  // 同文件重拉时尽量保住滚动；换文件 / 换端点则从头看。
+  useLayoutEffect(() => {
+    const root = bodyRef.current
+    if (root === null) return
+    const nodes = [...root.querySelectorAll<HTMLElement>('.diff-table-scroll-container')]
+    const prev = scrollPos.current
+    if (prev.key === fileKey) {
+      for (const el of nodes) {
+        el.scrollTop = prev.top
+        el.scrollLeft = prev.left
+      }
+    }
+    const onScroll = (e: Event): void => {
+      const el = e.currentTarget as HTMLElement
+      scrollPos.current = { key: fileKey, top: el.scrollTop, left: el.scrollLeft }
+    }
+    for (const el of nodes) el.addEventListener('scroll', onScroll)
+    return () => {
+      for (const el of nodes) el.removeEventListener('scroll', onScroll)
+    }
+  }, [raw, fileKey, splitView])
 
   if (diffView === null) return null
   const { file, data, error } = diffView
@@ -167,7 +191,7 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
         </div>
       ) : (
         // 滚动收进库的容器内（main.css 高度链），此层只圈定高度不再自滚
-        <div className="min-h-0 flex-1 overflow-hidden">
+        <div ref={bodyRef} className="min-h-0 flex-1 overflow-hidden">
           <DiffView
             diffFile={diffFile}
             diffViewMode={splitView ? DiffModeEnum.Split : DiffModeEnum.Unified}

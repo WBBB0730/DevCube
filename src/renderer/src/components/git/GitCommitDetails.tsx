@@ -9,11 +9,13 @@ import { useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronRight, File as FileIcon, Folder, LoaderCircle, X } from 'lucide-react'
 import { UNCOMMITTED, type GitFileChange } from '@shared/git'
 import { gitState, useGit } from '@renderer/git-store'
+import { useFiles } from '@renderer/files-store'
 import { cn } from '@renderer/lib/utils'
 import { abbrevHash, formatDateTime } from './git-format'
 import {
   FILE_STATUS_COLOR,
   buildFileTree,
+  canOpenWorkingTreeFile,
   diffPossible,
   fileRowTitle,
   flattenFileTree,
@@ -415,6 +417,11 @@ function FileTreePane({
     void useGit.getState().openDiff(projectPath, file, fromHash, toHash)
   }
 
+  const openInFilesTab = (file: GitFileChange): void => {
+    if (!canOpenWorkingTreeFile(file)) return
+    useFiles.getState().openInFiles(projectPath, `${projectPath}/${file.newFilePath}`)
+  }
+
   const onFileMenu = (e: React.MouseEvent, file: GitFileChange): void => {
     e.preventDefault()
     e.stopPropagation()
@@ -476,6 +483,7 @@ function FileTreePane({
         // 额外 +18px 缩进：与文件夹行的 chevron 区对齐
         style={{ paddingLeft: 8 + row.depth * 16 + 18 }}
         onClick={() => clickable && openFileDiff(file)}
+        onDoubleClick={() => openInFilesTab(file)}
         onContextMenu={(e) => onFileMenu(e, file)}
       >
         <FileIcon className="size-3.5 shrink-0" style={{ color: colour }} />

@@ -1,9 +1,10 @@
 // git-details 纯函数测试：文件树构建/压缩/排序、diff 可点性、diff 端点解析、
-// 正文分词（URL 自动链接）（details-diff 规格）。
+// 正文分词（URL 自动链接）、diff 盖板收口（details-diff 规格）。
 import { describe, expect, it } from 'vitest'
 import { GIT_INDEX, UNCOMMITTED, type GitFileChange } from '@shared/git'
 import {
   buildFileTree,
+  canOpenWorkingTreeFile,
   canPushAfterCommit,
   diffPossible,
   fileRowTitle,
@@ -11,10 +12,12 @@ import {
   flattenFileTree,
   normalizeCompare,
   pathspecOf,
+  reconcileDiffView,
   resolveDiffEndpoints,
   tokenizeBody,
   uncommittedDiffEndpoints,
-  workingTreeStatusByPath
+  workingTreeStatusByPath,
+  type DiffReconcileExpanded
 } from './git-details'
 
 /** 快捷构造一个文件变更。 */
@@ -116,8 +119,12 @@ describe('diffPossible', () => {
 })
 
 describe('fileRowTitle', () => {
-  it('可 diff 的普通修改显示「点击查看差异 • 已修改」', () => {
-    expect(fileRowTitle(fc('a.ts'))).toBe('点击查看差异 • 已修改')
+  it('可 diff 的普通修改显示「点击查看差异，双击打开文件 • 已修改」', () => {
+    expect(fileRowTitle(fc('a.ts'))).toBe('点击查看差异，双击打开文件 • 已修改')
+  })
+
+  it('已删除只能看 diff、不能打开工作区文件', () => {
+    expect(fileRowTitle(fc('a.ts', { type: 'D' }))).toBe('点击查看差异 • 已删除')
   })
 
   it('未跟踪目录整体条目提示无法查看差异', () => {
@@ -128,7 +135,15 @@ describe('fileRowTitle', () => {
 
   it('重命名附注旧路径 → 新路径', () => {
     const file = fc('b.ts', { oldFilePath: 'a.ts', type: 'R' })
-    expect(fileRowTitle(file)).toBe('点击查看差异 • 已重命名 (a.ts → b.ts)')
+    expect(fileRowTitle(file)).toBe('点击查看差异，双击打开文件 • 已重命名 (a.ts → b.ts)')
+  })
+})
+
+describe('canOpenWorkingTreeFile', () => {
+  it('普通文件可打开，已删除与未跟踪目录不可', () => {
+    expect(canOpenWorkingTreeFile(fc('a.ts'))).toBe(true)
+    expect(canOpenWorkingTreeFile(fc('a.ts', { type: 'D' }))).toBe(false)
+    expect(canOpenWorkingTreeFile(fc('vendor', { type: 'U', isDir: true }))).toBe(false)
   })
 })
 
@@ -264,6 +279,162 @@ describe('uncommittedDiffEndpoints', () => {
       fromHash: GIT_INDEX,
       toHash: UNCOMMITTED
     })
+  })
+})
+
+describe('reconcileDiffView', () => {
+  const a = fc('a.ts')
+  const aStaged = fc('a.ts', { additions: 3, deletions: 1 })
+  const unstagedEp = uncommittedDiffEndpoints('unstaged')
+  const stagedEp = uncommittedDiffEndpoints('staged')
+  const unstagedDiff = { file: a, ...unstagedEp }
+  const stagedDiff = { file: a, ...stagedEp }
+
+  function panel(uncommitted: DiffReconcileExpanded['uncommitted']): DiffReconcileExpanded {
+    return {
+      loading: false,
+      hash: UNCOMMITTED,
+      compareWith: null,
+      details: null,
+      fileChanges: null,
+      uncommitted
+    }
+  }
+
+  it('没有详情 → 关', () => {
+    expect(reconcileDiffView(unstagedDiff, null)).toEqual({ action: 'close' })
+  })
+
+  it('详情还在 loading → 留着（不把空树当不存在）', () => {
+    expect(
+      reconcileDiffView(unstagedDiff, {
+        loading: true,
+        hash: UNCOMMITTED,
+        compareWith: null,
+        details: null,
+        fileChanges: null,
+        uncommitted: null
+      })
+    ).toEqual({ action: 'keep' })
+  })
+
+  it('提交面板未落地（uncommitted null）→ 留着', () => {
+    expect(reconcileDiffView(unstagedDiff, panel(null))).toEqual({ action: 'keep' })
+  })
+
+  it('提交面板三桶都没这个文件 → 关', () => {
+    expect(
+      reconcileDiffView(unstagedDiff, panel({ staged: [], unstaged: [], conflicted: [] }))
+    ).toEqual({ action: 'close' })
+  })
+
+  it('仍在未暂存段 → 用未暂存端点重拉（带树上的新文件对象）', () => {
+    const updated = fc('a.ts', { additions: 8, deletions: 2 })
+    expect(
+      reconcileDiffView(unstagedDiff, panel({ staged: [], unstaged: [updated], conflicted: [] }))
+    ).toEqual({ action: 'refresh', file: updated, ...unstagedEp })
+  })
+
+  it('从未暂存整段搬走、只剩已暂存 → 跟着换到已暂存端点', () => {
+    expect(
+      reconcileDiffView(unstagedDiff, panel({ staged: [aStaged], unstaged: [], conflicted: [] }))
+    ).toEqual({ action: 'refresh', file: aStaged, ...stagedEp })
+  })
+
+  it('两段都有时留在当前段', () => {
+    expect(
+      reconcileDiffView(unstagedDiff, panel({ staged: [aStaged], unstaged: [a], conflicted: [] }))
+    ).toEqual({ action: 'refresh', file: a, ...unstagedEp })
+    expect(
+      reconcileDiffView(stagedDiff, panel({ staged: [aStaged], unstaged: [a], conflicted: [] }))
+    ).toEqual({ action: 'refresh', file: aStaged, ...stagedEp })
+  })
+
+  it('冲突文件算在树里，按未暂存端点重拉', () => {
+    const conflicted = fc('a.ts', { type: '!', additions: null, deletions: null })
+    expect(
+      reconcileDiffView(unstagedDiff, panel({ staged: [], unstaged: [], conflicted: [conflicted] }))
+    ).toEqual({ action: 'refresh', file: conflicted, ...unstagedEp })
+  })
+
+  it('提交详情文件列表未落地 → 留着', () => {
+    expect(
+      reconcileDiffView(
+        { file: a, fromHash: 'bbb', toHash: 'bbb' },
+        {
+          loading: false,
+          hash: 'bbb',
+          compareWith: null,
+          details: null,
+          fileChanges: null,
+          uncommitted: null
+        }
+      )
+    ).toEqual({ action: 'keep' })
+  })
+
+  it('提交详情里没这个文件 → 关', () => {
+    expect(
+      reconcileDiffView(
+        { file: a, fromHash: 'bbb', toHash: 'bbb' },
+        {
+          loading: false,
+          hash: 'bbb',
+          compareWith: null,
+          details: { fileChanges: [fc('other.ts')] },
+          fileChanges: null,
+          uncommitted: null
+        }
+      )
+    ).toEqual({ action: 'close' })
+  })
+
+  it('历史提交（两端都是 hash）文件还在 → 不刷', () => {
+    expect(
+      reconcileDiffView(
+        { file: a, fromHash: 'bbb', toHash: 'bbb' },
+        {
+          loading: false,
+          hash: 'bbb',
+          compareWith: null,
+          details: { fileChanges: [a] },
+          fileChanges: null,
+          uncommitted: null
+        }
+      )
+    ).toEqual({ action: 'keep' })
+  })
+
+  it('与工作区对比（to=*）文件还在 → 同端点重拉', () => {
+    expect(
+      reconcileDiffView(
+        { file: a, fromHash: 'bbb', toHash: UNCOMMITTED },
+        {
+          loading: false,
+          hash: 'bbb',
+          compareWith: null,
+          details: { fileChanges: [a] },
+          fileChanges: null,
+          uncommitted: null
+        }
+      )
+    ).toEqual({ action: 'refresh', file: a, fromHash: 'bbb', toHash: UNCOMMITTED })
+  })
+
+  it('比较模式看 fileChanges，活端点（比较到未提交）重拉', () => {
+    expect(
+      reconcileDiffView(
+        { file: a, fromHash: 'aaa', toHash: UNCOMMITTED },
+        {
+          loading: false,
+          hash: 'aaa',
+          compareWith: UNCOMMITTED,
+          details: null,
+          fileChanges: [a],
+          uncommitted: null
+        }
+      )
+    ).toEqual({ action: 'refresh', file: a, fromHash: 'aaa', toHash: UNCOMMITTED })
   })
 })
 
