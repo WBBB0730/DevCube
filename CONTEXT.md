@@ -23,7 +23,7 @@ _Avoid_: Task, Profile, Preset
 **Run Session（运行会话）**：某条 Run Configuration 的一次"活的执行"，拥有自己的进程、输出、状态（运行中 / 已退出 / 失败）与控制（停止、重跑）。一条配置**单实例**：同时最多只有一个活跃的 Run Session；对运行中的配置再次"运行"即"重新运行"（先停旧进程再起新的）。
 _Avoid_: Run, Process, Instance, Job
 
-**Terminal（终端）**：项目下的一个自由交互 shell 会话——在项目根目录起用户配置的 shell（posix 为 `$SHELL`；Windows 默认 Git Bash，可改 PowerShell / cmd，与 **Run Session** 共用同一偏好），可随意敲命令，**不绑定任何 Run Configuration / Discovered Script**。壳（稳定身份、显示名、在项目 Tab 栏中的顺序）可按项目持久化；**进程与输出不持久化**——重启后需再次拉起空 shell，历史输出不恢复。shell 进程结束即销毁其活会话并关闭对应 Tab。与 **Run Session** 并列但语义不同：Run Session 是"某条配置的一次执行"，Terminal 是"项目下的一个自由 shell"。一个项目可同时拥有任意多个 Terminal。
+**Terminal（终端）**：项目下的一个自由交互 shell 会话——起用户配置的 shell（posix 为 `$SHELL`；Windows 默认 Git Bash，可改 PowerShell / cmd，与 **Run Session** 共用同一偏好），cwd 默认项目根，也可从 **Files Tab** 的「在终端中打开」在项目内某目录起；cwd 不随壳持久化（重启回项目根）。可随意敲命令，**不绑定任何 Run Configuration / Discovered Script**。壳（稳定身份、显示名、在项目 Tab 栏中的顺序）可按项目持久化；**进程与输出不持久化**——重启后需再次拉起空 shell，历史输出不恢复。shell 进程结束即销毁其活会话并关闭对应 Tab。与 **Run Session** 并列但语义不同：Run Session 是"某条配置的一次执行"，Terminal 是"项目下的一个自由 shell"。一个项目可同时拥有任意多个 Terminal。
 _Avoid_: Shell（裸用）, 控制台
 
 **Git Tab（Git 标签页）**：项目的 Git 图谱视图——展示该项目仓库的提交历史图、引用与详情，并可从中执行 git 操作。每项目**恒有一个**、常驻 Tab 栏最前、不可关闭；它不是会话（无进程、无输出流），是 Tab 模型中的非会话 Tab 之一。项目不是 git 仓库时显示兜底提示与初始化仓库入口；仓库状态（是否仓库 / 仓库根）随文件系统变化自动跟进，不需要重新添加项目。
@@ -50,7 +50,7 @@ _Avoid_: Channel（裸用）, Track, Flavor, Variant, 通道（指安装身份�
 - **引用型**配置所引用的清单脚本若从清单消失，或所依据的约定指纹不再成立 → 该配置**自动删除**；清单脚本改名视作"删旧出新"（旧配置删除，新名字作为全新 Discovered Script 候补重新出现）。
 - 一切自定义只落在**命令型**配置上；**引用型**不承载任何自定义，因而其自动删除永不丢失用户内容。
 - 一条 **Run Configuration** 至多对应一个活跃的 **Run Session**；不同配置的 Run Session 可并发存在。
-- 一个 **Project** 拥有 0..N 个 **Terminal**（cwd 为项目根、不绑定任何 Run Configuration；活 shell 随退出而销毁；壳可跨重启按项目恢复）。
+- 一个 **Project** 拥有 0..N 个 **Terminal**（cwd 默认项目根、可指定项目内目录但不持久化；不绑定任何 Run Configuration；活 shell 随退出而销毁；壳可跨重启按项目恢复）。
 - **Terminal** 与 **Run Session** 都是"活的会话"，但 Terminal 不由任何配置派生、彼此独立——不做单实例去重，同一项目可并存任意多个。
 - 一个 **Project** 恒有一个 **Git Tab**（非会话、不可关闭、常驻其 Tab 栏最前）；它与 **Files Tab** / Run Session / Terminal 的 Tab 共用激活与循环规则。
 - 一个 **Project** 恒有一个 **Files Tab**（非会话、不可关闭、常驻其 Tab 栏第二位，紧接 Git Tab）；它与 Git Tab / Run Session / Terminal 的 Tab 共用激活与循环规则。一个 Files Tab 同一时刻至多打开一个条目。

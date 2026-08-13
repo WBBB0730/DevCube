@@ -1,10 +1,13 @@
 import { randomUUID } from 'crypto'
+import { statSync } from 'node:fs'
+import path from 'node:path'
 import { BrowserWindow } from 'electron'
 import { spawn, type IPty } from 'node-pty'
 import { Terminal as HeadlessTerminal } from '@xterm/headless'
 import { SerializeAddon } from '@xterm/addon-serialize'
 import { IPC } from '../shared/ipc'
 import { configKey, scriptKey } from '../shared/runnable'
+import { resolveWithinProject } from '../shared/files-path'
 import type {
   RunTarget,
   SessionBufferSnapshot,
@@ -239,12 +242,26 @@ export function run(target: RunTarget): void {
   })
 }
 
+/** 终端起始目录：限定项目内且存在的目录，越界 / 失效一律回落项目根（cwd 不随壳持久化）。 */
+function terminalCwd(projectPath: string, cwd?: string): string {
+  if (cwd === undefined) return projectPath
+  const logical = resolveWithinProject(projectPath, cwd)
+  if (logical === null) return projectPath
+  const sys = path.normalize(logical.split('/').join(path.sep))
+  try {
+    if (statSync(sys).isDirectory()) return sys
+  } catch {
+    // 目录已不存在：回落项目根
+  }
+  return projectPath
+}
+
 /**
- * 开一个 Terminal（自由 shell）：在项目根目录起登录交互 shell，返回其会话键。
- * 与 Run Session 共用同一套输出/输入/缓冲通道，但无头部、不去重（每个终端独立）；
- * shell 自行结束（exit / Ctrl-D / 崩溃）即销毁并通知渲染端关闭其 Tab。
+ * 开一个 Terminal（自由 shell）：起登录交互 shell（默认项目根，cwd 可指定项目内目录），
+ * 返回其会话键。与 Run Session 共用同一套输出/输入/缓冲通道，但无头部、不去重（每个终端
+ * 独立）；shell 自行结束（exit / Ctrl-D / 崩溃）即销毁并通知渲染端关闭其 Tab。
  */
-export function openTerminal(projectPath: string, key?: string): string {
+export function openTerminal(projectPath: string, key?: string, cwd?: string): string {
   const sessionKey = key ?? `terminal:${randomUUID()}`
   const existing = sessions.get(sessionKey)
   if (existing) return sessionKey
@@ -257,7 +274,7 @@ export function openTerminal(projectPath: string, key?: string): string {
     name: 'xterm-256color',
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
-    cwd: projectPath,
+    cwd: terminalCwd(projectPath, cwd),
     env: { ...process.env } as Record<string, string>
   })
 

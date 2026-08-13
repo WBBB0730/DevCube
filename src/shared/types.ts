@@ -233,7 +233,8 @@ export interface RunAPI extends GitAPI {
    * 在项目根目录起一个交互 shell 的 Terminal，返回其会话键。
    * 传入 key 则用该键（懒 spawn / 对账）；已存在则原样返回。
    */
-  openTerminal(projectPath: string, key?: string): Promise<string>
+  /** cwd 限项目内目录（越界/失效回落项目根；不随壳持久化——重启回项目根） */
+  openTerminal(projectPath: string, key?: string, cwd?: string): Promise<string>
   /** 读取工作台 UI 快照（ADR-0008） */
   getWorkspaceUi(): Promise<WorkspaceUiState>
   /** 整表覆写工作台 UI（渲染端为真相源，变更即写） */

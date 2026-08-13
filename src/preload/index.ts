@@ -38,7 +38,8 @@ const api: RunAPI = {
   clearSessionOutput: (key) => ipcRenderer.invoke(IPC.sessionClear, key),
   getSessions: () => ipcRenderer.invoke(IPC.sessions),
 
-  openTerminal: (projectPath, key) => ipcRenderer.invoke(IPC.terminalOpen, projectPath, key),
+  openTerminal: (projectPath, key, cwd) =>
+    ipcRenderer.invoke(IPC.terminalOpen, projectPath, key, cwd),
   closeSession: (key) => ipcRenderer.invoke(IPC.sessionClose, key),
   getTerminals: () => ipcRenderer.invoke(IPC.terminals),
   getWorkspaceUi: () => ipcRenderer.invoke(IPC.workspaceUiGet),

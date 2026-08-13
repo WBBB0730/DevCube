@@ -1038,7 +1038,7 @@ export function FilesPane({
                     void exitFilter()
                   }
                 }}
-                placeholder={filterScanning ? '筛选中…' : filterHint}
+                placeholder={filterHint}
                 className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-[color:var(--fg-disabled)]"
               />
               {filterQuery !== '' && (
@@ -1139,6 +1139,7 @@ export function FilesPane({
       )}
 
       <FilesTreeMenu
+        projectPath={projectPath}
         projectRoot={rootLogical}
         menu={treeMenu}
         onClose={() => setTreeMenu(null)}

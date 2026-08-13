@@ -269,8 +269,8 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.sessions, () => getSessions())
 
   // —— 终端（Terminal，自由 shell）与 Tab 关闭 ——
-  ipcMain.handle(IPC.terminalOpen, (_e, projectPath: string, key?: string) =>
-    openTerminal(projectPath, key)
+  ipcMain.handle(IPC.terminalOpen, (_e, projectPath: string, key?: string, cwd?: string) =>
+    openTerminal(projectPath, key, cwd)
   )
   // 用户关闭 Tab（Run Session / Terminal 通用）：温和停止 + 弃会话 + 通知渲染端移除 Tab。
   ipcMain.handle(IPC.sessionClose, (_e, key: string) => closeSession(key))

@@ -225,7 +225,8 @@ interface AppState {
   /** 清空某运行会话的控制台输出（进程继续；+1 runNonce 驱动面板清屏回填） */
   clearOutput: (key: string) => Promise<void>
   /** 新建终端并聚焦；返回其会话键（供 Git 交互式 rebase 等向其写入命令） */
-  newTerminal: (projectPath: string) => Promise<string>
+  /** cwd 缺省为项目根；Files 树「在终端中打开」传项目内目录 */
+  newTerminal: (projectPath: string, cwd?: string) => Promise<string>
   renameTerminal: (key: string, name: string) => void
   /** 重排某项目终端 Tab 的顺序（落盘） */
   reorderTerminals: (projectPath: string, orderedKeys: string[]) => void
@@ -442,8 +443,8 @@ export const useApp = create<AppState>((set, get) => ({
       runNonce: { ...state.runNonce, [key]: (state.runNonce[key] ?? 0) + 1 }
     }))
   },
-  newTerminal: async (projectPath) => {
-    const key = await window.api.openTerminal(projectPath)
+  newTerminal: async (projectPath, cwd) => {
+    const key = await window.api.openTerminal(projectPath, undefined, cwd)
     const switched = get().currentProjectPath !== projectPath
     set((state) => ({
       terminals: [
