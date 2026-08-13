@@ -60,6 +60,11 @@
   --git-status-merged: #cf84cf;
   --git-status-ignored: #d69a6b;
 
+  /* —— Git 行状态（Dark.icls *_LINES_COLOR；Files 编辑器行号栏 diff 条纹） —— */
+  --git-line-added: #549159;
+  --git-line-modified: #375fad;
+  --git-line-deleted: #868a91;
+
   /* —— 滚动条（webkit） —— */
   --scrollbar-thumb: #404043;
   --scrollbar-thumb-hover: #626365;

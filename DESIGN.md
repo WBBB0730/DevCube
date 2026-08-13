@@ -69,6 +69,14 @@
 | `--git-status-ignored`   | `#D69A6B` | FILESTATUS_IDEA_FILESTATUS_IGNORED；已忽略（预留）                                |
 | `--git-status-untracked` | `#E88F89` | FILESTATUS_UNKNOWN（**预留，当前 U 不用**）                                       |
 
+**Git 行状态色**（`Dark.icls` \*\_LINES_COLOR；Files 编辑器行号栏 diff 条纹）
+
+| 变量                  | 值        | 来源 / 用途                         |
+| --------------------- | --------- | ----------------------------------- |
+| `--git-line-added`    | `#549159` | ADDED_LINES_COLOR；新增行绿条       |
+| `--git-line-modified` | `#375FAD` | MODIFIED_LINES_COLOR；修改行蓝条    |
+| `--git-line-deleted`  | `#868A91` | DELETED_LINES_COLOR；删除位置灰三角 |
+
 **滚动条（webkit）**
 
 | 变量                      | 值        | 用途                         |
