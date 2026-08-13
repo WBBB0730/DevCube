@@ -1,7 +1,8 @@
-// Files 树条目操作弹窗（新建文件 / 新建文件夹 / 重命名 / 删除确认）：外壳对齐 FilesPane
-// 磁盘冲突弹窗（fixed 遮罩 + bg-panel 卡片）。onSubmit 抛错时弹窗保持打开并就地展示错误。
+// Files 树条目操作弹窗（新建文件 / 新建文件夹 / 重命名 / 删除确认）：走通用小对话框外壳
+// （ui/form-dialog，与 Git 对话框族同款）——WebStorm 式提示语 + 输入 + 底部按钮条。
+// onSubmit 抛错时弹窗保持打开并就地展示错误；提交中锁死弹窗（含 Esc / 遮罩 / 取消）。
 import { useEffect, useRef, useState } from 'react'
-import { Button } from '@renderer/components/ui/button'
+import { FormDialogShell } from '@renderer/components/ui/form-dialog'
 import { Input } from '@renderer/components/ui/input'
 
 export type FilesEntryDialogRequest =
@@ -9,13 +10,6 @@ export type FilesEntryDialogRequest =
   | { kind: 'create-dir'; dir: string }
   | { kind: 'rename'; path: string; isDirectory: boolean }
   | { kind: 'trash'; path: string; isDirectory: boolean }
-
-const TITLE: Record<FilesEntryDialogRequest['kind'], string> = {
-  'create-file': '新建文件',
-  'create-dir': '新建文件夹',
-  rename: '重命名',
-  trash: '删除'
-}
 
 function baseName(p: string): string {
   return p.slice(p.lastIndexOf('/') + 1)
@@ -25,6 +19,27 @@ function baseName(p: string): string {
 function errorText(e: unknown): string {
   const msg = e instanceof Error ? e.message : String(e)
   return msg.replace(/^Error invoking remote method '[^']*':\s*(Error:\s*)?/, '')
+}
+
+/** WebStorm 式提示语：完整语句说明目标与动作（B 类外壳无标题栏，提示语即说明）。 */
+function messageFor(request: FilesEntryDialogRequest): string {
+  switch (request.kind) {
+    case 'create-file':
+      return `在 “${baseName(request.dir)}” 下新建文件：`
+    case 'create-dir':
+      return `在 “${baseName(request.dir)}” 下新建文件夹：`
+    case 'rename':
+      return `将 “${baseName(request.path)}” 重命名为：`
+    case 'trash':
+      return `将把${request.isDirectory ? '文件夹' : '文件'} “${baseName(request.path)}” 移到回收站。`
+  }
+}
+
+const PRIMARY_LABEL: Record<FilesEntryDialogRequest['kind'], string> = {
+  'create-file': '创建',
+  'create-dir': '创建',
+  rename: '重命名',
+  trash: '删除'
 }
 
 export function FilesEntryDialog({
@@ -59,69 +74,41 @@ export function FilesEntryDialog({
     }
   }, [])
 
-  const submit = async (): Promise<void> => {
+  const submit = (): void => {
     if (busy) return
     const trimmed = name.trim()
     if (!isTrash && trimmed === '') return
     setBusy(true)
     setError(null)
-    try {
-      await onSubmit(trimmed)
-    } catch (e) {
+    onSubmit(trimmed).catch((e: unknown) => {
       setError(errorText(e))
       setBusy(false)
-    }
+    })
   }
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onKeyDown={(e) => {
-        if (e.key === 'Escape' && !busy) {
-          e.stopPropagation()
-          onClose()
+    <FormDialogShell
+      message={messageFor(request)}
+      buttons={[
+        {
+          label: PRIMARY_LABEL[request.kind],
+          disabled: busy || (!isTrash && name.trim() === ''),
+          onClick: submit
         }
-      }}
+      ]}
+      onCancel={busy ? () => undefined : onClose}
+      cancelDisabled={busy}
     >
-      <div className="w-[440px] rounded border border-[color:var(--border-input)] bg-panel p-4 shadow-xl">
-        <h2 className="text-sm text-[color:var(--fg-dialog-title)]">{TITLE[request.kind]}</h2>
-        {isTrash ? (
-          <p className="mt-2 text-[13px] text-muted-foreground">
-            将把{request.isDirectory ? '文件夹' : '文件'}“{baseName(request.path)}
-            ”移到回收站。
-          </p>
-        ) : (
-          <form
-            className="mt-3"
-            onSubmit={(e) => {
-              e.preventDefault()
-              void submit()
-            }}
-          >
-            <Input
-              ref={inputRef}
-              value={name}
-              disabled={busy}
-              placeholder={request.kind === 'create-dir' ? '文件夹名' : '文件名'}
-              onChange={(e) => setName(e.target.value)}
-            />
-          </form>
-        )}
-        {error !== null && <p className="mt-2 text-xs text-[var(--status-failed)]">{error}</p>}
-        <div className="mt-4 flex justify-end gap-2">
-          <Button variant="ghost" disabled={busy} onClick={onClose}>
-            取消
-          </Button>
-          <Button
-            variant={isTrash ? 'destructive' : 'default'}
-            autoFocus={isTrash}
-            disabled={busy || (!isTrash && name.trim() === '')}
-            onClick={() => void submit()}
-          >
-            {isTrash ? '删除' : '确定'}
-          </Button>
-        </div>
-      </div>
-    </div>
+      {!isTrash && (
+        <Input
+          ref={inputRef}
+          value={name}
+          disabled={busy}
+          placeholder={request.kind === 'create-dir' ? '文件夹名' : '文件名'}
+          onChange={(e) => setName(e.target.value)}
+        />
+      )}
+      {error !== null && <p className="text-xs text-[var(--status-failed)]">{error}</p>}
+    </FormDialogShell>
   )
 }

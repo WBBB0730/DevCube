@@ -39,7 +39,7 @@ import { FilesMarkdownPreview } from './FilesMarkdownPreview'
 import { FilesEntryDialog, type FilesEntryDialogRequest } from './FilesEntryDialog'
 import { FilesTreeMenu, type FilesTreeMenuTarget } from './FilesTreeMenu'
 import { useFiles } from '@renderer/files-store'
-import { Button } from '@renderer/components/ui/button'
+import { FormDialogShell } from '@renderer/components/ui/form-dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -1155,46 +1155,36 @@ export function FilesPane({
       )}
 
       {conflict && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
-          <div className="w-[440px] rounded border border-[color:var(--border-input)] bg-panel p-4 shadow-xl">
-            <h2 className="text-sm text-[color:var(--fg-dialog-title)]">文件已在磁盘上更改</h2>
-            <p className="mt-2 text-[13px] text-muted-foreground">
-              当前有未保存的编辑，磁盘内容也已变化。要重载磁盘版本还是保留编辑器内容？
-            </p>
-            <div className="mt-4 flex justify-end gap-2">
-              <Button
-                variant="ghost"
-                onClick={() => {
-                  setLoaded((prev) =>
-                    prev && prev.kind === 'text' && conflict
-                      ? { ...prev, mtimeMs: conflict.mtimeMs }
-                      : prev
-                  )
-                  setConflict(null)
-                }}
-              >
-                保留编辑器内容
-              </Button>
-              <Button
-                onClick={() => {
-                  setLoaded((prev) =>
-                    prev && prev.kind === 'text'
-                      ? {
-                          ...prev,
-                          content: conflict.disk,
-                          mtimeMs: conflict.mtimeMs,
-                          dirty: false
-                        }
-                      : prev
-                  )
-                  setConflict(null)
-                }}
-              >
-                重载
-              </Button>
-            </div>
-          </div>
-        </div>
+        <FormDialogShell
+          message={`文件 “${loaded !== null ? loaded.path.slice(loaded.path.lastIndexOf('/') + 1) : ''}” 已在磁盘上更改，当前还有未保存的编辑。要重载磁盘版本，还是保留编辑器内容？`}
+          cancelLabel="保留编辑器内容"
+          buttons={[
+            {
+              label: '重载',
+              onClick: () => {
+                setLoaded((prev) =>
+                  prev && prev.kind === 'text'
+                    ? {
+                        ...prev,
+                        content: conflict.disk,
+                        mtimeMs: conflict.mtimeMs,
+                        dirty: false
+                      }
+                    : prev
+                )
+                setConflict(null)
+              }
+            }
+          ]}
+          onCancel={() => {
+            setLoaded((prev) =>
+              prev && prev.kind === 'text' && conflict
+                ? { ...prev, mtimeMs: conflict.mtimeMs }
+                : prev
+            )
+            setConflict(null)
+          }}
+        />
       )}
     </div>
   )

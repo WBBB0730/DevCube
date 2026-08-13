@@ -24,6 +24,11 @@ import { useApp } from '@renderer/store'
 import { gitState, useGit } from '@renderer/git-store'
 import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui/button'
+import {
+  DialogMask as Mask,
+  DialogPanel,
+  FormDialogShell
+} from '@renderer/components/ui/form-dialog'
 import { Input } from '@renderer/components/ui/input'
 import { Checkbox } from '@renderer/components/ui/checkbox'
 import { RadioGroup, RadioGroupItem } from '@renderer/components/ui/radio-group'
@@ -1617,48 +1622,6 @@ function dialogKey(req: GitDialogRequest): string {
   return JSON.stringify(req)
 }
 
-/** 全屏遮罩（ConfigDialog 同款）：点击遮罩 = 取消（进行中遮罩不传 onClick 即不可关）。 */
-function Mask({
-  children,
-  onClick
-}: {
-  children: React.ReactNode
-  onClick?: () => void
-}): React.JSX.Element {
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-      onClick={onClick}
-    >
-      {children}
-    </div>
-  )
-}
-
-/** 对话框面板外壳：440px 宽（ConfigDialog 同款），拦截冒泡防误触遮罩关闭。 */
-function DialogPanel({
-  children,
-  className,
-  onKeyDown
-}: {
-  children: React.ReactNode
-  className?: string
-  onKeyDown?: (e: React.KeyboardEvent<HTMLDivElement>) => void
-}): React.JSX.Element {
-  return (
-    <div
-      className={cn(
-        'w-[440px] rounded border border-[color:var(--border-input)] bg-panel shadow-xl',
-        className
-      )}
-      onClick={(e) => e.stopPropagation()}
-      onKeyDown={onKeyDown}
-    >
-      {children}
-    </div>
-  )
-}
-
 /** ⓘ 提示图标：原生 title tooltip（项目约定，无 tooltip 组件）。 */
 function InfoIcon({ text }: { text: string }): React.JSX.Element {
   return (
@@ -1912,76 +1875,6 @@ function DialogInputRow({
 }
 
 // —— 自定义表单对话框（联动 / combobox / 行内刷新等超出声明式 spec 的表单；pull/push 用） ——
-
-/** 自定义表单按钮：disabled/title 由表单自身校验状态驱动（确认禁用 + 禁用原因提示）。 */
-interface FormDialogButton {
-  label: string
-  disabled?: boolean
-  /** 禁用原因等 hover 提示 */
-  title?: string
-  onClick: () => void
-}
-
-/**
- * 自定义表单对话框外壳：Mask + DialogPanel + 消息 + children（字段自由布局）+ 按钮行。
- * 键盘约定与 DialogForm 一致：Esc = 取消、Enter = 主按钮（排除输入法合成与禁用态）。
- */
-function FormDialogShell({
-  message,
-  children,
-  buttons,
-  onCancel
-}: {
-  message: React.ReactNode
-  children: React.ReactNode
-  buttons: FormDialogButton[]
-  onCancel: () => void
-}): React.JSX.Element {
-  // Escape 兜底：焦点在对话框输入控件里时 GitPane 的 capture 监听会让位，这里补一份
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onCancel()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onCancel])
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
-    // Enter = 主按钮；必须排除输入法合成中的回车（isComposing / keyCode 229）
-    if (e.key !== 'Enter') return
-    if (e.nativeEvent.isComposing || e.keyCode === 229) return
-    const primary = buttons[0]
-    if (primary === undefined || primary.disabled === true) return
-    e.preventDefault()
-    primary.onClick()
-  }
-
-  return (
-    <Mask onClick={onCancel}>
-      <DialogPanel onKeyDown={onKeyDown}>
-        <div className="space-y-3 px-4 py-4">
-          <div className="select-text text-[13px] leading-relaxed text-foreground">{message}</div>
-          {children}
-        </div>
-        <div className="flex justify-end gap-2 border-t px-4 py-2.5">
-          <Button variant="ghost" onClick={onCancel}>
-            取消
-          </Button>
-          {buttons.map((btn, i) => (
-            <Button
-              key={i}
-              disabled={btn.disabled === true}
-              title={btn.title}
-              onClick={btn.onClick}
-            >
-              {btn.label}
-            </Button>
-          ))}
-        </div>
-      </DialogPanel>
-    </Mask>
-  )
-}
 
 /** 自定义表单的字段行：标签 + 可选 ⓘ + 控件（DialogInputRow 标签包装的可组合版）。 */
 function FieldRow({
