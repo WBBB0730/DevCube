@@ -36,7 +36,7 @@
 - 标记通过 CodeMirror 官方 `lineNumberMarkers` facet 附着在行号元素上（不新增 gutter 列）：条纹画在行号列右缘，删除短条骑在下一行顶部边界。
 - diff 结果以 **hunk 列表**为一等数据（当前侧行区间 + 基线侧旧行 + 文末删除特殊位），行号→颜色是派生视图；弹窗、回滚、跳转都吃同一份 hunks。
 - 点击接线走 CodeMirror 官方 gutter API：basicSetup 的 lineNumbers / foldGutter 关闭，改由带 `domEventHandlers` 的自建行号 gutter + foldGutter 组合提供（保证行号在折叠列左侧的既有列序）；点击回调经 Facet 注入，行号 gutter 无条件挂载、无基线时一切 no-op。点击与 hover 限定在**条纹命中带**（行号列右缘 6px）；用 click（松开）而非 mousedown 打开——mousedown 打开会被随后的松开判为弹窗外按压而立即关闭。hover 是编辑器状态字段（hunk 下标），整块联动加宽，文档一变即失效。
-- 弹窗为受控 Base UI Popover + **标准化虚拟锚点**：横向从编辑器内容区左缘（补 1px 描边，弹窗内文字与代码逐列对齐）铺到滚动区右缘（宽度经 `--anchor-width` 落到弹窗），纵向贴块尾行底边（零偏移）。旧行预览是只读 mini CodeMirror（复用同一套 Darcula 主题与按路径选语言）。关闭时机：Esc / 点外 / 手动滚动 / 文档变化（含弹窗内回滚本身）；上一/下一跳转采用「先关 → 滚动并把光标切到目标块尾行行首 → `scrollend` 后按新几何重开」——实测 CM 滚动在 dispatch 后的测量周期异步落地、scroll 事件更晚一帧，等 `scrollend` 是唯一可靠的重开时机；目标已在位（无滚动事件）时按 CM 同款公式预判位移、直接重开。目标块尾行固定滚到编辑器上 40% 处。
+- 弹窗为受控 Base UI Popover + **标准化虚拟锚点**：横向从编辑器内容区左缘（补 1px 描边，弹窗内文字与代码逐列对齐）铺到滚动区右缘（宽度经 `--anchor-width` 落到弹窗），纵向贴块尾行底边（零偏移）。旧行预览是只读 mini CodeMirror（复用同一套 Darcula 主题与按路径选语言）。关闭时机：Esc / 点外 / 手动滚动 / 文档变化（含弹窗内回滚本身）；上一/下一跳转采用「先关 → 平滑滚动（标准 `scrollTo(smooth)`，目标位置按 CM 同款公式自算）并把光标切到目标块尾行行首 → `scrollend` 后重开」——scrollend 在滚动流（含平滑动画）整体收尾后触发，是唯一可靠的重开时机（实测 scroll 事件流晚于任何同步 / 测量回调）；目标已在位（无滚动事件）时直接重开。重开前比对编辑器当前 hunks 与 payload 的引用相等（文档 / 基线一变即重算、引用必变），过期即放弃——堵住等待窗口内 watcher 重载文档后「过期弹窗复活、按旧区间误回滚」的竞态。目标块尾行固定滚到编辑器上 40% 处。
 - 回滚是纯函数计算的单次区间替换（modified 换回旧行 / added 删行 / deleted 插回旧行），执行走 `view.dispatch`，落盘吃既有 dirty → 自动保存管线，不新增 IPC。
 - 基线刷新时机：打开文本文件、`git:changed` 事件（提交 / 暂存 / 工作区 watcher）；保存不刷新（HEAD 未变）。
 - 三色取自 Dark.icls 的 ADDED / MODIFIED / DELETED_LINES_COLOR。

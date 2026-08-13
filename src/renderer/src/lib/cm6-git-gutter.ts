@@ -309,6 +309,14 @@ export const filesLineNumbers: Extension = lineNumbers({
 })
 
 /**
+ * 当前编辑器状态里的 hunks（未挂基线为 null）。引用随文档 / 基线变化而重算，
+ * 可用作异步流程（跳转重开等）的新鲜度比对。
+ */
+export function currentGitGutterHunks(view: EditorView): readonly GitGutterHunk[] | null {
+  return view.state.field(gutterDiffField, false)?.hunks ?? null
+}
+
+/**
  * 弹窗锚点（标准化定位）：横向 = 编辑器内容区左缘（补 1px 弹窗描边，弹窗内文字与代码
  * 逐列对齐）到滚动区右缘（不含滚动条）；纵向为块尾行（deleted 即标记行）底边的零高线，
  * 弹窗上边由此贴住块尾。几何不可得时为 null。
