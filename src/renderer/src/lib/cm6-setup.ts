@@ -21,7 +21,7 @@ import { filesSelectionLayer } from './cm6-selection-layer'
 
 /**
  * WebStorm Dark.icls（2026.1 · parent Darcula）编辑器色。
- * 字体：JetBrains Mono 13 / weight 400 / 无连字。
+ * 字体：JetBrains Mono 13 / weight 500（补偿 macOS 灰度平滑渲染偏细，同控制台思路）/ 无连字。
  * 行高：见 main.css `.files-codemirror`（当前 CSS line-height: 1.7）。
  */
 const ICLS = {
@@ -68,7 +68,7 @@ export const filesEditorTheme = EditorView.theme(
     },
     '.cm-scroller': {
       fontFamily: '"JetBrains Mono", monospace',
-      fontWeight: '400',
+      fontWeight: '500',
       letterSpacing: '0',
       fontVariantLigatures: 'none',
       fontFeatureSettings: '"liga" 0, "calt" 0'
