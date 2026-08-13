@@ -1,8 +1,9 @@
 // Files gutter diff 弹窗（对齐 WebStorm 点击 VCS 条纹）：工具条（回滚该块 / 复制旧文本 /
 // 上一个·下一个改动）+ 基线旧行预览（只读 mini CodeMirror，复用 Darcula 主题与语法高亮；
-// added 无旧行只出工具条）。受控 Popover + 行号格子虚拟锚点。关闭时机：Esc / 点外 /
-// 手动滚动（跳转引发的程序滚动豁免）；文档一变由 FilesPane 的 onChange 统一关闭。
-import { useEffect, useMemo, useRef } from 'react'
+// added 无旧行只出工具条）。受控 Popover + 标准化虚拟锚点。关闭时机：Esc / 点外 / 滚动；
+// 上下跳转是「先关 → 滚动并切光标 → 布局稳定后按新几何重开」，滚动发生时弹窗已关，
+// 无须豁免逻辑。文档一变由 FilesPane 的 onChange 统一关闭。
+import { useEffect, useMemo } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import { EditorView } from '@codemirror/view'
 import { ChevronDown, ChevronUp, Copy, Undo2 } from 'lucide-react'
@@ -37,14 +38,11 @@ export function FilesGutterHunkPopover({
 }): React.JSX.Element {
   const { view, hunks, index } = popup
   const hunk = hunks[index]
-  const suppressScrollClose = useRef(false)
 
-  // 手动滚动即关；上一个/下一个引发的程序滚动豁免
+  // 滚动即关（跳转时弹窗已先关闭再滚动，此处无须区分滚动来源）
   useEffect(() => {
     const scroller = view.scrollDOM
-    const onScroll = (): void => {
-      if (!suppressScrollClose.current) onClose()
-    }
+    const onScroll = (): void => onClose()
     scroller.addEventListener('scroll', onScroll)
     return () => scroller.removeEventListener('scroll', onScroll)
   }, [view, onClose])
@@ -60,18 +58,34 @@ export function FilesGutterHunkPopover({
     const target = hunks[nextIndex]
     // 目标块锚定行（弹窗挂靠的尾行）滚到固定位：编辑器上 40% 处，弹窗位置可预期
     const line = view.state.doc.line(Math.min(target.toLine, view.state.doc.lines))
-    const yMargin = Math.round(view.scrollDOM.clientHeight * 0.4)
-    suppressScrollClose.current = true
-    view.dispatch({ effects: EditorView.scrollIntoView(line.from, { y: 'start', yMargin }) })
-    // 滚动在 CM 的测量周期落地，锚点矩形要等布局稳定后读（requestMeasure 的 read 阶段）
-    view.requestMeasure({
-      read: (measuredView) => {
-        suppressScrollClose.current = false
-        const rect = hunkPopupAnchor(measuredView, target)
-        if (rect === null) onClose()
-        else onUpdate({ ...popup, index: nextIndex, anchor: rect })
-      }
+    const scroller = view.scrollDOM
+    const yMargin = Math.round(scroller.clientHeight * 0.4)
+
+    const reopen = (): void => {
+      view.requestMeasure({
+        read: (measuredView) => {
+          const rect = hunkPopupAnchor(measuredView, target)
+          if (rect !== null) onUpdate({ ...popup, index: nextIndex, anchor: rect })
+        }
+      })
+    }
+
+    // 先关弹窗再滚动（「滚动即关」无须豁免），光标一并切到块尾行行首。
+    // 实测（Chromium）：CM 的滚动在 dispatch 后的测量周期异步落地，scroll/scrollend
+    // 事件更晚一帧——必须等 scrollend 才能重开，否则刚开就被迟到的 scroll 关掉。
+    // 目标已在位时不会有任何滚动事件：按 CM 同款公式（块顶 - yMargin、钳入可滚区间）
+    // 预判位移，无位移直接重开。
+    onClose()
+    const block = view.lineBlockAt(line.from)
+    const maxScroll = Math.max(0, scroller.scrollHeight - scroller.clientHeight)
+    const targetTop = Math.max(0, Math.min(block.top - yMargin, maxScroll))
+    const willScroll = Math.abs(targetTop - scroller.scrollTop) > 1
+    if (willScroll) scroller.addEventListener('scrollend', reopen, { once: true })
+    view.dispatch({
+      selection: { anchor: line.from },
+      effects: EditorView.scrollIntoView(line.from, { y: 'start', yMargin })
     })
+    if (!willScroll) reopen()
   }
 
   const rollback = (): void => {
