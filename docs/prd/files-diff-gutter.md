@@ -24,15 +24,14 @@
 
 - 对比基线取 **HEAD**（`git show HEAD:<path>`），非 index——已暂存未提交的行仍显示条纹，对齐 WebStorm。
 - 基线读取走主进程新增的 Files IPC（路径越界校验与其他 Files 通道同款）；非仓库、HEAD 无此路径（含未跟踪 / 重命名未提交）、二进制（魔数嗅探）、超过文本上限时返回 null，渲染端据此不挂条纹扩展。
-- 行级 diff 在渲染端用 `@codemirror/merge` 的 Chunk API 计算：打开 / 基线变化时全量 build，输入时增量 update；扫描量限制与官方 merge view 默认一致。
+- 行级 diff 在渲染端用 jsdiff（`diff` 包）的 `diffLines` 计算——与 VS Code / JetBrains 行状态跟踪同款的**按行比较**，行语义与 git 一致（含 EOF 换行）。曾用 `@codemirror/merge` 的字符级 Chunk API，因行模型错配把「文末追加」误标为修改而替换（增量更新随之放弃：每次输入全量重 diff，实测 1 万行约 2ms；超过 3 万行的守卫内不显示条纹）。基线在扩展构造时按 CM 文档口径归一换行（CRLF → LF）。
 - 标记通过 CodeMirror 官方 `lineNumberMarkers` facet 附着在行号元素上（不新增 gutter 列）：条纹画在行号列右缘，删除三角骑在下一行顶部边界。
-- 删除末行时，前一行的换行符也在变更范围内，chunk 的 B 侧非空——该场景按「修改」标记（与 CodeMirror merge view 行为一致），不特判。
 - 基线刷新时机：打开文本文件、`git:changed` 事件（提交 / 暂存 / 工作区 watcher）；保存不刷新（HEAD 未变）。
 - 三色取自 Dark.icls 的 ADDED / MODIFIED / DELETED_LINES_COLOR。
 
 ## Testing Decisions
 
-- 纯函数 `gitGutterLineKinds`（chunk → 行号状态归类）配 vitest：无差异、新增、修改、删除落点、末行删除、相邻变更合并、新文件基线，与既有渲染端纯函数测试（`components/git/*.test.ts`）同款风格。
+- 纯函数 `gitGutterLineKinds`（基线 + 当前文本 → 行号状态）配 vitest：无差异、中间新增、文末追加（README 回归）、修改、删除落点、末行删除、空行填内容、无尾换行追加、CRLF 归一、新文件基线，与既有渲染端纯函数测试（`components/git/*.test.ts`）同款风格。
 - IPC / 渲染接线不做单测（外部行为靠人工回归），与 Files Tab 现状一致。
 
 ## Out of Scope
