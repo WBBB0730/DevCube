@@ -7,7 +7,7 @@ import CodeMirror from '@uiw/react-codemirror'
 import { EditorView } from '@codemirror/view'
 import { ChevronDown, ChevronUp, Copy, Undo2 } from 'lucide-react'
 import {
-  hunkAnchorRect,
+  hunkPopupAnchor,
   hunkRollbackChange,
   type GitGutterHunkClickPayload
 } from '@renderer/lib/cm6-git-gutter'
@@ -58,14 +58,16 @@ export function FilesGutterHunkPopover({
     const nextIndex = index + dir
     if (nextIndex < 0 || nextIndex >= hunks.length) return
     const target = hunks[nextIndex]
-    const line = view.state.doc.line(Math.min(target.fromLine, view.state.doc.lines))
+    // 目标块锚定行（弹窗挂靠的尾行）滚到固定位：编辑器上 40% 处，弹窗位置可预期
+    const line = view.state.doc.line(Math.min(target.toLine, view.state.doc.lines))
+    const yMargin = Math.round(view.scrollDOM.clientHeight * 0.4)
     suppressScrollClose.current = true
-    view.dispatch({ effects: EditorView.scrollIntoView(line.from, { y: 'center' }) })
+    view.dispatch({ effects: EditorView.scrollIntoView(line.from, { y: 'start', yMargin }) })
     // 滚动在 CM 的测量周期落地，锚点矩形要等布局稳定后读（requestMeasure 的 read 阶段）
     view.requestMeasure({
       read: (measuredView) => {
         suppressScrollClose.current = false
-        const rect = hunkAnchorRect(measuredView, target)
+        const rect = hunkPopupAnchor(measuredView, target)
         if (rect === null) onClose()
         else onUpdate({ ...popup, index: nextIndex, anchor: rect })
       }
@@ -99,8 +101,8 @@ export function FilesGutterHunkPopover({
         anchor={anchor}
         side="bottom"
         align="start"
-        sideOffset={4}
-        className="max-h-none min-w-0 overflow-hidden p-0"
+        sideOffset={0}
+        className="max-h-none w-[var(--anchor-width)] min-w-0 overflow-hidden p-0"
       >
         <div className="flex h-8 items-center gap-0.5 px-1.5">
           <button type="button" title="回滚该块" className={HUNK_BTN} onClick={rollback}>
@@ -139,7 +141,7 @@ export function FilesGutterHunkPopover({
           </button>
         </div>
         {hunk.oldLines.length > 0 && (
-          <div className="files-codemirror max-h-64 min-w-56 max-w-[560px] overflow-auto border-t border-[var(--separator)]">
+          <div className="files-codemirror max-h-64 overflow-auto border-t border-[var(--separator)]">
             <CodeMirror
               value={hunk.oldLines.join('\n')}
               theme="none"

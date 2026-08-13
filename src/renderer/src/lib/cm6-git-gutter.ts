@@ -280,9 +280,8 @@ export const filesLineNumbers: Extension = lineNumbers({
       const lineNo = view.state.doc.lineAt(block.from).number
       const index = hunkIndexAtLine(field.hunks, lineNo)
       if (index < 0) return false
-      const cell =
-        event.target instanceof Element ? event.target.closest('.cm-gutterElement') : null
-      const anchor = (cell ?? view.dom).getBoundingClientRect()
+      const anchor = hunkPopupAnchor(view, field.hunks[index])
+      if (anchor === null) return false
       for (const handler of handlers) handler({ view, hunks: field.hunks, index, anchor })
       return true
     },
@@ -309,14 +308,21 @@ export const filesLineNumbers: Extension = lineNumbers({
   }
 })
 
-/** 目标 hunk 标记行的行号格子锚点矩形（弹窗跳转后重新定位）；几何不可得时为 null。 */
-export function hunkAnchorRect(view: EditorView, hunk: GitGutterHunk): DOMRect | null {
-  const line = view.state.doc.line(Math.min(hunk.fromLine, view.state.doc.lines))
+/**
+ * 弹窗锚点（标准化定位）：横向 = 编辑器内容区左缘（补 1px 弹窗描边，弹窗内文字与代码
+ * 逐列对齐）到滚动区右缘（不含滚动条）；纵向为块尾行（deleted 即标记行）底边的零高线，
+ * 弹窗上边由此贴住块尾。几何不可得时为 null。
+ */
+export function hunkPopupAnchor(view: EditorView, hunk: GitGutterHunk): DOMRect | null {
+  const doc = view.state.doc
+  const line = doc.line(Math.min(hunk.toLine, doc.lines))
   const coords = view.coordsAtPos(line.from)
-  const gutter = view.dom.querySelector('.cm-gutter.cm-lineNumbers')
-  if (coords === null || gutter === null) return null
-  const rect = gutter.getBoundingClientRect()
-  return new DOMRect(rect.left, coords.top, rect.width, coords.bottom - coords.top)
+  if (coords === null) return null
+  const content = view.contentDOM.getBoundingClientRect()
+  const scroller = view.scrollDOM.getBoundingClientRect()
+  const left = content.left - 1
+  const width = Math.max(0, scroller.left + view.scrollDOM.clientWidth - left)
+  return new DOMRect(left, coords.bottom, width, 0)
 }
 
 /**
