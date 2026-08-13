@@ -635,6 +635,8 @@ export function ProjectTree(): React.JSX.Element {
     )
   })
 
+  const filterHint = shortcutTitle('筛选项目', SHORTCUT.projectFilter)
+
   return (
     <div
       data-project-tree=""
@@ -649,7 +651,7 @@ export function ProjectTree(): React.JSX.Element {
     >
       <header className="flex h-10 shrink-0 items-center gap-1 border-b border-[var(--separator)] px-1.5 text-muted-foreground">
         <div
-          title={shortcutTitle('筛选项目', SHORTCUT.projectFilter)}
+          title={filterHint}
           className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded px-1.5 transition-colors focus-within:bg-[var(--bg-row-hover)]"
         >
           <Search className="size-3.5 shrink-0 text-[color:var(--fg-disabled)]" />
@@ -663,7 +665,7 @@ export function ProjectTree(): React.JSX.Element {
                 setProjectFilter('')
               }
             }}
-            placeholder="筛选"
+            placeholder={filterHint}
             className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-[color:var(--fg-disabled)]"
           />
           {projectFilter !== '' && (
