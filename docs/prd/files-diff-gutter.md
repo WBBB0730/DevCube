@@ -25,7 +25,7 @@
 11. As a 开发者, I want 在弹窗里一键回滚该块, so that 误改能就地撤销而不用手动恢复
 12. As a 开发者, I want 复制该块的旧文本, so that 需要旧内容时不必去 Git 面板翻
 13. As a 开发者, I want 在弹窗里跳到上一个 / 下一个改动, so that 能顺着改动逐块检查
-14. As a 开发者, I want 带标记的行号格子 hover 时有反馈（pointer 光标、条纹加宽）, so that 我知道这里可以点
+14. As a 开发者, I want 条纹 hover 时整块加宽并出 pointer（跨行的块任意位置悬停都联动）, so that 我知道这里可点且明确块的范围
 15. As a 开发者, I want 编辑或滚动时弹窗自动关闭, so that 弹窗不会指着已经漂移的位置
 
 ## Implementation Decisions
@@ -35,7 +35,7 @@
 - 行级 diff 在渲染端用 jsdiff（`diff` 包）的 `diffLines` 计算——与 VS Code / JetBrains 行状态跟踪同款的**按行比较**，行语义与 git 一致（含 EOF 换行）。曾用 `@codemirror/merge` 的字符级 Chunk API，因行模型错配把「文末追加」误标为修改而替换（增量更新随之放弃：每次输入全量重 diff，实测 1 万行约 2ms；超过 3 万行的守卫内不显示条纹）。基线在扩展构造时按 CM 文档口径归一换行（CRLF → LF）。
 - 标记通过 CodeMirror 官方 `lineNumberMarkers` facet 附着在行号元素上（不新增 gutter 列）：条纹画在行号列右缘，删除短条骑在下一行顶部边界。
 - diff 结果以 **hunk 列表**为一等数据（当前侧行区间 + 基线侧旧行 + 文末删除特殊位），行号→颜色是派生视图；弹窗、回滚、跳转都吃同一份 hunks。
-- 点击接线走 CodeMirror 官方 gutter API：basicSetup 的 lineNumbers / foldGutter 关闭，改由带 `domEventHandlers` 的自建行号 gutter + foldGutter 组合提供（保证行号在折叠列左侧的既有列序）；点击回调经 Facet 注入，行号 gutter 无条件挂载、无基线时点击为 no-op。
+- 点击接线走 CodeMirror 官方 gutter API：basicSetup 的 lineNumbers / foldGutter 关闭，改由带 `domEventHandlers` 的自建行号 gutter + foldGutter 组合提供（保证行号在折叠列左侧的既有列序）；点击回调经 Facet 注入，行号 gutter 无条件挂载、无基线时一切 no-op。点击与 hover 限定在**条纹命中带**（行号列右缘 6px）；用 click（松开）而非 mousedown 打开——mousedown 打开会被随后的松开判为弹窗外按压而立即关闭。hover 是编辑器状态字段（hunk 下标），整块联动加宽，文档一变即失效。
 - 弹窗为受控 Base UI Popover + 行号格子虚拟锚点；旧行预览是只读 mini CodeMirror（复用同一套 Darcula 主题与按路径选语言）。关闭时机：Esc / 点外 / 手动滚动 / 文档变化（含弹窗内回滚本身）；上一/下一跳转的程序滚动豁免，滚动落地后经 `requestMeasure` 读新锚点重定位。
 - 回滚是纯函数计算的单次区间替换（modified 换回旧行 / added 删行 / deleted 插回旧行），执行走 `view.dispatch`，落盘吃既有 dirty → 自动保存管线，不新增 IPC。
 - 基线刷新时机：打开文本文件、`git:changed` 事件（提交 / 暂存 / 工作区 watcher）；保存不刷新（HEAD 未变）。

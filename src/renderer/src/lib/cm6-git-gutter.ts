@@ -8,6 +8,7 @@ import { diffLines } from 'diff'
 import {
   Facet,
   RangeSetBuilder,
+  StateEffect,
   StateField,
   type EditorState,
   type Extension
@@ -154,6 +155,28 @@ export interface GitGutterHunkClickPayload {
 
 const hunkClickFacet = Facet.define<(payload: GitGutterHunkClickPayload) => void>()
 
+/** 条纹命中带：行号格子右缘、与 hover 加宽后的条纹同宽；点击与 hover 都只在带内生效。 */
+const STRIPE_HIT_WIDTH = 6
+
+/** hover 中的 hunk 下标（整块联动加宽）；文档一变即失效。 */
+const setHoveredHunk = StateEffect.define<number | null>()
+
+const hoveredHunkField = StateField.define<number | null>({
+  create: () => null,
+  update: (value, tr) => {
+    for (const effect of tr.effects) {
+      if (effect.is(setHoveredHunk)) return effect.value
+    }
+    return tr.docChanged ? null : value
+  }
+})
+
+function inStripeZone(event: Event): boolean {
+  if (!(event instanceof MouseEvent) || !(event.currentTarget instanceof HTMLElement)) return false
+  const rect = event.currentTarget.getBoundingClientRect()
+  return rect.right - event.clientX <= STRIPE_HIT_WIDTH && event.clientX <= rect.right
+}
+
 interface GutterDiffState {
   hunks: readonly GitGutterHunk[]
   kinds: Map<number, GitLineKind>
@@ -183,11 +206,16 @@ class LineKindMarker extends GutterMarker {
   }
 }
 
-/** kind × 段首 × 段尾 → 单例 marker（identity eq，让 gutter 增量更新少重绘）。 */
+/** kind × 段首 × 段尾 × hover → 单例 marker（identity eq，让 gutter 增量更新少重绘）。 */
 const markerCache = new Map<string, LineKindMarker>()
 
-function markerFor(kind: GitLineKind, first: boolean, last: boolean): LineKindMarker {
-  const key = `${kind}:${first}:${last}`
+function markerFor(
+  kind: GitLineKind,
+  first: boolean,
+  last: boolean,
+  hovered: boolean
+): LineKindMarker {
+  const key = `${kind}:${first}:${last}:${hovered}`
   let marker = markerCache.get(key)
   if (marker === undefined) {
     const cls =
@@ -199,27 +227,36 @@ function markerFor(kind: GitLineKind, first: boolean, last: boolean): LineKindMa
             ...(first ? ['cm-gitRunFirst'] : []),
             ...(last ? ['cm-gitRunLast'] : [])
           ].join(' ')
-    marker = new LineKindMarker(cls)
+    marker = new LineKindMarker(hovered ? cls + ' cm-gitHunkHovered' : cls)
     markerCache.set(key, marker)
   }
   return marker
 }
 
-function buildLineMarkers(doc: Text, kinds: Map<number, GitLineKind>): RangeSet<GutterMarker> {
+function buildLineMarkers(
+  doc: Text,
+  diff: GutterDiffState,
+  hoveredIndex: number | null
+): RangeSet<GutterMarker> {
+  const { hunks, kinds } = diff
+  const hovered = hoveredIndex === null ? undefined : hunks[hoveredIndex]
   const builder = new RangeSetBuilder<GutterMarker>()
   for (const [lineNo, kind] of [...kinds].sort((a, b) => a[0] - b[0])) {
     if (lineNo > doc.lines) continue
-    // 连续同状态行连成一段：仅段首圆上端、段尾圆下端，中段两端顶满相连
+    // 连续同状态行连成一段：仅段首圆上端、段尾圆下端，中段两端顶满相连；
+    // hover 以 hunk 为单位整块联动（类不落在单元格的 :hover 上）
     const first = kinds.get(lineNo - 1) !== kind
     const last = kinds.get(lineNo + 1) !== kind
+    const inHovered =
+      hovered !== undefined && hovered.fromLine <= lineNo && lineNo <= hovered.toLine
     const from = doc.line(lineNo).from
-    builder.add(from, from, markerFor(kind, first, last))
+    builder.add(from, from, markerFor(kind, first, last, inHovered))
   }
   return builder.finish()
 }
 
-const hunkMarkers = lineNumberMarkers.compute([gutterDiffField], (state) =>
-  buildLineMarkers(state.doc, state.field(gutterDiffField).kinds)
+const hunkMarkers = lineNumberMarkers.compute([gutterDiffField, hoveredHunkField], (state) =>
+  buildLineMarkers(state.doc, state.field(gutterDiffField), state.field(hoveredHunkField))
 )
 
 /** 行号所在的 hunk 下标（deleted 只命中其标记行）；无命中为 -1。 */
@@ -228,15 +265,18 @@ function hunkIndexAtLine(hunks: readonly GitGutterHunk[], lineNo: number): numbe
 }
 
 /**
- * Files 编辑器的行号 gutter：带「点击标记行打开 diff 弹窗」的事件接线。
- * basicSetup 的 lineNumbers 已关闭，编辑器无条件挂载本扩展（无基线时点击 no-op）。
+ * Files 编辑器的行号 gutter：带「点击条纹打开 diff 弹窗」的事件接线，点击与 hover 都
+ * 限定在右缘条纹命中带内。用 click（松开时）而非 mousedown 打开——mousedown 打开的话，
+ * 随后的松开会被 Popover 判为弹窗外按压而立即关闭（表现为「按住才出现」）。
+ * basicSetup 的 lineNumbers 已关闭，编辑器无条件挂载本扩展（无基线时一切为 no-op）。
  */
 export const filesLineNumbers: Extension = lineNumbers({
   domEventHandlers: {
-    mousedown: (view, block, event) => {
+    click: (view, block, event) => {
       const handlers = view.state.facet(hunkClickFacet)
       const field = view.state.field(gutterDiffField, false)
       if (handlers.length === 0 || field === undefined || field.hunks.length === 0) return false
+      if (!inStripeZone(event)) return false
       const lineNo = view.state.doc.lineAt(block.from).number
       const index = hunkIndexAtLine(field.hunks, lineNo)
       if (index < 0) return false
@@ -245,6 +285,26 @@ export const filesLineNumbers: Extension = lineNumbers({
       const anchor = (cell ?? view.dom).getBoundingClientRect()
       for (const handler of handlers) handler({ view, hunks: field.hunks, index, anchor })
       return true
+    },
+    mousemove: (view, block, event) => {
+      const field = view.state.field(gutterDiffField, false)
+      const current = view.state.field(hoveredHunkField, false)
+      if (field === undefined || current === undefined) return false
+      let next: number | null = null
+      if (field.hunks.length > 0 && inStripeZone(event)) {
+        const lineNo = view.state.doc.lineAt(block.from).number
+        const index = hunkIndexAtLine(field.hunks, lineNo)
+        next = index < 0 ? null : index
+      }
+      if (next !== current) view.dispatch({ effects: setHoveredHunk.of(next) })
+      return false
+    },
+    mouseleave: (view) => {
+      const current = view.state.field(hoveredHunkField, false)
+      if (current !== undefined && current !== null) {
+        view.dispatch({ effects: setHoveredHunk.of(null) })
+      }
+      return false
     }
   }
 })
@@ -261,13 +321,14 @@ export function hunkAnchorRect(view: EditorView, hunk: GitGutterHunk): DOMRect |
 
 /**
  * 条纹 4px 画在行号元素右缘（::before，水平贴边不偏移）；连续段中段顶满相连，
- * 段首/段尾上下各收 2px 并圆头——段与段之间由此留出上下空隙。
- * 删除为同宽 6px 高的圆头短条，骑在被删位置的行顶边界上（上下各探 3px）。
- * 带标记的格子可点（打开 diff 弹窗）：hover 给 pointer 光标，条纹加宽 / 删除短条放大。
+ * 段首/段尾上下各收 2px 并圆头（9999px 胶囊语义——hover 加宽时圆头自动跟随宽度）。
+ * 删除为同宽 6px 高的胶囊短条，骑在被删位置的行顶边界上（上下各探 3px）。
+ * hover 以 hunk 为单位整块联动（cm-gitHunkHovered 由 mousemove 按条纹命中带打标）：
+ * pointer 光标、条纹加宽 / 删除短条放大。
  */
 const gutterTheme = EditorView.baseTheme({
   '.cm-lineNumbers .cm-gutterElement': { position: 'relative' },
-  '.cm-lineNumbers .cm-gitLineBar, .cm-lineNumbers .cm-gitLineDeleted': {
+  '.cm-lineNumbers .cm-gitHunkHovered': {
     cursor: 'pointer'
   },
   '.cm-lineNumbers .cm-gitLineBar::before': {
@@ -279,7 +340,7 @@ const gutterTheme = EditorView.baseTheme({
     width: '4px',
     transition: 'width 100ms'
   },
-  '.cm-lineNumbers .cm-gitLineBar:hover::before': {
+  '.cm-lineNumbers .cm-gitLineBar.cm-gitHunkHovered::before': {
     width: '6px'
   },
   '.cm-lineNumbers .cm-gitLineAdded::before': {
@@ -290,13 +351,13 @@ const gutterTheme = EditorView.baseTheme({
   },
   '.cm-lineNumbers .cm-gitRunFirst::before': {
     top: '2px',
-    borderTopLeftRadius: '2px',
-    borderTopRightRadius: '2px'
+    borderTopLeftRadius: '9999px',
+    borderTopRightRadius: '9999px'
   },
   '.cm-lineNumbers .cm-gitRunLast::before': {
     bottom: '2px',
-    borderBottomLeftRadius: '2px',
-    borderBottomRightRadius: '2px'
+    borderBottomLeftRadius: '9999px',
+    borderBottomRightRadius: '9999px'
   },
   '.cm-lineNumbers .cm-gitLineDeleted::after': {
     content: "''",
@@ -305,11 +366,11 @@ const gutterTheme = EditorView.baseTheme({
     top: '-3px',
     width: '4px',
     height: '6px',
-    borderRadius: '2px',
+    borderRadius: '9999px',
     backgroundColor: VCS_LINE.deleted,
     transition: 'width 100ms, height 100ms, top 100ms'
   },
-  '.cm-lineNumbers .cm-gitLineDeleted:hover::after': {
+  '.cm-lineNumbers .cm-gitLineDeleted.cm-gitHunkHovered::after': {
     width: '6px',
     height: '8px',
     top: '-4px'
@@ -326,6 +387,7 @@ export function gitDiffGutter(
   return [
     baselineFacet.of(normalized),
     gutterDiffField,
+    hoveredHunkField,
     hunkMarkers,
     gutterTheme,
     ...(onHunkClick === undefined ? [] : [hunkClickFacet.of(onHunkClick)])
