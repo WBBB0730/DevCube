@@ -6,17 +6,23 @@ import {
   buildFileTree,
   canOpenWorkingTreeFile,
   canPushAfterCommit,
+  changeBlockStarts,
+  diffNavIndex,
+  diffNavSequence,
   diffPossible,
   fileRowTitle,
   filesInSelection,
   flattenFileTree,
+  currentBlockIndex,
   normalizeCompare,
   pathspecOf,
   reconcileDiffView,
   resolveDiffEndpoints,
   tokenizeBody,
+  treeRowKeys,
   uncommittedDiffEndpoints,
   workingTreeStatusByPath,
+  type DiffEndpointContext,
   type DiffReconcileExpanded
 } from './git-details'
 
@@ -99,6 +105,28 @@ describe('filesInSelection', () => {
 
   it('空选区返回空列表', () => {
     expect(filesInSelection(files, new Set())).toEqual([])
+  })
+})
+
+describe('treeRowKeys', () => {
+  it('目录（folderPath）与文件（newFilePath）key 全部收齐', () => {
+    expect(treeRowKeys([fc('src/a.ts'), fc('src/util/b.ts'), fc('README.md')])).toEqual(
+      new Set(['src', 'src/util', 'src/a.ts', 'src/util/b.ts', 'README.md'])
+    )
+  })
+
+  it('单链压缩后只有链上最深目录是 key（中间层不可选）', () => {
+    expect(treeRowKeys([fc('a/b/c.ts')])).toEqual(new Set(['a/b', 'a/b/c.ts']))
+  })
+
+  it('压缩形态随文件增减变化：加了旁支后中间层成为独立 key', () => {
+    expect(treeRowKeys([fc('a/b/c.ts'), fc('a/d.ts')])).toEqual(
+      new Set(['a', 'a/b', 'a/b/c.ts', 'a/d.ts'])
+    )
+  })
+
+  it('空列表得空集合', () => {
+    expect(treeRowKeys([])).toEqual(new Set())
   })
 })
 
@@ -466,5 +494,94 @@ describe('tokenizeBody', () => {
 
   it('空正文得到空 token 集', () => {
     expect(tokenizeBody('')).toEqual([])
+  })
+})
+
+describe('diffNavSequence / diffNavIndex', () => {
+  /** 快捷构造导航用展开态（默认普通详情）。 */
+  function navExp(
+    over: Partial<DiffEndpointContext & DiffReconcileExpanded>
+  ): DiffEndpointContext & DiffReconcileExpanded {
+    return {
+      hash: 'h1',
+      stash: null,
+      compareWith: null,
+      loading: false,
+      details: null,
+      fileChanges: null,
+      uncommitted: null,
+      ...over
+    }
+  }
+
+  it('展开态为空或树未落地时序列为空', () => {
+    expect(diffNavSequence(null, () => -1)).toEqual([])
+    expect(diffNavSequence(navExp({}), () => -1)).toEqual([])
+  })
+
+  it('普通详情：按完整树顺序（文件夹在前），端点为提交自身', () => {
+    const z = fc('z.ts')
+    const a = fc('src/a.ts')
+    const seq = diffNavSequence(navExp({ details: { fileChanges: [z, a] } }), () => -1)
+    expect(seq).toEqual([
+      { file: a, fromHash: 'h1', toHash: 'h1' },
+      { file: z, fromHash: 'h1', toHash: 'h1' }
+    ])
+  })
+
+  it('提交面板：已暂存段在前、未暂存（含冲突）在后，端点随段；未跟踪目录条目保留', () => {
+    const staged = fc('b.ts')
+    const untrackedDir = fc('nested', { type: 'U', isDir: true })
+    const conflicted = fc('c.ts', { type: '!' })
+    const seq = diffNavSequence(
+      navExp({
+        hash: UNCOMMITTED,
+        uncommitted: { staged: [staged], unstaged: [untrackedDir], conflicted: [conflicted] }
+      }),
+      () => -1
+    )
+    expect(seq).toEqual([
+      { file: staged, fromHash: 'HEAD', toHash: GIT_INDEX },
+      { file: conflicted, fromHash: GIT_INDEX, toHash: UNCOMMITTED },
+      { file: untrackedDir, fromHash: GIT_INDEX, toHash: UNCOMMITTED }
+    ])
+  })
+
+  it('比较模式：取 fileChanges 并按行序归一化端点', () => {
+    const a = fc('a.ts')
+    const rowIndexOf = (hash: string): number => (hash === 'old' ? 5 : 1)
+    const seq = diffNavSequence(
+      navExp({ hash: 'new', compareWith: 'old', fileChanges: [a] }),
+      rowIndexOf
+    )
+    expect(seq).toEqual([{ file: a, fromHash: 'old', toHash: 'new' }])
+  })
+
+  it('diffNavIndex 按端点 + 新路径匹配（同路径两段各算一项）；找不到 -1', () => {
+    const a = fc('a.ts')
+    const seq = [
+      { file: a, fromHash: 'HEAD', toHash: GIT_INDEX },
+      { file: a, fromHash: GIT_INDEX, toHash: UNCOMMITTED }
+    ]
+    expect(diffNavIndex(seq, { file: a, fromHash: GIT_INDEX, toHash: UNCOMMITTED })).toBe(1)
+    expect(diffNavIndex(seq, { file: a, fromHash: 'h1', toHash: 'h1' })).toBe(-1)
+  })
+})
+
+describe('changeBlockStarts / currentBlockIndex', () => {
+  it('连续改动行合为一块，取各块首行下标', () => {
+    expect(changeBlockStarts([])).toEqual([])
+    expect(changeBlockStarts([true, true, false, true])).toEqual([0, 3])
+    expect(changeBlockStarts([false, true, true, false, false, true])).toEqual([1, 5])
+  })
+
+  it('当前块 = 最后一个 top 不超过锚（+2px 容差）的块；全在锚下方为 -1', () => {
+    const tops = [100, 300, 500]
+    expect(currentBlockIndex(tops, 0)).toBe(-1)
+    expect(currentBlockIndex(tops, 98)).toBe(0) // 容差内视为已到首块
+    expect(currentBlockIndex(tops, 100)).toBe(0)
+    expect(currentBlockIndex(tops, 299)).toBe(1)
+    expect(currentBlockIndex(tops, 700)).toBe(2)
+    expect(currentBlockIndex([], 100)).toBe(-1)
   })
 })

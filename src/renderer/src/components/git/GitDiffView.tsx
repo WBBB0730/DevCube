@@ -4,8 +4,19 @@
 // （split）经 diffViewMode 切换、偏好跨会话记忆（viewPrefs.diffSplitView）、语法高亮与词级 diff
 // 由库内置；配色在 main.css 覆盖库的 CSS 主题变量对齐 Darcula。
 // 二进制 / 空 diff / 延迟加载骨架 / 错误 四态兜底。Esc 关闭由 GitPane 统一处理。
-import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { AlignJustify, Columns2, LoaderCircle, X } from 'lucide-react'
+// 头部导航对齐 WebStorm：↑↓ 切文件内改动块（F7/⇧F7）、打开文件、←→ 按文件树顺序切文件（⌥←/⌥→）。
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  AlignJustify,
+  ChevronDown,
+  ChevronLeft,
+  ChevronRight,
+  ChevronUp,
+  Columns2,
+  FolderSymlink,
+  LoaderCircle,
+  X
+} from 'lucide-react'
 import { DiffFile, DiffModeEnum, DiffView } from '@git-diff-view/react'
 import {
   GIT_INDEX,
@@ -16,8 +27,25 @@ import {
   type GitImageResult
 } from '@shared/git'
 import { gitState, useGit } from '@renderer/git-store'
+import { useFiles } from '@renderer/files-store'
+import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import { abbrevHash } from './git-format'
-import { FILE_STATUS_COLOR, FILE_STATUS_LABEL } from './git-details'
+import {
+  FILE_STATUS_COLOR,
+  FILE_STATUS_LABEL,
+  canOpenWorkingTreeFile,
+  changeBlockStarts,
+  currentBlockIndex,
+  diffNavIndex,
+  diffNavSequence
+} from './git-details'
+
+/** 头部图标按钮（与查找组件同款禁用态）。 */
+const HEADER_BTN =
+  'flex size-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-[var(--bg-button-hover)] disabled:pointer-events-none disabled:opacity-50'
+
+/** 改动块跳转的视口锚比例：目标块顶对齐到视口约 1/3 处（同 WebStorm 落点观感）。 */
+const BLOCK_ANCHOR = 1 / 3
 
 /**
  * 修订说明文案（§10.2 的描述规则）：单提交场景（from === to）按状态区分添加/删除/区间，
@@ -45,6 +73,8 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
   const closeDiff = useGit((s) => s.closeDiff)
   const splitView = useGit((s) => s.viewPrefs.diffSplitView)
   const setViewPrefs = useGit((s) => s.setViewPrefs)
+  const expanded = useGit((s) => gitState(s, projectPath).expanded)
+  const commits = useGit((s) => gitState(s, projectPath).commits)
   /** 加载骨架延迟 120ms 出现（防快速响应时闪烁，§10.2） */
   const [showLoading, setShowLoading] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -77,7 +107,102 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
     return instance
   }, [srcFile, raw])
 
-  // 同文件重拉时尽量保住滚动；换文件 / 换端点则从头看。
+  // —— 头部导航：左右切文件（序列从展开态派生，与文件树完整顺序一致） ——
+  const navSequence = useMemo(() => {
+    const commitIndex = new Map(commits.map((c, i) => [c.hash, i]))
+    return diffNavSequence(expanded, (hash) => commitIndex.get(hash) ?? -1)
+  }, [expanded, commits])
+  const navIndex = diffView === null ? -1 : diffNavIndex(navSequence, diffView)
+
+  const goFile = useCallback(
+    (delta: -1 | 1): void => {
+      if (navIndex === -1) return
+      const entry = navSequence[navIndex + delta]
+      if (entry === undefined) return
+      void useGit.getState().openDiff(projectPath, entry.file, entry.fromHash, entry.toHash)
+    },
+    [navIndex, navSequence, projectPath]
+  )
+
+  // —— 头部导航：上下切文件内改动块（块 = 连续 data-state="diff" 行，DOM 量位、纯函数选块）。
+  // 「当前块」用显式下标：按钮跳转 ±1（首末块精确禁用），手动滚动按视口锚重推。 ——
+  const [blockNav, setBlockNav] = useState({ prev: false, next: false })
+  /** 当前改动块下标（-1 = 尚在首块之前） */
+  const currentBlock = useRef(-1)
+  /** 按钮跳转写入的目标 scrollTop：其触发的 scroll 事件（split 双容器各一发）跳过重推 */
+  const jumpTarget = useRef<number | null>(null)
+
+  /** 第一个滚动容器里各改动块的内容 top（split 两容器行高一致，量第一个即可）。 */
+  const measureBlocks = useCallback((): { container: HTMLElement; tops: number[] } | null => {
+    const container =
+      bodyRef.current?.querySelector<HTMLElement>('.diff-table-scroll-container') ?? null
+    if (container === null) return null
+    const rows = [...container.querySelectorAll<HTMLElement>('tr.diff-line')]
+    const starts = changeBlockStarts(rows.map((r) => r.dataset.state === 'diff'))
+    const base = container.getBoundingClientRect().top - container.scrollTop
+    return { container, tops: starts.map((i) => rows[i].getBoundingClientRect().top - base) }
+  }, [])
+
+  const syncBlockNav = useCallback((idx: number, count: number): void => {
+    currentBlock.current = idx
+    const prev = idx > 0
+    const next = idx < count - 1
+    setBlockNav((cur) => (cur.prev === prev && cur.next === next ? cur : { prev, next }))
+  }, [])
+
+  /** 从当前视口锚重推当前块（手动滚动 / 换文件 / 正文渲染变化后）。 */
+  const deriveBlockNav = useCallback((): void => {
+    const m = measureBlocks()
+    if (m === null) {
+      syncBlockNav(-1, 0)
+      return
+    }
+    const anchor = m.container.scrollTop + m.container.clientHeight * BLOCK_ANCHOR
+    syncBlockNav(currentBlockIndex(m.tops, anchor), m.tops.length)
+  }, [measureBlocks, syncBlockNav])
+
+  const goBlock = useCallback(
+    (dir: 'prev' | 'next'): void => {
+      const m = measureBlocks()
+      if (m === null) return
+      const idx = currentBlock.current + (dir === 'next' ? 1 : -1)
+      if (idx < 0 || idx >= m.tops.length) return // 快捷键不经按钮禁用态，越界在此兜住
+      const target = Math.max(0, m.tops[idx] - m.container.clientHeight * BLOCK_ANCHOR)
+      jumpTarget.current = target
+      // split 两个滚动容器：与滚动恢复同款，全部对齐
+      const nodes = bodyRef.current?.querySelectorAll<HTMLElement>('.diff-table-scroll-container')
+      for (const el of nodes ?? []) el.scrollTop = target
+      syncBlockNav(idx, m.tops.length)
+    },
+    [measureBlocks, syncBlockNav]
+  )
+
+  // 快捷键（对齐 WebStorm）：F7/⇧F7 上下改动块，⌥←/⌥→ 左右文件。仅 diff 打开时监听，
+  // capture 对齐 GitPane 的全局键盘；输入控件聚焦时让位；Esc 仍由 GitPane 统一处理。
+  const hasDiff = diffView !== null
+  useEffect(() => {
+    if (!hasDiff) return
+    const onKey = (e: KeyboardEvent): void => {
+      const el = e.target as HTMLElement | null
+      const editable =
+        !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
+      if (editable || e.metaKey || e.ctrlKey) return
+      if (e.key === 'F7' && !e.altKey) {
+        goBlock(e.shiftKey ? 'prev' : 'next')
+      } else if ((e.key === 'ArrowLeft' || e.key === 'ArrowRight') && e.altKey && !e.shiftKey) {
+        goFile(e.key === 'ArrowLeft' ? -1 : 1)
+      } else {
+        return
+      }
+      e.preventDefault()
+      e.stopPropagation()
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [hasDiff, goBlock, goFile])
+
+  // 同文件重拉时尽量保住滚动；换文件 / 换端点则从头看。上下箭头的当前块随滚动重推；
+  // 正文行是库异步渲染的（先量宽再出内容），用 MutationObserver 在行落地 / hunk 展开后重推。
   useLayoutEffect(() => {
     const root = bodyRef.current
     if (root === null) return
@@ -89,22 +214,36 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
         el.scrollLeft = prev.left
       }
     }
+    jumpTarget.current = null // 上个文件残留的跳转目标作废
+    deriveBlockNav()
+    const observer = new MutationObserver(() => deriveBlockNav())
+    observer.observe(root, { childList: true, subtree: true })
     const onScroll = (e: Event): void => {
       const el = e.currentTarget as HTMLElement
       scrollPos.current = { key: fileKey, top: el.scrollTop, left: el.scrollLeft }
+      // 按钮跳转自身触发的滚动：保住显式块下标不被视口重推冲掉
+      if (jumpTarget.current !== null && Math.abs(el.scrollTop - jumpTarget.current) <= 1) return
+      jumpTarget.current = null
+      deriveBlockNav()
     }
     for (const el of nodes) el.addEventListener('scroll', onScroll)
     return () => {
+      observer.disconnect()
       for (const el of nodes) el.removeEventListener('scroll', onScroll)
     }
-  }, [raw, fileKey, splitView])
+  }, [raw, fileKey, splitView, deriveBlockNav])
 
   if (diffView === null) return null
   const { file, data, error } = diffView
+  // 上下箭头仅在文本 diff 正文可用。非文本正文（错误 / 冲突 / 目录 / 二进制 / 加载中）没有
+  // 量位容器，effect 提前返回后 blockNav 可能残留上个文件的值，在渲染层据此一并禁用。
+  const hasTextBody =
+    diffFile !== null && error === null && file.type !== '!' && file.isDir !== true
 
   return (
     <div className="absolute inset-0 z-30 flex flex-col bg-deepest">
-      {/* 头部：状态徽标 + 文件路径（R 显示 旧 → 新）+ 行数统计 + 修订说明 + 切换 + 关闭 */}
+      {/* 头部：状态徽标 + 文件路径（R 显示 旧 → 新）+ 行数统计 + 修订说明
+          + 按钮组（↑↓ 改动块 | ←→ 文件 | 打开文件 视图切换 关闭） */}
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-[color:var(--border-input)] px-3 text-[13px]">
         <span
           title={FILE_STATUS_LABEL[file.type]}
@@ -132,26 +271,78 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
         <span className="shrink-0 text-[12px] text-muted-foreground">
           {revLabel(diffView.fromHash, diffView.toHash, file.type)}
         </span>
-        <button
-          type="button"
-          title={splitView ? '统一视图' : '左右对比'}
-          onClick={() => void setViewPrefs({ diffSplitView: !splitView })}
-          className="flex size-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-[var(--bg-button-hover)]"
-        >
-          {splitView ? (
-            <AlignJustify className="size-3.5 text-[color:var(--fg-icon)]" />
-          ) : (
-            <Columns2 className="size-3.5 text-[color:var(--fg-icon)]" />
-          )}
-        </button>
-        <button
-          type="button"
-          title="关闭"
-          onClick={() => closeDiff(projectPath)}
-          className="flex size-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-[var(--bg-button-hover)]"
-        >
-          <X className="size-3.5 text-[color:var(--fg-icon)]" />
-        </button>
+        {/* 按钮区：组内间距对齐工具栏（gap-0.5），组间以 1px 竖线分隔 */}
+        <div className="flex shrink-0 items-center gap-0.5">
+          <button
+            type="button"
+            title={shortcutTitle('上一处改动', { shift: true, key: 'F7' })}
+            disabled={!hasTextBody || !blockNav.prev}
+            onClick={() => goBlock('prev')}
+            className={HEADER_BTN}
+          >
+            <ChevronUp className="size-3.5 text-[color:var(--fg-icon)]" />
+          </button>
+          <button
+            type="button"
+            title={shortcutTitle('下一处改动', { key: 'F7' })}
+            disabled={!hasTextBody || !blockNav.next}
+            onClick={() => goBlock('next')}
+            className={HEADER_BTN}
+          >
+            <ChevronDown className="size-3.5 text-[color:var(--fg-icon)]" />
+          </button>
+          <div className="mx-0.5 h-3 w-px shrink-0 bg-[var(--border-input)]" role="separator" />
+          <button
+            type="button"
+            title={shortcutTitle('上一个文件', { alt: true, key: 'ArrowLeft' })}
+            disabled={navIndex <= 0}
+            onClick={() => goFile(-1)}
+            className={HEADER_BTN}
+          >
+            <ChevronLeft className="size-3.5 text-[color:var(--fg-icon)]" />
+          </button>
+          <button
+            type="button"
+            title={shortcutTitle('下一个文件', { alt: true, key: 'ArrowRight' })}
+            disabled={navIndex === -1 || navIndex >= navSequence.length - 1}
+            onClick={() => goFile(1)}
+            className={HEADER_BTN}
+          >
+            <ChevronRight className="size-3.5 text-[color:var(--fg-icon)]" />
+          </button>
+          <div className="mx-0.5 h-3 w-px shrink-0 bg-[var(--border-input)]" role="separator" />
+          <button
+            type="button"
+            title="打开文件"
+            disabled={!canOpenWorkingTreeFile(file)}
+            onClick={() =>
+              useFiles.getState().openInFiles(projectPath, `${projectPath}/${file.newFilePath}`)
+            }
+            className={HEADER_BTN}
+          >
+            <FolderSymlink className="size-3.5 text-[color:var(--fg-icon)]" />
+          </button>
+          <button
+            type="button"
+            title={splitView ? '统一视图' : '左右对比'}
+            onClick={() => void setViewPrefs({ diffSplitView: !splitView })}
+            className={HEADER_BTN}
+          >
+            {splitView ? (
+              <AlignJustify className="size-3.5 text-[color:var(--fg-icon)]" />
+            ) : (
+              <Columns2 className="size-3.5 text-[color:var(--fg-icon)]" />
+            )}
+          </button>
+          <button
+            type="button"
+            title="关闭"
+            onClick={() => closeDiff(projectPath)}
+            className={HEADER_BTN}
+          >
+            <X className="size-3.5 text-[color:var(--fg-icon)]" />
+          </button>
+        </div>
       </div>
       {error !== null ? (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6">
@@ -159,6 +350,11 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
           <div className="max-w-[560px] select-text whitespace-pre-wrap break-all text-center font-mono text-[12px] text-muted-foreground">
             {error}
           </div>
+        </div>
+      ) : file.isDir === true ? (
+        // 未跟踪目录整体条目：无单文件 diff（store 已跳过取数），给一句说明占位
+        <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
+          这是一个未跟踪目录，没有差异可查看
         </div>
       ) : file.type === '!' ? (
         // 冲突文件：git diff 对 unmerged 输出 combined diff（diff --cc，hunk 头 @@@）或

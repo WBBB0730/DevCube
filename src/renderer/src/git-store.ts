@@ -686,6 +686,15 @@ export const useGit = create<GitStoreState>((set, get) => {
       ) {
         return
       }
+      // 未跟踪目录整体条目没有单文件 diff 可拉（--no-index 对目录直接报错）：
+      // 只落面板状态不发请求，正文提示由 GitDiffView 按 isDir 渲染
+      if (file.isDir === true) {
+        diffGen.set(projectPath, (diffGen.get(projectPath) ?? 0) + 1)
+        patchProject(projectPath, {
+          diffView: { file, fromHash, toHash, data: null, loading: false, error: null }
+        })
+        return
+      }
       const keep =
         opts?.keepContent === true &&
         prev !== null &&

@@ -182,6 +182,19 @@ export function filesInSelection(
 }
 
 /**
+ * 树的全部行 key（目录 folderPath + 文件 newFilePath），目录取单链压缩后的形态。
+ * 选区幽灵清理据此校验：刷新落地后剔除不在集合内的 key——压缩链形态变化时旧目录 key
+ * 即失效；若仅按前缀匹配放行，隐形的失效目录 key 会把文件偷偷带进批量操作。
+ */
+export function treeRowKeys(files: readonly GitFileChange[]): Set<string> {
+  return new Set(
+    flattenFileTree(buildFileTree(files), new Set()).map((row) =>
+      row.kind === 'folder' ? row.folderPath : files[row.index].newFilePath
+    )
+  )
+}
+
+/**
  * 提交面板「推送」勾选可用性：有当前分支，或空仓库（无 HEAD——首次提交会让分支出生，
  * 提交成功后再弹推送对话框）；detached HEAD（无当前分支但有 HEAD）提交完仍无分支可推，禁用。
  */
@@ -338,6 +351,82 @@ export function reconcileDiffView(
     return { action: 'refresh', file: found, fromHash: diff.fromHash, toHash: diff.toHash }
   }
   return { action: 'keep' }
+}
+
+// —— Diff 面板导航（头部上下箭头切改动块、左右箭头切文件，对齐 WebStorm） ——
+
+/** 左右切换序列的一项：文件 + 打开它的 diff 端点。 */
+export interface DiffNavEntry {
+  file: GitFileChange
+  fromHash: string
+  toHash: string
+}
+
+/** 文件树显示顺序（忽略折叠状态）的文件序列：与文件树的完整视觉顺序一致。 */
+function filesInTreeOrder(files: readonly GitFileChange[]): GitFileChange[] {
+  return flattenFileTree(buildFileTree(files), new Set()).flatMap((row) =>
+    row.kind === 'file' ? [files[row.index]] : []
+  )
+}
+
+/**
+ * 左右箭头的文件切换序列：提交面板按显示顺序两段相连（已暂存在前、未暂存含冲突在后，
+ * 端点随段），其余（详情 / 比较 / stash）取当前文件树逐个解析端点。收起的文件夹不影响
+ * 序列（按完整树顺序走），未跟踪目录条目也保留（面板对它显示提示，不跳过）。
+ */
+export function diffNavSequence(
+  expanded: (DiffEndpointContext & DiffReconcileExpanded) | null,
+  rowIndexOf: (hash: string) => number
+): DiffNavEntry[] {
+  if (expanded === null) return []
+  if (expanded.hash === UNCOMMITTED && expanded.compareWith === null) {
+    const u = expanded.uncommitted
+    if (u === null) return []
+    const stagedEp = uncommittedDiffEndpoints('staged')
+    const unstagedEp = uncommittedDiffEndpoints('unstaged')
+    return [
+      ...filesInTreeOrder(u.staged).map((file) => ({ file, ...stagedEp })),
+      ...filesInTreeOrder([...u.unstaged, ...u.conflicted]).map((file) => ({ file, ...unstagedEp }))
+    ]
+  }
+  const files =
+    expanded.compareWith !== null ? expanded.fileChanges : (expanded.details?.fileChanges ?? null)
+  if (files === null) return []
+  return filesInTreeOrder(files).map((file) => ({
+    file,
+    ...resolveDiffEndpoints(file, expanded, rowIndexOf)
+  }))
+}
+
+/** 当前打开的 diff 在序列中的下标（端点 + 新路径匹配，同路径可在两段各现一次）；找不到 -1。 */
+export function diffNavIndex(
+  sequence: readonly DiffNavEntry[],
+  diff: { file: GitFileChange; fromHash: string; toHash: string }
+): number {
+  return sequence.findIndex(
+    (e) =>
+      e.fromHash === diff.fromHash &&
+      e.toHash === diff.toHash &&
+      e.file.newFilePath === diff.file.newFilePath
+  )
+}
+
+/** 行「是否改动行」序列 → 各改动块首行下标（连续改动行合为一块，同 WebStorm 的 change）。 */
+export function changeBlockStarts(isDiffRow: readonly boolean[]): number[] {
+  const starts: number[] = []
+  for (let i = 0; i < isDiffRow.length; i++) {
+    if (isDiffRow[i] && (i === 0 || !isDiffRow[i - 1])) starts.push(i)
+  }
+  return starts
+}
+
+/** 视口锚位置对应的当前改动块下标：最后一个 top 不超过锚（+2px 容差）的块；全在锚下方为 -1。 */
+export function currentBlockIndex(tops: readonly number[], anchorY: number): number {
+  let idx = -1
+  for (let i = 0; i < tops.length; i++) {
+    if (tops[i] <= anchorY + 2) idx = i
+  }
+  return idx
 }
 
 // —— 提交信息正文分词（§5.1：URL 自动链接；哈希链接 v1 不做） ——
