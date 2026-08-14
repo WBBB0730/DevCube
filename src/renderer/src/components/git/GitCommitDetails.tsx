@@ -31,7 +31,7 @@ const MIN_HEIGHT = 100
 const MAX_HEIGHT = 600
 const DEFAULT_HEIGHT = 250
 /** 提交面板（未提交普通模式）的默认高：需要装下提交表单，比普通详情高一档。 */
-const COMMIT_PANEL_HEIGHT = 392
+const COMMIT_PANEL_HEIGHT = 292
 
 /** 字段名列（左栏摘要的 grid 第一列）。 */
 const FIELD = 'whitespace-nowrap text-muted-foreground'
@@ -488,7 +488,7 @@ function FileTreePane({
       >
         <FileIcon className="size-3.5 shrink-0" style={{ color: colour }} />
         <span
-          className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+          className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap transition-colors"
           // 选中行文字变白（#DFE1E5），压过状态色以在蓝底上清晰
           style={{ color: isSelected ? 'var(--fg-primary)' : colour }}
         >

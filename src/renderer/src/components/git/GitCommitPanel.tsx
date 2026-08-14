@@ -24,6 +24,7 @@ import {
   filesInSelection,
   flattenFileTree,
   pathspecOf,
+  treeRowKeys,
   uncommittedDiffEndpoints,
   type FileTreeRow
 } from './git-details'
@@ -36,14 +37,18 @@ const EMPTY_FILES: GitFileChange[] = []
 const EMPTY_KEYS: ReadonlySet<string> = new Set()
 
 /**
- * 文件树选区（提交面板多选，ADR-0006）：活跃段 + 选中行 key 集 + shift 范围选锚点。
- * key = 文件行的 newFilePath 或目录行的 folderPath；跨段互斥，只保留一份、切段即清空。
+ * 文件树显式选区（提交面板多选，ADR-0006）：活跃段 + 选中行 key 集。key = 文件行的
+ * newFilePath 或目录行的 folderPath；跨段互斥，只保留一份、切段即清空。
+ * 只由多选类手势产生（目录行单击 / Cmd/Shift / 右键选区外行重置）；文件行普通单击不写
+ * 选区——高亮回落到 diffView 派生的影子（见 FileSection），选区存在时全局压制影子。
  */
 type SectionSelection = {
   section: 'staged' | 'unstaged'
   keys: ReadonlySet<string>
-  anchor: string | null
 }
+
+/** shift 范围选锚点：独立于选区存在（文件行普通单击只记锚点不写选区，Finder 语义）。 */
+type SectionAnchor = { section: 'staged' | 'unstaged'; key: string }
 
 // —— 左栏：提交表单 ——
 
@@ -220,9 +225,11 @@ export function UncommittedFileSections({
    * 逐文件对账清除，判据成立前复选框不回弹故无闪烁；失败则显式清除以还原复选框并解锁。
    */
   const [pending, setPending] = useState<Map<string, 'staged' | 'unstaged'>>(new Map())
-  /** 文件树选区（跨两段互斥，只保留一份）：切段即清空；批量 / 勾选致列表变动后清空。 */
+  /** 文件树显式选区（跨两段互斥，只保留一份）：切段即清空；刷新落地后做幽灵清理。 */
   const [selection, setSelection] = useState<SectionSelection | null>(null)
-  // 两段列表落地新引用（软刷新后文件移段 / 消失）即清空选区并对账 pending：旧 key 已失效。
+  /** shift 范围选锚点（独立于选区：文件行普通单击只记锚点）。 */
+  const [anchor, setAnchor] = useState<SectionAnchor | null>(null)
+  // 两段列表落地新引用（软刷新后文件移段 / 消失）即做选区幽灵清理并对账 pending。
   // 渲染期比对上一份引用（React「渲染中调整 state」模式，非 effect，避免级联渲染告警）。
   const [prevLists, setPrevLists] = useState({
     staged: rawStaged,
@@ -235,7 +242,22 @@ export function UncommittedFileSections({
     prevLists.conflicted !== rawConflicted
   ) {
     setPrevLists({ staged: rawStaged, unstaged: rawUnstaged, conflicted: rawConflicted })
-    setSelection(null)
+    // 幽灵清理：从选区与锚点剔除树中已消失的 key（其余选中保留——无关刷新不打断批量操作；
+    // 选区清空后高亮自然回落到影子）。目录 key 须对着单链压缩后的树校验（treeRowKeys）。
+    if (selection !== null) {
+      const valid = treeRowKeys(selection.section === 'staged' ? rawStaged : unstagedFiles)
+      const kept = [...selection.keys].filter((k) => valid.has(k))
+      if (kept.length === 0) setSelection(null)
+      else if (kept.length !== selection.keys.size) {
+        setSelection({ section: selection.section, keys: new Set(kept) })
+      }
+    }
+    if (
+      anchor !== null &&
+      !treeRowKeys(anchor.section === 'staged' ? rawStaged : unstagedFiles).has(anchor.key)
+    ) {
+      setAnchor(null)
+    }
     // 逐文件对账：真实数据已反映该 pending 项即清除（暂存 = 已离未暂存段——未暂存段含
     // 冲突桶；不要求「已进暂存段」：冲突按「保留我方」解决时 add 后 index==HEAD，文件从
     // 三个列表全部消失、永不入暂存段，判据若含 stagedSet 则 pending 永不清、面板卡锁。
@@ -258,11 +280,13 @@ export function UncommittedFileSections({
   }
   /** pending 非空 = 有暂存操作在途：锁定暂存类控件（复选框 / 区头「全部」）禁止操作。 */
   const locked = pending.size > 0
-  /** 某段报告新选区：空集归一为 null（无选中），非空则记为该段的活跃选区。 */
+  /** 某段报告新选区与锚点：空集归一为 null（普通单击文件行即此路——只留锚点没有选区）。 */
   const selectInSection =
     (section: 'staged' | 'unstaged') =>
-    (keys: ReadonlySet<string>, anchor: string | null): void =>
-      setSelection(keys.size === 0 ? null : { section, keys, anchor })
+    (keys: ReadonlySet<string>, anchorKey: string | null): void => {
+      setSelection(keys.size === 0 ? null : { section, keys })
+      setAnchor(anchorKey === null ? null : { section, key: anchorKey })
+    }
 
   /**
    * 对一批文件乐观勾选 + 一次 runQuietAction（单文件 / 目录 / 联合选区 / 区头「全部」共用）。
@@ -322,7 +346,8 @@ export function UncommittedFileSections({
         onToggle={(targets, section) => void runToggle(targets, section, false)}
         onToggleAll={() => void runToggle(rawStaged, 'staged', true)}
         selectedKeys={selection?.section === 'staged' ? selection.keys : EMPTY_KEYS}
-        anchor={selection?.section === 'staged' ? selection.anchor : null}
+        hasSelection={selection !== null}
+        anchor={anchor?.section === 'staged' ? anchor.key : null}
         onSelect={selectInSection('staged')}
         anchorRef={stagedAnchorRef}
         onHeaderClick={() => scrollToSection('staged')}
@@ -338,7 +363,8 @@ export function UncommittedFileSections({
         onToggle={(targets, section) => void runToggle(targets, section, false)}
         onToggleAll={() => void runToggle(unstagedFiles, 'unstaged', true)}
         selectedKeys={selection?.section === 'unstaged' ? selection.keys : EMPTY_KEYS}
-        anchor={selection?.section === 'unstaged' ? selection.anchor : null}
+        hasSelection={selection !== null}
+        anchor={anchor?.section === 'unstaged' ? anchor.key : null}
         onSelect={selectInSection('unstaged')}
         anchorRef={unstagedAnchorRef}
         onHeaderClick={() => scrollToSection('unstaged')}
@@ -364,6 +390,7 @@ function FileSection({
   onToggle,
   onToggleAll,
   selectedKeys,
+  hasSelection,
   anchor,
   onSelect,
   anchorRef,
@@ -380,9 +407,11 @@ function FileSection({
   onToggle: (targets: GitFileChange[], section: 'staged' | 'unstaged') => void
   /** 区头「全部」：暂存 / 取消暂存整段（git 侧走空 paths，父组件按整段做乐观勾选） */
   onToggleAll: () => void
-  /** 本段当前选中的行 key 集（文件 newFilePath 或目录 folderPath）；非活跃段为空集 */
+  /** 本段显式选区的行 key 集（文件 newFilePath 或目录 folderPath）；非活跃段为空集 */
   selectedKeys: ReadonlySet<string>
-  /** shift 范围选锚点行 key；null = 无锚点 */
+  /** 任一段存在显式选区：全局压制影子高亮（一种视觉两种数据，选区优先） */
+  hasSelection: boolean
+  /** shift 范围选锚点行 key（独立于选区：普通单击文件行只记锚点）；null = 无锚点 */
   anchor: string | null
   /** 选区变化上报父组件（父负责套上本段身份、维持跨段互斥） */
   onSelect: (keys: ReadonlySet<string>, anchor: string | null) => void
@@ -403,6 +432,14 @@ function FileSection({
     return t !== undefined && t.kind === 'uncommitted-file' && t.section === section
       ? t.file.newFilePath
       : null
+  })
+  // 影子高亮：diff 面板正开着的本段文件（无显式选区时的高亮来源）。派生自 diffView——
+  // 关 diff 即失、暂存换段 / 箭头切文件自动跟随，与详情树同法、零同步规则。
+  const shadowPath = useGit((s) => {
+    const d = gitState(s, projectPath).diffView
+    if (d === null) return null
+    const ep = uncommittedDiffEndpoints(section)
+    return d.fromHash === ep.fromHash && d.toHash === ep.toHash ? d.file.newFilePath : null
   })
   const tree = useMemo(() => buildFileTree(files), [files])
   const rows = useMemo(() => flattenFileTree(tree, closed), [tree, closed])
@@ -449,8 +486,9 @@ function FileSection({
     row.kind === 'folder' ? row.folderPath : files[row.index].newFilePath
 
   /**
-   * 行点击选中（文件管理器式）：shift = 从锚点到当前的连续可见区间（替换、锚点不变）；
-   * cmd/ctrl = 加减选该行并成为新锚点；普通单击 = 单选该行、文件行同时打开 diff。
+   * 行点击（文件管理器式）：shift = 从锚点到当前的连续可见区间（替换、锚点不变）；
+   * cmd/ctrl = 加减选该行并成为新锚点；普通单击文件行 = 清选区、记锚点、开 diff
+   * （高亮回落到影子，与详情树一致）；普通单击目录行 = 显式单选（目录没有 diff 可看）。
    */
   const selectRow = (e: React.MouseEvent, row: FileTreeRow): void => {
     const key = rowKey(row)
@@ -471,10 +509,12 @@ function FileSection({
       onSelect(next, key)
       return
     }
-    onSelect(new Set([key]), key)
     if (row.kind === 'file') {
+      onSelect(EMPTY_KEYS, key)
       const file = files[row.index]
       if (diffPossible(file)) openFileDiff(file)
+    } else {
+      onSelect(new Set([key]), key)
     }
   }
 
@@ -573,7 +613,7 @@ function FileSection({
         </span>
         <Folder className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
         <span
-          className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
+          className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap transition-colors"
           style={isSelected ? { color: 'var(--fg-primary)' } : undefined}
         >
           {row.name}
@@ -585,7 +625,9 @@ function FileSection({
   const renderFile = (row: FileRow): ReactNode => {
     const file = files[row.index]
     const colour = FILE_STATUS_COLOR[file.type]
-    const isSelected = selectedKeys.has(file.newFilePath)
+    // 高亮一种视觉两种数据：显式选区优先（存在时全局压制影子），否则跟随打开中的 diff 文件
+    const isSelected =
+      selectedKeys.has(file.newFilePath) || (!hasSelection && shadowPath === file.newFilePath)
     const menuActive = menuFilePath === file.newFilePath
     const vDepth = row.depth + 1
     return (
@@ -620,7 +662,7 @@ function FileSection({
         </span>
         <FileIcon className="size-3.5 shrink-0" style={{ color: colour }} />
         <span
-          className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap"
+          className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap transition-colors"
           // 选中行文字变白（#DFE1E5），压过状态色以在蓝底上清晰
           style={{ color: isSelected ? 'var(--fg-primary)' : colour }}
         >

@@ -44,13 +44,6 @@ export function GitPane({
     }
   }, [visible, projectPath, load])
 
-  // Diff 是临时盖板：Git Tab 不可见（切走 / 切项目）即关。
-  useEffect(() => {
-    if (visible) return
-    const store = useGit.getState()
-    if (gitState(store, projectPath).diffView) store.closeDiff(projectPath)
-  }, [visible, projectPath])
-
   // 全局键盘：capture 阶段拦截（抢在内部控件与 Electron 默认行为之前），仅可见时监听。
   useEffect(() => {
     if (!visible) return

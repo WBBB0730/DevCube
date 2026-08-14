@@ -438,10 +438,13 @@ function GitTabItem({
       style={active ? TAB_ACTIVE : undefined}
       title={shortcutTitle('Git', tabAtShortcut(1))}
       onClick={() => {
-        activateTab(projectPath, gitKey)
-        // Diff 是临时盖板：再点 Git Tab 也关（切走关见 GitPane）。
-        const store = useGit.getState()
-        if (gitState(store, projectPath).diffView) store.closeDiff(projectPath)
+        // Diff 是临时盖板：已激活时再点即关；切 Tab 那一下不关（切走保留现场，回来接着看）
+        if (active) {
+          const store = useGit.getState()
+          if (gitState(store, projectPath).diffView) store.closeDiff(projectPath)
+        } else {
+          activateTab(projectPath, gitKey)
+        }
       }}
     >
       <GitBranch className="size-3.5 shrink-0 text-muted-foreground" />
