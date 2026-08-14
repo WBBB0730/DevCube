@@ -1356,6 +1356,19 @@ function FilesToolbar({
         className="flex shrink-0 items-center gap-0.5"
         onDoubleClick={(e) => e.stopPropagation()}
       >
+        {mdPreview !== null && (
+          <>
+            <button
+              type="button"
+              title={mdPreview ? '编辑' : '预览'}
+              className={TOOLBAR_BTN}
+              onClick={onToggleMdPreview}
+            >
+              {mdPreview ? <Pencil className="size-4" /> : <Eye className="size-4" />}
+            </button>
+            <div className="mx-0.5 h-3 w-px shrink-0 bg-[var(--border-input)]" role="separator" />
+          </>
+        )}
         <DropdownMenu>
           <DropdownMenuTrigger title="最近打开文件" className={TOOLBAR_BTN}>
             <FileClock className="size-4" />
@@ -1391,16 +1404,6 @@ function FilesToolbar({
         </DropdownMenu>
         {path && (
           <>
-            {mdPreview !== null && (
-              <button
-                type="button"
-                title={mdPreview ? '编辑' : '预览'}
-                className={TOOLBAR_BTN}
-                onClick={onToggleMdPreview}
-              >
-                {mdPreview ? <Pencil className="size-4" /> : <Eye className="size-4" />}
-              </button>
-            )}
             <button
               type="button"
               title="在文件树中显示"
@@ -1503,7 +1506,7 @@ function FileTreeNode({
           </span>
           <Folder className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
           <span
-            className="min-w-0 flex-1 truncate"
+            className="min-w-0 flex-1 truncate transition-colors"
             style={selectedPath === dirPath ? { color: 'var(--fg-primary)' } : undefined}
           >
             {dirPath.split('/').pop()}
@@ -1585,7 +1588,7 @@ function FileTreeFileRow({
       <span className="size-3.5 shrink-0" />
       <FileIcon className="size-3.5 shrink-0" style={{ color: colour ?? 'var(--fg-icon)' }} />
       <span
-        className="min-w-0 flex-1 truncate"
+        className="min-w-0 flex-1 truncate transition-colors"
         style={{ color: selected ? 'var(--fg-primary)' : colour }}
       >
         {entry.name}
