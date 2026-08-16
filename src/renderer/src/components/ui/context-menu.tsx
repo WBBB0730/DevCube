@@ -83,4 +83,14 @@ function ContextMenuItem({
   )
 }
 
-export { ContextMenu, ContextMenuTrigger, ContextMenuContent, ContextMenuItem }
+function ContextMenuSeparator(): React.JSX.Element {
+  return <div className="mx-1.5 my-1 h-px bg-[var(--border-input)]" role="separator" />
+}
+
+export {
+  ContextMenu,
+  ContextMenuTrigger,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator
+}

@@ -89,7 +89,7 @@ export function GitViewOptions({ projectPath }: { projectPath: string }): React.
             {row.label}
           </label>
         ))}
-        <div className="mx-1.5 my-1 h-px bg-[var(--separator)]" />
+        <div className="mx-1.5 my-1 h-px bg-[var(--border-input)]" role="separator" />
         <div className="px-1.5 py-1 text-[12px] font-medium text-muted-foreground">提交排序</div>
         <RadioGroup
           className="gap-0"

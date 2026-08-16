@@ -80,6 +80,7 @@ import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubContent,
   DropdownMenuSubTrigger,
@@ -808,7 +809,7 @@ function SortMenu({
             </DropdownMenuItem>
           )
         })}
-        <div className="mx-1.5 my-1 h-px bg-[var(--border-input)]" role="separator" />
+        <DropdownMenuSeparator />
         <DropdownMenuItem onClick={() => onPinStickyChange(!pinSticky)}>
           <span className="flex size-4 shrink-0 items-center justify-center">
             {pinSticky && <Check className="size-3.5" />}

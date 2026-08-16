@@ -125,11 +125,16 @@ function DropdownMenuSubContent({
   )
 }
 
+function DropdownMenuSeparator(): React.JSX.Element {
+  return <div className="mx-1.5 my-1 h-px bg-[var(--border-input)]" role="separator" />
+}
+
 export {
   DropdownMenu,
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubTrigger,
   DropdownMenuSubContent

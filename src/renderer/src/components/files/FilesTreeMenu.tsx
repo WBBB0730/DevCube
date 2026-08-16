@@ -6,7 +6,6 @@
 import { useMemo } from 'react'
 import {
   Copy,
-  CopySlash,
   FilePen,
   FilePlus,
   FolderOpen,
@@ -20,7 +19,8 @@ import { useApp } from '@renderer/store'
 import {
   ContextMenu,
   ContextMenuContent,
-  ContextMenuItem
+  ContextMenuItem,
+  ContextMenuSeparator
 } from '@renderer/components/ui/context-menu'
 import type { FilesEntryDialogRequest } from './FilesEntryDialog'
 
@@ -30,10 +30,6 @@ export interface FilesTreeMenuTarget {
   /** 目标绝对逻辑路径；树空白区为项目根 */
   path: string
   isDirectory: boolean
-}
-
-function MenuSeparator(): React.JSX.Element {
-  return <div className="mx-1.5 my-1 h-px bg-[var(--separator)]" />
 }
 
 export function FilesTreeMenu({
@@ -93,7 +89,7 @@ export function FilesTreeMenu({
         <ContextMenuItem onClick={() => request({ kind: 'create-dir', dir: nearestDir })}>
           <FolderPlus className="size-4" /> 新建文件夹
         </ContextMenuItem>
-        <MenuSeparator />
+        <ContextMenuSeparator />
         <ContextMenuItem
           onClick={() => {
             onClose()
@@ -120,18 +116,18 @@ export function FilesTreeMenu({
         >
           <Terminal className="size-4" /> 在终端中打开
         </ContextMenuItem>
-        <MenuSeparator />
+        <ContextMenuSeparator />
         <ContextMenuItem onClick={() => copyText(menu.path)}>
           <Copy className="size-4" /> 复制路径
         </ContextMenuItem>
         {!isRoot && (
           <ContextMenuItem onClick={() => copyText(menu.path.slice(projectRoot.length + 1))}>
-            <CopySlash className="size-4" /> 复制相对路径
+            <Copy className="size-4" /> 复制相对路径
           </ContextMenuItem>
         )}
         {!isRoot && (
           <>
-            <MenuSeparator />
+            <ContextMenuSeparator />
             <ContextMenuItem
               onClick={() =>
                 request({ kind: 'rename', path: menu.path, isDirectory: menu.isDirectory })

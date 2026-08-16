@@ -12,7 +12,8 @@ import { Check } from 'lucide-react'
 import {
   ContextMenu,
   ContextMenuContent,
-  ContextMenuItem
+  ContextMenuItem,
+  ContextMenuSeparator
 } from '@renderer/components/ui/context-menu'
 import {
   GIT_DEFAULTS,
@@ -763,7 +764,7 @@ export function GitContextMenu({ projectPath }: { projectPath: string }): React.
       >
         {groups.map((group, gi) => (
           <Fragment key={gi}>
-            {gi > 0 && <div className="mx-1.5 my-1 h-px bg-[var(--separator)]" />}
+            {gi > 0 && <ContextMenuSeparator />}
             {group.map((item, ii) => (
               <ContextMenuItem
                 key={ii}
