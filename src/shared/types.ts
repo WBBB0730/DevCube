@@ -10,6 +10,11 @@ import type { FilesTreeFilterResult } from './files-tree-search'
 import type { GitAPI, GitRepoSettings, GitViewPrefs } from './git'
 import type { OpenInAppId, OpenInAppResult, OpenInAppStatus } from './open-in-app'
 import type { RendererBootstrap } from './renderer-bootstrap'
+import type {
+  SystemIntegrationApplyResult,
+  SystemIntegrationFeatureId,
+  SystemIntegrationState
+} from './system-integration'
 import type { WorkspaceUiState } from './workspace'
 
 export type { DiscoverSource } from './discover-source'
@@ -277,6 +282,14 @@ export interface RunAPI extends GitAPI {
   /** 在外部桌面工具中打开已登记项目根；未装或失败时返回 ok:false */
   openInApp(id: OpenInAppId, projectPath: string): Promise<OpenInAppResult>
 
+  // —— 系统集成（设置「系统集成」栏；External Open 入口） ——
+  getSystemIntegration(): Promise<SystemIntegrationState>
+  /** 安装 / 移除某项系统入口；失败时 ok:false 并附带最新状态 */
+  applySystemIntegration(
+    id: SystemIntegrationFeatureId,
+    enable: boolean
+  ): Promise<SystemIntegrationApplyResult>
+
   // —— Files Tab ——
   filesListDir(projectPath: string, dirPath: string): Promise<FilesDirEntry[]>
   filesFilterTree(projectPath: string, query: string): Promise<FilesTreeFilterResult>
@@ -308,6 +321,8 @@ export interface RunAPI extends GitAPI {
   onSessionRemoved(cb: (key: string) => void): () => void
   /** 主进程 before-input-event 命中的应用快捷键 */
   onAppShortcut(cb: (shortcut: AppShortcut) => void): () => void
+  /** External Open：主进程已登记项目，渲染端选中并滚入视口 */
+  onProjectExternalOpen(cb: (focusPath: string) => void): () => void
 
   // —— 应用内更新 ——
   getAppUpdateState(): Promise<AppUpdateState>

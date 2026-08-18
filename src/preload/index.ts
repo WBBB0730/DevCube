@@ -61,6 +61,8 @@ const api: RunAPI = {
   revealInFolder: (path) => ipcRenderer.invoke(IPC.openInFolder, path),
   listOpenInApps: () => ipcRenderer.invoke(IPC.openInAppList),
   openInApp: (id, projectPath) => ipcRenderer.invoke(IPC.openInApp, id, projectPath),
+  getSystemIntegration: () => ipcRenderer.invoke(IPC.integrationGet),
+  applySystemIntegration: (id, enable) => ipcRenderer.invoke(IPC.integrationApply, id, enable),
 
   filesListDir: (projectPath, dirPath) =>
     ipcRenderer.invoke(IPC.filesListDir, projectPath, dirPath),
@@ -108,6 +110,7 @@ const api: RunAPI = {
   onSessionStatus: (cb) => subscribe(IPC.sessionStatus, cb),
   onSessionRemoved: (cb) => subscribe(IPC.sessionRemoved, cb),
   onAppShortcut: (cb) => subscribe(IPC.appShortcut, cb),
+  onProjectExternalOpen: (cb) => subscribe(IPC.projectExternalOpen, cb),
 
   getAppUpdateState: () => ipcRenderer.invoke(IPC.appUpdateGet),
   checkAppUpdates: (force) => ipcRenderer.invoke(IPC.appUpdateCheck, force === true),

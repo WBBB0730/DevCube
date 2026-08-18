@@ -2,6 +2,8 @@ import { ipcMain, BrowserWindow, shell } from 'electron'
 import { IPC } from '../shared/ipc'
 import { configKey } from '../shared/runnable'
 import { isOpenInAppId } from '../shared/open-in-app'
+import { isSystemIntegrationFeatureId } from '../shared/system-integration'
+import { applySystemIntegration, getSystemIntegrationState } from './system-integration'
 import type { DiscoverSource } from '../shared/discover-source'
 import type {
   AppPrefs,
@@ -130,6 +132,16 @@ function emitGitChanged(projectPath: string): void {
 function emitFilesChanged(projectPath: string): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(IPC.filesChanged, projectPath)
+  }
+}
+
+/** External Open（运行中）：登记（或命中已登记）后对齐 watcher，并推送渲染端选中。 */
+export function openProjectFromExternal(path: string): void {
+  const focusPath = addProjectByPath(path)
+  if (focusPath === null) return
+  refreshWatchers()
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(IPC.projectExternalOpen, focusPath)
   }
 }
 
@@ -339,6 +351,15 @@ export function registerIpc(win: BrowserWindow): void {
       shell.showItemInFolder(path)
     }
   })
+  // —— 系统集成（设置「系统集成」栏；状态实时探测不落盘） ——
+  ipcMain.handle(IPC.integrationGet, () => getSystemIntegrationState())
+  ipcMain.handle(IPC.integrationApply, async (_e, id: unknown, enable: unknown) => {
+    if (!isSystemIntegrationFeatureId(id) || typeof enable !== 'boolean') {
+      return { ok: false as const, error: '无效参数', state: await getSystemIntegrationState() }
+    }
+    return applySystemIntegration(id, enable)
+  })
+
   // 项目「打开于」：探测已装桌面工具；打开仅放行已登记项目根。
   ipcMain.handle(IPC.openInAppList, () => listOpenInApps())
   ipcMain.handle(IPC.openInApp, (_e, id: unknown, projectPath: unknown) => {

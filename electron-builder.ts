@@ -2,7 +2,21 @@ import { createRequire } from 'node:module'
 import type { Configuration } from 'electron-builder'
 import { resolveReleaseEdition } from './src/shared/release-edition'
 
-const { version } = createRequire(import.meta.url)('./package.json') as { version: string }
+const { version: pkgVersion } = createRequire(import.meta.url)('./package.json') as {
+  version: string
+}
+
+/**
+ * BUILD_CHANNEL=beta（`pnpm build:beta`）：版本号保持当前值，仅在非 beta 时追加 -beta.1
+ * 以派生 Beta 身份（Release Edition 由 semver 决定）。正式发版仍以 bumpp 写入
+ * package.json 的版本为准，CI 不使用该变量。
+ */
+function resolveBuildVersion(version: string): string {
+  if (process.env.BUILD_CHANNEL !== 'beta' || version.includes('-')) return version
+  return `${version}-beta.1`
+}
+
+const version = resolveBuildVersion(pkgVersion)
 const edition = resolveReleaseEdition(version)
 const releaseBuild = process.env.GITHUB_ACTIONS === 'true' && process.env.GITHUB_REF_TYPE === 'tag'
 
@@ -15,7 +29,9 @@ const config: Configuration = {
   icon: edition.icon,
   extraMetadata: {
     name: edition.name,
-    productName: edition.productName
+    productName: edition.productName,
+    // 覆写进 app 的版本（BUILD_CHANNEL=beta 派生版号时运行时 app.getVersion() 须一致）
+    version
   },
   files: [
     '!**/.vscode/*',
@@ -27,6 +43,9 @@ const config: Configuration = {
     '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
   ],
   asarUnpack: ['resources/**', '**/{@parcel/watcher,@parcel/watcher-*}/**'],
+  // External Open deep link：scheme 按 Edition 分线（devcube / devcube-beta，ADR-0025）。
+  // macOS 写入 Info.plist CFBundleURLTypes；Windows 由运行时 setAsDefaultProtocolClient 注册。
+  protocols: [{ name: edition.productName, schemes: [edition.name] }],
   win: {
     executableName: edition.executableName,
     icon: edition.winIcon,
@@ -39,7 +58,9 @@ const config: Configuration = {
     artifactName: '${name}-${version}-setup.${ext}',
     shortcutName: '${productName}',
     uninstallDisplayName: '${productName}',
-    createDesktopShortcut: 'always'
+    createDesktopShortcut: 'always',
+    // Beta 的 buildResources 是 build/beta，显式固定共用同一份钩子脚本
+    include: 'build/installer.nsh'
   },
   portable: {
     artifactName: '${name}-${version}-portable.${ext}'
@@ -73,7 +94,9 @@ const config: Configuration = {
   linux: {
     target: ['AppImage', 'snap', 'deb'],
     maintainer: 'WBBB',
-    category: 'Utility'
+    category: 'Utility',
+    // 文件管理器「用其他应用打开」对目录可见（External Open 的 Linux 投影）
+    mimeTypes: ['inode/directory']
   },
   appImage: {
     artifactName: '${name}-${version}.${ext}'

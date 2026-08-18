@@ -206,6 +206,8 @@ interface AppState {
   init: () => Promise<void>
   addProject: () => Promise<void>
   addProjectByPath: (path: string) => Promise<void>
+  /** External Open：主进程已登记，选中并滚入视口（收尾同 addProjectByPath） */
+  openExternalProject: (focusPath: string) => Promise<void>
   createProject: () => Promise<void>
   removeProject: (path: string) => Promise<void>
   /** 重排项目列表（自定义排序落盘） */
@@ -374,6 +376,10 @@ export const useApp = create<AppState>((set, get) => ({
   },
   addProjectByPath: async (path) => {
     await applyAddedProject(set, get, () => window.api.addProjectByPath(path))
+  },
+  // External Open：main 已登记并对齐 watcher，这里只走同一套选中收尾（树经 touchProject 重拉）。
+  openExternalProject: async (focusPath) => {
+    await applyAddedProject(set, get, async () => ({ tree: get().tree, focusPath }))
   },
   createProject: async () => {
     await applyAddedProject(set, get, () => window.api.createProject())

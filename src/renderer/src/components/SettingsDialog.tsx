@@ -1,10 +1,17 @@
 import { useEffect, useState } from 'react'
 import type { AppUpdateState } from '@shared/app-update-state'
 import { APP_SHORTCUT_LIST } from '@shared/app-shortcut-list'
+import type {
+  SystemIntegrationFeature,
+  SystemIntegrationFeatureId,
+  SystemIntegrationState
+} from '@shared/system-integration'
 import type { AppPrefs, WindowsShell, WindowsShellOption } from '@shared/types'
 import { DEFAULT_APP_PREFS } from '@shared/types'
+import { LoaderCircle, TriangleAlert } from 'lucide-react'
 import { SettingsModal } from '@renderer/components/SettingsModal'
 import { Button } from '@renderer/components/ui/button'
+import { DialogMask, DialogPanel } from '@renderer/components/ui/form-dialog'
 import {
   Select,
   SelectContent,
@@ -15,11 +22,12 @@ import {
 import { shortcutLabel } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
 
-type SectionId = 'about' | 'prefs' | 'keymap'
+type SectionId = 'about' | 'prefs' | 'integration' | 'keymap'
 
 const SECTIONS: { id: SectionId; label: string }[] = [
   { id: 'about', label: '关于' },
   { id: 'prefs', label: '偏好' },
+  { id: 'integration', label: '系统集成' },
   { id: 'keymap', label: '快捷键' }
 ]
 
@@ -27,6 +35,30 @@ const WINDOWS_SHELL_LABELS: Record<WindowsShell, string> = {
   'git-bash': 'Git Bash',
   powershell: 'PowerShell',
   cmd: '命令提示符 (cmd)'
+}
+
+/** 系统集成各行文案（统一「在 X 中添加 / 安装 Y」句式；入口详情见 docs/prd/system-integration.md）。 */
+function integrationCopy(
+  state: SystemIntegrationState
+): Record<SystemIntegrationFeatureId, { label: string; desc: string }> {
+  return {
+    quickAction: {
+      label: 'Finder 快速操作',
+      desc: `在 Finder 的快速操作菜单中添加「在 ${state.productName} 中打开」`
+    },
+    cliShim: {
+      label: '命令行工具',
+      desc: `在 /usr/local/bin 中安装 ${state.cliName} 命令；可能请求管理员授权`
+    },
+    codexOpenIn: {
+      label: 'Codex Open in 菜单',
+      desc: `在 Codex (ChatGPT) 的 Open in 菜单中添加 ${state.productName}；重启 ChatGPT 后生效`
+    },
+    windowsContextMenu: {
+      label: '资源管理器右键菜单',
+      desc: `在资源管理器的右键菜单中添加「在 ${state.productName} 中打开」`
+    }
+  }
 }
 
 type Props = {
@@ -66,17 +98,26 @@ export function SettingsDialog({
   const [section, setSection] = useState<SectionId>('about')
   const [prefs, setPrefs] = useState<AppPrefs | null>(null)
   const [shellOptions, setShellOptions] = useState<WindowsShellOption[] | null>(null)
-  const isWin = window.electron.process.platform === 'win32'
-  // 偏好目前仅 Windows「默认终端」；非 Windows 不挂空说明页。
-  const sections = isWin ? SECTIONS : SECTIONS.filter((s) => s.id !== 'prefs')
+  const [integration, setIntegration] = useState<SystemIntegrationState | null>(null)
+  const [integrationBusy, setIntegrationBusy] = useState<SystemIntegrationFeatureId | null>(null)
+  const [integrationError, setIntegrationError] = useState<string | null>(null)
+  const platform = window.electron.process.platform
+  const isWin = platform === 'win32'
+  // 偏好目前仅 Windows「默认终端」；系统集成仅 macOS / Windows（Linux 无可开关项）。
+  const sections = SECTIONS.filter((s) =>
+    s.id === 'prefs' ? isWin : s.id === 'integration' ? isWin || platform === 'darwin' : true
+  )
 
+  // Esc 分层关闭：先收错误框，再关设置。
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
+      if (e.key !== 'Escape') return
+      if (integrationError !== null) setIntegrationError(null)
+      else onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
+  }, [onClose, integrationError])
 
   // 进入关于自动检查（受主进程 5 分钟冷却；后台 jitter / 周期仍独立）。
   useEffect(() => {
@@ -95,6 +136,21 @@ export function SettingsDialog({
       }
     )
   }, [section])
+
+  // 系统集成状态全部实时探测（文件 / 注册表 / TOML），每次切入都重查。
+  useEffect(() => {
+    if (section !== 'integration') return
+    void window.api.getSystemIntegration().then(setIntegration)
+  }, [section])
+
+  const toggleIntegration = async (feature: SystemIntegrationFeature): Promise<void> => {
+    setIntegrationBusy(feature.id)
+    setIntegrationError(null)
+    const result = await window.api.applySystemIntegration(feature.id, !feature.enabled)
+    setIntegration(result.state)
+    if (!result.ok) setIntegrationError(result.error)
+    setIntegrationBusy(null)
+  }
 
   const setWindowsShell = (windowsShell: WindowsShell): void => {
     const opt = shellOptions?.find((o) => o.id === windowsShell)
@@ -148,7 +204,11 @@ export function SettingsDialog({
               <div className="text-[15px] text-[color:var(--fg-primary)]">{update.productName}</div>
               <div className="text-[color:var(--fg-muted)]">
                 版本 {update.currentVersion}
-                {update.channel === 'beta' ? ' · Beta' : ' · 正式版'}
+                {update.packaging === 'dev'
+                  ? ' · Dev'
+                  : update.channel === 'beta'
+                    ? ' · Beta'
+                    : ' · 正式版'}
               </div>
               <div>{phaseLabel(update)}</div>
               <div className="flex flex-wrap gap-2">
@@ -212,6 +272,43 @@ export function SettingsDialog({
             </div>
           )}
 
+          {section === 'integration' && integration && (
+            <div className="space-y-4">
+              {integration.features.map((f) => {
+                const copy = integrationCopy(integration)[f.id]
+                return (
+                  <div key={f.id} className="flex items-center justify-between gap-4">
+                    <div className="min-w-0 space-y-0.5">
+                      <div className="text-[color:var(--fg-primary)]">{copy.label}</div>
+                      <div className="text-[12px] text-[color:var(--fg-muted)]">{copy.desc}</div>
+                    </div>
+                    <Button
+                      type="button"
+                      size="sm"
+                      className="relative"
+                      variant={f.enabled ? 'ghost' : 'default'}
+                      disabled={!f.available || integrationBusy !== null}
+                      {...(f.available ? {} : { title: f.unavailableReason })}
+                      onClick={() => void toggleIntegration(f)}
+                    >
+                      {/* loading 时文字隐形占位保宽，spinner 居中叠加，按钮不跳宽 */}
+                      <span className={integrationBusy === f.id ? 'invisible' : undefined}>
+                        {f.enabled ? '移除' : '安装'}
+                      </span>
+                      {integrationBusy === f.id && (
+                        <LoaderCircle className="absolute inset-0 m-auto size-3.5 animate-spin" />
+                      )}
+                    </Button>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {section === 'integration' && !integration && (
+            <div className="text-[color:var(--fg-muted)]">正在加载…</div>
+          )}
+
           {section === 'keymap' && (
             <div className="space-y-1">
               {APP_SHORTCUT_LIST.map((row) => {
@@ -236,6 +333,26 @@ export function SettingsDialog({
           )}
         </main>
       </div>
+
+      {/* 提示类信息不内联进界面：失败走「操作失败」错误框（Git 同款样式） */}
+      {integrationError !== null && (
+        <DialogMask onClick={() => setIntegrationError(null)}>
+          <DialogPanel>
+            <div className="space-y-3 px-4 py-4">
+              <div className="flex items-center gap-1.5 text-[13px] font-semibold text-foreground">
+                <TriangleAlert className="size-4 shrink-0 text-[color:var(--status-failed)]" />
+                操作失败
+              </div>
+              <pre className="max-h-64 select-text overflow-auto whitespace-pre-wrap break-all rounded border border-[color:var(--border-input)] bg-[var(--bg-deepest)] p-2.5 font-mono text-[12px] leading-relaxed text-muted-foreground">
+                {integrationError}
+              </pre>
+            </div>
+            <div className="flex justify-end gap-2 border-t px-4 py-2.5">
+              <Button onClick={() => setIntegrationError(null)}>知道了</Button>
+            </div>
+          </DialogPanel>
+        </DialogMask>
+      )}
     </SettingsModal>
   )
 }

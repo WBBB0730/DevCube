@@ -18,9 +18,48 @@ import { rememberWindowPlacement, resolveRememberedWindowPlacement } from './win
 import { registerBootstrapIpc } from './renderer-bootstrap'
 import { disposeTray, installTray } from './tray'
 import { configureUserData } from './user-data'
+import {
+  argvTailStart,
+  dispatchExternalOpen,
+  drainPendingExternalOpens,
+  extractOpenDirs,
+  isDirectoryPath,
+  parseDeepLink,
+  setExternalOpenHandler
+} from './external-open'
+import { openProjectFromExternal } from './ipc'
+import { addProjectByPath } from './projects'
+import { getWorkspaceUi, setWorkspaceUi } from './store'
 
 // 必须早于 app.ready、Store 初始化和 Chromium Session 创建，隔离 Stable / Beta / Dev。
 configureUserData(app)
+
+// 单实例（锁随 userData 分线，Stable / Beta / Dev 互不拦）：第二实例把 argv
+// 转发给主实例（second-instance 事件）后立即退出，承接外部唤起路径。
+if (!app.requestSingleInstanceLock()) app.exit(0)
+
+// External Open：deep link 按 Edition 分线（devcube / devcube-beta）；Dev 不注册，
+// 避免抢注已安装版本（ADR-0025）。事件监听必须早于 ready，冷启动事件先排队。
+const deepLinkScheme = resolveReleaseEdition(app.getVersion()).name
+if (app.isPackaged) app.setAsDefaultProtocolClient(deepLinkScheme)
+
+// Finder 快速操作与 `open -b <bundleId> <目录>` 走 open-file（目录同文件一样走该事件）
+app.on('open-file', (event, path) => {
+  event.preventDefault()
+  if (isDirectoryPath(path)) dispatchExternalOpen(path)
+})
+app.on('open-url', (event, url) => {
+  event.preventDefault()
+  const dir = parseDeepLink(url, deepLinkScheme)
+  if (dir !== null && isDirectoryPath(dir)) dispatchExternalOpen(dir)
+})
+app.on('second-instance', (_event, argv, workingDirectory) => {
+  focusMainWindow()
+  const args = argv.slice(argvTailStart(app.isPackaged))
+  for (const dir of extractOpenDirs(args, { scheme: deepLinkScheme, cwd: workingDirectory })) {
+    dispatchExternalOpen(dir)
+  }
+})
 
 // 仅深色：强制原生菜单（含 Windows 托盘）走深色，不跟系统浅色。
 nativeTheme.themeSource = 'dark'
@@ -104,6 +143,24 @@ function createWindow(): BrowserWindow {
   return mainWindow
 }
 
+function openMainWindow(): BrowserWindow {
+  const win = createWindow()
+  registerIpc(win)
+  return win
+}
+
+/** 外部唤起 / 第二实例：把既有窗口带到前台（Windows 托盘隐藏态先 show），没有则重开。 */
+function focusMainWindow(): void {
+  const win = BrowserWindow.getAllWindows()[0]
+  if (!win) {
+    if (app.isReady() && !isAppQuitting()) openMainWindow()
+    return
+  }
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
+}
+
 app.whenReady().then(async () => {
   // Set app user model id for windows
   electronApp.setAppUserModelId(resolveReleaseEdition(app.getVersion()).appId)
@@ -118,13 +175,27 @@ app.whenReady().then(async () => {
   handleFilesMediaProtocol()
   // preload sendSync 依赖此通道；必须在 createWindow / loadURL 之前。
   registerBootstrapIpc()
-  const openMainWindow = (): BrowserWindow => {
-    const win = createWindow()
-    registerIpc(win)
-    return win
+
+  // 冷启动 External Open（启动参数 / 就绪前已到的 open-file）：开窗前登记并预置
+  // 当前项目，渲染端从 bootstrap 快照直接带出选中，无需事后推送。
+  const argvDirs = extractOpenDirs(process.argv.slice(argvTailStart(app.isPackaged)), {
+    scheme: deepLinkScheme,
+    cwd: process.cwd()
+  })
+  for (const dir of [...argvDirs, ...drainPendingExternalOpens()]) {
+    if (addProjectByPath(dir) !== null) {
+      setWorkspaceUi({ ...getWorkspaceUi(), currentProjectPath: dir, selectedKey: null })
+    }
   }
+
   openMainWindow()
   installTray(openMainWindow)
+
+  // 运行中的 External Open（第二实例 / open-file / open-url）：登记 + 推送渲染端选中。
+  setExternalOpenHandler((dir) => {
+    focusMainWindow()
+    openProjectFromExternal(dir)
+  })
 
   app.on('activate', function () {
     // On macOS re-create a window when the dock icon is clicked and none are open.

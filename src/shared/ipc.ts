@@ -14,6 +14,11 @@ export const IPC = {
   appPrefsGet: 'app:prefs-get',
   appPrefsSet: 'app:prefs-set',
   windowsShellOptions: 'app:windows-shell-options',
+  /** External Open：主进程登记项目后通知渲染端选中（携带 focusPath） */
+  projectExternalOpen: 'project:external-open',
+  /** 系统集成（设置「系统集成」栏） */
+  integrationGet: 'integration:get',
+  integrationApply: 'integration:apply',
   run: 'session:run',
   stop: 'session:stop',
   stdin: 'session:stdin',

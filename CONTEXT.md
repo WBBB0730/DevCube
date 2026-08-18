@@ -35,6 +35,9 @@ _Avoid_: Editor Tab, Code Tab, 文件面板, 编辑器 Tab, Workspace
 **未提交更改行（未提交更改）**：Git 图谱最上方一条合成的虚拟行，代表工作区相对 HEAD 的改动（HEAD 未出生的空仓库相对空树；仅有改动时才出现）。HEAD 未出生时它不锚定任何提交，承担首次提交的入口。选中它，其详情面板即该项目的**提交入口**——按「已暂存 / 未暂存」两段管理文件、勾选即暂存、并从中提交（支持修正、提交并推送）。
 _Avoid_: 工作区行, WIP 行, 暂存行
 
+**External Open（外部唤起）**：DevCube 被系统或外部工具带着一个目录路径拉起 / 聚焦的入口统称（命令行、deep link、系统右键菜单、其他应用的 Open in 都汇于此）。语义与手动添加项目一致：未登记则登记为 **Project**，已登记则仅聚焦选中；只收目录。
+_Avoid_: 协议唤起, 命令行打开, Deep link（指整个入口时）
+
 **Release Edition（发行身份）**：正式版或 Beta 二者之一，决定一次安装的系统身份（与另一身份可并行、数据隔离、显示名可辨），并由 semver 派生——无 prerelease 为正式版，仅 `-beta` / `-beta.N` 为 Beta。应用内更新只跟随**同一发行身份**的 GitHub Release，不跨线。
 _Avoid_: Channel（裸用）, Track, Flavor, Variant, 通道（指安装身份时）
 
@@ -58,6 +61,7 @@ _Avoid_: Channel（裸用）, Track, Flavor, Variant, 通道（指安装身份�
 - 工作台按项目记住激活 Tab，并全局记住当前 **Project** 与左树选中；合法记忆优先于默认激活。**默认激活 Tab**（无合法记忆 / 首次解析）：若有运行中的 **Run Session**，取 Tab 栏从左到右第一个运行中的；否则按 Tab 栏顺序（常驻下即落在 **Git Tab**）。**关闭**激活 Tab 仍回落左邻，其次右邻（不套用上述默认规则）。**Run Session** Tab 不随工作台落盘跨冷启动恢复。
 - 一个 **Git Tab** 的图谱含 0..1 个 **未提交更改行**（工作区有改动才合成）；它是该项目在 DevCube 内的提交入口。
 - 一次安装恰好属于一个 **Release Edition**；正式版只消费非 Pre-release 的 GitHub Release，Beta 只消费 Pre-release 的 GitHub Release，二者不互相升级。
+- **External Open** 的系统入口（协议、右键菜单、CLI 名）随 **Release Edition** 分线注册，双装互不抢注；一次唤起落到既有的「添加项目」语义上，不引入新的登记方式。
 
 ## Example dialogue
 

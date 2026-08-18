@@ -137,6 +137,10 @@ function App(): React.JSX.Element {
     // 应用快捷键：主进程 before-input-event → IPC（抢在 xterm / 编辑器 / Chromium 默认之前）。
     const offShortcut = window.api.onAppShortcut(handleAppShortcut)
     const offUpdate = window.api.onAppUpdateState(setUpdate)
+    // External Open：main 已登记项目，这里选中并滚入视口。
+    const offExternalOpen = window.api.onProjectExternalOpen((focusPath) => {
+      void useApp.getState().openExternalProject(focusPath)
+    })
     void window.api.getAppUpdateState().then(setUpdate)
     return () => {
       offTree()
@@ -145,6 +149,7 @@ function App(): React.JSX.Element {
       offGit()
       offShortcut()
       offUpdate()
+      offExternalOpen()
     }
   }, [init])
 
