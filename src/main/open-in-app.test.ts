@@ -7,7 +7,9 @@ import {
   type OpenInAppDeps
 } from './open-in-app'
 
-function mockDeps(partial: Partial<OpenInAppDeps> & Pick<OpenInAppDeps, 'platform'>): OpenInAppDeps {
+function mockDeps(
+  partial: Partial<OpenInAppDeps> & Pick<OpenInAppDeps, 'platform'>
+): OpenInAppDeps {
   return {
     env: {},
     homedir: () => '/Users/me',
@@ -173,8 +175,6 @@ describe('openInApp', () => {
       })
     )
     expect(result).toEqual({ ok: true })
-    expect(openExternal).toHaveBeenCalledWith(
-      'claude://code/new?folder=%2FUsers%2Fme%2Fproj'
-    )
+    expect(openExternal).toHaveBeenCalledWith('claude://code/new?folder=%2FUsers%2Fme%2Fproj')
   })
 })

@@ -82,9 +82,9 @@ describe('classifyWatchPathAll', () => {
   })
 
   it('仓库：.git/objects 忽略；HEAD 为 meta', () => {
-    expect(
-      classifyWatchPathAll(project, project, join(project, '.git', 'objects', 'aa'))
-    ).toEqual([])
+    expect(classifyWatchPathAll(project, project, join(project, '.git', 'objects', 'aa'))).toEqual(
+      []
+    )
     expect(classifyWatchPathAll(project, project, join(project, '.git', 'HEAD'))).toEqual([
       { kind: 'git-meta' }
     ])

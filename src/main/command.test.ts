@@ -76,9 +76,7 @@ describe('cwdFromPickedDir', () => {
 describe('findGitBash', () => {
   it('扫 ProgramFiles 下的 Git/bin/bash.exe', () => {
     const bash = join('C:\\Program Files', 'Git', 'bin', 'bash.exe')
-    expect(
-      findGitBash({ ProgramFiles: 'C:\\Program Files' }, (p) => p === bash)
-    ).toBe(bash)
+    expect(findGitBash({ ProgramFiles: 'C:\\Program Files' }, (p) => p === bash)).toBe(bash)
   })
   it('从 PATH 里的 git.exe 反推非默认安装根', () => {
     const gitCmd = join('X:\\Tools\\Git', 'cmd')
@@ -127,10 +125,8 @@ describe('resolveWindowsShell', () => {
 
 describe('wrapWithRunHeader', () => {
   it('sh：printf 头再执行命令，并单引号转义', () => {
-    const wrapped = wrapWithRunHeader("echo 'hi'", "/tmp/proj", 'sh')
-    expect(wrapped.startsWith("printf '\\033[90m%s $\\033[0m \\033[1m%s\\033[0m\\n' ")).toBe(
-      true
-    )
+    const wrapped = wrapWithRunHeader("echo 'hi'", '/tmp/proj', 'sh')
+    expect(wrapped.startsWith("printf '\\033[90m%s $\\033[0m \\033[1m%s\\033[0m\\n' ")).toBe(true)
     expect(wrapped).toContain("'/tmp/proj'")
     expect(wrapped).toContain("'echo '\\''hi'\\'''")
     expect(wrapped.endsWith("; echo 'hi'")).toBe(true)
@@ -163,9 +159,7 @@ describe('runHeaderShellFor', () => {
 
 describe('buildShellInvocation', () => {
   it('posix 用登录交互 shell 执行，加载 PATH/nvm', () => {
-    expect(
-      buildShellInvocation('pnpm run dev', 'darwin', { posixShell: '/bin/zsh' })
-    ).toEqual({
+    expect(buildShellInvocation('pnpm run dev', 'darwin', { posixShell: '/bin/zsh' })).toEqual({
       file: '/bin/zsh',
       args: ['-l', '-i', '-c', 'pnpm run dev']
     })
@@ -184,17 +178,13 @@ describe('buildShellInvocation', () => {
     })
   })
   it('win32 git-bash 未装时回退 powershell', () => {
-    expect(
-      buildShellInvocation('dir', 'win32', { findGitBash: () => null })
-    ).toEqual({
+    expect(buildShellInvocation('dir', 'win32', { findGitBash: () => null })).toEqual({
       file: 'powershell.exe',
       args: ['-NoLogo', '-Command', 'dir']
     })
   })
   it('win32 显式 powershell / cmd', () => {
-    expect(
-      buildShellInvocation('echo hi', 'win32', { windowsShell: 'powershell' })
-    ).toEqual({
+    expect(buildShellInvocation('echo hi', 'win32', { windowsShell: 'powershell' })).toEqual({
       file: 'powershell.exe',
       args: ['-NoLogo', '-Command', 'echo hi']
     })
@@ -216,9 +206,7 @@ describe('buildShellSession', () => {
     expect(buildShellSession('linux', {}).file).toBe('/bin/zsh')
   })
   it('win32 默认 git-bash', () => {
-    expect(
-      buildShellSession('win32', { findGitBash: () => 'C:\\Git\\bin\\bash.exe' })
-    ).toEqual({
+    expect(buildShellSession('win32', { findGitBash: () => 'C:\\Git\\bin\\bash.exe' })).toEqual({
       file: 'C:\\Git\\bin\\bash.exe',
       args: ['-l', '-i']
     })
