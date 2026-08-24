@@ -43,19 +43,19 @@ function integrationCopy(
 ): Record<SystemIntegrationFeatureId, { label: string; desc: string }> {
   return {
     quickAction: {
-      label: 'Finder 快速操作',
-      desc: `在 Finder 的快速操作菜单中添加「在 ${state.productName} 中打开」`
+      label: 'Finder',
+      desc: `在 Finder 的「快速操作」中添加「在 ${state.productName} 中打开」`
     },
     cliShim: {
-      label: '命令行工具',
-      desc: `在 /usr/local/bin 中安装 ${state.cliName} 命令；可能请求管理员授权`
+      label: 'CLI',
+      desc: `在 /usr/local/bin 中安装 ${state.cliName} 命令（可能请求管理员授权）`
     },
     codexOpenIn: {
-      label: 'Codex Open in 菜单',
-      desc: `在 Codex (ChatGPT) 的 Open in 菜单中添加 ${state.productName}；重启 ChatGPT 后生效`
+      label: 'Codex',
+      desc: `在 Codex 的「打开方式」中添加「在 ${state.productName} 中打开」（重启 Codex 后生效）`
     },
     windowsContextMenu: {
-      label: '资源管理器右键菜单',
+      label: '资源管理器',
       desc: `在资源管理器的右键菜单中添加「在 ${state.productName} 中打开」`
     }
   }

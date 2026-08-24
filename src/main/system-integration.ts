@@ -141,10 +141,12 @@ async function probeFeature(
 
 export async function getSystemIntegrationState(): Promise<SystemIntegrationState> {
   const profile = integrationProfile()
+  const features = await Promise.all(platformFeatureIds().map((id) => probeFeature(id, profile)))
   return {
     productName: profile.productName,
     cliName: profile.name,
-    features: await Promise.all(platformFeatureIds().map((id) => probeFeature(id, profile)))
+    // Codex 未装且未注册则不列出；已注册但应用已卸时仍列出以便移除
+    features: features.filter((f) => f.available)
   }
 }
 

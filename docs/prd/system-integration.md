@@ -10,7 +10,7 @@ DevCube 目前只能从自己的面板里添加 / 打开 **Project**（选择器
 2. **macOS Finder**：设置里一键安装「快速操作」——右键文件夹 → 快速操作 → 「在 DevCube 中打开」。
 3. **Windows 资源管理器**：设置里一键添加右键菜单（文件夹与目录空白处）——「在 DevCube 中打开」。
 4. **Linux**：desktop entry 声明 `inode/directory`，出现在文件管理器「用其他应用打开」。
-5. **Codex 桌面端（ChatGPT）Open In**：设置里一键注册到用户级 `~/.codex/config.toml` 的 `desktop.custom_file_handlers`，Codex 的 Open in 菜单出现 DevCube。
+5. **Codex 桌面端（ChatGPT）**：设置里一键注册到用户级 `~/.codex/config.toml` 的 `desktop.custom_file_handlers`，Codex 的「打开方式」出现 DevCube。
 6. **命令行（macOS）**：设置里一键安装 `devcube` 命令到 `/usr/local/bin`，终端里 `devcube <路径>` 直接打开。
 
 ## User Stories
@@ -18,7 +18,7 @@ DevCube 目前只能从自己的面板里添加 / 打开 **Project**（选择器
 1. 作为用户，我想在 Finder 里右键一个文件夹经快速操作打开 DevCube，以便不用切换应用手动添加项目。
 2. 作为用户，我想在 Windows 资源管理器里右键文件夹（或目录空白处）打开 DevCube，以便与 macOS 同样顺手。
 3. 作为用户，我想在 Linux 文件管理器「用其他应用打开」里看到 DevCube，以便主流发行版也有入口。
-4. 作为用户，我想在 Codex 桌面端的 Open in 菜单里看到 DevCube，以便从 AI 会话一键跳回项目面板。
+4. 作为用户，我想在 Codex 桌面端的「打开方式」里看到 DevCube，以便从 AI 会话一键跳回项目面板。
 5. 作为用户，我想在 macOS 终端里敲 `devcube .` 打开当前目录，以便在 Claude Code / Codex CLI 会话里快速把项目丢进 DevCube。
 6. 作为用户，我想任何外部入口打开一个已登记的项目时只是聚焦选中它，以便不产生重复登记。
 7. 作为用户，我想外部打开一个未登记的目录时它被登记并选中（同手动添加的选中与滚动行为），以便入口之间行为一致。
@@ -27,7 +27,7 @@ DevCube 目前只能从自己的面板里添加 / 打开 **Project**（选择器
 10. 作为用户，我想脚本或其他工具能用 `devcube://open?path=…` 唤起 DevCube，以便自动化集成。
 11. 作为用户，我想 Stable 与 Beta 各自有独立的协议与入口名（DevCube / DevCube Beta），以便双装互不抢注（对齐 Release Edition 隔离）。
 12. 作为用户，我想这些系统入口都在设置「系统集成」里显式开关，以便自主决定装什么、随时移除。
-13. 作为用户，我想未检测到 Codex 桌面端时注册按钮置灰并说明原因，以便与「打开于」的置灰惯例一致。
+13. 作为用户，我想未检测到 Codex 桌面端时设置里不出现该行，以便只看到实际可用的入口；若已经注册过、只是后来卸了 Codex，该行仍在，以便我能移除。
 14. 作为用户，我想注册 Codex 时只增删 DevCube 自己的 handler 条目，以便我 config.toml 里的其他内容与注释原样保留。
 15. 作为用户，我想 config.toml 本身有语法错误时 DevCube 拒绝修改并提示，以便不被工具改坏配置。
 16. 作为用户，我想卸载 DevCube（Windows 卸载器）时右键菜单一并清理，以便不留垃圾注册表项。
@@ -46,7 +46,7 @@ DevCube 目前只能从自己的面板里添加 / 打开 **Project**（选择器
 - **Codex Open In**：外科手术式编辑 `~/.codex/config.toml`——只按表头定位增删 `[desktop.custom_file_handlers.<name>]` 自己的块，其余字节不动；写盘前用 TOML 解析器（smol-toml）校验结果，原文件已损坏或编辑后不合法则拒绝写入。macOS 的 command 用 `/usr/bin/open -b <bundleId>`（无需 CLI 前置），Windows 用当前 exe 绝对路径。
 - **macOS CLI**：`~/Library/Application Support/<edition>/bin/<name>` 生成一行式脚本（`exec /usr/bin/open -b <bundleId> "$@"`，与应用安装位置解耦），软链到 `/usr/local/bin/<name>`；目录不可写时经 @vscode/sudo-prompt 提权执行（VS Code 同款做法）。
 - **Linux**：electron-builder `linux.mimeTypes` 声明 `inode/directory`；deb 自带 `/usr/bin` 符号链接即 CLI，无需额外实现。
-- **设置「系统集成」**：SettingsDialog 新增栏目；各行 = 名称 + 说明 + 安装/移除按钮；状态全部实时探测（文件 / 注册表 / TOML），不落盘持久化。
+- **设置「系统集成」**：SettingsDialog 新增栏目；各行 = 名称 + 说明 + 安装/移除按钮；状态全部实时探测（文件 / 注册表 / TOML），不落盘持久化。Codex 行仅在检测到桌面端、或已写入 handler 时可列出（后者便于卸载 Codex 后仍能移除注册）。
 - **Dev 身份**：未打包时各入口以「DevCube Dev」（name `devcube-dev`）独立分线注册，与正式 / Beta 并行不抢注——macOS 经 `open -a <electron App 路径>` 唤起（正在运行的 dev 实例收 open-file；未运行则仅拉起空 Electron），Windows 以 electron.exe + 项目入口启动。deep link 协议仍仅打包注册。
 - 所有涉及元数据集中于 Release Edition（appId / productName / name），入口文案统一「在 <ProductName> 中打开」；后续要加第二个系统菜单动作时，扩展各投影生成器即可（当前不预建动作清单框架）。
 
@@ -65,4 +65,4 @@ DevCube 目前只能从自己的面板里添加 / 打开 **Project**（选择器
 
 ## Further Notes
 
-Codex 桌面端（随 ChatGPT 分发）的 `desktop.custom_file_handlers` 见官方 Advanced Configuration 文档；改动 config.toml 后需重启 ChatGPT 生效，设置行内注明。两处文档没写的实测行为：`icon` 实为必填（缺失时整个键被 settings-store 丢弃，日志 `Dropping invalid desktop setting`）；未设 `supports_ssh` 的 handler 只出现在本地会话的 Open in 菜单，云端任务会被过滤（DevCube 只开本地目录，语义正确）。
+Codex 桌面端（随 ChatGPT 分发）的 `desktop.custom_file_handlers` 见官方 Advanced Configuration 文档；改动 config.toml 后需重启 Codex 生效，设置行内注明。两处文档没写的实测行为：`icon` 实为必填（缺失时整个键被 settings-store 丢弃，日志 `Dropping invalid desktop setting`）；未设 `supports_ssh` 的 handler 只出现在本地会话的「打开方式」，云端任务会被过滤（DevCube 只开本地目录，语义正确）。
