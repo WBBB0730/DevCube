@@ -4,3 +4,5 @@ pnpm-lock.yaml
 LICENSE.md
 tsconfig.json
 tsconfig.*.json
+# 取色源原件（WebStorm 主题）：保持与 jar 内一字不差，重排就不是原件了
+docs/reference

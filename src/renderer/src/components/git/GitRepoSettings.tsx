@@ -101,11 +101,11 @@ export function GitRepoSettings({
       </div>
       {confirm !== null && (
         <div
-          className="absolute inset-0 z-10 flex items-center justify-center bg-black/40"
+          className="absolute inset-0 z-10 flex items-center justify-center bg-[color:var(--mask-weak)]"
           onClick={() => setConfirm(null)}
         >
           <div
-            className="w-96 rounded-dialog border border-[color:var(--border-input)] bg-panel p-4 shadow-xl"
+            className="w-96 rounded-dialog border border-[color:var(--border-input)] bg-elevated p-4 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="select-text text-[13px] text-foreground">{confirm.message}</div>

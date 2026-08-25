@@ -28,6 +28,7 @@ import {
 } from '@shared/git'
 import { gitState, useGit } from '@renderer/git-store'
 import { useFiles } from '@renderer/files-store'
+import { useApp } from '@renderer/store'
 import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import { abbrevHash } from './git-format'
 import {
@@ -75,6 +76,9 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
   const setViewPrefs = useGit((s) => s.setViewPrefs)
   const expanded = useGit((s) => gitState(s, projectPath).expanded)
   const commits = useGit((s) => gitState(s, projectPath).commits)
+  // 库按 data-theme 挂两套自带变量，主题变了要跟着换；应用侧在 main.css 里对两个 data-theme
+  // 都做了覆写，实际取值仍来自应用 token（漏掉哪个，库那套就会接管）。
+  const theme = useApp((s) => s.theme)
   /** 加载骨架延迟 120ms 出现（防快速响应时闪烁，§10.2） */
   const [showLoading, setShowLoading] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
@@ -392,7 +396,7 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
             diffFile={diffFile}
             diffViewMode={splitView ? DiffModeEnum.Split : DiffModeEnum.Unified}
             diffViewHighlight
-            diffViewTheme="dark"
+            diffViewTheme={theme}
             diffViewFontSize={13}
           />
         </div>

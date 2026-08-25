@@ -15,7 +15,7 @@ export function DialogMask({
 }): React.JSX.Element {
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--mask)]"
       onClick={onClick}
     >
       {children}
@@ -36,7 +36,7 @@ export function DialogPanel({
   return (
     <div
       className={cn(
-        'w-[440px] rounded-dialog border border-[color:var(--border-input)] bg-panel shadow-xl',
+        'w-[440px] rounded-dialog border border-[color:var(--border-input)] bg-elevated shadow-xl',
         className
       )}
       onClick={(e) => e.stopPropagation()}

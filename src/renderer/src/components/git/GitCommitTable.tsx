@@ -411,7 +411,7 @@ export function GitCommitTable({ projectPath }: { projectPath: string }): React.
           <button
             type="button"
             onClick={() => void loadMore(projectPath)}
-            className="h-7 w-[180px] rounded-lg border border-[color:var(--border-input)] bg-panel text-[13px] text-foreground transition-colors hover:bg-[var(--bg-row-hover)]"
+            className="h-7 w-[180px] rounded-lg border border-[color:var(--border-input)] bg-elevated text-[13px] text-foreground transition-colors hover:bg-[var(--bg-row-hover)]"
           >
             加载更多提交
           </button>

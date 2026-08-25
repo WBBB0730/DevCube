@@ -1,5 +1,5 @@
 // Files gutter diff 弹窗（对齐 WebStorm 点击 VCS 条纹）：工具条（回滚该块 / 复制旧文本 /
-// 上一个·下一个改动）+ 基线旧行预览（只读 mini CodeMirror，复用 Darcula 主题与语法高亮；
+// 上一个·下一个改动）+ 基线旧行预览（只读 mini CodeMirror，复用编辑器主题与语法高亮；
 // added 无旧行只出工具条）。受控 Popover + 标准化虚拟锚点。关闭时机：Esc / 点外 / 滚动；
 // 上下跳转是「先关 → 平滑滚动并切光标 → scrollend 后校验新鲜度、按新几何重开」，
 // 滚动发生时弹窗已关，无须豁免逻辑。文档一变由 FilesPane 的 onChange 统一关闭。
@@ -19,6 +19,7 @@ import {
   languageExtensionForPath
 } from '@renderer/lib/cm6-setup'
 import { Popover, PopoverContent } from '@renderer/components/ui/popover'
+import { useApp } from '@renderer/store'
 
 /** 对齐 GitDiffView 头部图标钮：size-6 + hover 底。 */
 const HUNK_BTN =
@@ -39,6 +40,7 @@ export function FilesGutterHunkPopover({
 }): React.JSX.Element {
   const { view, hunks, index } = popup
   const hunk = hunks[index]
+  const theme = useApp((s) => s.theme)
 
   // 滚动即关（跳转时弹窗已先关闭再滚动，此处无须区分滚动来源）
   useEffect(() => {
@@ -100,12 +102,12 @@ export function FilesGutterHunkPopover({
 
   const previewExtensions = useMemo(
     () => [
-      filesEditorTheme,
-      filesHighlighting,
+      filesEditorTheme[theme],
+      filesHighlighting[theme],
       languageExtensionForPath(filePath),
       EditorView.editable.of(false)
     ],
-    [filePath]
+    [theme, filePath]
   )
 
   return (

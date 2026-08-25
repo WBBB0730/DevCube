@@ -23,7 +23,7 @@ export function opBlockReason(op: GitOpInProgress): string {
 
 // 状态条小按钮：观感对齐 GitPane 错误态「重试」钮，压到 h-6 适配紧凑条高
 const BAR_BTN =
-  'h-6 shrink-0 rounded border border-[color:var(--border-input)] bg-panel px-2.5 text-[12px] text-foreground transition-colors hover:bg-[var(--bg-row-hover)]'
+  'h-6 shrink-0 rounded border border-[color:var(--border-input)] bg-elevated px-2.5 text-[12px] text-foreground transition-colors hover:bg-[var(--bg-row-hover)]'
 
 /** 状态条：数据只订阅 opInProgress，为空即不渲染（挂载点在 GitPane 工具栏之后）。 */
 export function GitOpStatusBar({ projectPath }: { projectPath: string }): React.JSX.Element | null {

@@ -15,6 +15,7 @@ import type {
   SystemIntegrationFeatureId,
   SystemIntegrationState
 } from './system-integration'
+import type { ThemeMode } from './theme'
 import type { WorkspaceUiState } from './workspace'
 
 export type { DiscoverSource } from './discover-source'
@@ -59,18 +60,21 @@ export const DEFAULT_PROJECT_SORT_PREFS: ProjectSortPrefs = {
 /** Windows 上 Terminal / Run Session 共用的 shell 偏好。 */
 export type WindowsShell = 'git-bash' | 'powershell' | 'cmd'
 
-/** 跨平台应用偏好（当前仅 Windows shell；非 win32 忽略 windowsShell）。 */
+/** 跨平台应用偏好（windowsShell 仅 win32 生效）。 */
 export interface AppPrefs {
   windowsShell: WindowsShell
+  /** 应用主题；不跟随系统，默认深色（见 shared/theme.ts） */
+  theme: ThemeMode
   /** 上次新建 / 添加项目时，所选项目文件夹的父目录，作为下次对话框的默认位置。 */
   lastProjectParentDir?: string
 }
 
 export const WINDOWS_SHELLS: readonly WindowsShell[] = ['git-bash', 'powershell', 'cmd']
 
-/** 默认 Git Bash；探测不到时运行时回退 PowerShell（见 ADR-0022）。 */
+/** shell 默认 Git Bash，探测不到时运行时回退 PowerShell（见 ADR-0022）；主题默认深色。 */
 export const DEFAULT_APP_PREFS: AppPrefs = {
   windowsShell: 'git-bash',
+  theme: 'dark',
   lastProjectParentDir: undefined
 }
 

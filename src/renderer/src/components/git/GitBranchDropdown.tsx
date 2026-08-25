@@ -55,7 +55,7 @@ export function branchFilterLabel(filter: string[] | null): string {
 
 // 触发行：观感对齐 Input（h-7 紧凑高度），宽度随内容、min 138px / max 30vw（§2.3）
 const TRIGGER =
-  'flex h-7 min-w-[138px] max-w-[30vw] items-center gap-1 rounded border border-[color:var(--border-input)] bg-[var(--bg-panel)] px-2 text-[13px] text-foreground outline-none transition hover:bg-[var(--bg-row-hover)] focus-visible:ring-2 focus-visible:ring-ring'
+  'flex h-7 min-w-[138px] max-w-[30vw] items-center gap-1 rounded border border-[color:var(--border-input)] bg-[var(--bg-elevated)] px-2 text-[13px] text-foreground outline-none transition hover:bg-[var(--bg-row-hover)] focus-visible:ring-2 focus-visible:ring-ring'
 const ROW =
   'flex h-7 cursor-pointer select-none items-center gap-1.5 rounded px-1.5 text-[13px] hover:bg-[var(--bg-row-hover)]'
 

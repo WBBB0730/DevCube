@@ -10,6 +10,7 @@ import type {
   WindowsShell
 } from '../shared/types'
 import { DEFAULT_APP_PREFS, DEFAULT_PROJECT_SORT_PREFS, WINDOWS_SHELLS } from '../shared/types'
+import { THEME_MODES, type ThemeMode } from '../shared/theme'
 import type { WorkspaceUiState } from '../shared/workspace'
 import { DEFAULT_WORKSPACE_UI } from '../shared/workspace'
 import {
@@ -139,12 +140,19 @@ function normalizeWindowsShell(value: unknown): WindowsShell {
     : DEFAULT_APP_PREFS.windowsShell
 }
 
+function normalizeTheme(value: unknown): ThemeMode {
+  return typeof value === 'string' && (THEME_MODES as readonly string[]).includes(value)
+    ? (value as ThemeMode)
+    : DEFAULT_APP_PREFS.theme
+}
+
 export function getAppPrefs(): AppPrefs {
   const stored = store.get('appPrefs')
   return {
     ...DEFAULT_APP_PREFS,
     ...pickKnownKeys(DEFAULT_APP_PREFS, stored),
-    windowsShell: normalizeWindowsShell(stored?.windowsShell ?? DEFAULT_APP_PREFS.windowsShell)
+    windowsShell: normalizeWindowsShell(stored?.windowsShell ?? DEFAULT_APP_PREFS.windowsShell),
+    theme: normalizeTheme(stored?.theme ?? DEFAULT_APP_PREFS.theme)
   }
 }
 
@@ -153,7 +161,8 @@ export function setAppPrefs(patch: Partial<AppPrefs>): AppPrefs {
   const merged: AppPrefs = {
     ...current,
     ...patch,
-    windowsShell: normalizeWindowsShell(patch.windowsShell ?? current.windowsShell)
+    windowsShell: normalizeWindowsShell(patch.windowsShell ?? current.windowsShell),
+    theme: normalizeTheme(patch.theme ?? current.theme)
   }
   store.set('appPrefs', merged)
   return merged

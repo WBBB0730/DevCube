@@ -31,7 +31,7 @@ function PopoverContent({
       >
         <BasePopover.Popup
           className={cn(
-            'max-h-72 min-w-56 overflow-auto rounded-lg border border-[color:var(--border-input)] bg-panel p-1.5 shadow-xl outline-none',
+            'max-h-72 min-w-56 overflow-auto rounded-lg border border-[color:var(--border-input)] bg-elevated p-1.5 shadow-xl outline-none',
             className
           )}
         >

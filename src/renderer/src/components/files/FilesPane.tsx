@@ -39,6 +39,7 @@ import { FilesMarkdownPreview } from './FilesMarkdownPreview'
 import { FilesEntryDialog, type FilesEntryDialogRequest } from './FilesEntryDialog'
 import { FilesTreeMenu, type FilesTreeMenuTarget } from './FilesTreeMenu'
 import { useFiles } from '@renderer/files-store'
+import { useApp } from '@renderer/store'
 import { FormDialogShell } from '@renderer/components/ui/form-dialog'
 import {
   DropdownMenu,
@@ -1229,16 +1230,19 @@ function FilesTextEditor({
   onChange: (value: string) => void
 }): React.JSX.Element {
   const markdown = isMarkdownPath(path)
+  const theme = useApp((s) => s.theme)
+  // 换 extensions 走的是 StateEffect.reconfigure，不重建 EditorState：文档 / 选区 / 滚动
+  // 位置与撤销栈都在，切主题不打断编辑。
   const extensions = useMemo(
     () => [
-      filesEditorTheme,
-      filesHighlighting,
+      filesEditorTheme[theme],
+      filesHighlighting[theme],
       filesEditorConfig,
       filesGutters,
       languageExtensionForPath(path),
       ...(baseline === null ? [] : [gitDiffGutter(baseline, onHunkClick)])
     ],
-    [path, baseline, onHunkClick]
+    [theme, path, baseline, onHunkClick]
   )
   return (
     <div className="flex h-full min-h-0 flex-col">

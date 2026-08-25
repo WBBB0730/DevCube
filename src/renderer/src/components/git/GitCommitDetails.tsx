@@ -489,7 +489,7 @@ function FileTreePane({
         <FileIcon className="size-3.5 shrink-0" style={{ color: colour }} />
         <span
           className="min-w-0 overflow-hidden text-ellipsis whitespace-nowrap transition-colors"
-          // 选中行文字变白（#DFE1E5），压过状态色以在蓝底上清晰
+          // 选中行文字回落正文色，压过状态色以在选中蓝底上清晰
           style={{ color: isSelected ? 'var(--fg-primary)' : colour }}
         >
           {row.name}

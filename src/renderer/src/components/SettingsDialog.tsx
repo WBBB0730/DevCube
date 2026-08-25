@@ -8,6 +8,7 @@ import type {
 } from '@shared/system-integration'
 import type { AppPrefs, WindowsShell, WindowsShellOption } from '@shared/types'
 import { DEFAULT_APP_PREFS } from '@shared/types'
+import { THEME_MODES, type ThemeMode } from '@shared/theme'
 import { LoaderCircle, TriangleAlert } from 'lucide-react'
 import { SettingsModal } from '@renderer/components/SettingsModal'
 import { Button } from '@renderer/components/ui/button'
@@ -19,8 +20,10 @@ import {
   SelectTrigger,
   SelectValue
 } from '@renderer/components/ui/select'
+import { SegmentedControl } from '@renderer/components/ui/segmented-control'
 import { shortcutLabel } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
+import { useApp } from '@renderer/store'
 
 type SectionId = 'about' | 'prefs' | 'integration' | 'keymap'
 
@@ -35,6 +38,11 @@ const WINDOWS_SHELL_LABELS: Record<WindowsShell, string> = {
   'git-bash': 'Git Bash',
   powershell: 'PowerShell',
   cmd: '命令提示符 (cmd)'
+}
+
+const THEME_LABELS: Record<ThemeMode, string> = {
+  dark: '深色',
+  light: '浅色'
 }
 
 /** 系统集成各行文案（统一「在 X 中添加 / 安装 Y」句式；入口详情见 docs/prd/system-integration.md）。 */
@@ -101,11 +109,12 @@ export function SettingsDialog({
   const [integration, setIntegration] = useState<SystemIntegrationState | null>(null)
   const [integrationBusy, setIntegrationBusy] = useState<SystemIntegrationFeatureId | null>(null)
   const [integrationError, setIntegrationError] = useState<string | null>(null)
+  const setTheme = useApp((s) => s.setTheme)
   const platform = window.electron.process.platform
   const isWin = platform === 'win32'
-  // 偏好目前仅 Windows「默认终端」；系统集成仅 macOS / Windows（Linux 无可开关项）。
+  // 偏好全平台可见（主题）；其中「默认终端」仅 Windows。系统集成仅 macOS / Windows（Linux 无可开关项）。
   const sections = SECTIONS.filter((s) =>
-    s.id === 'prefs' ? isWin : s.id === 'integration' ? isWin || platform === 'darwin' : true
+    s.id === 'integration' ? isWin || platform === 'darwin' : true
   )
 
   // Esc 分层关闭：先收错误框，再关设置。
@@ -127,15 +136,12 @@ export function SettingsDialog({
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
   }, [section])
 
+  // shell 选项只有 Windows 用得上，非 win32 不去探测。
   useEffect(() => {
     if (section !== 'prefs') return
-    void Promise.all([window.api.getAppPrefs(), window.api.getWindowsShellOptions()]).then(
-      ([nextPrefs, options]) => {
-        setPrefs(nextPrefs)
-        setShellOptions(options)
-      }
-    )
-  }, [section])
+    void window.api.getAppPrefs().then(setPrefs)
+    if (isWin) void window.api.getWindowsShellOptions().then(setShellOptions)
+  }, [section, isWin])
 
   // 系统集成状态全部实时探测（文件 / 注册表 / TOML），每次切入都重查。
   useEffect(() => {
@@ -158,6 +164,12 @@ export function SettingsDialog({
     const next = { ...(prefs ?? DEFAULT_APP_PREFS), windowsShell }
     setPrefs(next)
     void window.api.setAppPrefs({ windowsShell }).then(setPrefs)
+  }
+
+  // 主题落盘与原生侧同步走 store（渲染层的 JS 侧色源也订阅它），这里只更新本页显示值。
+  const changeTheme = (theme: ThemeMode): void => {
+    setPrefs({ ...(prefs ?? DEFAULT_APP_PREFS), theme })
+    void setTheme(theme)
   }
 
   const canAutoInstall =
@@ -241,33 +253,50 @@ export function SettingsDialog({
             <div className="text-[color:var(--fg-muted)]">正在加载…</div>
           )}
 
-          {section === 'prefs' && isWin && (
-            <div className="space-y-2">
-              <div className="text-[color:var(--fg-primary)]">默认终端</div>
-              {prefs && shellOptions ? (
-                <Select
-                  value={prefs.windowsShell}
-                  onValueChange={(v) => {
-                    if (v != null) setWindowsShell(v as WindowsShell)
-                  }}
-                  items={shellOptions.map((o) => ({
-                    value: o.id,
-                    label: WINDOWS_SHELL_LABELS[o.id]
-                  }))}
-                >
-                  <SelectTrigger className="w-[280px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {shellOptions.map((o) => (
-                      <SelectItem key={o.id} value={o.id} disabled={!o.available}>
-                        {WINDOWS_SHELL_LABELS[o.id]}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              ) : (
-                <div className="text-[color:var(--fg-muted)]">正在加载…</div>
+          {section === 'prefs' && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <div className="text-[color:var(--fg-primary)]">主题</div>
+                {prefs ? (
+                  <SegmentedControl
+                    value={prefs.theme}
+                    onValueChange={(v) => changeTheme(v as ThemeMode)}
+                    items={THEME_MODES.map((m) => ({ value: m, label: THEME_LABELS[m] }))}
+                  />
+                ) : (
+                  <div className="text-[color:var(--fg-muted)]">正在加载…</div>
+                )}
+              </div>
+
+              {isWin && (
+                <div className="space-y-2">
+                  <div className="text-[color:var(--fg-primary)]">默认终端</div>
+                  {prefs && shellOptions ? (
+                    <Select
+                      value={prefs.windowsShell}
+                      onValueChange={(v) => {
+                        if (v != null) setWindowsShell(v as WindowsShell)
+                      }}
+                      items={shellOptions.map((o) => ({
+                        value: o.id,
+                        label: WINDOWS_SHELL_LABELS[o.id]
+                      }))}
+                    >
+                      <SelectTrigger className="w-[280px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {shellOptions.map((o) => (
+                          <SelectItem key={o.id} value={o.id} disabled={!o.available}>
+                            {WINDOWS_SHELL_LABELS[o.id]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="text-[color:var(--fg-muted)]">正在加载…</div>
+                  )}
+                </div>
               )}
             </div>
           )}

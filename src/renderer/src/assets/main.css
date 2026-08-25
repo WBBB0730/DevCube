@@ -21,13 +21,16 @@
 }
 
 /*
-  Run — JetBrains New UI (Darcula) 深色主题。
-  取色与角色见 DESIGN.md；仅深色主题。
+  Run — JetBrains New UI 主题。深色对齐 Darcula，浅色对齐 New UI Light。
+  取色与角色见 DESIGN.md；浅色覆写见下方 @media (prefers-color-scheme: light)。
 */
 :root {
   /* —— 应用语义 token（DESIGN.md） —— */
   --bg-deepest: #1e1f22;
   --bg-panel: #2b2d30;
+  /* 浮起于面板之上的表面：弹层（菜单 / 下拉 / 浮窗 / 对话框）、输入控件、按钮。
+     深色下与 --bg-panel 同值，浅色下 JetBrains 把它抬成纯白，与面板灰分开。 */
+  --bg-elevated: #2b2d30;
   --bg-row-hover: #393b40;
   --bg-button-hover: #515257;
   --fg-primary: #dfe1e5;
@@ -67,6 +70,10 @@
   --git-line-modified: #375fad;
   --git-line-deleted: #868a91;
 
+  /* —— 弹窗遮罩：--mask 用于全屏弹层，--mask-weak 用于叠在弹层之上的内层确认 —— */
+  --mask: rgb(0 0 0 / 0.5);
+  --mask-weak: rgb(0 0 0 / 0.4);
+
   /* —— 滚动条（webkit） —— */
   --scrollbar-thumb: #404043;
   --scrollbar-thumb-hover: #626365;
@@ -91,8 +98,10 @@
   --diff-add-word-bg: #375239;
   --diff-del-word-bg: #553a3d;
   --diff-hunk-header-bg: #2b2d30;
+  /* 左右对比的空占位：两侧都压黑，但浅色底亮、压同样比例会比正文底重得多，须大幅收力（见浅色块） */
+  --diff-empty-bg: color-mix(in srgb, black 15%, var(--bg-deepest));
   /* 提交查找命中高亮（Shell.icls SEARCH_RESULT 绿）。
-     ⚠ 与 Console.tsx SEARCH_OPTS 同值双写——xterm 是 JS API 吃不了 CSS 变量，改动需两处同步 */
+     ⚠ 与 Console.tsx SEARCH_THEMES.dark 同值双写——xterm 是 JS API 吃不了 CSS 变量，改动需两处同步 */
   --find-match-bg: #2d543f;
   --find-match-active-bg: #3d7a49;
 
@@ -120,6 +129,121 @@
   --ring: transparent;
 }
 
+/*
+  —— 浅色主题（JetBrains New UI Light）——
+
+  只列与深色不同的 token，其余继承上方 :root（如主蓝 --primary、停止红 --stop-active-bg、
+  Git 图谱 12 色，浅深两套本就同值）。
+
+  prefers-color-scheme 跟随主进程强制的 nativeTheme.themeSource（见 shared/theme.ts），
+  不跟随系统外观——用媒体查询是为了让样式表在解析时就定音，首帧不闪（ADR-0026）。
+
+  取色源（WebStorm 2026.1 · intellij.platform.ide.impl.jar）：
+  ① UI 层 themes/expUI/expUI_light.theme.json
+  ② 编辑器层 themes/expUI/expUI_lightScheme.xml
+  ③ 两者继承的基方案与 ANSI 调色板 DefaultColorSchemesManager.xml
+  逐项出处见 DESIGN.md 的浅色列。
+*/
+@media (prefers-color-scheme: light) {
+  :root {
+    /* —— 表面 / 结构 ——
+       语义反转：深色下 --bg-deepest 是最暗层，浅色下它（编辑器 / 控制台）反而比面板亮。
+       分隔也不再是深色凹槽，改用浅描边（--separator ≠ --bg-deepest）。 */
+    --bg-deepest: #ffffff;
+    --bg-panel: #f7f8fa;
+    --bg-elevated: #ffffff;
+    --bg-row-hover: #edf3ff;
+    --bg-button-hover: #e6e6e8;
+
+    /* —— 文字 / 图标 —— */
+    --fg-primary: #000000;
+    --fg-icon: #6c707e;
+    --fg-muted: #818594;
+    --fg-disabled: #a8adbd;
+    --fg-dialog-title: #494b57;
+    --fg-code: #080808;
+
+    /* —— 边框 / 选中 / 强调 —— */
+    --border-input: #c9ccd6;
+    --separator: #ebecf0;
+    --selection-row: #d4e2ff;
+    --selection-row-hover: #c2d6fc;
+    --editor-selection: #a6d2ff;
+    --link: #006dcc;
+
+    /* —— 运行 / 停止按钮 ——
+       运行绿取图标本体的浅色版（RunWidget.runIconColor 服务的是 New UI 那个深色主工具栏，
+       白底上对比度不够）；停止红浅深同值，不覆写。 */
+    --run-glyph: #208a3c;
+    --run-active-bg: #599e5e;
+    --run-active-bg-hover: #508f55;
+
+    /* —— 状态点 ——
+       深色下「失败」与「停止按钮底」绑成同一颗，浅色下 JetBrains 是两个值，解绑。
+       这几颗同时充当提交面板「+N / -N」的 12px 文字色，故取 New UI Light 的**前景**变体
+       （Badge.greenOutlineForeground / Label.errorForeground，均为 Green4 / Red4），
+       而不是图标填充用的 Green6 #55A76A / Red5 #E55765——后者在白底上只有 3:1 上下，
+       当图标够用、当文字太淡。 */
+    --status-idle: #818594;
+    --status-running: #208a3c;
+    --status-success: #208a3c;
+    --status-failed: #db3b4b;
+
+    /* —— Git 文件状态（expUI_lightScheme.xml FILESTATUS_*） —— */
+    --git-status-added: #067d17;
+    --git-status-modified: #0033b3;
+    --git-status-deleted: #6c707e;
+    --git-status-untracked: #b23247;
+    --git-status-conflict: #de1b2e;
+    --git-status-merged: #643cb8;
+    --git-status-ignored: #8c4f00;
+
+    /* —— Git 行状态（expUI_lightScheme.xml *_LINES_COLOR） —— */
+    --git-line-added: #7fc784;
+    --git-line-modified: #88adf7;
+    --git-line-deleted: #767a8a;
+
+    /* —— 弹窗遮罩：浅底压黑要淡得多，否则整屏发灰 —— */
+    --mask: rgb(0 0 0 / 0.2);
+    --mask-weak: rgb(0 0 0 / 0.16);
+
+    /* —— 滚动条（intellijlaf.theme.json ScrollBar.Mac.*，带 alpha，此处为合成于面板的等效值） —— */
+    --scrollbar-thumb: #c6c6c8;
+    --scrollbar-thumb-hover: #7b7c7d;
+
+    /* —— Git 图谱 —— 12 色与未提交灰按上游 vscode-git-graph 保持固定，不随主题（ADR-0026）。 */
+
+    /* —— diff 面板（Default 基方案 DIFF_*；词级取同键 ERROR_STRIPE_COLOR） —— */
+    --diff-add-bg: #bee6be;
+    --diff-del-bg: #d6d6d6;
+    --diff-add-word-bg: #aadeaa;
+    --diff-del-word-bg: #c8c8c8;
+    --diff-hunk-header-bg: #f7f8fa;
+    --diff-empty-bg: color-mix(in srgb, black 5%, var(--bg-deepest));
+
+    /* —— 查找命中（TEXT_SEARCH_RESULT_ATTRIBUTES 黄；active 取同块 ERROR_STRIPE_COLOR）。
+       ⚠ 与 Console.tsx SEARCH_THEMES.light 同值双写，改动需两处同步 —— */
+    --find-match-bg: #fcd47e;
+    --find-match-active-bg: #c47233;
+
+    /* —— shadcn 语义 token —— */
+    --background: #f7f8fa;
+    --foreground: #000000;
+    --card: #f7f8fa;
+    --card-foreground: #000000;
+    --popover: #ffffff;
+    --popover-foreground: #000000;
+    --secondary: #ebecf0;
+    --secondary-foreground: #000000;
+    --muted: #ebecf0;
+    --muted-foreground: #818594;
+    --accent: #ebecf0;
+    --accent-foreground: #000000;
+    --border: #ebecf0;
+    --input: #c9ccd6;
+  }
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
@@ -143,6 +267,7 @@
 
   /* 应用自定义色 → 生成 bg-panel / bg-deepest / text-status-failed 等工具类 */
   --color-panel: var(--bg-panel);
+  --color-elevated: var(--bg-elevated);
   --color-deepest: var(--bg-deepest);
   --color-row-hover: var(--bg-row-hover);
   --color-selection: var(--selection-row);
@@ -181,8 +306,8 @@
   }
   body {
     @apply bg-background text-foreground;
-    /* 让浏览器以深色渲染原生表单控件（原生 checkbox/radio 未选中态不再是白底） */
-    color-scheme: dark;
+    /* 让浏览器按当前主题渲染原生表单控件与默认 UI（取值同样由 themeSource 驱动） */
+    color-scheme: light dark;
     margin: 0;
     overflow: hidden;
     font-family: var(--font-sans);
@@ -246,8 +371,11 @@
 /* —— Git diff 面板（@git-diff-view/react）——
    库以「.diff-tailwindcss-wrapper[data-theme] .diff-style-root」定义主题变量，此处用
    同一选择器按源序后置覆盖（库样式经顶部 @import 先入级联），取值全部引用上方的
-   Darcula token（--diff-* / --bg-* / --fg-*），不引入第二套色源。 */
-.diff-tailwindcss-wrapper[data-theme='dark'] .diff-style-root {
+   应用 token（--diff-* / --bg-* / --fg-*），不引入第二套色源。
+   两个 data-theme 都要写：取值本身已随主题翻，但漏掉哪个，库自带的那套（浅色是 GitHub 配色）
+   就会全量接管；而降级成不带属性的选择器又压不过库的特异性。 */
+.diff-tailwindcss-wrapper[data-theme='dark'] .diff-style-root,
+.diff-tailwindcss-wrapper[data-theme='light'] .diff-style-root {
   --diff-border--: var(--separator);
   --diff-add-content--: var(--diff-add-bg);
   --diff-del-content--: var(--diff-del-bg);
@@ -264,9 +392,8 @@
   --diff-hunk-content--: var(--diff-hunk-header-bg);
   --diff-hunk-lineNumber--: var(--diff-hunk-header-bg);
   --diff-hunk-content-color--: var(--fg-muted);
-  /* 左右对比的空占位：沿用旧实现的「深底再压 15% 黑」观感 */
-  --diff-empty-content--: color-mix(in srgb, black 15%, var(--bg-deepest));
-  /* 库 dark 主题写死 color: white，压回应用正文色 */
+  --diff-empty-content--: var(--diff-empty-bg);
+  /* 库两套主题分别写死 color: white / black，压回应用正文色 */
   color: var(--fg-primary);
 }
 

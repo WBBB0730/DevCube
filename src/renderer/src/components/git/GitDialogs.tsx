@@ -1,5 +1,5 @@
 // Git 对话框宿主（menus-dialogs §3）：通用表单渲染器（骨架照 ConfigDialog：fixed 遮罩 +
-// w-[440px] bg-panel 面板、Esc/点遮罩=取消、Enter=主按钮且排除输入法合成）+ D1–D30 逐个描述。
+// w-[440px] bg-elevated 面板、Esc/点遮罩=取消、Enter=主按钮且排除输入法合成）+ D1–D30 逐个描述。
 // 追问链（重名替换 / 强制删除 / 提交不在远程等）用组件内 chase 状态续弹，不经过 store.dialog。
 // actionRunning 的进行中遮罩与 actionErrors 的错误框也由本组件呈现（§1.3 状态机）。
 // v1 取舍：D6（创建 Pull Request）不做（无 PR 配置契约）；D30 数据加载错误的「重试」在
@@ -1912,7 +1912,7 @@ function InlineRefreshButton({
       type="button"
       title={title}
       disabled={refreshing}
-      className="flex size-8 shrink-0 items-center justify-center rounded border border-[color:var(--border-input)] bg-[var(--bg-panel)] text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)] disabled:pointer-events-none disabled:opacity-50"
+      className="flex size-8 shrink-0 items-center justify-center rounded border border-[color:var(--border-input)] bg-[var(--bg-elevated)] text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)] disabled:pointer-events-none disabled:opacity-50"
       onClick={onClick}
     >
       {refreshing ? (
@@ -1972,7 +1972,7 @@ export function DialogCombobox({
         }}
       />
       {listOpen && (
-        <div className="absolute inset-x-0 top-full z-10 mt-1 max-h-48 overflow-auto rounded-lg border border-[color:var(--border-input)] bg-panel p-1.5 shadow-xl">
+        <div className="absolute inset-x-0 top-full z-10 mt-1 max-h-48 overflow-auto rounded-lg border border-[color:var(--border-input)] bg-elevated p-1.5 shadow-xl">
           {matched.map((s) => (
             <button
               key={s}

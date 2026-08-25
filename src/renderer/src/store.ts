@@ -11,11 +11,25 @@ import type {
   SessionStatus
 } from '@shared/types'
 import { DEFAULT_PROJECT_SORT_PREFS } from '@shared/types'
+import type { ThemeMode } from '@shared/theme'
 import { configKey, filesTabKey, gitTabKey, isResidentTabKey } from '@shared/runnable'
 import { cycleProjectSort } from '@shared/project-sort'
 import { resolveActiveTabKey, resolveNeighborAfterClose } from '@shared/tab-activation'
 import { workspaceSliceFromBootstrap } from '@shared/renderer-bootstrap'
 import { terminalsToShellsByProject } from '@shared/workspace'
+
+/**
+ * 首屏主题。主进程建窗前已按偏好把 nativeTheme.themeSource 钉死，页面加载时
+ * prefers-color-scheme 即为正确值——CSS 与 JS 侧色源同源，不会不一致。
+ */
+function initialTheme(): ThemeMode {
+  try {
+    return window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark'
+  } catch {
+    // vitest / 非 Electron 环境
+    return 'dark'
+  }
+}
 
 function initialWorkspaceSlice(): ReturnType<typeof workspaceSliceFromBootstrap> {
   try {
@@ -178,6 +192,12 @@ interface AppState {
   dialog: DialogState
   /** 左树项目排序偏好（落盘） */
   projectSortPrefs: ProjectSortPrefs
+  /**
+   * 应用主题（落盘）。CSS 全部走 prefers-color-scheme，无需读这里；此值供吃不了 CSS 变量的
+   * 四处 JS 侧色源使用：xterm 调色板、终端搜索装饰、CodeMirror 主题与语法高亮、
+   * diff 面板的 data-theme。
+   */
+  theme: ThemeMode
   /** 左树项目名搜索（纯内存） */
   projectFilter: string
   /** +1 驱动左树聚焦项目筛选框（⌥⌘P / Ctrl+Alt+P） */
@@ -218,6 +238,8 @@ interface AppState {
   cycleSortMode: (mode: ProjectSortPrefs['mode']) => Promise<void>
   /** 开关已 Pin 项目行滚动吸顶 */
   setPinSticky: (pinSticky: boolean) => Promise<void>
+  /** 切换主题：本地即时生效，主进程随后同步 themeSource 与窗口色（CSS 由此翻） */
+  setTheme: (theme: ThemeMode) => Promise<void>
   setProjectFilter: (query: string) => void
   /** 聚焦左树项目筛选框 */
   focusProjectFilter: () => void
@@ -260,6 +282,7 @@ async function applyAddedProject(
 
 export const useApp = create<AppState>((set, get) => ({
   ...initialWorkspaceSlice(),
+  theme: initialTheme(),
   runNonce: {},
   dialog: { open: false },
   projectFilter: '',
@@ -423,6 +446,10 @@ export const useApp = create<AppState>((set, get) => ({
     const next = { ...get().projectSortPrefs, pinSticky }
     set({ projectSortPrefs: next })
     set({ projectSortPrefs: await window.api.setProjectSortPrefs({ pinSticky }) })
+  },
+  setTheme: async (theme) => {
+    set({ theme })
+    await window.api.setAppPrefs({ theme })
   },
   setProjectFilter: (query) => set({ projectFilter: query }),
   focusProjectFilter: () =>

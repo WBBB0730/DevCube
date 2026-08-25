@@ -2,7 +2,7 @@
 // 原仓库设置面板「常规」区的三态 select 在此收敛为二态 checkbox：checked 按
 // resolveOverride 解析（settings 未拉到前按 default 显示，快照落桶后自动纠正），
 // onChange 写 enabled/disabled（updateSettings 对数据键自动硬刷新）。
-// 浮层观感对齐 GitBranchDropdown（bg-panel / p-1.5），控件用 shadcn Checkbox / RadioGroup。
+// 浮层观感对齐 GitBranchDropdown（bg-elevated / p-1.5），控件用 shadcn Checkbox / RadioGroup。
 import { SlidersHorizontal } from 'lucide-react'
 import {
   GIT_DEFAULTS,

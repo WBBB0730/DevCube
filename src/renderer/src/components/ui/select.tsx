@@ -1,5 +1,5 @@
 // Base UI Select 封装（vendored shadcn 风格，弹层样式照抄 dropdown-menu / popover：
-// Portal + Positioner z-50 + Popup bg-panel/border-input/rounded-lg）。
+// Portal + Positioner z-50 + Popup bg-elevated/border-input/rounded-lg）。
 // Root/Value 直接透传：多选（multiple）与自定义选中值展示（Value 的函数 children）都经它们使用。
 import { Select as BaseSelect } from '@base-ui-components/react/select'
 import { Check, ChevronDown } from 'lucide-react'
@@ -18,7 +18,7 @@ function SelectTrigger({
   return (
     <BaseSelect.Trigger
       className={cn(
-        'flex h-8 w-full cursor-pointer select-none items-center justify-between gap-1.5 rounded border border-[color:var(--border-input)] bg-[var(--bg-panel)] px-2.5 text-left text-[13px] text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring',
+        'flex h-8 w-full cursor-pointer select-none items-center justify-between gap-1.5 rounded border border-[color:var(--border-input)] bg-[var(--bg-elevated)] px-2.5 text-left text-[13px] text-foreground outline-none transition focus-visible:ring-2 focus-visible:ring-ring',
         className
       )}
     >
@@ -51,7 +51,7 @@ function SelectContent({
       >
         <BaseSelect.Popup
           className={cn(
-            'max-h-72 min-w-[var(--anchor-width)] overflow-auto rounded-lg border border-[color:var(--border-input)] bg-panel p-1.5 shadow-xl outline-none',
+            'max-h-72 min-w-[var(--anchor-width)] overflow-auto rounded-lg border border-[color:var(--border-input)] bg-elevated p-1.5 shadow-xl outline-none',
             className
           )}
         >

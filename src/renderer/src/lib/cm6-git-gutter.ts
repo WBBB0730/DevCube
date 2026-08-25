@@ -16,7 +16,7 @@ import {
 import type { RangeSet, Text } from '@codemirror/state'
 import { EditorView, GutterMarker, lineNumberMarkers, lineNumbers } from '@codemirror/view'
 
-/** VCS 行状态色 token（main.css :root；值出自 docs/reference/Dark.icls 的 *_LINES_COLOR）。 */
+/** VCS 行状态色 token（main.css 随主题翻；值出自两套配色方案的 *_LINES_COLOR，见 DESIGN.md）。 */
 const VCS_LINE = {
   added: 'var(--git-line-added)',
   modified: 'var(--git-line-modified)',

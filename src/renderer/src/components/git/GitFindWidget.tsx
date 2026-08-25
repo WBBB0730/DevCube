@@ -199,7 +199,7 @@ export function GitFindWidget({ projectPath }: { projectPath: string }): React.J
   return (
     <div
       ref={rootRef}
-      className="absolute right-3 top-2 z-20 w-80 rounded-lg border border-[color:var(--border-input)] bg-panel px-1.5 py-1 shadow-xl"
+      className="absolute right-3 top-2 z-20 w-80 rounded-lg border border-[color:var(--border-input)] bg-elevated px-1.5 py-1 shadow-xl"
     >
       <div className="flex items-center gap-1">
         <Search className="size-3.5 shrink-0 text-muted-foreground" />

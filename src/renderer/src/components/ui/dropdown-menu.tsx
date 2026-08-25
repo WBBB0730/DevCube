@@ -26,7 +26,7 @@ function DropdownMenuContent({
       <Menu.Positioner className="z-50" side={side} align={align} sideOffset={sideOffset}>
         <Menu.Popup
           className={cn(
-            'min-w-32 rounded-lg border border-[color:var(--border-input)] bg-panel p-1.5 shadow-xl outline-none',
+            'min-w-32 rounded-lg border border-[color:var(--border-input)] bg-elevated p-1.5 shadow-xl outline-none',
             className
           )}
           // Portal 仍走 React 树冒泡：拦住右键，避免落到下方行又开一层右键菜单。
@@ -110,7 +110,7 @@ function DropdownMenuSubContent({
       >
         <Menu.Popup
           className={cn(
-            'min-w-32 rounded-lg border border-[color:var(--border-input)] bg-panel p-1.5 shadow-xl outline-none',
+            'min-w-32 rounded-lg border border-[color:var(--border-input)] bg-elevated p-1.5 shadow-xl outline-none',
             className
           )}
           onContextMenu={(e) => {

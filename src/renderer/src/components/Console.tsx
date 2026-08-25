@@ -37,13 +37,14 @@ import {
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
 import type { SessionOutput, SessionStatus } from '@shared/types'
+import type { ThemeMode } from '@shared/theme'
 import { configKey, filesTabKey, gitTabKey } from '@shared/runnable'
 import { SHORTCUT, tabAtShortcut } from '@shared/shortcut-label'
 import { useApp, resolveTabs, type RunTabInfo, type TerminalTab } from '@renderer/store'
 import { gitState, useGit } from '@renderer/git-store'
 import { shortcutLabel, shortcutTitle } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
-import { xtermTheme } from '@renderer/lib/xterm-theme'
+import { xtermThemes } from '@renderer/lib/xterm-theme'
 import { GitPane } from '@renderer/components/git/GitPane'
 import { FilesPane } from '@renderer/components/files/FilesPane'
 import { abbrevHash } from '@renderer/components/git/git-format'
@@ -628,15 +629,27 @@ function TerminalTabItem({
   )
 }
 
-// 搜索高亮配色：取自 Shell.icls 的 SEARCH_RESULT（绿）；activeMatch 取更亮的绿。
+// 搜索高亮配色：深色取自 Shell.icls 的 SEARCH_RESULT（绿）、activeMatch 取更亮的绿；
+// 浅色取自 expUI_lightScheme.xml 的 TEXT_SEARCH_RESULT_ATTRIBUTES（黄）、activeMatch 取同块
+// ERROR_STRIPE_COLOR。
 // ⚠ 与 main.css 的 --find-match-bg / --find-match-active-bg 同值双写——xterm 是 JS API
 // 吃不了 CSS 变量，改动需两处同步。
-const SEARCH_OPTS: ISearchOptions = {
-  decorations: {
-    matchBackground: '#2d543f',
-    matchOverviewRuler: '#42bd77',
-    activeMatchBackground: '#3d7a49',
-    activeMatchColorOverviewRuler: '#42bd77'
+const SEARCH_THEMES: Record<ThemeMode, ISearchOptions> = {
+  dark: {
+    decorations: {
+      matchBackground: '#2d543f',
+      matchOverviewRuler: '#42bd77',
+      activeMatchBackground: '#3d7a49',
+      activeMatchColorOverviewRuler: '#42bd77'
+    }
+  },
+  light: {
+    decorations: {
+      matchBackground: '#fcd47e',
+      matchOverviewRuler: '#c47233',
+      activeMatchBackground: '#c47233',
+      activeMatchColorOverviewRuler: '#c47233'
+    }
   }
 }
 
@@ -691,6 +704,7 @@ function TerminalPane({
   const runNonce = useApp((s) => (mode === 'run' ? (s.runNonce[paneKey] ?? 0) : 0))
   const status = useApp((s) => (mode === 'run' ? s.sessions[paneKey]?.status : undefined))
   const terminalLive = useApp((s) => (mode === 'terminal' ? !!s.sessions[paneKey] : true))
+  const theme = useApp((s) => s.theme)
 
   // 供内容回填的异步回调判断「回填完成时是否可见」以决定聚焦（避免把 visible 塞进 deps 触发重跑）。
   useEffect(() => {
@@ -704,7 +718,8 @@ function TerminalPane({
       fontSize: 13,
       lineHeight: 1.3,
       fontWeight: 500,
-      theme: xtermTheme,
+      // 挂载时直取当前主题（本 effect 只跑一次，不进 deps）；后续切换由下方主题 effect 接管。
+      theme: xtermThemes[useApp.getState().theme],
       cursorBlink: true,
       scrollback: 10000,
       allowProposedApi: true
@@ -839,6 +854,8 @@ function TerminalPane({
   }, [paneKey, runNonce, mode, terminalLive])
 
   // 变可见：隐藏期间 ResizeObserver 不触发，手动 refit + 聚焦。
+  // 画面本身不用管：隐藏期间（容器 display:none）xterm 的 RenderService 处于 paused，
+  // 其间的重绘请求只标 _needsFullRefresh，等 IntersectionObserver 报可见时自行全量补画。
   useEffect(() => {
     if (!visible) return
     const term = termRef.current
@@ -851,6 +868,25 @@ function TerminalPane({
     window.api.resize(paneKey, term.cols, term.rows)
     term.focus()
   }, [visible, paneKey])
+
+  // 主题切换：xterm 调色板是 JS 侧对象、吃不了 CSS 变量，必须整对象替换——官方明确改属性
+  // 再赋回不生效；换色会触发全量重绘，WebGL 渲染器另订阅 onChangeColors 重建字形图集。
+  //
+  // 搜索高亮要单独重画：装饰色是 findNext 传入后在创建时定死的，换调色板带不动。重画前必须
+  // 先 clearDecorations()——它顺带清掉 addon 缓存的搜索词，否则 addon 认为「词与选项都没变」
+  // 直接跳过重画（didOptionsChange 不比较 decorations）；清掉后它还会按选区**起点**而非末尾
+  // 重新命中，当前命中不会被推进一个。搜索框关着时不能跑：那时高亮已清、query 却还留着，
+  // 跑一趟会凭空画出整屏高亮并把视口滚到第一处。
+  useEffect(() => {
+    const term = termRef.current
+    if (!term) return
+    term.options.theme = { ...xtermThemes[theme] }
+    if (!searchOpen || !query) return
+    searchRef.current?.clearDecorations()
+    searchRef.current?.findNext(query, SEARCH_THEMES[theme])
+    // 只在主题变化时重画；query / searchOpen 自身的变化各有既有路径处理。
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
+  }, [theme])
 
   // 只读：run 模式进程结束后禁输入（含粘贴），选中/复制/搜索照常；终端始终可交互。
   useEffect(() => {
@@ -869,8 +905,8 @@ function TerminalPane({
       s.clearDecorations()
       return
     }
-    if (dir === 'prev') s.findPrevious(value, SEARCH_OPTS)
-    else s.findNext(value, SEARCH_OPTS)
+    if (dir === 'prev') s.findPrevious(value, SEARCH_THEMES[theme])
+    else s.findNext(value, SEARCH_THEMES[theme])
   }
 
   const closeSearch = (): void => {
@@ -895,7 +931,7 @@ function TerminalPane({
     <div className="relative h-full w-full">
       <div ref={containerRef} className="h-full w-full p-2" />
       {searchOpen && (
-        <div className="absolute right-3 top-2 z-20 flex w-80 items-center gap-1 rounded-lg border border-[color:var(--border-input)] bg-panel px-1.5 py-1 shadow-xl">
+        <div className="absolute right-3 top-2 z-20 flex w-80 items-center gap-1 rounded-lg border border-[color:var(--border-input)] bg-elevated px-1.5 py-1 shadow-xl">
           <Search className="size-3.5 shrink-0 text-muted-foreground" />
           <input
             ref={searchInputRef}

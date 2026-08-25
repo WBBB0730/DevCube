@@ -1,4 +1,4 @@
-import { app, shell, BrowserWindow, nativeTheme } from 'electron'
+import { app, shell, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
@@ -29,7 +29,9 @@ import {
 } from './external-open'
 import { openProjectFromExternal } from './ipc'
 import { addProjectByPath } from './projects'
-import { getWorkspaceUi, setWorkspaceUi } from './store'
+import { getAppPrefs, getWorkspaceUi, setWorkspaceUi } from './store'
+import { WINDOW_CHROME } from '../shared/theme'
+import { applyTheme } from './theme'
 
 // 必须早于 app.ready、Store 初始化和 Chromium Session 创建，隔离 Stable / Beta / Dev。
 configureUserData(app)
@@ -61,9 +63,6 @@ app.on('second-instance', (_event, argv, workingDirectory) => {
   }
 })
 
-// 仅深色：强制原生菜单（含 Windows 托盘）走深色，不跟系统浅色。
-nativeTheme.themeSource = 'dark'
-
 // 必须在 app.ready 之前注册特权 scheme，否则渲染层无法用自定义协议播媒体。
 registerFilesMediaScheme()
 // 必须在 app.ready 之前安装/清除应用菜单，否则 Electron 会挂上含 DevTools 的默认菜单。
@@ -78,6 +77,7 @@ const WINDOW_DEFAULTS = {
 
 function createWindow(): BrowserWindow {
   const placement = resolveRememberedWindowPlacement(WINDOW_DEFAULTS)
+  const chrome = WINDOW_CHROME[getAppPrefs().theme]
   const mainWindow = new BrowserWindow({
     width: placement.width,
     height: placement.height,
@@ -88,14 +88,14 @@ function createWindow(): BrowserWindow {
     minHeight: WINDOW_DEFAULTS.minHeight,
     show: false,
     autoHideMenuBar: true,
-    backgroundColor: '#2b2d30',
+    backgroundColor: chrome.background,
     titleBarStyle: 'hidden',
     ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 16, y: 12 } } : {}),
     ...(process.platform !== 'darwin'
       ? {
           titleBarOverlay: {
-            color: '#2b2d30',
-            symbolColor: '#ced0d6',
+            color: chrome.background,
+            symbolColor: chrome.symbol,
             height: 40
           }
         }
@@ -172,6 +172,8 @@ app.whenReady().then(async () => {
   })
 
   await initStore()
+  // 必须在建窗之前：themeSource 决定页面加载时 prefers-color-scheme 的取值，样式表解析即定音，首帧不闪。
+  applyTheme(getAppPrefs().theme)
   handleFilesMediaProtocol()
   // preload sendSync 依赖此通道；必须在 createWindow / loadURL 之前。
   registerBootstrapIpc()

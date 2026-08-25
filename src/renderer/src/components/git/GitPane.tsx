@@ -106,7 +106,7 @@ export function GitPane({
           <button
             type="button"
             onClick={() => void load(projectPath, { hard: true })}
-            className="h-7 rounded-lg border border-[color:var(--border-input)] bg-panel px-4 text-[13px] text-foreground transition-colors hover:bg-[var(--bg-row-hover)]"
+            className="h-7 rounded-lg border border-[color:var(--border-input)] bg-elevated px-4 text-[13px] text-foreground transition-colors hover:bg-[var(--bg-row-hover)]"
           >
             重试
           </button>
@@ -124,7 +124,7 @@ export function GitPane({
                   useGit.getState().openDialog(projectPath, { kind: 'init', defaultBranch })
                 })
               }}
-              className="h-7 rounded-lg border border-[color:var(--border-input)] bg-panel px-4 text-[13px] text-foreground transition-colors hover:bg-[var(--bg-row-hover)]"
+              className="h-7 rounded-lg border border-[color:var(--border-input)] bg-elevated px-4 text-[13px] text-foreground transition-colors hover:bg-[var(--bg-row-hover)]"
             >
               初始化 Git 仓库
             </button>
@@ -134,7 +134,7 @@ export function GitPane({
                 // 重验仓库根后软刷新；有变化时主进程也推 git:changed，两次 load 由代际号去重
                 void window.api.gitRevalidate(projectPath).then(() => load(projectPath))
               }}
-              className="h-7 rounded-lg border border-[color:var(--border-input)] bg-panel px-4 text-[13px] text-foreground transition-colors hover:bg-[var(--bg-row-hover)]"
+              className="h-7 rounded-lg border border-[color:var(--border-input)] bg-elevated px-4 text-[13px] text-foreground transition-colors hover:bg-[var(--bg-row-hover)]"
             >
               刷新
             </button>

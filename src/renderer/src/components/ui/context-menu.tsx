@@ -43,7 +43,7 @@ function ContextMenuContent({
       >
         <BaseContextMenu.Popup
           className={cn(
-            'min-w-32 rounded-lg border border-[color:var(--border-input)] bg-panel p-1.5 shadow-xl outline-none',
+            'min-w-32 rounded-lg border border-[color:var(--border-input)] bg-elevated p-1.5 shadow-xl outline-none',
             className
           )}
           onContextMenu={(e) => {

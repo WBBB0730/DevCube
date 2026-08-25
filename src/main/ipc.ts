@@ -75,6 +75,7 @@ import {
   setProjectSortPrefs,
   setWorkspaceUi
 } from './store'
+import { applyTheme } from './theme'
 import {
   createEntry,
   filterFilesTreeScan,
@@ -257,7 +258,12 @@ export function registerIpc(win: BrowserWindow): void {
   )
 
   ipcMain.handle(IPC.appPrefsGet, () => getAppPrefs())
-  ipcMain.handle(IPC.appPrefsSet, (_e, patch: Partial<AppPrefs>) => setAppPrefs(patch))
+  ipcMain.handle(IPC.appPrefsSet, (_e, patch: Partial<AppPrefs>) => {
+    const merged = setAppPrefs(patch)
+    // 主题改动即时落到原生侧（themeSource 驱动渲染层 prefers-color-scheme，无需重启窗口）。
+    if (patch.theme !== undefined) applyTheme(merged.theme)
+    return merged
+  })
   ipcMain.handle(IPC.windowsShellOptions, (): WindowsShellOption[] => [
     { id: 'git-bash', available: findGitBash() !== null },
     { id: 'powershell', available: true },
