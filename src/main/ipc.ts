@@ -78,7 +78,7 @@ import {
 import { applyTheme } from './theme'
 import {
   createEntry,
-  filterFilesTreeScan,
+  filterFilesTreeQuery,
   listDir,
   readFileEntry,
   readHeadText,
@@ -87,6 +87,7 @@ import {
   trashEntry,
   writeFileEntry
 } from './files'
+import { invalidateFilesIndex } from './files-index'
 import type { FilesUiState } from '../shared/files'
 import type { WorkspaceUiState } from '../shared/workspace'
 import { buildTree } from './tree'
@@ -129,8 +130,9 @@ function emitGitChanged(projectPath: string): void {
   }
 }
 
-/** 某项目工作区文件变化：通知 Files Tab 重拉已缓存目录 / 同步打开文件。 */
+/** 某项目工作区文件变化：作废文件名索引，并通知 Files Tab 重拉已缓存目录 / 同步打开文件。 */
 function emitFilesChanged(projectPath: string): void {
+  invalidateFilesIndex(projectPath)
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(IPC.filesChanged, projectPath)
   }
@@ -383,7 +385,7 @@ export function registerIpc(win: BrowserWindow): void {
     listDir(projectPath, dirPath)
   )
   ipcMain.handle(IPC.filesFilterTree, (_e, projectPath: string, query: string) =>
-    filterFilesTreeScan(projectPath, query)
+    filterFilesTreeQuery(projectPath, query)
   )
   ipcMain.handle(IPC.filesRead, (_e, projectPath: string, filePath: string) =>
     readFileEntry(projectPath, filePath)

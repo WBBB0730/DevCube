@@ -27,6 +27,12 @@ export function buildFilesMediaUrl(projectPath: string, filePath: string, mime: 
   return u.toString()
 }
 
+/** 树内同级排序：目录在前，名称大小写不敏感升序（listDir 与过滤树共用）。 */
+export function compareFilesDirEntries(a: FilesDirEntry, b: FilesDirEntry): number {
+  if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
+  return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+}
+
 /** 每项目 Files Tab UI 持久化（上次打开路径 + 树展开 + 最近打开）。 */
 export interface FilesUiState {
   openPath: string | null

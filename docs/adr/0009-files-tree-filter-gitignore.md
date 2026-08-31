@@ -5,3 +5,5 @@ Files 树展示故意**不按** `.gitignore` 过滤（仍可见 `node_modules` �
 树里仍可手动展开被 ignore 的目录；过滤只是收窄用的望远镜，和 VS Code「explorer 可见 / search 更凶」同一分法。
 
 `check-ignore` 走命令行路径列表时**不要**加 `-z`（多数 Git、含 Apple Git 要求 `-z` 仅配合 `--stdin`，否则 fatal 128）——一旦整批失败，等于没跳过 ignore，会扫进 `node_modules` 把过滤卡死。
+
+> 机制更新：扫盘 + `check-ignore` 已被 ADR-0027 的 ripgrep 文件索引取代（上段仅存档）；「过滤尊重 gitignore、树展示不尊重」的决策不变。

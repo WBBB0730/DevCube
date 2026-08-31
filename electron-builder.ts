@@ -42,7 +42,12 @@ const config: Configuration = {
     '!{.env,.env.*,.npmrc,pnpm-lock.yaml}',
     '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
   ],
-  asarUnpack: ['resources/**', '**/{@parcel/watcher,@parcel/watcher-*}/**'],
+  // @vscode/ripgrep-*：rg 平台二进制须在 asar 外才能 spawn（运行时映射见 files-index.ts）
+  asarUnpack: [
+    'resources/**',
+    '**/{@parcel/watcher,@parcel/watcher-*}/**',
+    '**/@vscode/ripgrep-*/**'
+  ],
   // External Open deep link：scheme 按 Edition 分线（devcube / devcube-beta，ADR-0025）。
   // macOS 写入 Info.plist CFBundleURLTypes；Windows 由运行时 setAsDefaultProtocolClient 注册。
   protocols: [{ name: edition.productName, schemes: [edition.name] }],

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useVirtualizer } from '@tanstack/react-virtual'
 import CodeMirror from '@uiw/react-codemirror'
 import {
   ChevronRight,
@@ -10,6 +11,7 @@ import {
   Folder,
   FolderOpen,
   ListTree,
+  LoaderCircle,
   Minus,
   PanelRight,
   Pencil,
@@ -18,6 +20,7 @@ import {
   X
 } from 'lucide-react'
 import { pushRecentPath, type FilesDirEntry, type FilesReadResult } from '@shared/files'
+import { flattenFilesTree } from '@shared/files-tree-flatten'
 import type { GitFileStatus } from '@shared/git'
 import { normalizePath, remapPathPrefix } from '@shared/files-path'
 import { mergeReloadedDirs, resolveOpenTextDiskSync } from '@shared/files-watch'
@@ -52,6 +55,8 @@ import { FILE_STATUS_COLOR, workingTreeStatusByPath } from '@renderer/components
 const IDLE_SAVE_MS = 2000
 const FILTER_DEBOUNCE_MS = 200
 const TREE_W = 280
+/** 树行固定高（h-8）；虚拟滚动按此定位，改行高须同步 ROW。 */
+const TREE_ROW_H = 32
 /** 交互对齐左树（选中色 / hover / transition）；尺寸更紧凑（非左树 h-10/14px）。 */
 const ROW =
   'flex h-8 w-full cursor-pointer items-center gap-1 rounded px-1.5 text-left text-[13px] text-foreground transition-colors'
@@ -175,6 +180,28 @@ export function FilesPane({
     filterView !== null &&
     (filterView.childrenByDir[rootLogical] ?? []).length === 0
 
+  // 首查扫描提示（冷索引才等得到）：延迟 120ms 出现，防索引已热时闪烁（同 diff 加载骨架）
+  const filterLoading = filtering && filterScanning && filterView === null
+  const [showFilterLoading, setShowFilterLoading] = useState(false)
+  useEffect(() => {
+    const timer = setTimeout(() => setShowFilterLoading(filterLoading), filterLoading ? 120 : 0)
+    return () => clearTimeout(timer)
+  }, [filterLoading])
+
+  // 树行虚拟化：按展开态拍平成行数组，仅渲染视口内行（命中再多渲染成本恒定）
+  const flatRows = useMemo(
+    () => flattenFilesTree(rootLogical, displayChildren, displayExpanded),
+    [rootLogical, displayChildren, displayExpanded]
+  )
+  // eslint-disable-next-line react-hooks/incompatible-library -- tanstack virtual 实例天然可变，React Compiler 跳过本组件 memo 是预期行为
+  const rowVirtualizer = useVirtualizer({
+    count: flatRows.length,
+    getScrollElement: () => treeScrollRef.current,
+    estimateSize: () => TREE_ROW_H,
+    overscan: 10,
+    getItemKey: (i) => flatRows[i].path
+  })
+
   const refreshGitStatus = useCallback(async () => {
     const seq = ++gitStatusSeqRef.current
     const status = await loadWorkingTreeStatus(projectPath)
@@ -226,22 +253,19 @@ export function FilesPane({
     }
   }, [visible, openTextPath, projectPath])
 
-  // 打开文件 / 显式定位后滚入视口；展开目录等只在挂起未完成时重试
+  // 打开文件 / 显式定位后滚入视口；目标行尚未进树（目录加载中）时保持挂起重试
   useLayoutEffect(() => {
     if (selectedPath !== prevSelectedPath.current) {
       prevSelectedPath.current = selectedPath
       pendingScrollPath.current = selectedPath
     }
     if (!visible || !treeVisible || !pendingScrollPath.current) return
-    const root = treeScrollRef.current
-    if (!root) return
-    const el = root.querySelector(
-      `[data-files-path="${globalThis.CSS.escape(pendingScrollPath.current)}"]`
-    )
-    if (!el) return
-    el.scrollIntoView({ block: 'nearest' })
+    const index = flatRows.findIndex((r) => r.path === pendingScrollPath.current)
+    if (index < 0) return
+    // 虚拟化后屏外行无 DOM，按下标滚动（align auto ≈ 原 scrollIntoView nearest）
+    rowVirtualizer.scrollToIndex(index)
     pendingScrollPath.current = null
-  }, [visible, treeVisible, selectedPath, displayExpanded, displayChildren, revealTick])
+  }, [visible, treeVisible, selectedPath, flatRows, revealTick, rowVirtualizer])
 
   const persistUi = useCallback(
     (openPath: string | null, expandedPaths: string[]) => {
@@ -622,7 +646,7 @@ export function FilesPane({
     if (!filterFocusNonce || filterFocusNonce === consumedFilterFocusNonce.current) return
     if (!visible) return
     if (!treeVisible) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect -- 外部 nonce 驱动：先展开树，下一拍再聚焦筛选框
+      // 外部 nonce 驱动：先展开树，下一拍再聚焦筛选框
       setTreeVisible(true)
       return
     }
@@ -1107,24 +1131,52 @@ export function FilesPane({
               }
             }}
           >
-            {filterEmpty ? (
+            {filterLoading && showFilterLoading ? (
+              <div className="flex h-full min-h-full items-center justify-center gap-1.5 px-1.5 text-[13px] text-muted-foreground">
+                <LoaderCircle className="size-3.5 animate-spin" />
+                正在扫描…
+              </div>
+            ) : filterEmpty ? (
               <div className="flex h-full min-h-full items-center justify-center px-1.5 text-[13px] text-muted-foreground">
                 无匹配文件
               </div>
             ) : (
-              <FileTreeNode
-                projectRoot={rootLogical}
-                dirPath={rootLogical}
-                depth={0}
-                expanded={displayExpanded}
-                childrenByDir={displayChildren}
-                selectedPath={selectedPath}
-                menuPath={treeMenu !== null && treeMenu.path !== rootLogical ? treeMenu.path : null}
-                statusByRel={statusByRel}
-                onToggle={toggleDir}
-                onOpenFile={(p) => void openFile(p)}
-                onEntryMenu={openTreeMenu}
-              />
+              <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
+                {rowVirtualizer.getVirtualItems().map((vi) => {
+                  const row = flatRows[vi.index]
+                  // 空白区（根）目标的菜单不点亮任何行；行集合本就不含根
+                  const menuActive = treeMenu !== null && treeMenu.path === row.path
+                  return (
+                    <div
+                      key={vi.key}
+                      className="absolute left-0 top-0 w-full"
+                      style={{ transform: `translateY(${vi.start}px)` }}
+                    >
+                      {row.isDirectory ? (
+                        <FileTreeDirRow
+                          name={row.name}
+                          depth={row.depth}
+                          isExpanded={displayExpanded.has(row.path)}
+                          selected={selectedPath === row.path}
+                          menuActive={menuActive}
+                          onToggle={() => toggleDir(row.path)}
+                          onMenu={(e) => openTreeMenu(row.path, true, e)}
+                        />
+                      ) : (
+                        <FileTreeFileRow
+                          name={row.name}
+                          depth={row.depth}
+                          selected={selectedPath === row.path}
+                          menuActive={menuActive}
+                          status={statusByRel.get(relPathUnderRoot(rootLogical, row.path))}
+                          onOpen={() => void openFile(row.path)}
+                          onMenu={(e) => openTreeMenu(row.path, false, e)}
+                        />
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
             )}
           </div>
         </div>
@@ -1453,122 +1505,73 @@ function relPathUnderRoot(projectRoot: string, absolute: string): string {
   return absolute
 }
 
-function FileTreeNode({
-  projectRoot,
-  dirPath,
-  depth,
-  expanded,
-  childrenByDir,
-  selectedPath,
-  menuPath,
-  statusByRel,
-  onToggle,
-  onOpenFile,
-  onEntryMenu
-}: {
-  projectRoot: string
-  dirPath: string
-  depth: number
-  expanded: Set<string>
-  childrenByDir: Record<string, FilesDirEntry[]>
-  selectedPath: string | null
-  /** 右键菜单打开中的目标行（保持 hover 行底；根 / 空白区为 null） */
-  menuPath: string | null
-  statusByRel: Map<string, GitFileStatus>
-  onToggle: (dir: string) => void
-  onOpenFile: (path: string) => void
-  onEntryMenu: (path: string, isDirectory: boolean, e: React.MouseEvent) => void
-}): React.JSX.Element {
-  const entries = childrenByDir[dirPath] ?? []
-  const isRoot = dirPath === projectRoot
-  /** 内容缩进：行背景全宽，仅左侧占位（对齐左树「背景不缩进」）。 */
-  const indent = (levels: number): React.JSX.Element | null =>
-    levels > 0 ? <span className="shrink-0" style={{ width: levels * 12 }} /> : null
+/** 内容缩进：行背景全宽，仅左侧占位（对齐左树「背景不缩进」）。 */
+function treeIndent(levels: number): React.JSX.Element | null {
+  return levels > 0 ? <span className="shrink-0" style={{ width: levels * 12 }} /> : null
+}
 
+function FileTreeDirRow({
+  name,
+  depth,
+  isExpanded,
+  selected,
+  menuActive,
+  onToggle,
+  onMenu
+}: {
+  name: string
+  depth: number
+  isExpanded: boolean
+  selected: boolean
+  /** 右键菜单打开中：保持 hover 行底（指针已移入菜单会丢 :hover） */
+  menuActive: boolean
+  onToggle: () => void
+  onMenu: (e: React.MouseEvent) => void
+}): React.JSX.Element {
   return (
-    <div>
-      {!isRoot && (
-        <button
-          type="button"
-          data-files-path={dirPath}
-          className={cn(
-            ROW,
-            selectedPath === dirPath
-              ? 'bg-[var(--selection-row)]'
-              : menuPath === dirPath
-                ? 'bg-[var(--bg-row-hover)]'
-                : 'hover:bg-[var(--bg-row-hover)]'
-          )}
-          onClick={() => onToggle(dirPath)}
-          onContextMenu={(e) => onEntryMenu(dirPath, true, e)}
-        >
-          {indent(depth)}
-          <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
-            <ChevronRight
-              className={cn('size-3.5 transition-transform', expanded.has(dirPath) && 'rotate-90')}
-            />
-          </span>
-          <Folder className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
-          <span
-            className="min-w-0 flex-1 truncate transition-colors"
-            style={selectedPath === dirPath ? { color: 'var(--fg-primary)' } : undefined}
-          >
-            {dirPath.split('/').pop()}
-          </span>
-        </button>
+    <button
+      type="button"
+      className={cn(
+        ROW,
+        selected
+          ? 'bg-[var(--selection-row)]'
+          : menuActive
+            ? 'bg-[var(--bg-row-hover)]'
+            : 'hover:bg-[var(--bg-row-hover)]'
       )}
-      {(isRoot || expanded.has(dirPath)) &&
-        entries.map((e) =>
-          e.isDirectory ? (
-            <FileTreeNode
-              key={e.path}
-              projectRoot={projectRoot}
-              dirPath={e.path}
-              depth={isRoot ? depth : depth + 1}
-              expanded={expanded}
-              childrenByDir={childrenByDir}
-              selectedPath={selectedPath}
-              menuPath={menuPath}
-              statusByRel={statusByRel}
-              onToggle={onToggle}
-              onOpenFile={onOpenFile}
-              onEntryMenu={onEntryMenu}
-            />
-          ) : (
-            <FileTreeFileRow
-              key={e.path}
-              entry={e}
-              depth={isRoot ? depth : depth + 1}
-              selected={selectedPath === e.path}
-              menuActive={menuPath === e.path}
-              status={statusByRel.get(relPathUnderRoot(projectRoot, e.path))}
-              indent={indent}
-              onOpen={() => onOpenFile(e.path)}
-              onMenu={(ev) => onEntryMenu(e.path, false, ev)}
-            />
-          )
-        )}
-    </div>
+      onClick={onToggle}
+      onContextMenu={onMenu}
+    >
+      {treeIndent(depth)}
+      <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+        <ChevronRight className={cn('size-3.5 transition-transform', isExpanded && 'rotate-90')} />
+      </span>
+      <Folder className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
+      <span
+        className="min-w-0 flex-1 truncate transition-colors"
+        style={selected ? { color: 'var(--fg-primary)' } : undefined}
+      >
+        {name}
+      </span>
+    </button>
   )
 }
 
 function FileTreeFileRow({
-  entry,
+  name,
   depth,
   selected,
   menuActive,
   status,
-  indent,
   onOpen,
   onMenu
 }: {
-  entry: FilesDirEntry
+  name: string
   depth: number
   selected: boolean
   /** 右键菜单打开中：保持 hover 行底（指针已移入菜单会丢 :hover） */
   menuActive: boolean
   status: GitFileStatus | undefined
-  indent: (levels: number) => React.JSX.Element | null
   onOpen: () => void
   onMenu: (e: React.MouseEvent) => void
 }): React.JSX.Element {
@@ -1576,7 +1579,6 @@ function FileTreeFileRow({
   return (
     <button
       type="button"
-      data-files-path={entry.path}
       className={cn(
         ROW,
         selected
@@ -1588,14 +1590,14 @@ function FileTreeFileRow({
       onClick={onOpen}
       onContextMenu={onMenu}
     >
-      {indent(depth)}
+      {treeIndent(depth)}
       <span className="size-3.5 shrink-0" />
       <FileIcon className="size-3.5 shrink-0" style={{ color: colour ?? 'var(--fg-icon)' }} />
       <span
         className="min-w-0 flex-1 truncate transition-colors"
         style={{ color: selected ? 'var(--fg-primary)' : colour }}
       >
-        {entry.name}
+        {name}
       </span>
     </button>
   )
