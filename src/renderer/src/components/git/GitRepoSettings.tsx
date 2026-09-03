@@ -1,10 +1,15 @@
 // 仓库设置面板（toolbar-widgets §4）：外壳与应用设置共用 SettingsModal。
-// 三个区块 —— 隐藏的远程、用户信息、远程管理（三态开关与提交排序已移至工具栏的视图选项
-// Popover，见 GitViewOptions）。用户信息与远程 CRUD 走 runAction（进行中遮罩 / 错误框由
+// 四个区块 —— 隐藏的远程、用户信息、远程管理、工作树（三态开关与提交排序已移至工具栏的
+// 视图选项 Popover，见 GitViewOptions）。用户信息与远程 CRUD 走 runAction（进行中遮罩 / 错误框由
 // GitDialogs 统一呈现），成功后重拉 config。控件用 shadcn Checkbox / RadioGroup。
 import { useEffect, useRef, useState } from 'react'
 import { Eraser, Pencil, Plus, Trash2 } from 'lucide-react'
-import { type GitAction } from '@shared/git'
+import {
+  defaultWorktreeDirectory,
+  resolveWorktreePath,
+  worktreeAnchorPath,
+  type GitAction
+} from '@shared/git'
 import { gitState, useGit } from '@renderer/git-store'
 import { SettingsModal } from '@renderer/components/SettingsModal'
 import { Button } from '@renderer/components/ui/button'
@@ -98,6 +103,7 @@ export function GitRepoSettings({
         <HiddenRemotesSection projectPath={projectPath} />
         <UserSection projectPath={projectPath} onConfirm={setConfirm} />
         <RemotesSection projectPath={projectPath} onConfirm={setConfirm} />
+        <WorktreeSection projectPath={projectPath} />
       </div>
       {confirm !== null && (
         <div
@@ -611,6 +617,57 @@ function RemotesSection({
           </div>
         </div>
       )}
+    </Section>
+  )
+}
+
+// —— 「工作树」区 ——
+
+/**
+ * 新工作树的存放目录：相对主工作树解析（也可绝对），留空 = 默认 `../<主项目名>.worktrees`
+ * （与 VS Code / GitLens 约定一致）。失焦 / 回车即保存（非数据键，不触发图谱重载）；
+ * 下方实时预览按当前值算出的示例路径。
+ */
+function WorktreeSection({ projectPath }: { projectPath: string }): React.JSX.Element {
+  const settings = useGit((s) => gitState(s, projectPath).settings)
+  const worktrees = useGit((s) => gitState(s, projectPath).worktrees)
+  const updateSettings = useGit((s) => s.updateSettings)
+  /** 编辑中的草稿；null = 未编辑，显示已保存值 */
+  const [draft, setDraft] = useState<string | null>(null)
+  const saved = settings?.worktreeDirectory ?? ''
+  const value = draft ?? saved
+  const anchor = worktreeAnchorPath(worktrees, projectPath)
+  const preview = resolveWorktreePath(anchor, value === '' ? null : value, '<名称>')
+
+  const commit = (): void => {
+    if (draft === null) return
+    const next = draft.trim()
+    setDraft(null)
+    if (next === saved) return
+    void updateSettings(projectPath, { worktreeDirectory: next === '' ? null : next })
+  }
+
+  return (
+    <Section title="工作树">
+      <div className="space-y-1.5">
+        <div className={HINT}>
+          新建的工作树放在这里：相对主工作树解析，也可填绝对路径；留空使用默认值。
+        </div>
+        <FormRow label="存放目录">
+          <Input
+            value={value}
+            placeholder={defaultWorktreeDirectory(anchor)}
+            onChange={(e) => setDraft(e.target.value)}
+            onBlur={commit}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') commit()
+            }}
+          />
+        </FormRow>
+        <div className={`${HINT} truncate`} title={preview}>
+          示例：{preview}
+        </div>
+      </div>
     </Section>
   )
 }

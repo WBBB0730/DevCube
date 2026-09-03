@@ -20,6 +20,7 @@ import {
   SquareArrowOutUpRight,
   FilePlusCorner,
   Folder,
+  FolderGit2,
   FolderOpen,
   FolderPlus,
   MoreVertical,
@@ -1066,7 +1067,7 @@ function ProjectHeader({
         >
           <ChevronRight className={cn('size-3.5 transition-transform', expanded && 'rotate-90')} />
         </button>
-        <Folder className="size-4 shrink-0 text-muted-foreground" />
+        <ProjectFolderIcon worktreeOf={node.worktreeOf} />
         <span className={cn('min-w-0 flex-1 truncate', isCurrent && 'font-semibold')}>
           {node.project.name}
         </span>
@@ -1255,7 +1256,7 @@ function ProjectRow({
               className={cn('size-3.5 transition-transform', expanded && 'rotate-90')}
             />
           </button>
-          <Folder className="size-4 shrink-0 text-muted-foreground" />
+          <ProjectFolderIcon worktreeOf={node.worktreeOf} />
           <span className={cn('min-w-0 flex-1 truncate', isCurrent && 'font-semibold')}>
             {node.project.name}
           </span>
@@ -1287,6 +1288,24 @@ function ProjectRow({
         </div>
       )}
     </div>
+  )
+}
+
+/**
+ * 项目行的文件夹图标：链接工作树项目换成 FolderGit2（术语见 CONTEXT.md「Worktree」），
+ * hover 说明属于哪个主工作树；主工作树与普通项目仍是 Folder。
+ */
+function ProjectFolderIcon({ worktreeOf }: { worktreeOf: string | null }): React.JSX.Element {
+  if (worktreeOf === null) return <Folder className="size-4 shrink-0 text-muted-foreground" />
+  const mainName =
+    worktreeOf
+      .split(/[/\\]/)
+      .filter((seg) => seg !== '')
+      .pop() ?? worktreeOf
+  return (
+    <span title={`「${mainName}」的工作树\n${worktreeOf}`} className="flex shrink-0 items-center">
+      <FolderGit2 className="size-4 text-muted-foreground" />
+    </span>
   )
 }
 

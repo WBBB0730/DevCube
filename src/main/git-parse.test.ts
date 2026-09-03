@@ -15,7 +15,9 @@ import {
   parseStatusFilesZ,
   parseTagDetails,
   parseFileDiff,
-  countLinesInBuffer
+  countLinesInBuffer,
+  parseWorktreeList,
+  markCurrentWorktree
 } from './git-parse'
 import type { GitCommitRecord, GitRefData, GitStash } from './git-parse'
 import { UNCOMMITTED } from '../shared/git'
@@ -600,5 +602,88 @@ describe('parseTagDetails', () => {
 
   it('tag 不存在时 for-each-ref 输出为空，返回 null', () => {
     expect(parseTagDetails('')).toBeNull()
+  })
+})
+
+describe('parseWorktreeList', () => {
+  const sample = [
+    'worktree /Users/me/code/app',
+    'HEAD 1111111111111111111111111111111111111111',
+    'branch refs/heads/main',
+    '',
+    'worktree /Users/me/code/worktrees/app/feat-x',
+    'HEAD 2222222222222222222222222222222222222222',
+    'branch refs/heads/feat/x',
+    '',
+    'worktree /Users/me/code/worktrees/app/spike',
+    'HEAD 3333333333333333333333333333333333333333',
+    'detached',
+    '',
+    'worktree /Users/me/code/worktrees/app/gone',
+    'HEAD 4444444444444444444444444444444444444444',
+    'branch refs/heads/gone',
+    'prunable gitdir file points to non-existent location',
+    ''
+  ].join('\n')
+
+  it('首条为主工作树；分支去掉 refs/heads/；detached 分支为 null；prunable 标出', () => {
+    const list = parseWorktreeList(sample)
+    expect(list.map((w) => w.path)).toEqual([
+      '/Users/me/code/app',
+      '/Users/me/code/worktrees/app/feat-x',
+      '/Users/me/code/worktrees/app/spike',
+      '/Users/me/code/worktrees/app/gone'
+    ])
+    expect(list[0]).toMatchObject({
+      isMain: true,
+      branch: 'main',
+      head: '1111111111111111111111111111111111111111',
+      bare: false,
+      prunable: false,
+      isCurrent: false
+    })
+    expect(list[1]).toMatchObject({ isMain: false, branch: 'feat/x', prunable: false })
+    expect(list[2]).toMatchObject({
+      isMain: false,
+      branch: null,
+      head: '3333333333333333333333333333333333333333'
+    })
+    expect(list[3]).toMatchObject({ isMain: false, branch: 'gone', prunable: true })
+  })
+
+  it('裸仓库：首条为 bare 条目且不算主工作树，其后的链接工作树也不是主', () => {
+    const list = parseWorktreeList(
+      'worktree /srv/repo.git\nHEAD 1111\nbare\n\nworktree /srv/wt\nHEAD 2222\nbranch refs/heads/main\n\n'
+    )
+    expect(list[0]).toMatchObject({ bare: true, isMain: false, branch: null })
+    expect(list[1]).toMatchObject({ bare: false, isMain: false, branch: 'main' })
+  })
+
+  it('CRLF 换行照常解析；空输出与缺 worktree 行的块给空列表', () => {
+    expect(parseWorktreeList('')).toEqual([])
+    expect(parseWorktreeList('HEAD 1111\nbranch refs/heads/main\n\n')).toEqual([])
+    const list = parseWorktreeList(
+      'worktree C:/code/app\r\nHEAD 1111\r\nbranch refs/heads/main\r\n\r\n'
+    )
+    expect(list).toHaveLength(1)
+    expect(list[0]).toMatchObject({ path: 'C:/code/app', branch: 'main', isMain: true })
+  })
+})
+
+describe('markCurrentWorktree', () => {
+  const list = parseWorktreeList(
+    'worktree /real/app\nHEAD 1\nbranch refs/heads/main\n\nworktree /real/wt\nHEAD 2\nbranch refs/heads/x\n\n'
+  )
+
+  it('路径命中任一别名即 isCurrent，其余为 false；不改原数组', () => {
+    const marked = markCurrentWorktree(list, ['/Users/me/link/wt', '/real/wt'])
+    expect(marked.map((w) => w.isCurrent)).toEqual([false, true])
+    expect(list.map((w) => w.isCurrent)).toEqual([false, false])
+  })
+
+  it('别名与记录的分隔符不同（Windows）也能命中', () => {
+    const win = [{ ...list[0], path: 'C:\\real\\app' }]
+    expect(markCurrentWorktree(win, ['C:/real/app'])[0].isCurrent).toBe(true)
+    expect(markCurrentWorktree(win, ['C:/real/other'])[0].isCurrent).toBe(false)
   })
 })

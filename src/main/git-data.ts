@@ -3,8 +3,8 @@
 // 跑进程、串并行与拼装结果；命令口径移植自 vscode-git-graph dataSource.ts（只含读取面）。
 // —— 纯参数构造（build* / assembleRepoConfig）与 IO 分离，供测试。
 
-import { readFile, stat } from 'fs/promises'
-import { isAbsolute, join } from 'path'
+import { readFile, realpath, stat } from 'fs/promises'
+import { isAbsolute, join, normalize } from 'path'
 import { execGit, findGit, getErrorMessage, isVersionAtLeast, resolveRepoRoot } from './git-exec'
 import {
   assembleCommits,
@@ -26,7 +26,9 @@ import {
   countLinesInBuffer,
   parseStatusFilesZ,
   parseTagDetails,
-  parseFileDiff
+  parseFileDiff,
+  parseWorktreeList,
+  markCurrentWorktree
 } from './git-parse'
 import type { GitRefData, GitStash } from './git-parse'
 import { GIT_INDEX, UNCOMMITTED, imageMimeOf } from '../shared/git'
@@ -44,7 +46,8 @@ import type {
   GitRepoConfig,
   GitRepoConfigResult,
   GitTagDetailsResult,
-  GitUncommittedDetails
+  GitUncommittedDetails,
+  GitWorktree
 } from '../shared/git'
 
 // —— 常量 ——
@@ -435,6 +438,24 @@ async function detectOpInProgress(root: string): Promise<GitOpInProgress | null>
   return resolveOpInProgress(exists)
 }
 
+/**
+ * 同仓库的工作树列表（`worktree list --porcelain`，git ≥ 2.7）：失败吞成 []——工作树是附加
+ * 信息，不该让整次加载失败。路径转为本平台分隔符（登记为项目时与其它入口口径一致）；
+ * 本项目所在的一条按仓库根的两个别名（用户视角路径 / realpath）标注。
+ */
+async function loadWorktrees(root: string): Promise<GitWorktree[]> {
+  const result = await runGit(root, ['worktree', 'list', '--porcelain'])
+  if (!result.ok) return []
+  const parsed = parseWorktreeList(result.stdout).map((w) => ({ ...w, path: normalize(w.path) }))
+  let real = root
+  try {
+    real = await realpath(root)
+  } catch {
+    // 路径不存在等：只用用户视角路径
+  }
+  return markCurrentWorktree(parsed, [root, real])
+}
+
 /** HEAD 是否已出生（可解析到提交）：-q --verify 保证静默且输出即 hash。 */
 function verifyHeadArgs(): string[] {
   return ['rev-parse', '-q', '--verify', 'HEAD']
@@ -467,6 +488,7 @@ function loadResult(patch: Partial<GitLoadResult>): GitLoadResult {
     tags: [],
     moreCommitsAvailable: false,
     opInProgress: null,
+    worktrees: [],
     error: null,
     ...patch
   }
@@ -486,7 +508,8 @@ async function loadUnbornHead(
   branches: string[],
   remoteBranches: string[],
   currentBranch: string | null,
-  opInProgress: GitOpInProgress | null
+  opInProgress: GitOpInProgress | null,
+  worktrees: GitWorktree[]
 ): Promise<GitLoadResult> {
   const [logRes, refRes, statusRes] = await Promise.all([
     runGit(
@@ -554,6 +577,7 @@ async function loadUnbornHead(
     tags,
     moreCommitsAvailable,
     opInProgress,
+    worktrees,
     error: null
   }
 }
@@ -574,15 +598,16 @@ export async function loadRepo(
     if (probe.code !== 0) return loadResult({ error: getErrorMessage(probe) })
     return loadResult({})
   }
-  // 第一步：分支 / 远程 / 贮藏 / HEAD 出生探测 / 进行中操作探测 并行（stash 失败吞成 []，
-  // HEAD 探测失败即未出生，opInProgress 探测失败吞成 null；其余任一失败整体报错）。
+  // 第一步：分支 / 远程 / 贮藏 / HEAD 出生探测 / 进行中操作探测 / 工作树列表 并行（stash 与
+  // 工作树失败吞成 []，HEAD 探测失败即未出生，opInProgress 探测失败吞成 null；其余任一失败整体报错）。
   // 恒取 -a：remoteBranches 需要全量远程分支
-  const [branchRes, remoteRes, stashes, headRes, opInProgress] = await Promise.all([
+  const [branchRes, remoteRes, stashes, headRes, opInProgress, worktrees] = await Promise.all([
     runGit(root, ['branch', '-a', '--no-color']),
     runGit(root, ['remote']),
     loadStashes(root, settings.showStashes),
     runGit(root, verifyHeadArgs()),
-    detectOpInProgress(root)
+    detectOpInProgress(root),
+    loadWorktrees(root)
   ])
   if (!branchRes.ok) return loadResult({ isRepo: true, error: branchRes.error })
   if (!remoteRes.ok) return loadResult({ isRepo: true, error: remoteRes.error })
@@ -610,7 +635,8 @@ export async function loadRepo(
       branches,
       remoteBranches,
       currentBranch,
-      opInProgress
+      opInProgress,
+      worktrees
     )
   }
   // 第二步：log 与 show-ref 并行
@@ -683,6 +709,7 @@ export async function loadRepo(
     tags,
     moreCommitsAvailable,
     opInProgress,
+    worktrees,
     error: null
   }
 }

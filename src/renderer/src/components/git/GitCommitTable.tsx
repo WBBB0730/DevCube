@@ -5,8 +5,15 @@
 // 已知取舍（v1）：只做自动布局（无列宽拖拽与列显隐持久化）、refs 标签固定 Normal 对齐、
 // 消息列不做 emoji / issue 链接 / 行内 markdown（TextFormatter 后续补）、无 vertex refs tooltip。
 import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { Archive, GitBranch, Tag } from 'lucide-react'
-import { UNCOMMITTED, type GitCommit, type GitCommitRemote } from '@shared/git'
+import { Archive, FolderGit2, GitBranch, Tag } from 'lucide-react'
+import {
+  UNCOMMITTED,
+  worktreeDisplayName,
+  worktreeHoldingBranch,
+  type GitCommit,
+  type GitCommitRemote,
+  type GitWorktree
+} from '@shared/git'
 import {
   DEFAULT_GRID,
   buildBranchPaths,
@@ -70,6 +77,11 @@ function getBranchLabels(
   return { branchLabels, remoteLabels }
 }
 
+/** 分支标签上工作树小图标的 hover 说明。 */
+function heldByWorktreeTitle(worktree: GitWorktree): string {
+  return `已在工作树 "${worktreeDisplayName(worktree)}" 检出：${worktree.path}`
+}
+
 /** 行事件处理集（父组件 useMemo 一份稳定引用，供 memo 行组件共用）。 */
 interface RowActions {
   rowClick: (e: React.MouseEvent, commit: GitCommit) => void
@@ -85,6 +97,7 @@ export function GitCommitTable({ projectPath }: { projectPath: string }): React.
   const commits = useGit((s) => gitState(s, projectPath).commits)
   const headHash = useGit((s) => gitState(s, projectPath).headHash)
   const currentBranch = useGit((s) => gitState(s, projectPath).currentBranch)
+  const worktrees = useGit((s) => gitState(s, projectPath).worktrees)
   const moreCommitsAvailable = useGit((s) => gitState(s, projectPath).moreCommitsAvailable)
   const expandedHash = useGit((s) => gitState(s, projectPath).expanded?.hash ?? null)
   const compareWith = useGit((s) => gitState(s, projectPath).expanded?.compareWith ?? null)
@@ -185,6 +198,14 @@ export function GitCommitTable({ projectPath }: { projectPath: string }): React.
   )
   const findActiveHash =
     find?.open && find.activeIdx >= 0 ? (find.matches[find.activeIdx] ?? null) : null
+  // 被其他工作树检出的本地分支 → 工作树（标签上打小图标；本项目自身与裸仓库条目不算）
+  const heldBranches = useMemo(() => {
+    const map = new Map<string, GitWorktree>()
+    for (const w of worktrees) {
+      if (!w.isCurrent && !w.bare && w.branch !== null) map.set(w.branch, w)
+    }
+    return map
+  }, [worktrees])
 
   const actions = useMemo<RowActions>(
     () => ({
@@ -220,9 +241,18 @@ export function GitCommitTable({ projectPath }: { projectPath: string }): React.
       },
       branchDoubleClick: (e, name) => {
         e.stopPropagation()
+        const state = gitState(useGit.getState(), projectPath)
         // 操作进行中（变基/合并等冲突中途）：双击无可视禁用面，handler 早退拦截，
         // 原因由常驻状态条解释（右键菜单同款入口是置灰 + hover 原因）
-        if (gitState(useGit.getState(), projectPath).opInProgress !== null) return
+        if (state.opInProgress !== null) return
+        // 分支已在其他工作树检出：git 会拒绝重复检出，改为「前往该项目」提示（与右键菜单同款）
+        const holder = worktreeHoldingBranch(state.worktrees, name)
+        if (holder !== null) {
+          useGit
+            .getState()
+            .openDialog(projectPath, { kind: 'branch-in-worktree', branch: name, worktree: holder })
+          return
+        }
         void useGit
           .getState()
           .runAction(
@@ -296,6 +326,7 @@ export function GitCommitTable({ projectPath }: { projectPath: string }): React.
                 muted={muted[i] ?? false}
                 headDot={headHash !== null && c.hash === headHash}
                 currentBranch={currentBranch}
+                heldBranches={heldBranches}
                 detailsOpen={c.hash === expandedHash || c.hash === compareWith}
                 rowActive={hoveredIdx === i || menuHash === c.hash}
                 findMatch={findMatches?.has(c.hash) ?? false}
@@ -432,6 +463,7 @@ const CommitRow = memo(function CommitRow({
   muted,
   headDot,
   currentBranch,
+  heldBranches,
   detailsOpen,
   rowActive,
   findMatch,
@@ -447,6 +479,8 @@ const CommitRow = memo(function CommitRow({
   /** HEAD 圆点（恒在 HEAD 提交行，即使未提交行才是「当前行」） */
   headDot: boolean
   currentBranch: string | null
+  /** 被其他工作树检出的本地分支 → 工作树（父组件按 worktrees 派生一份稳定引用） */
+  heldBranches: Map<string, GitWorktree>
   detailsOpen: boolean
   /** vertex hover 联动 / 右键菜单激活的行高亮 */
   rowActive: boolean
@@ -536,6 +570,14 @@ const CommitRow = memo(function CommitRow({
               <span className={cn(REF_NAME, label.name === currentBranch && 'font-bold')}>
                 {label.name}
               </span>
+              {heldBranches.has(label.name) && (
+                <span
+                  className="flex h-full items-center pr-[5px] text-muted-foreground"
+                  title={heldByWorktreeTitle(heldBranches.get(label.name)!)}
+                >
+                  <FolderGit2 className="size-3" />
+                </span>
+              )}
               {/* 合并进来的远程徽标：双击/右键的目标是远程分支而非本地（坑 3） */}
               {label.remotes.map((remote) => (
                 <span

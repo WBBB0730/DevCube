@@ -8,7 +8,8 @@ import type {
   GitMergeOn,
   GitOpInProgress,
   GitRebaseOn,
-  GitUncommittedDetails
+  GitUncommittedDetails,
+  GitWorktree
 } from '@shared/git'
 
 // —— 右键菜单 ——
@@ -65,6 +66,20 @@ export type GitDialogRequest =
   | { kind: 'push-branch'; branch: string }
   /** 检出远程分支（创建本地跟踪分支）；remote 为 null 表示孤儿远程 ref */
   | { kind: 'checkout-remote-branch'; remoteRef: string; remote: string | null }
+  // 分支已在其他工作树检出（git 拒绝重复检出）：提示 + 「前往该项目」，不发命令
+  | { kind: 'branch-in-worktree'; branch: string; worktree: GitWorktree }
+  // 工作树管理：新建（各入口只差预设）/ 删除（脏则追问强制）/ 清理失效登记
+  | {
+      kind: 'worktree-add'
+      /** 起点（HEAD / 分支名 / 远程 ref / 提交 hash）与其展示名 */
+      start: { ref: string; label: string }
+      /** 预设的检出方式 */
+      checkout: 'new-branch' | 'existing-branch' | 'detached'
+      /** 预设分支名：new-branch 的新分支名 / existing-branch 要检出的分支；null = 留空 */
+      branch: string | null
+    }
+  | { kind: 'worktree-remove'; worktree: GitWorktree }
+  | { kind: 'worktree-prune' }
   | { kind: 'delete-remote-branch'; remoteRef: string; remote: string; branch: string }
   | { kind: 'fetch-into-local'; remote: string; remoteBranch: string; localBranch: string }
   /** 拉取到当前分支（表单式 D10）；preset = 入口预设的 remote 与远程分支（右键远程分支标签），

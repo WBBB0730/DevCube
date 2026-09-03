@@ -5,9 +5,11 @@ import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_GIT_VIEW_PREFS,
   type GitAction,
+  type GitActionResult,
   type GitCommit,
   type GitRepoConfig,
-  type GitViewPrefs
+  type GitViewPrefs,
+  type GitWorktree
 } from '@shared/git'
 import {
   buildSpec,
@@ -19,7 +21,8 @@ import {
   isRefInvalid,
   latestTagNames,
   remoteBranchesOf,
-  type DialogEnv
+  type DialogEnv,
+  type DialogSpec
 } from './GitDialogs'
 
 describe('isRefInvalid', () => {
@@ -244,14 +247,26 @@ describe('defaultPullMode', () => {
 })
 
 /** 记录式对话框环境：动作出口只往数组里记（构造输入 → 断言输出，零 mock）。 */
-function makeEnv(): {
+function makeEnv(
+  opts: {
+    projectState?: DialogEnv['projectState']
+    /** 定制动作结果（默认全部 ok）：测「需要强制」等分叉 */
+    runResult?: (action: GitAction) => GitActionResult
+  } = {}
+): {
   env: DialogEnv
   quiet: GitAction[]
   ran: GitAction[]
   closed: () => number
+  opened: string[]
+  removed: string[]
+  chased: DialogSpec[]
 } {
   const quiet: GitAction[] = []
   const ran: GitAction[] = []
+  const opened: string[] = []
+  const removed: string[] = []
+  const chased: DialogSpec[] = []
   let closedCount = 0
   const env: DialogEnv = {
     projectPath: '/repo',
@@ -265,22 +280,32 @@ function makeEnv(): {
     settings: null,
     viewPrefs: DEFAULT_GIT_VIEW_PREFS,
     opInProgress: null,
+    worktrees: [],
     closeDialog: () => {
       closedCount++
     },
     runAction: async (action) => {
       ran.push(action)
-      return { status: 'ok' }
+      return opts.runResult?.(action) ?? { status: 'ok' }
     },
     runQuietAction: async (action) => {
       quiet.push(action)
       return { status: 'ok' }
     },
     clearActionErrors: () => {},
-    openChase: () => {},
-    setViewPrefs: () => {}
+    openChase: (spec) => {
+      chased.push(spec)
+    },
+    setViewPrefs: () => {},
+    openProject: (path) => {
+      opened.push(path)
+    },
+    projectState: opts.projectState ?? (() => null),
+    removeProject: (path) => {
+      removed.push(path)
+    }
   }
-  return { env, quiet, ran, closed: () => closedCount }
+  return { env, quiet, ran, closed: () => closedCount, opened, removed, chased }
 }
 
 describe('buildSpec：提交面板的危险确认', () => {
@@ -340,5 +365,104 @@ describe('buildSpec：op-abort 中止确认（操作进行中状态条）', () =
       spec!.buttons[0].onClick({})
       expect(ran).toEqual([{ kind: 'op-abort', op }])
     }
+  })
+})
+
+describe('buildSpec：分支已在其他工作树检出', () => {
+  it('branch-in-worktree：无输入项，主按钮「前往该项目」先关对话框再前往，不发任何 git 动作', () => {
+    const { env, quiet, ran, closed, opened } = makeEnv()
+    const worktree: GitWorktree = {
+      path: '/code/worktrees/app/feat-x',
+      head: '2222',
+      branch: 'feat/x',
+      isMain: false,
+      bare: false,
+      prunable: false,
+      isCurrent: false
+    }
+    const spec = buildSpec({ kind: 'branch-in-worktree', branch: 'feat/x', worktree }, env)
+    expect(spec).not.toBeNull()
+    expect(spec!.inputs).toEqual([])
+    expect(spec!.buttons.map((b) => b.label)).toEqual(['前往该项目'])
+    spec!.buttons[0].onClick({})
+    expect(closed()).toBe(1)
+    expect(opened).toEqual(['/code/worktrees/app/feat-x'])
+    expect(ran).toEqual([])
+    expect(quiet).toEqual([])
+  })
+})
+
+describe('buildSpec：工作树删除与清理', () => {
+  const wt: GitWorktree = {
+    path: '/wt/feat',
+    head: '1',
+    branch: 'feat',
+    isMain: false,
+    bare: false,
+    prunable: false,
+    isCurrent: false
+  }
+  const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
+
+  it('worktree-remove：未登记为项目 → 先关框再删，成功后不动项目', async () => {
+    const { env, ran, closed, removed } = makeEnv()
+    const spec = buildSpec({ kind: 'worktree-remove', worktree: wt }, env)
+    expect(spec!.buttons.map((b) => b.label)).toEqual(['是，删除'])
+    spec!.buttons[0].onClick({})
+    await flush()
+    expect(closed()).toBe(1)
+    expect(ran).toEqual([{ kind: 'worktree-remove', path: '/wt/feat', force: false }])
+    expect(removed).toEqual([])
+  })
+
+  it('worktree-remove：已登记且空闲 → 主进程要求强制时追问并带 force 重发，成功后移除项目', async () => {
+    const { env, ran, removed, chased } = makeEnv({
+      projectState: () => 'idle',
+      runResult: (a) =>
+        a.kind === 'worktree-remove' && !a.force
+          ? { status: 'worktree-remove-needs-force' }
+          : { status: 'ok' }
+    })
+    const spec = buildSpec({ kind: 'worktree-remove', worktree: wt }, env)
+    spec!.buttons[0].onClick({})
+    await flush()
+    expect(removed).toEqual([])
+    expect(chased).toHaveLength(1)
+    expect(chased[0].buttons.map((b) => b.label)).toEqual(['强制删除'])
+    chased[0].buttons[0].onClick({})
+    await flush()
+    expect(ran).toEqual([
+      { kind: 'worktree-remove', path: '/wt/feat', force: false },
+      { kind: 'worktree-remove', path: '/wt/feat', force: true }
+    ])
+    expect(removed).toEqual(['/wt/feat'])
+  })
+
+  it('worktree-remove：已登记且有运行中会话 → 只提示，不给删除按钮', () => {
+    const { env, ran } = makeEnv({ projectState: () => 'busy' })
+    const spec = buildSpec({ kind: 'worktree-remove', worktree: wt }, env)
+    expect(spec!.messageOnly).toBe(true)
+    expect(spec!.buttons).toEqual([])
+    expect(ran).toEqual([])
+  })
+
+  it('worktree-prune：确认后先关框再执行；worktree-add 交组件层渲染（spec 为 null）', () => {
+    const { env, ran, closed } = makeEnv()
+    const spec = buildSpec({ kind: 'worktree-prune' }, env)
+    expect(spec!.buttons.map((b) => b.label)).toEqual(['是，清理'])
+    spec!.buttons[0].onClick({})
+    expect(closed()).toBe(1)
+    expect(ran).toEqual([{ kind: 'worktree-prune' }])
+    expect(
+      buildSpec(
+        {
+          kind: 'worktree-add',
+          start: { ref: 'HEAD', label: 'main' },
+          checkout: 'new-branch',
+          branch: null
+        },
+        env
+      )
+    ).toBeNull()
   })
 })

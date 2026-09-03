@@ -53,6 +53,8 @@ export interface FormDialogButton {
   disabled?: boolean
   /** 悬停说明（常用于解释禁用原因） */
   title?: string
+  /** 危险操作（删除等不可逆动作）：主按钮用 destructive 变体 */
+  destructive?: boolean
 }
 
 /**
@@ -107,6 +109,7 @@ export function FormDialogShell({
           {buttons.map((btn, i) => (
             <Button
               key={i}
+              variant={btn.destructive === true ? 'destructive' : 'default'}
               disabled={btn.disabled === true}
               title={btn.title}
               onClick={btn.onClick}

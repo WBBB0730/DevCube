@@ -19,7 +19,7 @@ import { RadioGroup, RadioGroupItem } from '@renderer/components/ui/radio-group'
 const ICON_BTN =
   'flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)] disabled:pointer-events-none disabled:opacity-50'
 const ROW =
-  'flex h-7 cursor-pointer select-none items-center gap-1.5 rounded px-1.5 text-[13px] text-foreground hover:bg-[var(--bg-row-hover)]'
+  'flex h-7 cursor-pointer select-none items-center gap-1.5 rounded px-1.5 text-[13px] text-foreground transition-colors hover:bg-[var(--bg-row-hover)]'
 
 /** 五个二态开关行：settings 键 → 文案 / 悬停说明 / default 档的回退值。 */
 const TOGGLE_ROWS: {

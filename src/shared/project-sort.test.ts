@@ -20,7 +20,7 @@ function node(
   pinned = false
 ): ProjectNode {
   const project: Project = { path, name, addedAt, lastOpenedAt, pinned }
-  return { project, packageManager: null, discovered: [], configs: [] }
+  return { project, packageManager: null, discovered: [], configs: [], worktreeOf: null }
 }
 
 function prefs(partial: Partial<ProjectSortPrefs> = {}): ProjectSortPrefs {

@@ -1,4 +1,4 @@
-// Git Tab 顶部工具栏：左侧「分支：」标签 + 分支筛选下拉 + 视图选项 Popover + 查找；
+// Git Tab 顶部工具栏：左侧「分支：」标签 + 分支筛选下拉 + 工作树图标钮 + 视图选项 Popover + 查找；
 // 右侧图标钮组（提交 / 刷新 / 拉取 / 推送 / 创建分支 / 仓库设置）。高 40px、bg-panel，
 // 对齐 Console Tab 栏观感。刷新 = fetch + 静默软重载（store.refresh，fetch 期间小圈转动、
 // 不弹进行中遮罩）；拉取 / 推送 / 创建分支预设目标后打开既有对话框（GitDialogs）。
@@ -20,6 +20,7 @@ import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import { GitBranchDropdown } from './GitBranchDropdown'
 import { opBlockReason } from './GitOpStatusBar'
 import { GitViewOptions } from './GitViewOptions'
+import { GitWorktreeDropdown } from './GitWorktreeDropdown'
 import { GitRepoSettings } from './GitRepoSettings'
 
 // 图标钮：观感对齐 Console Tab 栏的「新建终端」按钮（size-7 圆角 hover 加亮）
@@ -59,6 +60,7 @@ export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.
       <span className="shrink-0 text-[13px] text-muted-foreground">分支：</span>
       <GitBranchDropdown projectPath={projectPath} />
       <div className="flex shrink-0 items-center gap-0.5">
+        <GitWorktreeDropdown projectPath={projectPath} />
         <GitViewOptions projectPath={projectPath} />
         <button
           type="button"

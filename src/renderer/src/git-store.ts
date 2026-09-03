@@ -19,7 +19,8 @@ import {
   type GitOpInProgress,
   type GitRepoConfig,
   type GitRepoSettings,
-  type GitViewPrefs
+  type GitViewPrefs,
+  type GitWorktree
 } from '@shared/git'
 import type {
   GitContextMenuState,
@@ -48,6 +49,8 @@ export interface GitProjectState {
   moreCommitsAvailable: boolean
   /** 进行中的多步操作（变基/合并/拣选/回滚，冲突中断等）；状态条与防误触置灰依据 */
   opInProgress: GitOpInProgress | null
+  /** 同仓库的全部工作树（含本项目所在）；工作树下拉与分支占用标注的数据源 */
+  worktrees: GitWorktree[]
   loadError: string | null
   /** 本次加载的提交窗口上限；初始 GIT_DEFAULTS.initialLoadCommits，「加载更多」+100 */
   maxCommits: number
@@ -155,6 +158,7 @@ const EMPTY_PROJECT: GitProjectState = {
   tags: [],
   moreCommitsAvailable: false,
   opInProgress: null,
+  worktrees: [],
   loadError: null,
   maxCommits: GIT_DEFAULTS.initialLoadCommits,
   branchFilter: null,
@@ -499,6 +503,7 @@ export const useGit = create<GitStoreState>((set, get) => {
         tags: result.tags,
         moreCommitsAvailable: result.moreCommitsAvailable,
         opInProgress: result.opInProgress,
+        worktrees: result.worktrees,
         loadError: null,
         ...reconcileOpenUi(cur, commits, result.opInProgress)
       })

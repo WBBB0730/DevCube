@@ -26,7 +26,10 @@ import {
   type GitFileChange,
   type GitOpInProgress,
   type GitRepoSettings,
-  type GitViewPrefs
+  type GitViewPrefs,
+  type GitWorktree,
+  worktreeDisplayName,
+  worktreeHoldingBranch
 } from '@shared/git'
 import { dropCommitPossible } from '@renderer/lib/git-graph'
 import { gitState, useGit } from '@renderer/git-store'
@@ -79,6 +82,8 @@ export interface GitMenuContext {
   viewPrefs: GitViewPrefs
   /** 进行中的多步操作（变基/合并/拣选/回滚）：非空时会撞车的菜单项置灰 */
   opInProgress: GitOpInProgress | null
+  /** 同仓库的工作树：被其他工作树检出的分支不发 checkout，改为「前往该项目」提示 */
+  worktrees: GitWorktree[]
   actions: GitMenuActions
 }
 
@@ -143,6 +148,16 @@ function commitMenu(hash: string, ctx: GitMenuContext): (GitMenuItem | 'divider'
   const items: (GitMenuItem | 'divider')[] = [
     { title: '添加标签…', onClick: () => actions.openDialog({ kind: 'add-tag', hash }) },
     { title: '创建分支…', onClick: () => actions.openDialog({ kind: 'create-branch', hash }) },
+    {
+      title: '从此提交新建工作树…',
+      onClick: () =>
+        actions.openDialog({
+          kind: 'worktree-add',
+          start: { ref: hash, label: abbrevHash(hash) },
+          checkout: 'new-branch',
+          branch: null
+        })
+    },
     'divider',
     // 勾选过「总是允许」后不再弹确认框，文案随之去掉省略号（§2.1 / D15）
     blockDuringOp(
@@ -227,18 +242,44 @@ function branchMenu(name: string, ctx: GitMenuContext): (GitMenuItem | 'divider'
   const isCurrent = name === ctx.currentBranch
   const items: (GitMenuItem | 'divider')[] = []
   if (!isCurrent) {
+    // 分支已在其他工作树检出：git 拒绝重复检出，不发命令，改为打开「前往该项目」提示
+    const holder = worktreeHoldingBranch(ctx.worktrees, name)
     items.push(
       blockDuringOp(
-        {
-          title: '检出分支',
-          onClick: () =>
-            actions.runAction(
-              { kind: 'checkout-branch', branch: name, remoteBranch: null },
-              '正在检出分支'
-            )
-        },
+        holder !== null
+          ? {
+              title: '检出分支…',
+              onClick: () =>
+                actions.openDialog({ kind: 'branch-in-worktree', branch: name, worktree: holder })
+            }
+          : {
+              title: '检出分支',
+              onClick: () =>
+                actions.runAction(
+                  { kind: 'checkout-branch', branch: name, remoteBranch: null },
+                  '正在检出分支'
+                )
+            },
         ctx
-      )
+      ),
+      // 已被占用的分支不能再检出到新工作树（git 会拒绝）：置灰 + 原因，不隐藏
+      holder !== null
+        ? {
+            title: '在新工作树中检出…',
+            onClick: () => {},
+            disabled: true,
+            disabledReason: `已在工作树 "${worktreeDisplayName(holder)}" 检出`
+          }
+        : {
+            title: '在新工作树中检出…',
+            onClick: () =>
+              actions.openDialog({
+                kind: 'worktree-add',
+                start: { ref: name, label: name },
+                checkout: 'existing-branch',
+                branch: name
+              })
+          }
     )
   }
   items.push({
@@ -317,7 +358,18 @@ function remoteBranchMenu(
           actions.openDialog({ kind: 'checkout-remote-branch', remoteRef: fullRef, remote })
       },
       ctx
-    )
+    ),
+    {
+      // 自远程分支新建同名本地分支并检出到新工作树（起点是远程跟踪分支，git 自动设上游）
+      title: '在新工作树中检出…',
+      onClick: () =>
+        actions.openDialog({
+          kind: 'worktree-add',
+          start: { ref: fullRef, label: fullRef },
+          checkout: 'new-branch',
+          branch: remote !== null ? branchName : null
+        })
+    }
   ]
   if (remote !== null) {
     items.push({
@@ -686,6 +738,7 @@ export function GitContextMenu({ projectPath }: { projectPath: string }): React.
   const branchFilter = useGit((s) => gitState(s, projectPath).branchFilter)
   const settings = useGit((s) => gitState(s, projectPath).settings)
   const opInProgress = useGit((s) => gitState(s, projectPath).opInProgress)
+  const worktrees = useGit((s) => gitState(s, projectPath).worktrees)
   const viewPrefs = useGit((s) => s.viewPrefs)
 
   // 动作注入：全部经 store / window.api 分发（回调内取 getState 而非闭包，避免过期）
@@ -742,6 +795,7 @@ export function GitContextMenu({ projectPath }: { projectPath: string }): React.
       settings,
       viewPrefs,
       opInProgress,
+      worktrees,
       actions
     })
   )

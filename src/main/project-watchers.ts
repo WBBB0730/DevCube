@@ -4,13 +4,20 @@
 //
 // 通道划分在 classify 纯函数里完成；git 工作区是否刷新仍经 git check-ignore
 // （零硬编码生态目录）。discovery / files / git 共用同一条订阅。
+// 链接工作树（`.git` 为文件、refs 与各工作树 HEAD 都在主仓库的公共 gitdir 里）再加一条
+// 只驱动 git 通道的公共 gitdir 订阅；主工作树的公共 gitdir 就在监听根内，不需要。
 // Git 写动作期间（含余震）整条订阅静音，避免动作自身事件打到任一通道。
 
 import parcelWatcher, { type AsyncSubscription, type Event } from '@parcel/watcher'
 import { isAppQuitting } from './app-shutdown'
 import { isGitActionRunning } from './git-actions'
-import { execGit } from './git-exec'
-import { classifyWatchPathAll, resolveWatchRoot } from './project-watch-classify'
+import { execGit, type GitDirs } from './git-exec'
+import {
+  classifyCommonDirPath,
+  classifyWatchPathAll,
+  isPathInside,
+  resolveWatchRoot
+} from './project-watch-classify'
 
 const FILES_DEBOUNCE_MS = 750
 const GIT_DEBOUNCE_MS = 750
@@ -23,6 +30,13 @@ export type ProjectWatchHandlers = {
   onGitChange: (projectPath: string) => void
 }
 
+/** 对齐监听所需的每项目仓库形态：仓库根与两个 gitdir（非仓库 / 解析失败为 null）。 */
+export interface ProjectWatchTarget {
+  projectPath: string
+  repoRoot: string | null
+  gitDirs: GitDirs | null
+}
+
 /** git 防抖桶：强制刷新（meta/probe）或待 check-ignore 的工作区相对路径。 */
 type GitPending = { mode: 'force' } | { mode: 'paths'; paths: Set<string> }
 
@@ -30,7 +44,11 @@ interface ProjectWatcherEntry {
   projectPath: string
   repoRoot: string | null
   watchRoot: string
+  /** 链接工作树额外盯的公共 gitdir；主工作树 / 非仓库为 null */
+  commonDir: string | null
+  gitDir: string | null
   subscription: AsyncSubscription | null
+  commonSubscription: AsyncSubscription | null
   closed: boolean
   filesTimer: ReturnType<typeof setTimeout> | null
   gitTimer: ReturnType<typeof setTimeout> | null
@@ -50,9 +68,10 @@ async function disposeEntry(projectPath: string, entry: ProjectWatcherEntry): Pr
   entry.filesTimer = null
   entry.gitTimer = null
   watchers.delete(projectPath)
-  const sub = entry.subscription
+  const subs = [entry.subscription, entry.commonSubscription]
   entry.subscription = null
-  if (sub) await sub.unsubscribe()
+  entry.commonSubscription = null
+  await Promise.all(subs.map((sub) => (sub ? sub.unsubscribe() : Promise.resolve())))
 }
 
 function scheduleFiles(entry: ProjectWatcherEntry, onFilesChange: (p: string) => void): void {
@@ -148,18 +167,41 @@ function handleEvents(
   }
 }
 
+/** 公共 gitdir 订阅的事件：只有白名单元数据（共享 refs、各工作树 HEAD、worktrees 增删）才强制刷新。 */
+function handleCommonDirEvents(
+  entry: ProjectWatcherEntry,
+  events: Event[],
+  handlers: ProjectWatchHandlers
+): void {
+  if (entry.closed || isAppQuitting() || isGitActionRunning()) return
+  if (entry.commonDir === null || entry.gitDir === null) return
+  const meta = events.some(
+    (event) => classifyCommonDirPath(entry.commonDir!, entry.gitDir!, event.path).length > 0
+  )
+  if (meta) scheduleGit(entry, handlers.onGitChange, null)
+}
+
+/** 链接工作树才需要额外盯公共 gitdir：它在监听根之外（主工作树的 .git 本就在根内）。 */
+function needsCommonDirWatch(watchRoot: string, gitDirs: GitDirs | null): boolean {
+  return gitDirs !== null && !isPathInside(watchRoot, gitDirs.commonDir)
+}
+
 async function startEntry(
-  projectPath: string,
-  repoRoot: string | null,
+  target: ProjectWatchTarget,
   handlers: ProjectWatchHandlers
 ): Promise<void> {
   if (isAppQuitting()) return
+  const { projectPath, repoRoot, gitDirs } = target
   const watchRoot = resolveWatchRoot(projectPath, repoRoot)
+  const extra = needsCommonDirWatch(watchRoot, gitDirs)
   const entry: ProjectWatcherEntry = {
     projectPath,
     repoRoot,
     watchRoot,
+    commonDir: extra ? gitDirs!.commonDir : null,
+    gitDir: extra ? gitDirs!.gitDir : null,
     subscription: null,
+    commonSubscription: null,
     closed: false,
     filesTimer: null,
     gitTimer: null,
@@ -167,43 +209,66 @@ async function startEntry(
   }
   watchers.set(projectPath, entry)
 
+  const stale = (): boolean =>
+    entry.closed || isAppQuitting() || watchers.get(projectPath) !== entry
   try {
     const subscription = await parcelWatcher.subscribe(watchRoot, (err, events) => {
       if (err || entry.closed) return
       handleEvents(entry, events, handlers)
     })
-    if (entry.closed || isAppQuitting() || watchers.get(projectPath) !== entry) {
+    if (stale()) {
       await subscription.unsubscribe()
       return
     }
     entry.subscription = subscription
+    if (entry.commonDir !== null) {
+      const commonSubscription = await parcelWatcher.subscribe(entry.commonDir, (err, events) => {
+        if (err || entry.closed) return
+        handleCommonDirEvents(entry, events, handlers)
+      })
+      if (stale()) {
+        await commonSubscription.unsubscribe()
+        return
+      }
+      entry.commonSubscription = commonSubscription
+    }
   } catch {
     if (watchers.get(projectPath) === entry) watchers.delete(projectPath)
   }
 }
 
+/** 订阅形态是否一致：仓库根与公共 gitdir 任一变化（init / 删 .git / 变成或不再是链接工作树）即重建。 */
+function sameShape(entry: ProjectWatcherEntry, target: ProjectWatchTarget): boolean {
+  if (entry.repoRoot !== target.repoRoot) return false
+  const wantCommon = needsCommonDirWatch(entry.watchRoot, target.gitDirs)
+    ? target.gitDirs!.commonDir
+    : null
+  return entry.commonDir === wantCommon
+}
+
 /**
- * 与当前项目集合对齐：新增起听，移除关闭；repoRoot 变化则重建。
+ * 与当前项目集合对齐：新增起听，移除关闭；形态变化则重建。
  * subscribe 异步完成；退出/替换时用 closed 标志丢弃过期订阅。
  */
 export function syncProjectWatchers(
-  projects: { projectPath: string; repoRoot: string | null }[],
+  projects: ProjectWatchTarget[],
   handlers: ProjectWatchHandlers
 ): void {
   if (isAppQuitting()) return
 
-  const wanted = new Map<string, string | null>()
-  for (const p of projects) wanted.set(p.projectPath, p.repoRoot)
+  const wanted = new Map<string, ProjectWatchTarget>()
+  for (const p of projects) wanted.set(p.projectPath, p)
 
   for (const [projectPath, entry] of watchers) {
-    if (!wanted.has(projectPath) || wanted.get(projectPath) !== entry.repoRoot) {
+    const target = wanted.get(projectPath)
+    if (target === undefined || !sameShape(entry, target)) {
       void disposeEntry(projectPath, entry)
     }
   }
 
-  for (const [projectPath, repoRoot] of wanted) {
+  for (const [projectPath, target] of wanted) {
     if (watchers.has(projectPath)) continue
-    void startEntry(projectPath, repoRoot, handlers)
+    void startEntry(target, handlers)
   }
 }
 

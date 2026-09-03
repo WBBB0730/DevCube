@@ -9,7 +9,8 @@ import type {
   GitCommitDetails,
   GitFileChange,
   GitFileStatus,
-  GitTagDetails
+  GitTagDetails,
+  GitWorktree
 } from '../shared/git'
 
 // —— 常量 ——
@@ -115,6 +116,59 @@ export function parseBranches(
     }
   }
   return { branches, head }
+}
+
+// —— §3b 工作树列表 ——
+
+/**
+ * 解析 `git worktree list --porcelain`（git ≥ 2.7）：记录以空行分隔，每条首行 `worktree <path>`，
+ * 其后 `HEAD <sha>` / `branch refs/heads/<name>` / `detached` / `bare` / `locked [<reason>]` /
+ * `prunable <reason>`（locked / prunable 分别自 2.23 / 2.30 起才输出，缺失即视为否）。
+ * 首条恒为主工作树（裸仓库时首条是 bare 条目，此时没有主工作树）。isCurrent 由 IO 层按路径标注。
+ */
+export function parseWorktreeList(stdout: string): GitWorktree[] {
+  const worktrees: GitWorktree[] = []
+  for (const block of stdout.replace(/\r\n/g, '\n').split('\n\n')) {
+    let path: string | null = null
+    let head: string | null = null
+    let branch: string | null = null
+    let bare = false
+    let prunable = false
+    for (const line of block.split('\n')) {
+      if (line.startsWith('worktree ')) path = line.substring(9)
+      else if (line.startsWith('HEAD ')) head = line.substring(5)
+      else if (line.startsWith('branch ')) branch = line.substring(7).replace(/^refs\/heads\//, '')
+      else if (line === 'bare') bare = true
+      else if (line === 'prunable' || line.startsWith('prunable ')) prunable = true
+    }
+    if (path === null) continue
+    worktrees.push({
+      path,
+      head,
+      branch,
+      isMain: worktrees.length === 0 && !bare,
+      bare,
+      prunable,
+      isCurrent: false
+    })
+  }
+  return worktrees
+}
+
+/**
+ * 标注本项目所在的工作树：路径（统一 '/' 分隔后）命中任一别名即 isCurrent。别名由 IO 层给出
+ * （仓库根的用户视角路径与 realpath——git 记录的是规范路径，用户登记的可能经符号链接）。
+ */
+export function markCurrentWorktree(
+  worktrees: GitWorktree[],
+  rootAliases: string[]
+): GitWorktree[] {
+  const aliases = new Set(rootAliases.map(toSlash))
+  return worktrees.map((w) => ({ ...w, isCurrent: aliases.has(toSlash(w.path)) }))
+}
+
+function toSlash(path: string): string {
+  return path.replace(/\\/g, '/')
 }
 
 /** 一条 stash（git reflog refs/stash 的一行）。 */

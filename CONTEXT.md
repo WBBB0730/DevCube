@@ -38,6 +38,9 @@ _Avoid_: 全文搜索, 全局搜索, Find in Files
 **未提交更改行（未提交更改）**：Git 图谱最上方一条合成的虚拟行，代表工作区相对 HEAD 的改动（HEAD 未出生的空仓库相对空树；仅有改动时才出现）。HEAD 未出生时它不锚定任何提交，承担首次提交的入口。选中它，其详情面板即该项目的**提交入口**——按「已暂存 / 未暂存」两段管理文件、勾选即暂存、并从中提交（支持修正、提交并推送）。
 _Avoid_: 工作区行, WIP 行, 暂存行
 
+**Worktree（工作树）**：同一仓库在磁盘上的另一份检出——共享同一套提交、分支与远程，但各有自己的目录、HEAD 与暂存区。`git worktree list` 首条为**主工作树**，其余为**链接工作树**。DevCube 不把工作树当新实体：要在 DevCube 里使用某个工作树目录，就把它登记为一个 **Project**，与主工作树的 Project 并列；**Git Tab** 负责列出同仓库的全部工作树、新建与删除工作树、标注被其他工作树占用的分支，并提供前往对应 Project 的入口；新建的工作树默认放在主工作树旁的 `<主项目名>.worktrees/` 目录下。
+_Avoid_: 工作区（指工作树时）, 副本, 多检出, Linked checkout
+
 **External Open（外部唤起）**：DevCube 被系统或外部工具带着一个目录路径拉起 / 聚焦的入口统称（命令行、deep link、系统右键菜单、其他应用的 Open in 都汇于此）。语义与手动添加项目一致：未登记则登记为 **Project**，已登记则仅聚焦选中；只收目录。
 _Avoid_: 协议唤起, 命令行打开, Deep link（指整个入口时）
 
@@ -47,6 +50,8 @@ _Avoid_: Channel（裸用）, Track, Flavor, Variant, 通道（指安装身份�
 ### Flagged ambiguities
 
 - **「置顶」一词两义**：口语/ DESIGN 里曾用「置顶」形容「新项目在某种排序下落到列表最前」——那是排序结果，不是 **Pin**。域语言里 **Pin / 置顶** 专指上述持久布尔标记。
+
+- **「工作区」与「工作树」两义**：「工作区」在本文与实现里恒指**一份检出内**的文件状态（未提交更改相对 HEAD 的改动；监听通道 `git-worktree` 也是此意，指 working tree 文件）；「工作树」专指 `git worktree` 的一份检出（**Worktree**）。两词不可互换。
 
 ### 关系
 
@@ -67,6 +72,9 @@ _Avoid_: Channel（裸用）, Track, Flavor, Variant, 通道（指安装身份�
 - 一次安装恰好属于一个 **Release Edition**；正式版只消费非 Pre-release 的 GitHub Release，Beta 只消费 Pre-release 的 GitHub Release，二者不互相升级。
 - **External Open** 的系统入口（协议、右键菜单、CLI 名）随 **Release Edition** 分线注册，双装互不抢注；一次唤起落到既有的「添加项目」语义上，不引入新的登记方式。
 
+- 一个仓库恒有 1 个主 **Worktree**、0..N 个链接 **Worktree**；每个 Worktree 至多对应一个 **Project**（按目录登记），登记与否不影响它在 git 层面的存在。
+- 一条本地分支同一时刻至多被一个 **Worktree** 检出；**Git Tab** 对被其他 Worktree 占用的分支不执行检出，改为引导前往该 Worktree 对应的 **Project**（未登记则先登记）。
+
 ## Example dialogue
 
 > **开发者**：我把 `~/code/web` 加进来了，它下面出来一堆东西。
@@ -83,3 +91,5 @@ _Avoid_: Channel（裸用）, Track, Flavor, Variant, 通道（指安装身份�
 > **领域专家**：切到它的 **Files Tab**——和 **Git Tab** 一样常驻、不可关，排在 Git 后面。右边是项目根下的完整文件树，左边一次只开一个文件；从 Git 图谱里「打开文件」也会进这里。树上右键就能新建、重命名、删除（删除进回收站）；复制移动还是去 Finder 或 **Terminal**。
 > **开发者**：我同时装着 DevCube 和 DevCube Beta，应用内更新会不会把 Beta 升成正式版？
 > **领域专家**：不会。各自是不同的 **Release Edition**——正式版只跟正式 Release，Beta 只跟 Pre-release，数据目录也分开，更新不跨线。
+> **开发者**：我想让 Claude 在另一个分支上并行改，又不想动我手头这份代码。
+> **领域专家**：给仓库再开一个 **Worktree**——同一个仓库的另一份检出，分支和提交共用，目录和暂存区各自独立。在 DevCube 里它就是一个新的 **Project**，有自己的运行配置、Terminal 和 Git Tab；Git Tab 的工作树下拉能看到同仓库的其他工作树并跳过去。被那边检出的分支在这边会有标记，不能再检出一次。

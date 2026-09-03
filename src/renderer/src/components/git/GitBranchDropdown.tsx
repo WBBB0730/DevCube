@@ -57,7 +57,7 @@ export function branchFilterLabel(filter: string[] | null): string {
 const TRIGGER =
   'flex h-7 min-w-[138px] max-w-[30vw] items-center gap-1 rounded border border-[color:var(--border-input)] bg-[var(--bg-elevated)] px-2 text-[13px] text-foreground outline-none transition hover:bg-[var(--bg-row-hover)] focus-visible:ring-2 focus-visible:ring-ring'
 const ROW =
-  'flex h-7 cursor-pointer select-none items-center gap-1.5 rounded px-1.5 text-[13px] hover:bg-[var(--bg-row-hover)]'
+  'flex h-7 cursor-pointer select-none items-center gap-1.5 rounded px-1.5 text-[13px] transition-colors hover:bg-[var(--bg-row-hover)]'
 
 /** 分支筛选下拉：读 store 的 branches / branchFilter，变更即触发硬刷新。 */
 export function GitBranchDropdown({ projectPath }: { projectPath: string }): React.JSX.Element {

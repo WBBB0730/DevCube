@@ -17,9 +17,18 @@ import {
   type GitRepoSettings,
   type GitTagDetailsResult,
   type GitViewPrefs,
+  type GitWorktree,
+  type GitWorktreeCheckout,
   GIT_DEFAULTS,
-  resolveOverride
+  branchesFreeForWorktree,
+  isWorktreeNameInvalid,
+  resolveOverride,
+  resolveWorktreePath,
+  worktreeAnchorPath,
+  worktreeDisplayName,
+  worktreeNameFromBranch
 } from '@shared/git'
+import { configKey } from '@shared/runnable'
 import { useApp } from '@renderer/store'
 import { gitState, useGit } from '@renderer/git-store'
 import { cn } from '@renderer/lib/utils'
@@ -225,6 +234,8 @@ type DialogValues = Record<string, string | string[] | boolean>
 interface DialogButton {
   label: string
   onClick: (values: DialogValues) => void
+  /** 危险操作（删除等不可逆动作）：按钮用 destructive 变体 */
+  destructive?: boolean
 }
 
 /** 一个待渲染的对话框描述：消息 + 输入 + 动作按钮（第 0 个为主按钮，Enter 触发）。 */
@@ -266,6 +277,14 @@ export interface DialogEnv {
   /** 弹一个追问对话框（重名 / 强制删除 / 不在远程等续弹链） */
   openChase(spec: DialogSpec): void
   setViewPrefs(patch: Partial<GitViewPrefs>): void
+  /** 前往某目录对应的项目（未登记则先登记）：工作树提示框「前往该项目」与新建后的出口 */
+  openProject(path: string): void
+  /** 同仓库的工作树：新建对话框剔除被占用的分支、以主工作树为存放目录锚点 */
+  worktrees: GitWorktree[]
+  /** 某目录若已登记为项目：有运行中的会话或终端 → 'busy'，否则 'idle'；未登记 → null */
+  projectState(path: string): 'idle' | 'busy' | null
+  /** 移除已登记项目（删除工作树成功后的收尾，复用左树「移除项目」的销毁链） */
+  removeProject(path: string): void
 }
 
 /** 消息里的强调片段（原版 <b><i>…</i></b> 的等价物）。 */
@@ -936,6 +955,107 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
           }
         ]
       }
+    case 'worktree-add': // D31：检出方式 / 名称 / 位置有联动，由组件层特判渲染
+      return null
+    case 'worktree-remove': {
+      // D32：删除工作树。已登记为项目且有运行中会话 / 终端时只提示不删；脏工作树由主进程以
+      // worktree-remove-needs-force 返回，追问后带 force 重发；成功后已登记的项目一并移除
+      const name = worktreeDisplayName(req.worktree)
+      const path = req.worktree.path
+      const state = env.projectState(path)
+      if (state === 'busy') {
+        return {
+          message: (
+            <>
+              工作树 <Em>{name}</Em> 已登记为项目，且有运行中的会话或终端。请先停止后再删除。
+            </>
+          ),
+          inputs: [],
+          buttons: [],
+          messageOnly: true
+        }
+      }
+      const finish = (result: GitActionResult): void => {
+        if (result.status === 'ok' && state !== null) env.removeProject(path)
+      }
+      const forceSpec: DialogSpec = {
+        message: (
+          <>
+            工作树 <Em>{name}</Em> 有未提交的改动或未跟踪文件，强制删除会丢弃它们。确定继续？
+          </>
+        ),
+        inputs: [],
+        buttons: [
+          {
+            label: '强制删除',
+            destructive: true,
+            onClick: () =>
+              void env
+                .runAction({ kind: 'worktree-remove', path, force: true }, '正在删除工作树')
+                .then(finish)
+          }
+        ]
+      }
+      return {
+        message: (
+          <>
+            确定要删除工作树 <Em>{name}</Em> 吗？目录 {path} 将被删除，分支保留。
+            {state !== null && '该目录已登记为项目，会一并移除。'}
+          </>
+        ),
+        inputs: [],
+        buttons: [
+          {
+            label: '是，删除',
+            destructive: true,
+            onClick: () => {
+              env.closeDialog()
+              void env
+                .runAction({ kind: 'worktree-remove', path, force: false }, '正在删除工作树')
+                .then((result) => {
+                  if (result.status === 'worktree-remove-needs-force') env.openChase(forceSpec)
+                  else finish(result)
+                })
+            }
+          }
+        ]
+      }
+    }
+    case 'worktree-prune':
+      // D33：清理失效登记（目录已不存在的工作树记录），不删任何文件
+      return {
+        message: <>清理已失效的工作树登记？目录已不存在的记录将从 git 中移除，不会删除任何文件。</>,
+        inputs: [],
+        buttons: [
+          {
+            label: '是，清理',
+            onClick: () => dispatch(env, { kind: 'worktree-prune' }, '正在清理工作树登记')
+          }
+        ]
+      }
+    case 'branch-in-worktree': {
+      // 分支已在其他工作树检出：git 拒绝同一分支重复检出（checkout 会 fatal），不发命令，
+      // 引导前往那个工作树对应的项目（未登记则由 addProjectByPath 先登记，ADR-0028）
+      const name = worktreeDisplayName(req.worktree)
+      return {
+        message: (
+          <>
+            分支 <Em>{req.branch}</Em> 已在工作树 <Em>{name}</Em> 检出（{req.worktree.path}）。
+            同一分支不能同时检出到两个工作树。
+          </>
+        ),
+        inputs: [],
+        buttons: [
+          {
+            label: '前往该项目',
+            onClick: () => {
+              env.closeDialog()
+              env.openProject(req.worktree.path)
+            }
+          }
+        ]
+      }
+    }
     case 'op-abort': {
       // 状态条「中止」的危险确认：git <op> --abort 会丢掉已解决的冲突进度
       const opLabel = GIT_OP_LABEL[req.op]
@@ -1463,6 +1583,7 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
   const settings = useGit((s) => gitState(s, projectPath).settings)
   const viewPrefs = useGit((s) => s.viewPrefs)
   const opInProgress = useGit((s) => gitState(s, projectPath).opInProgress)
+  const worktrees = useGit((s) => gitState(s, projectPath).worktrees)
 
   /** 追问链状态：nonce 作为表单 key，同一链上连续两个表单也能重置输入值 */
   const [chase, setChase] = useState<{ spec: DialogSpec; nonce: number } | null>(null)
@@ -1516,12 +1637,24 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
       settings,
       viewPrefs,
       opInProgress,
+      worktrees,
       closeDialog: () => useGit.getState().closeDialog(projectPath),
       runAction: (action, label) => useGit.getState().runAction(projectPath, action, label),
       runQuietAction: (action, opts) => useGit.getState().runQuietAction(projectPath, action, opts),
       clearActionErrors: () => useGit.getState().clearActionErrors(projectPath),
       openChase: (spec) => setChase((prev) => ({ spec, nonce: (prev?.nonce ?? 0) + 1 })),
-      setViewPrefs: (patch) => void useGit.getState().setViewPrefs(patch)
+      setViewPrefs: (patch) => void useGit.getState().setViewPrefs(patch),
+      openProject: (path) => void useApp.getState().addProjectByPath(path),
+      // 工作树目录是否已登记为项目、是否有运行中的会话 / 终端（删除工作树前的防误删判断）
+      projectState: (path) => {
+        const app = useApp.getState()
+        const node = app.tree.find((n) => n.project.path === path)
+        if (node === undefined) return null
+        const running = node.configs.some((c) => app.sessions[configKey(c)]?.status === 'running')
+        const hasTerminal = app.terminals.some((t) => t.projectPath === path)
+        return running || hasTerminal ? 'busy' : 'idle'
+      },
+      removeProject: (path) => void useApp.getState().removeProject(path)
     }),
     [
       projectPath,
@@ -1534,7 +1667,8 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
       config,
       settings,
       viewPrefs,
-      opInProgress
+      opInProgress,
+      worktrees
     ]
   )
 
@@ -1609,6 +1743,11 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
   if (dialog.kind === 'push-branch') {
     if (env.config === null) return null
     return <PushBranchDialog key={dialogKey(dialog)} req={dialog} env={env} />
+  }
+
+  // 4d. D31 新建工作树（表单式）：检出方式切换字段、名称跟随分支、位置随名称重算
+  if (dialog.kind === 'worktree-add') {
+    return <WorktreeAddDialog key={dialogKey(dialog)} req={dialog} env={env} />
   }
 
   // 4d. 常规表单对话框
@@ -1718,6 +1857,7 @@ function DialogForm({
           {spec.buttons.map((btn, i) => (
             <Button
               key={i}
+              variant={btn.destructive === true ? 'destructive' : 'default'}
               disabled={!valid}
               title={hasInvalid ? `无法${btn.label}，输入包含非法字符` : undefined}
               onClick={() => submit(btn)}
@@ -2410,5 +2550,159 @@ function TagDetailRow({
       <span className="w-16 shrink-0 text-muted-foreground">{label}:</span>
       <span className="min-w-0 flex-1 select-text break-all text-foreground">{children}</span>
     </div>
+  )
+}
+
+/**
+ * D31 新建工作树（表单式）：检出方式三选一（新建分支 / 检出空闲的已有分支 / 分离 HEAD）、
+ * 名称（目录名，默认由分支名派生，手动改过即不再跟随）、位置（只读：仓库设置的存放目录 +
+ * 名称，默认 `../<主项目名>.worktrees`）。各入口只差预设（req.start / checkout / branch）。
+ * 建好后登记为项目并前往（ADR-0028）。
+ */
+function WorktreeAddDialog({
+  req,
+  env
+}: {
+  req: Extract<GitDialogRequest, { kind: 'worktree-add' }>
+  env: DialogEnv
+}): React.JSX.Element {
+  const [checkout, setCheckout] = useState(req.checkout)
+  const [newBranch, setNewBranch] = useState(
+    req.checkout === 'new-branch' ? (req.branch ?? '') : ''
+  )
+  const [existing, setExisting] = useState(
+    req.checkout === 'existing-branch' ? (req.branch ?? '') : ''
+  )
+  /** 名称：null = 未手动编辑，跟随分支派生 */
+  const [nameEdited, setNameEdited] = useState<string | null>(null)
+
+  // 被任一工作树（含本项目自身）检出的分支不能再检出到新工作树（git 会拒绝）
+  const freeBranches = branchesFreeForWorktree(env.branches, env.worktrees)
+
+  const derivedFrom =
+    checkout === 'new-branch'
+      ? newBranch
+      : checkout === 'existing-branch'
+        ? existing
+        : req.start.label
+  const name = nameEdited ?? worktreeNameFromBranch(derivedFrom)
+  const anchor = worktreeAnchorPath(env.worktrees, env.projectPath)
+  const path = resolveWorktreePath(
+    anchor,
+    env.settings?.worktreeDirectory ?? null,
+    name === '' ? '…' : name
+  )
+
+  let checkoutValue: GitWorktreeCheckout | null
+  let disabledReason: string | null = null
+  if (checkout === 'new-branch') {
+    checkoutValue =
+      newBranch !== '' && !isRefInvalid(newBranch)
+        ? { kind: 'new-branch', name: newBranch, startPoint: req.start.ref }
+        : null
+    if (checkoutValue === null)
+      disabledReason = newBranch === '' ? '请输入新分支名' : '分支名含非法字符'
+  } else if (checkout === 'existing-branch') {
+    checkoutValue = existing !== '' ? { kind: 'existing-branch', name: existing } : null
+    if (checkoutValue === null) disabledReason = '请选择要检出的分支'
+  } else {
+    checkoutValue = { kind: 'detached', startPoint: req.start.ref }
+  }
+  if (disabledReason === null && isWorktreeNameInvalid(name)) disabledReason = '请输入合法的目录名'
+
+  const confirm = (): void => {
+    if (checkoutValue === null || disabledReason !== null) return
+    const action: GitAction = { kind: 'worktree-add', path, checkout: checkoutValue }
+    env.closeDialog()
+    void env.runAction(action, '正在创建工作树').then((result) => {
+      if (result.status === 'ok') env.openProject(path)
+    })
+  }
+
+  return (
+    <FormDialogShell
+      message={
+        <>
+          基于 <Em>{req.start.label}</Em> 新建工作树：
+        </>
+      }
+      buttons={[
+        {
+          label: '创建',
+          disabled: disabledReason !== null,
+          title: disabledReason ?? undefined,
+          onClick: confirm
+        }
+      ]}
+      onCancel={env.closeDialog}
+    >
+      <FieldRow label="检出">
+        <RadioGroup
+          value={checkout}
+          onValueChange={(v) => setCheckout(v as 'new-branch' | 'existing-branch' | 'detached')}
+        >
+          <label className={CHOICE_ROW}>
+            <RadioGroupItem value="new-branch" />
+            新建分支
+          </label>
+          {checkout === 'new-branch' && (
+            <div className="ml-6">
+              <Input
+                value={newBranch}
+                autoFocus
+                placeholder="新分支名"
+                onChange={(e) => setNewBranch(e.target.value)}
+              />
+            </div>
+          )}
+          <label className={CHOICE_ROW}>
+            <RadioGroupItem value="existing-branch" />
+            检出已有分支
+            <InfoIcon text="只列出未被任何工作树检出的本地分支。" />
+          </label>
+          {checkout === 'existing-branch' && (
+            <div className="ml-6">
+              {freeBranches.length === 0 ? (
+                <div className="text-[12px] text-muted-foreground">没有空闲的本地分支。</div>
+              ) : (
+                <Select value={existing} onValueChange={(v) => setExisting(v as string)}>
+                  <SelectTrigger>
+                    <SelectValue>
+                      {(selected: string) =>
+                        selected === '' ? (
+                          <span className="text-[color:var(--fg-disabled)]">选择分支</span>
+                        ) : (
+                          selected
+                        )
+                      }
+                    </SelectValue>
+                  </SelectTrigger>
+                  <SelectContent>
+                    {freeBranches.map((b) => (
+                      <SelectItem key={b} value={b}>
+                        {b}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </div>
+          )}
+          <label className={CHOICE_ROW}>
+            <RadioGroupItem value="detached" />
+            分离 HEAD
+            <InfoIcon text={`不挂分支，停在 ${req.start.label}。`} />
+          </label>
+        </RadioGroup>
+      </FieldRow>
+      <FieldRow label="名称" info="工作树的目录名。默认由分支名派生（斜杠换成横线）。">
+        <Input value={name} placeholder="目录名" onChange={(e) => setNameEdited(e.target.value)} />
+      </FieldRow>
+      <FieldRow label="位置" info="存放目录在仓库设置里更改。">
+        <div className="select-text break-all font-mono text-[12px] text-muted-foreground">
+          {path}
+        </div>
+      </FieldRow>
+    </FormDialogShell>
   )
 }

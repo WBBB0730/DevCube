@@ -4,7 +4,7 @@
 
 import * as cp from 'child_process'
 import { promises as fs } from 'fs'
-import { join, normalize } from 'path'
+import { isAbsolute, join, normalize, posix, resolve } from 'path'
 
 /** 行分割：兼容 \r\n / \r / \n（与 git-parse 中的常量同义，为避免层间依赖各自持有）。 */
 const EOL_REGEX = /\r\n|\r|\n/g
@@ -247,6 +247,41 @@ export async function resolveRepoRoot(dir: string): Promise<string | null> {
 export function clearRepoRootCache(dir?: string): void {
   if (dir === undefined) repoRootCache.clear()
   else repoRootCache.delete(dir)
+}
+
+/** 仓库的两个 gitdir（绝对路径、'/' 分隔）。 */
+export interface GitDirs {
+  /** 本工作树私有的 gitdir：主工作树即 `<root>/.git`，链接工作树为 `<commonDir>/worktrees/<名>` */
+  gitDir: string
+  /** 公共 gitdir（refs / objects / worktrees 所在）：主工作树与 gitDir 相同 */
+  commonDir: string
+}
+
+/**
+ * 链接工作树的主工作树目录：gitDir ≠ commonDir 且 commonDir 名为 .git 时取其父目录
+ * （Zed 同款推导）；主工作树、裸仓库（commonDir 不叫 .git）为 null。输入输出均为 '/' 分隔。
+ */
+export function mainWorktreePathOf(dirs: GitDirs): string | null {
+  if (dirs.gitDir === dirs.commonDir) return null
+  if (posix.basename(dirs.commonDir) !== '.git') return null
+  return posix.dirname(dirs.commonDir)
+}
+
+/**
+ * 解析仓库的 gitdir 与公共 gitdir（rev-parse 一次带两个，输出逐行、相对 cwd 或绝对；
+ * `--git-common-dir` 需 git ≥ 2.5，低于仓库所有既有 gate）。失败返回 null。
+ * 不走缓存：只在对齐项目监听时调用，频率很低。
+ */
+export async function resolveGitDirs(root: string): Promise<GitDirs | null> {
+  const result = await execGit(root, ['rev-parse', '--git-dir', '--git-common-dir'])
+  if (result.code !== 0) return null
+  const lines = result.stdout
+    .toString('utf8')
+    .split(EOL_REGEX)
+    .filter((line) => line !== '')
+  if (lines.length < 2) return null
+  const abs = (p: string): string => normalizeSep(isAbsolute(p) ? normalize(p) : resolve(root, p))
+  return { gitDir: abs(lines[0]), commonDir: abs(lines[1]) }
 }
 
 /**

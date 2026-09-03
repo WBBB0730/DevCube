@@ -44,13 +44,49 @@ export function isDiscoveryRootName(name: string): boolean {
   return ROOT_WATCH_NAMES.has(name) || isDotnetProjectFile(name)
 }
 
-/** `.git` 目录内：白名单元数据 vs objects/logs 等噪声。 */
-export function classifyGitDirRel(relFromGitDir: string): 'meta' | 'noise' {
+/**
+ * gitdir 内路径分类：白名单元数据 vs objects/logs 等噪声。
+ * `ownGitDirRel` = 本项目工作树在该 gitdir 内的私有目录：盯自己的 `.git` 时为 null；
+ * 链接工作树盯主仓库公共 gitdir 时为 `worktrees/<名>`（见 classifyCommonDirPath）。
+ * - 顶层 HEAD：null 时是自己的 HEAD，非 null 时是主工作树的 HEAD（分支占用标注要跟进）→ 均 meta
+ * - 顶层 index：只有自己的才 meta（别的工作树的暂存区与本项目无关）
+ * - `worktrees` / `worktrees/<名>`：工作树增删 → meta；`worktrees/<名>/HEAD`：任一工作树切分支 → meta；
+ *   `worktrees/<名>/index`：仅自己的 → meta
+ */
+export function classifyGitDirRel(
+  relFromGitDir: string,
+  ownGitDirRel: string | null = null
+): 'meta' | 'noise' {
   if (relFromGitDir.endsWith('.lock')) return 'noise'
   const norm = relFromGitDir.split(/[/\\]/).join('/')
-  if (norm === 'HEAD' || norm === 'index' || norm === 'config') return 'meta'
+  const ownNorm = ownGitDirRel === null ? null : ownGitDirRel.split(/[/\\]/).join('/')
+  if (norm === 'HEAD' || norm === 'config') return 'meta'
+  if (norm === 'index') return ownNorm === null ? 'meta' : 'noise'
   if (norm === 'refs' || norm.startsWith('refs/')) return 'meta'
+  if (norm === 'worktrees') return 'meta'
+  const linked = norm.match(/^worktrees\/([^/]+)(?:\/(.*))?$/)
+  if (linked) {
+    const inner = linked[2] ?? ''
+    if (inner === '' || inner === 'HEAD') return 'meta'
+    if (inner === 'index' && ownNorm === `worktrees/${linked[1]}`) return 'meta'
+  }
   return 'noise'
+}
+
+/**
+ * 链接工作树额外盯主仓库公共 gitdir 的事件分类：只驱动 git 通道（工作区文件与
+ * discovery 仍由项目目录那条订阅负责）。`ownGitDir` 为本工作树私有 gitdir（在 commonDir 下）。
+ */
+export function classifyCommonDirPath(
+  commonDir: string,
+  ownGitDir: string,
+  absPath: string
+): WatchEventClass[] {
+  const rel = relativeInside(commonDir, absPath)
+  if (rel === null || rel === '') return []
+  const ownRel = relativeInside(commonDir, ownGitDir)
+  const ownGitDirRel = ownRel === null || ownRel === '' ? null : ownRel
+  return classifyGitDirRel(rel, ownGitDirRel) === 'meta' ? [{ kind: 'git-meta' }] : []
 }
 
 function pathHasIdeIgnoredSegment(absPath: string): boolean {

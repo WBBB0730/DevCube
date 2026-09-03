@@ -27,6 +27,7 @@ describe('workspaceSliceFromBootstrap', () => {
             pinned: false
           },
           packageManager: null,
+          worktreeOf: null,
           discovered: [],
           configs: [config]
         }

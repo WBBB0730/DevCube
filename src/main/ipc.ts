@@ -93,7 +93,7 @@ import { startContentSearch, stopContentSearch } from './content-search'
 import type { ContentSearchOptions } from '../shared/content-search'
 import type { FilesUiState } from '../shared/files'
 import type { WorkspaceUiState } from '../shared/workspace'
-import { buildTree } from './tree'
+import { buildTree, clearProjectWorktreeOf, setProjectWorktreeOf } from './tree'
 import { isAppQuitting } from './app-shutdown'
 import {
   getDetails,
@@ -105,7 +105,14 @@ import {
 } from './git-data'
 import { runGitAction } from './git-actions'
 import { syncProjectWatchers } from './project-watchers'
-import { clearRepoRootCache, execGit, resolveRepoRoot, revalidateRepoRoot } from './git-exec'
+import {
+  clearRepoRootCache,
+  execGit,
+  mainWorktreePathOf,
+  resolveGitDirs,
+  resolveRepoRoot,
+  revalidateRepoRoot
+} from './git-exec'
 import {
   checkAppUpdates,
   getAppUpdateState,
@@ -155,16 +162,28 @@ export function openProjectFromExternal(path: string): void {
 async function refreshProjectWatchers(): Promise<void> {
   if (isAppQuitting()) return
   const projects = await Promise.all(
-    getProjects().map(async (p) => ({
-      projectPath: p.path,
-      repoRoot: await resolveRepoRoot(p.path)
-    }))
+    getProjects().map(async (p) => {
+      const repoRoot = await resolveRepoRoot(p.path)
+      return {
+        projectPath: p.path,
+        repoRoot,
+        // 链接工作树要额外盯主仓库的公共 gitdir（refs / 各工作树 HEAD），形态由 watcher 侧判断
+        gitDirs: repoRoot === null ? null : await resolveGitDirs(repoRoot)
+      }
+    })
   )
   syncProjectWatchers(projects, {
     onDiscoveryChange: onDiscoveryWatchEvent,
     onFilesChange: emitFilesChanged,
     onGitChange: onGitWatcherChange
   })
+  // 左树的工作树角标：buildTree 同步、不能跑 git，gitdir 在这里已解析好，顺手写入；变了才重推树
+  let worktreeOfChanged = false
+  for (const p of projects) {
+    const mainPath = p.gitDirs === null ? null : mainWorktreePathOf(p.gitDirs)
+    if (setProjectWorktreeOf(p.projectPath, mainPath)) worktreeOfChanged = true
+  }
+  if (worktreeOfChanged) emitTree()
 }
 
 // watcher 防抖回调：先重验仓库根（init / .git 删除后缓存失真），变化则对齐 watcher 形态，
@@ -238,6 +257,7 @@ export function registerIpc(win: BrowserWindow): void {
     deleteFilesUi(path)
     deleteWorkspaceUiForProject(path)
     clearRepoRootCache(path)
+    clearProjectWorktreeOf(path)
     refreshWatchers()
     return buildTree()
   })

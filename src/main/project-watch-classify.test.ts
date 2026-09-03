@@ -1,6 +1,7 @@
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import {
+  classifyCommonDirPath,
   classifyGitDirRel,
   classifyWatchPathAll,
   isDiscoveryRootName,
@@ -95,5 +96,48 @@ describe('classifyWatchPathAll', () => {
     expect(classifyWatchPathAll(nested, monoRoot, sibling)).toEqual([
       { kind: 'git-worktree', relPath: join('packages', 'other', 'a.ts') }
     ])
+  })
+})
+
+describe('classifyGitDirRel：工作树白名单', () => {
+  it('worktrees 目录本身、各工作树目录的增删、任一工作树的 HEAD 为 meta；其余为噪声', () => {
+    expect(classifyGitDirRel('worktrees')).toBe('meta')
+    expect(classifyGitDirRel(join('worktrees', 'feat'))).toBe('meta')
+    expect(classifyGitDirRel(join('worktrees', 'feat', 'HEAD'))).toBe('meta')
+    expect(classifyGitDirRel(join('worktrees', 'feat', 'index'))).toBe('noise')
+    expect(classifyGitDirRel(join('worktrees', 'feat', 'logs', 'HEAD'))).toBe('noise')
+    expect(classifyGitDirRel(join('worktrees', 'feat', 'index.lock'))).toBe('noise')
+  })
+
+  it('链接工作树盯公共 gitdir：只有自己的 index 为 meta，主工作树的顶层 index 为噪声，顶层 HEAD 与 refs 仍为 meta', () => {
+    const own = join('worktrees', 'feat')
+    expect(classifyGitDirRel(join('worktrees', 'feat', 'index'), own)).toBe('meta')
+    expect(classifyGitDirRel(join('worktrees', 'other', 'index'), own)).toBe('noise')
+    expect(classifyGitDirRel(join('worktrees', 'other', 'HEAD'), own)).toBe('meta')
+    expect(classifyGitDirRel('index', own)).toBe('noise')
+    expect(classifyGitDirRel('HEAD', own)).toBe('meta')
+    expect(classifyGitDirRel(join('refs', 'heads', 'main'), own)).toBe('meta')
+  })
+})
+
+describe('classifyCommonDirPath', () => {
+  const commonDir = join('/main', '.git')
+  const ownGitDir = join('/main', '.git', 'worktrees', 'feat')
+
+  it('公共 gitdir 内的白名单事件 → git-meta；噪声、目录自身与域外 → 空', () => {
+    const meta = [{ kind: 'git-meta' }]
+    expect(
+      classifyCommonDirPath(commonDir, ownGitDir, join(commonDir, 'refs', 'heads', 'x'))
+    ).toEqual(meta)
+    expect(
+      classifyCommonDirPath(commonDir, ownGitDir, join(commonDir, 'worktrees', 'feat'))
+    ).toEqual(meta)
+    expect(classifyCommonDirPath(commonDir, ownGitDir, join(ownGitDir, 'index'))).toEqual(meta)
+    expect(classifyCommonDirPath(commonDir, ownGitDir, join(commonDir, 'index'))).toEqual([])
+    expect(classifyCommonDirPath(commonDir, ownGitDir, join(commonDir, 'objects', 'aa'))).toEqual(
+      []
+    )
+    expect(classifyCommonDirPath(commonDir, ownGitDir, commonDir)).toEqual([])
+    expect(classifyCommonDirPath(commonDir, ownGitDir, join('/elsewhere', 'x'))).toEqual([])
   })
 })

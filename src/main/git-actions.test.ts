@@ -38,6 +38,10 @@ import {
   buildSquashCommitArgs,
   buildSquashMessage,
   buildStagePathsArgs,
+  buildWorktreeAddArgs,
+  buildWorktreePruneArgs,
+  buildWorktreeRemoveArgs,
+  worktreeRemoveNeedsForce,
   buildStashApplyArgs,
   buildStashBranchArgs,
   buildStashDropArgs,
@@ -996,5 +1000,63 @@ describe('toActionResult', () => {
       status: 'error',
       errors: ['错误一', '错误二']
     })
+  })
+})
+
+describe('buildWorktreeAddArgs', () => {
+  it('新建分支：-b <名> -- <路径> <起点>', () => {
+    expect(
+      buildWorktreeAddArgs({
+        kind: 'worktree-add',
+        path: '/wt/feat-x',
+        checkout: { kind: 'new-branch', name: 'feat/x', startPoint: 'origin/feat/x' }
+      })
+    ).toEqual([['worktree', 'add', '-b', 'feat/x', '--', '/wt/feat-x', 'origin/feat/x']])
+  })
+  it('检出已有分支：-- <路径> <分支>', () => {
+    expect(
+      buildWorktreeAddArgs({
+        kind: 'worktree-add',
+        path: '/wt/dev',
+        checkout: { kind: 'existing-branch', name: 'dev' }
+      })
+    ).toEqual([['worktree', 'add', '--', '/wt/dev', 'dev']])
+  })
+  it('分离 HEAD：--detach -- <路径> <起点>', () => {
+    expect(
+      buildWorktreeAddArgs({
+        kind: 'worktree-add',
+        path: '/wt/spike',
+        checkout: { kind: 'detached', startPoint: 'abc123' }
+      })
+    ).toEqual([['worktree', 'add', '--detach', '--', '/wt/spike', 'abc123']])
+  })
+})
+
+describe('buildWorktreeRemoveArgs / buildWorktreePruneArgs', () => {
+  it('force 加 --force；路径经 -- 隔开', () => {
+    expect(
+      buildWorktreeRemoveArgs({ kind: 'worktree-remove', path: '/wt/x', force: false })
+    ).toEqual([['worktree', 'remove', '--', '/wt/x']])
+    expect(
+      buildWorktreeRemoveArgs({ kind: 'worktree-remove', path: '/wt/x', force: true })
+    ).toEqual([['worktree', 'remove', '--force', '--', '/wt/x']])
+    expect(buildWorktreePruneArgs()).toEqual([['worktree', 'prune']])
+  })
+})
+
+describe('worktreeRemoveNeedsForce', () => {
+  it('识别 git 的「有改动需 --force」报错；其它报错不算', () => {
+    expect(
+      worktreeRemoveNeedsForce(
+        "fatal: '/wt/x' contains modified or untracked files, use --force to delete it"
+      )
+    ).toBe(true)
+    expect(worktreeRemoveNeedsForce("fatal: '/wt/x' is not a working tree")).toBe(false)
+    expect(
+      worktreeRemoveNeedsForce(
+        "fatal: cannot remove a locked working tree, lock reason: x\nuse 'remove -f -f' to override or unlock first"
+      )
+    ).toBe(false)
   })
 })

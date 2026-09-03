@@ -144,6 +144,11 @@ export interface ProjectNode {
   packageManager: PackageManager | null
   discovered: DiscoveredScript[]
   configs: RunConfig[]
+  /**
+   * 该项目是链接工作树时，其主工作树目录（左树角标用；术语见 CONTEXT.md「Worktree」）；
+   * 主工作树 / 非仓库 / 主进程尚未解析 gitdir 时为 null
+   */
+  worktreeOf: string | null
 }
 
 /** 添加 / 新建 / 拖入项目的结果：树 + 应聚焦的路径（取消或无效则为 null）。 */

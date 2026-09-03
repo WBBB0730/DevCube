@@ -3,6 +3,7 @@
 // 术语见 CONTEXT.md（Git Tab / Commit Graph / Ref / Commit Details / Diff 面板）。
 
 /** 「未提交更改」虚拟提交的 hash 常量（与参考实现一致，真实 hash 不可能是它）。 */
+
 export const UNCOMMITTED = '*'
 
 /**
@@ -67,6 +68,120 @@ export interface GitLoadOptions {
  */
 export type GitOpInProgress = 'rebase' | 'merge' | 'cherry-pick' | 'revert'
 
+/** 同一仓库的一份检出（`git worktree list --porcelain` 的一条记录）；术语见 CONTEXT.md（Worktree）。 */
+export interface GitWorktree {
+  /** 工作树目录（git 记录的绝对路径，主进程已转为本平台分隔符） */
+  path: string
+  /** HEAD 提交 hash；裸仓库条目为 null */
+  head: string | null
+  /** 检出的本地分支名（已去掉 refs/heads/）；detached HEAD 为 null */
+  branch: string | null
+  /** 主工作树（列表首条且非裸仓库） */
+  isMain: boolean
+  /** 裸仓库条目（无工作目录，不能登记为项目） */
+  bare: boolean
+  /** git 标为可清理（目录已不存在等），不能前往 */
+  prunable: boolean
+  /** 就是本项目所在的工作树 */
+  isCurrent: boolean
+}
+
+/** 分支被哪个「其他」工作树检出（本项目自身与裸仓库条目不算）；未被占用返回 null。 */
+export function worktreeHoldingBranch(
+  worktrees: readonly GitWorktree[],
+  branch: string
+): GitWorktree | null {
+  return worktrees.find((w) => !w.isCurrent && !w.bare && w.branch === branch) ?? null
+}
+
+/** 可列出的工作树：裸仓库条目无工作目录、不能登记为项目，不进列表（工具栏据此决定整段显隐）。 */
+export function listedWorktrees(worktrees: readonly GitWorktree[]): GitWorktree[] {
+  return worktrees.filter((w) => !w.bare)
+}
+
+/** 路径末段（目录名）；兼容两种分隔符与末尾分隔符（渲染端无 path 模块）。 */
+export function lastPathSegment(path: string): string {
+  const segments = path.split(/[/\\]/).filter((s) => s !== '')
+  return segments[segments.length - 1] ?? path
+}
+
+/** 新工作树的默认名（目录名）：分支名把 `/` 换成 `-`（`feat/x` → `feat-x`）。 */
+export function worktreeNameFromBranch(branch: string): string {
+  return branch.replace(/\//g, '-')
+}
+
+/** 工作树名是否非法：空、含路径分隔符、或为 . / ..（名称即目录名，只允许单层）。 */
+export function isWorktreeNameInvalid(name: string): boolean {
+  const trimmed = name.trim()
+  return trimmed === '' || trimmed === '.' || trimmed === '..' || /[/\\]/.test(trimmed)
+}
+
+/**
+ * 新工作树目录的锚点：主工作树目录（`../<名>.worktrees` 相对它算）；裸仓库没有主工作树时
+ * 退回本项目所在的工作树，再退回 fallback（项目路径）。
+ */
+export function worktreeAnchorPath(worktrees: readonly GitWorktree[], fallback: string): string {
+  return (
+    worktrees.find((w) => w.isMain)?.path ?? worktrees.find((w) => w.isCurrent)?.path ?? fallback
+  )
+}
+
+/** 工作树目录设置为空时的默认值：`../<锚点目录名>.worktrees`（VS Code / GitLens 同形态）。 */
+export function defaultWorktreeDirectory(anchorPath: string): string {
+  return `../${lastPathSegment(anchorPath)}.worktrees`
+}
+
+const WINDOWS_DRIVE = /^[A-Za-z]:$/
+
+/**
+ * 新工作树的完整路径 = 存放目录 + 名称。目录设置为 null / 空即默认 `../<主项目名>.worktrees`；
+ * 相对路径相对锚点（主工作树）解析，也可填绝对路径。渲染端无 path 模块：分隔符跟随锚点
+ * （含反斜杠即 Windows，登记项目时与其它入口口径一致），自行归一 `.` 与 `..`，根不可越过。
+ */
+export function resolveWorktreePath(
+  anchorPath: string,
+  directorySetting: string | null,
+  name: string
+): string {
+  const sep = anchorPath.includes('\\') ? '\\' : '/'
+  const directory = (directorySetting ?? '').trim() || defaultWorktreeDirectory(anchorPath)
+  const isAbsolute = /^[/\\]/.test(directory) || WINDOWS_DRIVE.test(directory.slice(0, 2))
+  const raw = isAbsolute
+    ? splitPath(directory)
+    : [...splitPath(anchorPath), ...splitPath(directory)]
+  const out: string[] = []
+  for (const seg of raw) {
+    if (seg === '.') continue
+    if (seg === '..') {
+      const isRoot = out.length === 1 && (out[0] === '' || WINDOWS_DRIVE.test(out[0]))
+      if (out.length > 0 && !isRoot) out.pop()
+      continue
+    }
+    out.push(seg)
+  }
+  out.push(name.trim())
+  return out.join(sep)
+}
+
+/** 按两种分隔符切段；保留首段的空串（POSIX 根标记），丢掉其余空段（重复 / 末尾分隔符）。 */
+function splitPath(path: string): string[] {
+  return path.split(/[/\\]/).filter((seg, i) => i === 0 || seg !== '')
+}
+
+/** 可在新工作树里检出的本地分支：去掉远程分支，再去掉已被任一工作树（含本项目）检出的。 */
+export function branchesFreeForWorktree(
+  branches: readonly string[],
+  worktrees: readonly GitWorktree[]
+): string[] {
+  const held = new Set(worktrees.filter((w) => !w.bare && w.branch !== null).map((w) => w.branch))
+  return branches.filter((b) => !b.startsWith('remotes/') && !held.has(b))
+}
+
+/** 工作树展示名：主工作树固定「主工作树」，其余取目录名（兼容两种分隔符；渲染端无 path 模块）。 */
+export function worktreeDisplayName(worktree: GitWorktree): string {
+  return worktree.isMain ? '主工作树' : lastPathSegment(worktree.path)
+}
+
 /** 一次完整加载的结果：仓库概要 + 提交列表 + refs，主进程内部串联产出。 */
 export interface GitLoadResult {
   /** 项目根目录是否在 git 仓库内（false 时其余字段皆为空值） */
@@ -92,6 +207,8 @@ export interface GitLoadResult {
   moreCommitsAvailable: boolean
   /** 进行中的多步操作（状态条 / 防误触依据）；无（或探测失败）为 null */
   opInProgress: GitOpInProgress | null
+  /** 同仓库的全部工作树（含本项目所在）；取不到（旧版 git / 命令失败）为空数组 */
+  worktrees: GitWorktree[]
   error: string | null
 }
 
@@ -289,6 +406,11 @@ export interface GitRepoSettings {
   commitOrdering: 'default' | GitCommitOrdering
   /** 隐藏的 remote 名列表（不拉其分支、不在图上标注） */
   hideRemotes: string[]
+  /**
+   * 新工作树的存放目录：相对主工作树，或绝对路径；null = 默认 `../<主工作树名>.worktrees`
+   * （与 VS Code / GitLens 同形态）。只影响 DevCube 自己新建的工作树
+   */
+  worktreeDirectory: string | null
 }
 
 /** 跨项目的视图偏好（查找选项、「不再提示」标记等） */
@@ -325,7 +447,8 @@ export const DEFAULT_GIT_REPO_SETTINGS: GitRepoSettings = {
   includeCommitsMentionedByReflogs: 'default',
   onlyFollowFirstParent: 'default',
   commitOrdering: 'default',
-  hideRemotes: []
+  hideRemotes: [],
+  worktreeDirectory: null
 }
 
 export const DEFAULT_GIT_VIEW_PREFS: GitViewPrefs = {
@@ -387,6 +510,12 @@ export type GitRebaseOn = 'branch' | 'commit'
  * 所有改动仓库状态的动作。每个变体的字段与参考实现的 git 参数一一对应；
  * 交互式 rebase 不在此列（渲染端映射到 Terminal 里执行）。
  */
+/** 新工作树检出什么：自起点新建分支 / 检出已有的空闲本地分支 / 分离 HEAD 停在起点。 */
+export type GitWorktreeCheckout =
+  | { kind: 'new-branch'; name: string; startPoint: string }
+  | { kind: 'existing-branch'; name: string }
+  | { kind: 'detached'; startPoint: string }
+
 export type GitAction =
   // 初始化（唯一合法作用于非仓库的动作；branchName null = 裸 git init，remoteUrl 非 null 时
   // 串联 remote add origin + fetch origin，fetch 失败不算 init 失败）
@@ -488,6 +617,10 @@ export type GitAction =
   | { kind: 'stash-pop'; selector: string; reinstateIndex: boolean }
   | { kind: 'stash-drop'; selector: string }
   | { kind: 'stash-branch'; selector: string; branchName: string }
+  // 工作树（git worktree；术语见 CONTEXT.md「Worktree」）
+  | { kind: 'worktree-add'; path: string; checkout: GitWorktreeCheckout }
+  | { kind: 'worktree-remove'; path: string; force: boolean }
+  | { kind: 'worktree-prune' }
   // remote 管理（仓库设置面板）
   | { kind: 'add-remote'; name: string; url: string; pushUrl: string | null; fetchAfter: boolean }
   | { kind: 'delete-remote'; name: string }
@@ -519,6 +652,8 @@ export type GitActionResult =
   | { status: 'ok' }
   | { status: 'error'; errors: string[] }
   | { status: 'push-tag-not-on-remote'; remotes: string[] }
+  /** worktree remove 撞上未提交改动（git 要求 --force）：由渲染端追问后带 force 重发 */
+  | { status: 'worktree-remove-needs-force' }
 
 // —— preload 暴露的 Git API（并入 RunAPI） ——
 

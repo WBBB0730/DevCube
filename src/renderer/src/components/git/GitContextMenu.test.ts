@@ -7,7 +7,8 @@ import {
   UNCOMMITTED,
   type GitAction,
   type GitCommit,
-  type GitRepoSettings
+  type GitRepoSettings,
+  type GitWorktree
 } from '@shared/git'
 import {
   buildMenuItems,
@@ -71,6 +72,7 @@ function makeCtx(overrides: Partial<GitMenuContext> = {}): Recorded {
     settings: DEFAULT_GIT_REPO_SETTINGS,
     viewPrefs: DEFAULT_GIT_VIEW_PREFS,
     opInProgress: null,
+    worktrees: [],
     actions: {
       runAction: (action) => rec.ran.push(action),
       runQuietAction: (action) => rec.quiet.push(action),
@@ -113,6 +115,7 @@ describe('buildMenuItems', () => {
     expect(titles(items)).toEqual([
       '添加标签…',
       '创建分支…',
+      '从此提交新建工作树…',
       '检出提交…',
       '拣选提交…',
       '回滚提交…',
@@ -167,6 +170,7 @@ describe('buildMenuItems', () => {
     const items = buildMenuItems({ kind: 'branch', name: 'dev', hash: 'c1' }, rec.ctx)
     expect(titles(items)).toEqual([
       '检出分支',
+      '在新工作树中检出…',
       '重命名分支…',
       '删除分支…',
       '合并到当前分支…',
@@ -219,6 +223,7 @@ describe('buildMenuItems', () => {
     }
     expect(titles(buildMenuItems(target, rec.ctx))).toEqual([
       '检出分支…',
+      '在新工作树中检出…',
       '合并到当前分支…',
       '在分支下拉中选中',
       '复制分支名'
@@ -550,5 +555,99 @@ describe('groupMenuItems', () => {
 
   it('空输入返回空数组（整个菜单不弹出）', () => {
     expect(groupMenuItems([])).toEqual([])
+  })
+})
+
+describe('branchMenu：分支已在其他工作树检出', () => {
+  const held: GitWorktree = {
+    path: '/wt/feat',
+    head: '2222',
+    branch: 'feat',
+    isMain: false,
+    bare: false,
+    prunable: false,
+    isCurrent: false
+  }
+
+  it('「检出分支…」改为打开 branch-in-worktree 提示，不发 checkout', () => {
+    const rec = makeCtx({ currentBranch: 'main', worktrees: [held] })
+    const items = buildMenuItems({ kind: 'branch', name: 'feat', hash: 'a' }, rec.ctx)
+    expect(titles(items)).toContain('检出分支…')
+    expect(titles(items)).not.toContain('检出分支')
+    click(items, '检出分支…')
+    expect(rec.ran).toEqual([])
+    expect(rec.opened).toEqual([{ kind: 'branch-in-worktree', branch: 'feat', worktree: held }])
+  })
+
+  it('本项目自己所在的工作树不算占用：仍是直接检出', () => {
+    const rec = makeCtx({ currentBranch: 'main', worktrees: [{ ...held, isCurrent: true }] })
+    const items = buildMenuItems({ kind: 'branch', name: 'feat', hash: 'a' }, rec.ctx)
+    expect(titles(items)).toContain('检出分支')
+    click(items, '检出分支')
+    expect(rec.ran).toEqual([{ kind: 'checkout-branch', branch: 'feat', remoteBranch: null }])
+    expect(rec.opened).toEqual([])
+  })
+})
+
+describe('工作树新建入口', () => {
+  it('提交菜单「从此提交新建工作树…」：起点为该提交、预设新建分支', () => {
+    const rec = linearCtx()
+    const items = buildMenuItems({ kind: 'commit', hash: 'c1' }, rec.ctx)
+    click(items, '从此提交新建工作树…')
+    expect(rec.opened).toEqual([
+      {
+        kind: 'worktree-add',
+        start: { ref: 'c1', label: 'c1' },
+        checkout: 'new-branch',
+        branch: null
+      }
+    ])
+  })
+
+  it('本地分支「在新工作树中检出…」：预设检出该分支；被占用时置灰并注明工作树', () => {
+    const rec = makeCtx({ currentBranch: 'main', branches: ['main', 'dev'] })
+    const items = buildMenuItems({ kind: 'branch', name: 'dev', hash: 'c1' }, rec.ctx)
+    click(items, '在新工作树中检出…')
+    expect(rec.opened).toEqual([
+      {
+        kind: 'worktree-add',
+        start: { ref: 'dev', label: 'dev' },
+        checkout: 'existing-branch',
+        branch: 'dev'
+      }
+    ])
+
+    const held: GitWorktree = {
+      path: '/wt/dev',
+      head: '1',
+      branch: 'dev',
+      isMain: false,
+      bare: false,
+      prunable: false,
+      isCurrent: false
+    }
+    const rec2 = makeCtx({ currentBranch: 'main', branches: ['main', 'dev'], worktrees: [held] })
+    const item = buildMenuItems({ kind: 'branch', name: 'dev', hash: 'c1' }, rec2.ctx).find(
+      (i) => i !== 'divider' && i.title === '在新工作树中检出…'
+    ) as GitMenuItem
+    expect(item.disabled).toBe(true)
+    expect(item.disabledReason).toBe('已在工作树 "dev" 检出')
+  })
+
+  it('远程分支「在新工作树中检出…」：预设新建同名本地分支，起点为远程 ref', () => {
+    const rec = makeCtx({ currentBranch: 'main', remotes: ['origin'], branches: ['main'] })
+    const items = buildMenuItems(
+      { kind: 'remote-branch', fullRef: 'origin/dev', remote: 'origin', hash: 'c1' },
+      rec.ctx
+    )
+    click(items, '在新工作树中检出…')
+    expect(rec.opened).toEqual([
+      {
+        kind: 'worktree-add',
+        start: { ref: 'origin/dev', label: 'origin/dev' },
+        checkout: 'new-branch',
+        branch: 'dev'
+      }
+    ])
   })
 })

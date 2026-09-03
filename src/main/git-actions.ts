@@ -335,6 +335,46 @@ export function buildStashBranchArgs(action: ActionOf<'stash-branch'>): string[]
   return [['stash', 'branch', action.branchName, action.selector]]
 }
 
+// —— 工作树 ——
+
+/**
+ * worktree-add 的三种检出方式（`--` 隔开路径，防止以 - 开头的路径被当选项）；
+ * 父目录由 git 自建（safe_create_leading_directories），无需预建。
+ */
+export function buildWorktreeAddArgs(action: ActionOf<'worktree-add'>): string[][] {
+  const { path, checkout } = action
+  switch (checkout.kind) {
+    case 'new-branch':
+      return [['worktree', 'add', '-b', checkout.name, '--', path, checkout.startPoint]]
+    case 'existing-branch':
+      return [['worktree', 'add', '--', path, checkout.name]]
+    case 'detached':
+      return [['worktree', 'add', '--detach', '--', path, checkout.startPoint]]
+  }
+}
+
+/** worktree-remove：force 加 --force（脏工作树）；锁定的工作树需两次 -f，不做。 */
+export function buildWorktreeRemoveArgs(action: ActionOf<'worktree-remove'>): string[][] {
+  return [
+    action.force
+      ? ['worktree', 'remove', '--force', '--', action.path]
+      : ['worktree', 'remove', '--', action.path]
+  ]
+}
+
+export function buildWorktreePruneArgs(): string[][] {
+  return [['worktree', 'prune']]
+}
+
+/**
+ * `worktree remove` 因未提交改动被拒的报错
+ * （`fatal: '<path>' contains modified or untracked files, use --force to delete it`）：
+ * 命中即以 worktree-remove-needs-force 返回，渲染端追问后带 force 重发。
+ */
+export function worktreeRemoveNeedsForce(error: string): boolean {
+  return /use --force to delete it/.test(error)
+}
+
 // —— remote 管理 ——
 
 /** add-remote：add → 可选 set-url --push → 可选 fetch（不带 prune），顺序执行出错即停。 */
@@ -729,6 +769,33 @@ async function runStashPush(cwd: string, action: ActionOf<'stash-push'>): Promis
   return toActionResult(await runSequence(cwd, buildStashPushArgs(action)))
 }
 
+/** 工作树增删的 git 版本门槛：`worktree remove` 自 2.17 起（add 自 2.5，统一按 2.17 提示）。 */
+const WORKTREE_MIN_GIT = '2.17.0'
+
+/** worktree-add：版本 gate 后执行。 */
+async function runWorktreeAdd(
+  cwd: string,
+  action: ActionOf<'worktree-add'>
+): Promise<GitActionResult> {
+  const gateError = await checkGitVersion(cwd, WORKTREE_MIN_GIT, 'git worktree')
+  if (gateError !== null) return { status: 'error', errors: [gateError] }
+  return toActionResult(await runSequence(cwd, buildWorktreeAddArgs(action)))
+}
+
+/** worktree-remove：非 force 撞上脏工作树时不算错误，转结构化状态让渲染端追问。 */
+async function runWorktreeRemove(
+  cwd: string,
+  action: ActionOf<'worktree-remove'>
+): Promise<GitActionResult> {
+  const gateError = await checkGitVersion(cwd, WORKTREE_MIN_GIT, 'git worktree')
+  if (gateError !== null) return { status: 'error', errors: [gateError] }
+  const error = await run(cwd, buildWorktreeRemoveArgs(action)[0])
+  if (error !== null && !action.force && worktreeRemoveNeedsForce(error)) {
+    return { status: 'worktree-remove-needs-force' }
+  }
+  return toActionResult([error])
+}
+
 /** 按动作类型分发执行；简单动作 = 构造出的命令序列顺序执行、出错即停。init 不经此处（非仓库）。 */
 async function execAction(
   cwd: string,
@@ -803,6 +870,12 @@ async function execAction(
       return toActionResult(await runSequence(cwd, buildStashDropArgs(action)))
     case 'stash-branch':
       return toActionResult(await runSequence(cwd, buildStashBranchArgs(action)))
+    case 'worktree-add':
+      return runWorktreeAdd(cwd, action)
+    case 'worktree-remove':
+      return runWorktreeRemove(cwd, action)
+    case 'worktree-prune':
+      return toActionResult(await runSequence(cwd, buildWorktreePruneArgs()))
     case 'add-remote':
       return toActionResult(await runSequence(cwd, buildAddRemoteArgs(action)))
     case 'delete-remote':
