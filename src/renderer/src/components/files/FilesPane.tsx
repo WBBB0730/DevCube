@@ -35,7 +35,10 @@ import {
   filesHighlighting,
   languageExtensionForPath
 } from '@renderer/lib/cm6-setup'
+import { EditorView, keymap } from '@codemirror/view'
+import { filesFindExtension, setFindQuery } from '@renderer/lib/cm6-find'
 import { gitDiffGutter, type GitGutterHunkClickPayload } from '@renderer/lib/cm6-git-gutter'
+import { FilesFindWidget } from './FilesFindWidget'
 import { isMarkdownPath } from '@shared/files-kind'
 import { FilesGutterHunkPopover } from './FilesGutterHunkPopover'
 import { FilesMarkdownPreview } from './FilesMarkdownPreview'
@@ -51,6 +54,15 @@ import {
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
 import { FILE_STATUS_COLOR, workingTreeStatusByPath } from '@renderer/components/git/git-details'
+
+/** 内容搜索跳转请求（FilesPane → FilesTextEditor）：定位行与选中区间。 */
+interface EditorJumpRequest {
+  path: string
+  line: number
+  col?: number
+  endCol?: number
+  nonce: number
+}
 
 const IDLE_SAVE_MS = 2000
 const FILTER_DEBOUNCE_MS = 200
@@ -120,6 +132,9 @@ export function FilesPane({
   const [entryDialog, setEntryDialog] = useState<FilesEntryDialogRequest | null>(null)
   /** gutter diff 弹窗（点击标记行号格子；文档一变即关，见 onChange / openFile）。 */
   const [hunkPopup, setHunkPopup] = useState<GitGutterHunkClickPayload | null>(null)
+  /** 内容搜索跳转：打开文件后选中命中区间并滚到行（nonce 支持同位置重跳）。 */
+  const [editorJump, setEditorJump] = useState<EditorJumpRequest | null>(null)
+  const editorJumpNonce = useRef(0)
   const [ready, setReady] = useState(false)
   /** 忽略过期的 openFile / git status / 全部展开 / 过滤扫盘 响应。 */
   const openSeqRef = useRef(0)
@@ -627,17 +642,22 @@ export function FilesPane({
     }
   }, [visible, ready, ensureDirLoaded, openFile, projectPath, rootLogical])
 
-  // Git / 外部 pending open（ready 之后才消费）
+  // Git / 内容搜索等外部 pending open（ready 之后才消费）
   const pending = useFiles((s) => s.pendingOpenByProject[projectPath])
   useEffect(() => {
     if (!ready || !pending) return
-    const path = useFiles.getState().consumePendingOpen(projectPath)
-    if (!path) return
+    const req = useFiles.getState().consumePendingOpen(projectPath)
+    if (!req) return
     // 不在 cleanup 里取消：consume 会立刻把 pending 置空并重跑 effect，取消会误杀本次打开。
     void (async () => {
-      const logical = normalizePath(path)
+      const logical = normalizePath(req.path)
       await expandToFile(logical)
       await openFile(logical)
+      if (req.at) {
+        // 定位落在编辑器上：Markdown 若停在预览态先切回编辑
+        setMdPreview(false)
+        setEditorJump({ path: logical, ...req.at, nonce: ++editorJumpNonce.current })
+      }
     })()
   }, [ready, pending, projectPath, expandToFile, openFile])
 
@@ -932,6 +952,8 @@ export function FilesPane({
             onToggleTree={() => setTreeVisible((v) => !v)}
             onRevealInTree={revealInTree}
             onOpenRecent={openFromRecent}
+            jump={editorJump}
+            onJumpDone={() => setEditorJump(null)}
             onHunkClick={setHunkPopup}
             onChange={(v) => {
               // 文档一变，gutter 弹窗的 hunk 即过期，统一在此关闭（含弹窗内回滚）
@@ -1258,6 +1280,8 @@ function FilesTextEditor({
   onToggleTree,
   onRevealInTree,
   onOpenRecent,
+  jump,
+  onJumpDone,
   onHunkClick,
   onChange
 }: {
@@ -1277,12 +1301,50 @@ function FilesTextEditor({
   onToggleTree: () => void
   onRevealInTree: (logical: string, isDirectory: boolean) => void | Promise<void>
   onOpenRecent: (logical: string) => void | Promise<void>
+  /** 内容搜索跳转：编辑器就绪后选中命中区间并滚到行；应用后回调清除 */
+  jump: EditorJumpRequest | null
+  onJumpDone: () => void
   /** 点击 gutter 标记行 → 打开 diff 弹窗 */
   onHunkClick: (payload: GitGutterHunkClickPayload) => void
   onChange: (value: string) => void
 }): React.JSX.Element {
   const markdown = isMarkdownPath(path)
   const theme = useApp((s) => s.theme)
+  const viewRef = useRef<EditorView | null>(null)
+  const [viewNonce, setViewNonce] = useState(0)
+
+  // 编辑器内查找栏（Cmd+F）：keymap 闭包直接引用 findOpen，开关时 extensions 走一次
+  // reconfigure（不重建编辑器状态，成本可忽略），换取无 ref 的直白数据流
+  const [findOpen, setFindOpen] = useState(false)
+  const [findFocusNonce, setFindFocusNonce] = useState(0)
+  const openFind = useCallback(() => {
+    setFindOpen(true)
+    setFindFocusNonce((n) => n + 1)
+  }, [])
+
+  // 关闭查找（含切走 Markdown 预览态卸载编辑器前）统一在此清命中高亮
+  useEffect(() => {
+    if (findOpen) return
+    const view = viewRef.current
+    if (view && view.dom.isConnected) view.dispatch({ effects: setFindQuery.of(null) })
+  }, [findOpen])
+
+  // 跳转须等 CodeMirror 挂载（key=path 换文件重建）；viewNonce 驱动重试
+  useEffect(() => {
+    if (!jump || jump.path !== path) return
+    const view = viewRef.current
+    if (!view) return
+    const doc = view.state.doc
+    const line = doc.line(Math.min(Math.max(jump.line, 1), doc.lines))
+    const anchor = Math.min(line.from + (jump.col ?? 0), line.to)
+    const head = Math.min(line.from + (jump.endCol ?? jump.col ?? 0), line.to)
+    view.dispatch({
+      selection: { anchor, head },
+      effects: EditorView.scrollIntoView(anchor, { y: 'center' })
+    })
+    view.focus()
+    onJumpDone()
+  }, [jump, path, viewNonce, onJumpDone])
   // 换 extensions 走的是 StateEffect.reconfigure，不重建 EditorState：文档 / 选区 / 滚动
   // 位置与撤销栈都在，切主题不打断编辑。
   const extensions = useMemo(
@@ -1292,9 +1354,28 @@ function FilesTextEditor({
       filesEditorConfig,
       filesGutters,
       languageExtensionForPath(path),
+      filesFindExtension,
+      // Cmd+F 开自定义查找栏（默认面板已由 FILES_BASIC_SETUP 关掉）；Esc 查找开着时关之
+      keymap.of([
+        {
+          key: 'Mod-f',
+          run: () => {
+            openFind()
+            return true
+          }
+        },
+        {
+          key: 'Escape',
+          run: () => {
+            if (!findOpen) return false
+            setFindOpen(false)
+            return true
+          }
+        }
+      ]),
       ...(baseline === null ? [] : [gitDiffGutter(baseline, onHunkClick)])
     ],
-    [theme, path, baseline, onHunkClick]
+    [theme, path, baseline, onHunkClick, openFind, findOpen]
   )
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -1315,18 +1396,32 @@ function FilesTextEditor({
       {markdown && mdPreview ? (
         <FilesMarkdownPreview path={path} content={content} projectRoot={projectRoot} />
       ) : (
-        <div className="files-codemirror min-h-0 flex-1 overflow-hidden bg-deepest">
-          <CodeMirror
-            key={path}
-            value={content}
-            height="100%"
-            theme="none"
-            extensions={extensions}
-            basicSetup={FILES_BASIC_SETUP}
-            onChange={onChange}
-            className="h-full [&_.cm-editor]:h-full [&_.cm-editor]:outline-none"
-          />
-        </div>
+        <>
+          {findOpen && (
+            <FilesFindWidget
+              viewRef={viewRef}
+              content={content}
+              focusNonce={findFocusNonce}
+              onClose={() => setFindOpen(false)}
+            />
+          )}
+          <div className="files-codemirror min-h-0 flex-1 overflow-hidden bg-deepest">
+            <CodeMirror
+              key={path}
+              value={content}
+              height="100%"
+              theme="none"
+              extensions={extensions}
+              basicSetup={FILES_BASIC_SETUP}
+              onChange={onChange}
+              onCreateEditor={(view) => {
+                viewRef.current = view
+                setViewNonce((n) => n + 1)
+              }}
+              className="h-full [&_.cm-editor]:h-full [&_.cm-editor]:outline-none"
+            />
+          </div>
+        </>
       )}
     </div>
   )

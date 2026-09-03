@@ -69,6 +69,7 @@
 52. 作为开发者，我想不管项目多大，过滤都在秒级内出结果，以便超大仓库里筛选也可用。
 53. 作为开发者，我想首次过滤建索引期间看到「正在扫描」提示，以便不把空白误当无结果；索引热了之后敲字即时出结果。
 54. 作为开发者，我想过滤命中成千上万个文件时树依然流畅滚动，以便宽泛查询下也能翻结果而不是页面卡死。
+55. 作为开发者，我想在编辑器里用 Cmd/Ctrl+F 打开顶部查找栏（大小写 / 全词 / 正则、计数、上下导航、Esc 关闭，形态对齐 WebStorm），以便文件内定位不再面对样式突兀的默认面板。
 
 ## Implementation Decisions
 
@@ -76,6 +77,8 @@
 - **布局**：Files Tab 内左正文、右文件树；左栏 ProjectTree 不改。空态文案「在右侧选择文件」。标签：`FolderOpen` 图标 +「文件」，内边距对齐 Git Tab。工具栏：可点面包屑（点段 → 树展开并滚到对应行）+「最近打开文件」（最多 10 条，按项目持久化）/「在文件树中显示」/「在文件夹中显示」/「在其他应用中打开」。文件树顶栏：左侧常驻筛选框（占位与 title 同文案，样式对齐左栏项目筛选）+ 右侧「全部展开」/「全部折叠」/「隐藏文件树」。
 - **文件树**：列出项目根下条目；**展示不读 `.gitignore`**。隐藏名对齐 WebStorm「Editor → File Types → Ignored Files and Folders」默认掩码（`.git`、`.DS_Store`、`*.pyc`、`*~` 等；完整表见共享过滤模块）。仅允许访问项目根之内的路径（防目录穿越）。目录懒加载或等价按需读取以控制大树成本；树行虚拟滚动——按展开态拍平成可见行数组、仅渲染视口内行（读取与渲染分别受控，过滤命中再多也不卡）；展开状态按项目持久化。
 - **树顶过滤**（ADR-0009 / ADR-0027）：查询非空时主进程从**文件名索引**构建过滤树（保留结构）——ripgrep `--files` 一次枚举全项目、按项目缓存扁平名单，按键只做内存匹配；索引随文件监听的变更推送作废。匹配 = 相对项目根路径大小写不敏感包含；目录自身命中则整支子树纳入（子孙路径天然包含目录名）；过滤态自动展开至命中；无匹配文案「无匹配文件」；名单只含文件，名字命中的空目录不出现。索引跳过：IDE 忽略名 + gitignore（非仓库则仅 IDE）。防抖输入、冷索引首查显示「正在扫描」提示（延迟出现防闪烁）、扫描完成前不显示「无匹配文件」、以最新查询为准作废旧结果。过滤文字不持久化（切 Tab / 换项目 / 重启清空）。焦点在树上时可打印字写入筛选框；Esc 清空并恢复过滤前展开，若有当前打开文件再展开到可见。过滤期间展开/折叠只改过滤视图，不写入持久化展开态；清空后才回到浏览展开态。全局 Alt+CmdOrCtrl+F：有当前项目时激活其 Files Tab、必要时展开文件树、聚焦筛选框并选中已有查询（与左栏项目筛选 Alt+CmdOrCtrl+P 对称；不占用 CmdOrCtrl+F）。title / placeholder 文案走共享 `formatShortcutLabel`（对齐 VS Code UILabel：修饰键 Ctrl→Shift→Alt→Meta；macOS 符号无分隔符，Win/Linux `+` 连接）。不做命中高亮、排除目录 UI、Cmd+P、全文搜。
+- **编辑器内查找**（Cmd/Ctrl+F，焦点在编辑器时）：编辑器顶部整宽查找栏（占位压下正文，对齐 WebStorm）替换 CodeMirror 默认搜索面板；引擎复用 @codemirror/search 的 SearchQuery（官方给自定义查找 UI 的积木），高亮 / 计数 / 回绕导航由自持扩展提供（默认面板的高亮与其面板生命周期绑死，浮层形态无法复用）；大小写 / 全词 / 正则开关、计数封顶 999+、坏正则红字提示；不做替换；默认 searchKeymap 退役（跳行 / 选下一个等默认键随之移除）。
+- **语言高亮覆盖**（编辑器 / 内容搜索结果行 / 搜索预览三处共用同一映射）：官方 Lezer 包优先（js/ts、json、css/scss/sass/less、html、xml、markdown、yaml、python、go、rust、java、c/cpp、php、sql、vue），官方无包的走 `@codemirror/legacy-modes` 词法级高亮（C#、Kotlin、Swift、Dart、Obj-C、Ruby、Lua、Shell、TOML、Dockerfile、shader 等约 40 组长尾）；近似映射兜常见配置（.plist/.csproj→xml、Unity .meta/.unity/.prefab→yaml、.svelte/.ejs→html、.gitignore 族→properties、.gd→python 近似）。legacy-modes 无全量桶导出与官方扩展名映射表，映射表自维护；按需 import 逐文件 tree-shake。无覆盖仍为纯文本（zig / elixir / graphql / terraform 等官方与 legacy 均无语法）。
 - **打开分流**：已知文本扩展名走编辑器；其余用 `file-type` + `@file-type/av` 读魔数得 MIME。位图 → data URL 内嵌预览；Chromium 可播音视频 → `dc-media://` 特权协议 + 显式 Range（206）流式 + 原生 `<audio>`/`<video>`（见 ADR-0010）；不可播音视频（如 mkv/wmv）与其它二进制 → 占位 +「在其他应用中打开」。魔数失败时：位图扩展名仍走图片；否则文本嗅探或占位。svg 仍走文本。
 - **编辑器**：实验分支用 CodeMirror 6（`@uiw/react-codemirror` + 语言包高亮，`basicSetup.autocompletion/lint` 关闭）。Monaco 完整实现保留在分支 `backup/files-tab-monaco` 供对照。明确不引入外部 LSP。查找等纯编辑器能力可用。
 - **保存**：事件自动保存——至少覆盖：切换打开条目、离开 Files Tab、窗口/面板失焦、短空闲。无常态「保存/不保存/取消」三按钮；竞态（未落盘 + 磁盘变更）单独弹窗：重载 / 保留编辑器内容。
