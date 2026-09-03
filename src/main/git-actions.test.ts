@@ -452,19 +452,32 @@ describe('buildDeleteUntrackedFileArgs', () => {
 
 describe('buildCommitArgs', () => {
   it('普通提交为 commit -m', () => {
-    expect(buildCommitArgs({ kind: 'commit', message: '修复问题', amend: false })).toEqual([
-      ['commit', '-m', '修复问题']
-    ])
+    expect(
+      buildCommitArgs({ kind: 'commit', message: '修复问题', amend: false, noVerify: false })
+    ).toEqual([['commit', '-m', '修复问题']])
   })
   it('amend 时带 --amend', () => {
-    expect(buildCommitArgs({ kind: 'commit', message: '修正上次提交', amend: true })).toEqual([
-      ['commit', '--amend', '-m', '修正上次提交']
-    ])
+    expect(
+      buildCommitArgs({ kind: 'commit', message: '修正上次提交', amend: true, noVerify: false })
+    ).toEqual([['commit', '--amend', '-m', '修正上次提交']])
   })
   it('消息含换行时在单个 argv 段内原样保留', () => {
     expect(
-      buildCommitArgs({ kind: 'commit', message: '主题\n\n正文第一行', amend: false })
+      buildCommitArgs({
+        kind: 'commit',
+        message: '主题\n\n正文第一行',
+        amend: false,
+        noVerify: false
+      })
     ).toEqual([['commit', '-m', '主题\n\n正文第一行']])
+  })
+  it('绕过钩子时带 --no-verify，与 --amend 可并存且都在 -m 之前', () => {
+    expect(buildCommitArgs({ kind: 'commit', message: 'x', amend: false, noVerify: true })).toEqual(
+      [['commit', '--no-verify', '-m', 'x']]
+    )
+    expect(buildCommitArgs({ kind: 'commit', message: 'x', amend: true, noVerify: true })).toEqual([
+      ['commit', '--amend', '--no-verify', '-m', 'x']
+    ])
   })
 })
 

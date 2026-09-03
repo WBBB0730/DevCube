@@ -189,9 +189,12 @@ export function buildDeleteUntrackedFileArgs(
 
 /** commit：恒带 -m（否则 git 会尝试打开编辑器导致进程挂起）；消息内嵌换行由 argv 原样传递。 */
 export function buildCommitArgs(action: ActionOf<'commit'>): string[][] {
-  return action.amend
-    ? [['commit', '--amend', '-m', action.message]]
-    : [['commit', '-m', action.message]]
+  const args = ['commit']
+  if (action.amend) args.push('--amend')
+  // --no-verify 绕过 pre-commit 与 commit-msg 钩子（post-commit 等不受影响）
+  if (action.noVerify) args.push('--no-verify')
+  args.push('-m', action.message)
+  return [args]
 }
 
 // —— 远程同步 ——

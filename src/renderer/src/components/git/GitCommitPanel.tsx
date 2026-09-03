@@ -1,5 +1,5 @@
 // 提交面板（ADR-0006）：未提交更改行的详情从只读升级为带暂存区的提交面板，行为对齐
-// SourceTree —— 左栏 CommitForm（提交信息 + 修正 / 推送勾选 + 提交），右栏
+// SourceTree —— 左栏 CommitForm（提交信息 + 修正 / 绕过钩子 / 推送勾选 + 提交），右栏
 // UncommittedFileSections（「已暂存 / 未暂存」两段文件树：勾选即 git add、取消勾选即
 // unstage、区头 = 全部；同一文件可同时出现在两段——已暂存是暂存那一刻的快照）。
 // 冲突文件（type '!'）并入未暂存段展示并带红「冲突」徽标：勾选走同一 stage-paths
@@ -52,7 +52,7 @@ type SectionAnchor = { section: 'staged' | 'unstaged'; key: string }
 
 // —— 左栏：提交表单 ——
 
-/** 提交表单：信息多行框（草稿存桶，切走不丢）+ 修正上次提交 + 提交 / 提交并推送。 */
+/** 提交表单：信息多行框（草稿存桶，切走不丢）+ 修正上次提交 / 绕过提交钩子 / 推送 + 提交。 */
 export function CommitForm({ projectPath }: { projectPath: string }): React.JSX.Element {
   const draft = useGit((s) => gitState(s, projectPath).commitDraft)
   const stagedCount = useGit(
@@ -67,6 +67,11 @@ export function CommitForm({ projectPath }: { projectPath: string }): React.JSX.
   const [committing, setCommitting] = useState(false)
   /** 「提交后推送」勾选（本地态，切走重置） */
   const [push, setPush] = useState(false)
+  /**
+   * 「绕过提交钩子」勾选（--no-verify；命名对齐 SourceTree / GitHub Desktop 的 Bypass commit hooks）。
+   * 本地态且提交成功即复位——同 GitHub Desktop / JetBrains，避免 SourceTree 式「忘了取消一直绕过」
+   */
+  const [noVerify, setNoVerify] = useState(false)
   /** 空仓库（无 HEAD）没有提交可修正 */
   const canAmend = headHash !== null
   const canPush = canPushAfterCommit(currentBranch, headHash)
@@ -126,10 +131,12 @@ export function CommitForm({ projectPath }: { projectPath: string }): React.JSX.
       const r = await store.runQuietAction(projectPath, {
         kind: 'commit',
         message: draft.message,
-        amend: draft.amend
+        amend: draft.amend,
+        noVerify
       })
       if (r.status !== 'ok') return // 失败：错误框呈现（actionErrors），不清草稿
       store.setCommitDraft(projectPath, { message: '', amend: false, preAmendMessage: '' })
+      setNoVerify(false)
       if (push) {
         // 提交并推送：复用既有推送对话框（内含 常规 / force-with-lease / 强制 三档）。
         // 分支从提交后的最新状态取（runQuietAction 内已 await 软刷新落地）——空仓库的
@@ -153,7 +160,7 @@ export function CommitForm({ projectPath }: { projectPath: string }): React.JSX.
         onChange={(e) => useGit.getState().setCommitDraft(projectPath, { message: e.target.value })}
         className="min-h-0 w-full flex-1 resize-none rounded border border-[color:var(--border-input)] bg-transparent px-2.5 py-1.5 text-[13px] text-foreground outline-none transition placeholder:text-[color:var(--fg-disabled)] focus-visible:ring-2 focus-visible:ring-ring"
       />
-      {/* 修正 / 推送 两个勾选在左，「提交」按钮靠右；勾了推送则提交后弹推送对话框 */}
+      {/* 修正 / 绕过钩子 / 推送 三个勾选在左，「提交」按钮靠右；勾了推送则提交后弹推送对话框 */}
       <div className="flex items-center gap-4">
         <label
           className={cn(
@@ -168,6 +175,20 @@ export function CommitForm({ projectPath }: { projectPath: string }): React.JSX.
             onCheckedChange={(checked) => void onAmendChange(checked)}
           />
           修正上次提交
+        </label>
+        <label
+          className={cn(
+            'flex select-none items-center gap-1.5 text-[13px] text-foreground',
+            committing ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'
+          )}
+          title="提交时加 --no-verify，跳过 pre-commit 与 commit-msg 钩子；提交后自动取消勾选"
+        >
+          <Checkbox
+            checked={noVerify}
+            disabled={committing}
+            onCheckedChange={(checked) => setNoVerify(checked)}
+          />
+          绕过提交钩子
         </label>
         <label
           className={cn(

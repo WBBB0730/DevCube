@@ -560,7 +560,8 @@ export type GitAction =
   | { kind: 'unstage-paths'; paths: string[] } // 取消暂存；空数组 = 全部（git reset -q）
   | { kind: 'discard-file'; paths: string[] } // 撤销文件的未暂存更改（工作区恢复为 index）
   | { kind: 'delete-untracked-file'; paths: string[] } // 从磁盘删除未跟踪文件
-  | { kind: 'commit'; message: string; amend: boolean }
+  // noVerify = --no-verify：绕过 pre-commit / commit-msg 钩子（SourceTree / GitHub Desktop 的「Bypass commit hooks」）
+  | { kind: 'commit'; message: string; amend: boolean; noVerify: boolean }
   // 远程同步
   | { kind: 'fetch'; remote: string | null; prune: boolean; pruneTags: boolean }
   | {
