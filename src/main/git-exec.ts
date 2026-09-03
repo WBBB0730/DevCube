@@ -1,10 +1,12 @@
 // git 可执行文件的发现与进程执行包装 —— 数据读取层与动作层唯一的 git 进程入口。
 // macOS GUI 应用（Dock/Finder 启动）拿到的 PATH 通常只有 /usr/bin:/bin:/usr/sbin:/sbin，
-// Homebrew 的 git 找不到，所以先用用户登录 shell 解析一次 git 路径，失败再回退固定候选。
+// Homebrew 的 git / git-lfs 都找不到，所以每个 git 子进程都带上用户登录 shell 解析出的环境
+// （shell-env.ts，VS Code 同款）：先在这份环境里找 git，失败再回退固定候选。
 
 import * as cp from 'child_process'
 import { promises as fs } from 'fs'
 import { isAbsolute, join, normalize, posix, resolve } from 'path'
+import { getResolvedShellEnv } from './shell-env'
 
 /** 行分割：兼容 \r\n / \r / \n（与 git-parse 中的常量同义，为避免层间依赖各自持有）。 */
 const EOL_REGEX = /\r\n|\r|\n/g
@@ -27,8 +29,25 @@ export interface GitExecResult {
   error: Error | null
 }
 
+// —— 登录 shell 环境（模块级缓存） ——
+
+let shellEnvPromise: Promise<NodeJS.ProcessEnv> | null = null
+
+/** 登录 shell 环境；解析失败（超时、shell 报错）记日志并退回空对象，git 照常以精简环境运行
+ * （VS Code app.ts resolveShellEnvironment 同款，只是此处无通知通道）。 */
+function resolveShellEnvironment(): Promise<NodeJS.ProcessEnv> {
+  if (!shellEnvPromise) {
+    shellEnvPromise = getResolvedShellEnv().catch((error: Error) => {
+      console.error(error.message)
+      return {}
+    })
+  }
+  return shellEnvPromise
+}
+
 /** spawn 一个进程并收集输出；永不 reject（结束以 close 事件为准，此时 stdio 已收集完）。 */
-function run(file: string, args: string[], cwd?: string): Promise<GitExecResult> {
+async function run(file: string, args: string[], cwd?: string): Promise<GitExecResult> {
+  const shellEnv = await resolveShellEnvironment()
   return new Promise((resolve) => {
     const stdoutChunks: Buffer[] = []
     const stderrChunks: Buffer[] = []
@@ -49,10 +68,12 @@ function run(file: string, args: string[], cwd?: string): Promise<GitExecResult>
     try {
       child = cp.spawn(file, args, {
         cwd,
+        // 登录 shell 环境盖在进程自身环境之上（VS Code 扩展宿主同款合并顺序），git 的钩子 /
+        // git-lfs / 凭据助手都按用户终端里的 PATH 找。
         // GIT_TERMINAL_PROMPT=0：防止任何命令意外等待终端输入（读取类命令全部离线）。
         // GIT_EDITOR=true：会拉编辑器的命令（rebase/cherry-pick/revert --continue 等）
         // 直接零修改退出、git 用默认信息——应用内 git 永不交互，交互式变基走 Terminal 不经此处
-        env: { ...process.env, GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true' }
+        env: { ...process.env, ...shellEnv, GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true' }
       })
     } catch (e) {
       // spawn 同步抛错（参数非法等）也不外抛，统一走结果对象
@@ -86,20 +107,11 @@ async function verifyGit(path: string): Promise<GitExecutable | null> {
   return { path, version: stdout.replace(/^git version /, '').trim() }
 }
 
-/** 真正的发现流程：登录 shell 解析 → 平台固定候选 → PATH 里的 git。 */
+/** 真正的发现流程：登录 shell 环境里的 git → 平台固定候选。 */
 async function discoverGit(): Promise<GitExecutable | null> {
-  // 1. 登录 shell 解析（加载用户的 PATH / nvm / Homebrew 等，像用户终端一样）
-  if (process.platform !== 'win32') {
-    const shell = process.env.SHELL ?? '/bin/zsh'
-    const result = await run(shell, ['-ilc', 'command -v git'])
-    if (result.code === 0) {
-      const path = result.stdout.toString('utf8').split(EOL_REGEX)[0].trim()
-      if (path !== '') {
-        const git = await verifyGit(path)
-        if (git) return git
-      }
-    }
-  }
+  // 1. 登录 shell 环境里的 git（run 已带上用户的 PATH / nvm / Homebrew 等，像用户终端一样）
+  const fromPath = await verifyGit('git')
+  if (fromPath) return fromPath
   // 2. 固定候选回退
   const candidates: string[] = []
   if (process.platform === 'darwin') {
@@ -118,7 +130,6 @@ async function discoverGit(): Promise<GitExecutable | null> {
       if (base) candidates.push(join(base, 'Git', 'cmd', 'git.exe'))
     }
   }
-  candidates.push('git') // 最后再试进程自身 PATH 里的 git
   for (const candidate of candidates) {
     const git = await verifyGit(candidate)
     if (git) return git
