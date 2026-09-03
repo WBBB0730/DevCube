@@ -7,9 +7,9 @@ const DEFAULTS = { width: 1100, height: 720, minWidth: 720, minHeight: 480 }
 
 describe('isPlacementOnSomeDisplay', () => {
   it('完全在主屏内为 true', () => {
-    expect(
-      isPlacementOnSomeDisplay({ x: 100, y: 100, width: 1100, height: 720 }, [PRIMARY])
-    ).toBe(true)
+    expect(isPlacementOnSomeDisplay({ x: 100, y: 100, width: 1100, height: 720 }, [PRIMARY])).toBe(
+      true
+    )
   })
 
   it('在副屏内为 true', () => {
@@ -19,9 +19,9 @@ describe('isPlacementOnSomeDisplay', () => {
   })
 
   it('跨屏或越界为 false', () => {
-    expect(
-      isPlacementOnSomeDisplay({ x: 1500, y: 100, width: 1100, height: 720 }, [PRIMARY])
-    ).toBe(false)
+    expect(isPlacementOnSomeDisplay({ x: 1500, y: 100, width: 1100, height: 720 }, [PRIMARY])).toBe(
+      false
+    )
   })
 })
 

@@ -8,12 +8,7 @@ export type UpdatePackaging = 'dev' | 'macApp' | 'nsis' | 'portable'
 /** 更新流水线对外可观察阶段（供关于页与顶栏）。 */
 /** upToDate = 已检查且无适用更新（含启动后尚未完成首次检查前的占位）。 */
 export type AppUpdatePhase =
-  | 'checking'
-  | 'upToDate'
-  | 'available'
-  | 'downloading'
-  | 'ready'
-  | 'error'
+  'checking' | 'upToDate' | 'available' | 'downloading' | 'ready' | 'error'
 
 export type UpdateCandidate = {
   version: string

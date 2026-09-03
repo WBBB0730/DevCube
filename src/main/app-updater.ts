@@ -286,11 +286,7 @@ export async function checkAppUpdates(opts?: { force?: boolean }): Promise<AppUp
     return buildState()
   }
   const force = opts?.force === true
-  if (
-    !force &&
-    lastCheckStartedAt > 0 &&
-    Date.now() - lastCheckStartedAt < CHECK_COOLDOWN_MS
-  ) {
+  if (!force && lastCheckStartedAt > 0 && Date.now() - lastCheckStartedAt < CHECK_COOLDOWN_MS) {
     return buildState()
   }
   await runCheck()

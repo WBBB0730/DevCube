@@ -44,7 +44,7 @@
 32. 作为用户，我想让控制台**正确渲染 ANSI 颜色、spinner、进度条、`\r` 覆盖行**，以便 vite/webpack 的输出原样好看。
 33. 作为用户，我想让 Discovered Script 用项目**探测到的包管理器**运行（由 lockfile 决定 pnpm/yarn/bun/npm），以便命令与我在终端里跑的一致。
 34. 作为用户，我想让命令通过**登录 shell** 启动，以便 `nvm`/自定义 PATH 被正确加载，不再 `command not found`。
-34a. 作为 Windows 用户，我想在设置「偏好」里选择 Terminal / Run 共用的 shell（Git Bash / PowerShell / cmd，默认 Git Bash；未检测到 Git Bash 时该项置灰，若偏好仍为它则运行时回退 PowerShell），以便与本机习惯一致。
+    34a. 作为 Windows 用户，我想在设置「偏好」里选择 Terminal / Run 共用的 shell（Git Bash / PowerShell / cmd，默认 Git Bash；未检测到 Git Bash 时该项置灰，若偏好仍为它则运行时回退 PowerShell），以便与本机习惯一致。
 35. 作为用户，我想让**停止**杀掉整棵进程树，以便 dev server fork 出的子进程不残留为孤儿。
 36. 作为用户，我想在每条配置上看到**状态点**（空闲 / 运行中 / 成功退出 / 失败退出），以便一眼判断哪个在跑、哪个挂了。
 37. 作为用户，我想让工具**监听每个项目的 `package.json`（及 lockfile）**并即时更新候补与包管理器，以便我改了 scripts 立刻生效。

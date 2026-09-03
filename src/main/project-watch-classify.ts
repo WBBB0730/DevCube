@@ -1,10 +1,6 @@
 import { basename, isAbsolute, relative, sep } from 'path'
 import { isIdeIgnoredEntryName } from '../shared/files-tree-filter'
-import {
-  CONVENTION_WATCH_FILES,
-  isDotnetProjectFile,
-  LOCKFILE_NAMES
-} from './discovery'
+import { CONVENTION_WATCH_FILES, isDotnetProjectFile, LOCKFILE_NAMES } from './discovery'
 
 /** 项目根清单 / lockfile / 约定指纹（与原 discovery watcher 白名单一致）。 */
 const ROOT_WATCH_NAMES = new Set<string>([

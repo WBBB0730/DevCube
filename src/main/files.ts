@@ -32,7 +32,7 @@ function toSys(logical: string): string {
   return path.normalize(logical.split('/').join(path.sep))
 }
 
-function assertProjectRoot(projectPath: string): string {
+export function assertProjectRoot(projectPath: string): string {
   const root = normalizePath(projectPath)
   if (!getProjects().some((p) => normalizePath(p.path) === root)) {
     throw new Error('项目未登记')

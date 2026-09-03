@@ -77,6 +77,7 @@ import {
 } from './store'
 import { applyTheme } from './theme'
 import {
+  assertProjectRoot,
   createEntry,
   filterFilesTreeQuery,
   listDir,
@@ -88,6 +89,8 @@ import {
   writeFileEntry
 } from './files'
 import { invalidateFilesIndex } from './files-index'
+import { startContentSearch, stopContentSearch } from './content-search'
+import type { ContentSearchOptions } from '../shared/content-search'
 import type { FilesUiState } from '../shared/files'
 import type { WorkspaceUiState } from '../shared/workspace'
 import { buildTree } from './tree'
@@ -407,6 +410,19 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.filesTrash, (_e, projectPath: string, entryPath: string) =>
     trashEntry(projectPath, entryPath)
   )
+
+  // —— 内容搜索（Content Search） ——
+  ipcMain.handle(
+    IPC.contentSearchStart,
+    (_e, projectPath: string, query: string, options: ContentSearchOptions, seq: number) => {
+      startContentSearch(assertProjectRoot(projectPath), query, options, seq, (ev) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send(IPC.contentSearchEvent, ev)
+        }
+      })
+    }
+  )
+  ipcMain.handle(IPC.contentSearchStop, () => stopContentSearch())
   ipcMain.handle(IPC.filesGetUi, async (_e, projectPath: string) => {
     const ui = getFilesUi(projectPath)
     const sanitized = await sanitizeFilesUi(projectPath, ui)

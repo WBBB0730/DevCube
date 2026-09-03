@@ -57,6 +57,10 @@ export const IPC = {
   filesGetUi: 'files:ui-get',
   filesSetUi: 'files:ui-set',
   filesChanged: 'files:changed',
+  /** 内容搜索（Content Search）：start 启动（自动替换进行中的搜索）、stop 终止、event 流式推送结果 */
+  contentSearchStart: 'content-search:start',
+  contentSearchStop: 'content-search:stop',
+  contentSearchEvent: 'content-search:event',
   gitLoad: 'git:load',
   gitDetails: 'git:details',
   gitFileDiff: 'git:file-diff',

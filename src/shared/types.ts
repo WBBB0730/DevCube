@@ -4,6 +4,7 @@
 
 import type { AppShortcut } from './app-shortcut'
 import type { AppUpdateState } from './app-update-state'
+import type { ContentSearchEvent, ContentSearchOptions } from './content-search'
 import type { DiscoverSource } from './discover-source'
 import type { FilesDirEntry, FilesReadResult, FilesUiState } from './files'
 import type { FilesTreeFilterResult } from './files-tree-search'
@@ -316,6 +317,17 @@ export interface RunAPI extends GitAPI {
   filesSetUi(projectPath: string, patch: Partial<FilesUiState>): Promise<FilesUiState>
   /** 项目文件树相关磁盘变化：渲染端应重拉已缓存目录并同步当前打开文件 */
   onFilesChanged(cb: (projectPath: string) => void): () => void
+
+  // —— 内容搜索（Content Search） ——
+  /** 启动搜索（自动终止进行中的旧搜索）；结果经 onContentSearchEvent 按 seq 流式推送 */
+  contentSearchStart(
+    projectPath: string,
+    query: string,
+    options: ContentSearchOptions,
+    seq: number
+  ): Promise<void>
+  contentSearchStop(): Promise<void>
+  onContentSearchEvent(cb: (e: ContentSearchEvent) => void): () => void
 
   // —— 事件订阅（返回取消函数） ——
   onTreeChanged(cb: (tree: ProjectNode[]) => void): () => void

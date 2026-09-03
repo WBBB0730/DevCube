@@ -102,11 +102,11 @@ export function ConfigDialog(): React.JSX.Element {
               className={INPUT_ICON_BTN}
               onClick={() => {
                 if (!dialog.projectPath) return
-                void window.api.pickConfigCwd(dialog.projectPath, cwd.trim() || undefined).then(
-                  (picked) => {
+                void window.api
+                  .pickConfigCwd(dialog.projectPath, cwd.trim() || undefined)
+                  .then((picked) => {
                     if (picked !== null) setCwd(picked)
-                  }
-                )
+                  })
               }}
             >
               <FolderOpen className="size-4" />

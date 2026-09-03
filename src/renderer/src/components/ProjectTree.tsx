@@ -886,11 +886,7 @@ function SortableProjectHeader({
     transition,
     opacity: isDragging ? 0.6 : undefined,
     // 叠放时按序抬高 z；段吸顶用同一 z，避免后一段盖住前一段被顶走的过程。
-    zIndex: isDragging
-      ? 40
-      : sorting
-        ? 10
-        : (stickZIndex ?? (pinSticky ? 20 + pinStackIndex : 15)),
+    zIndex: isDragging ? 40 : sorting ? 10 : (stickZIndex ?? (pinSticky ? 20 + pinStackIndex : 15)),
     ...(stick
       ? override
         ? {
@@ -955,11 +951,7 @@ function CurrentUnpinnedProject({
 
   return (
     <>
-      <div
-        data-project-scroll-anchor={path}
-        aria-hidden
-        style={{ scrollMarginTop: stickTop }}
-      />
+      <div data-project-scroll-anchor={path} aria-hidden style={{ scrollMarginTop: stickTop }} />
       {canDrag ? (
         <SortableProjectHeader
           node={node}
@@ -1546,8 +1538,7 @@ function RunnableRow({
   const onRowClick = (): void => {
     onAction?.()
     // 探测脚本选中即晋升进「我的配置」，不必等运行。
-    if (target.type === 'script')
-      selectScript(target.projectPath, target.source, target.name, rkey)
+    if (target.type === 'script') selectScript(target.projectPath, target.source, target.name, rkey)
     else select(rkey, projectPath)
   }
 

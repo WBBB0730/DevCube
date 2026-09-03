@@ -63,10 +63,7 @@ function splitPathEnv(pathEnv: string): string[] {
 }
 
 /** 给定 Git for Windows 安装根，优先 bin\\bash.exe，其次 usr\\bin\\bash.exe。 */
-function bashUnderGitRoot(
-  gitRoot: string,
-  exists: (path: string) => boolean
-): string | null {
+function bashUnderGitRoot(gitRoot: string, exists: (path: string) => boolean): string | null {
   for (const rel of ['bin/bash.exe', 'usr/bin/bash.exe']) {
     const candidate = join(gitRoot, rel)
     if (exists(candidate)) return candidate
@@ -153,11 +150,7 @@ function psSingleQuote(s: string): string {
  * 把运行头变成 shell 真正打印的输出，再执行用户命令（ADR-0023）。
  * 头在 ConPTY/shell 启动清屏之后出现，仍留在输出流里。
  */
-export function wrapWithRunHeader(
-  command: string,
-  cwd: string,
-  shell: RunHeaderShell
-): string {
+export function wrapWithRunHeader(command: string, cwd: string, shell: RunHeaderShell): string {
   if (shell === 'powershell') {
     return (
       `Write-Host (-join([char]27,'[90m',${psSingleQuote(cwd)},' $',[char]27,'[0m ',` +

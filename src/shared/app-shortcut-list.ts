@@ -18,6 +18,7 @@ export function formatSelectTabRangeShortcut(platform: string): string {
 export const APP_SHORTCUT_LIST: AppShortcutListRow[] = [
   { label: '聚焦项目筛选', chord: SHORTCUT.projectFilter },
   { label: '聚焦文件筛选', chord: SHORTCUT.filesFilter },
+  { label: '搜索文件内容', chord: SHORTCUT.contentSearch },
   { label: '上一个项目', chord: SHORTCUT.prevProject },
   { label: '下一个项目', chord: SHORTCUT.nextProject },
   { label: '上一个 Tab', chord: SHORTCUT.prevTab },

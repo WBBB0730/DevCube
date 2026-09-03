@@ -46,6 +46,19 @@ describe('matchAppShortcut', () => {
     expect(matchAppShortcut(key({ code: 'Tab', key: 'Tab', meta: true }))).toBeNull()
   })
 
+  it('⌘⇧F 内容搜索；⌥⌘F 仍是文件筛选', () => {
+    expect(matchAppShortcut(key({ code: 'KeyF', meta: true, shift: true }))).toEqual({
+      id: 'contentSearch'
+    })
+    expect(matchAppShortcut(key({ code: 'KeyF', control: true, shift: true }))).toEqual({
+      id: 'contentSearch'
+    })
+    expect(matchAppShortcut(key({ code: 'KeyF', meta: true, alt: true }))).toEqual({
+      id: 'focusFilesFilter'
+    })
+    expect(matchAppShortcut(key({ code: 'KeyF', meta: true }))).toBeNull()
+  })
+
   it('忽略 keyUp', () => {
     expect(
       matchAppShortcut(key({ type: 'keyUp', code: 'ArrowLeft', meta: true, alt: true }))

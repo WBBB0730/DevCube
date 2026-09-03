@@ -83,6 +83,11 @@ const api: RunAPI = {
   filesSetUi: (projectPath, patch) => ipcRenderer.invoke(IPC.filesSetUi, projectPath, patch),
   onFilesChanged: (cb) => subscribe(IPC.filesChanged, cb),
 
+  contentSearchStart: (projectPath, query, options, seq) =>
+    ipcRenderer.invoke(IPC.contentSearchStart, projectPath, query, options, seq),
+  contentSearchStop: () => ipcRenderer.invoke(IPC.contentSearchStop),
+  onContentSearchEvent: (cb) => subscribe(IPC.contentSearchEvent, cb),
+
   gitLoad: (projectPath, options: GitLoadOptions) =>
     ipcRenderer.invoke(IPC.gitLoad, projectPath, options),
   gitDetails: (projectPath, request: GitDetailsRequest) =>

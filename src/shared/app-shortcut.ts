@@ -6,6 +6,7 @@
 export type AppShortcut =
   | { id: 'focusProjectFilter' }
   | { id: 'focusFilesFilter' }
+  | { id: 'contentSearch' }
   | { id: 'prevProject' }
   | { id: 'nextProject' }
   | { id: 'prevTab' }
@@ -42,6 +43,11 @@ export function matchAppShortcut(input: ShortcutInput): AppShortcut | null {
     if (code === 'ArrowDown') return { id: 'nextProject' }
     if (code === 'ArrowLeft') return { id: 'prevTab' }
     if (code === 'ArrowRight') return { id: 'nextTab' }
+  }
+
+  // CmdOrCtrl+Shift+F：内容搜索面板
+  if (mod && shift && !alt && code === 'KeyF') {
+    return { id: 'contentSearch' }
   }
 
   // CmdOrCtrl+1…9

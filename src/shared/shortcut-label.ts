@@ -24,9 +24,7 @@ export type ShortcutMod = 'ctrl' | 'shift' | 'alt' | 'meta'
 
 /** 结构化片段：供纯文案拼接，或渲染层映射为 Lucide。 */
 export type ShortcutToken =
-  | { kind: 'mod'; mod: ShortcutMod }
-  | { kind: 'key'; code: string; label: string }
-  | { kind: 'sep' }
+  { kind: 'mod'; mod: ShortcutMod } | { kind: 'key'; code: string; label: string } | { kind: 'sep' }
 
 interface ModifierLabels {
   ctrlKey: string
@@ -146,6 +144,7 @@ export function formatShortcutLabel(chord: ShortcutChord, platform: string): str
 export const SHORTCUT = {
   projectFilter: { mod: true, alt: true, key: 'P' } satisfies ShortcutChord,
   filesFilter: { mod: true, alt: true, key: 'F' } satisfies ShortcutChord,
+  contentSearch: { mod: true, shift: true, key: 'F' } satisfies ShortcutChord,
   prevProject: { mod: true, alt: true, key: 'ArrowUp' } satisfies ShortcutChord,
   nextProject: { mod: true, alt: true, key: 'ArrowDown' } satisfies ShortcutChord,
   prevTab: { mod: true, alt: true, key: 'ArrowLeft' } satisfies ShortcutChord,

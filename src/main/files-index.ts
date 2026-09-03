@@ -10,7 +10,8 @@ import { isIdeIgnoredEntryName } from '../shared/files-tree-filter'
 
 // 打包后 rg 二进制在 asar 外（electron-builder asarUnpack），require.resolve
 // 仍给出 asar 内虚拟路径，spawn 需要真实文件路径；开发环境无此段则原样。
-const rgBin = rgPath.replace('app.asar', 'app.asar.unpacked')
+// 文件名索引与内容搜索（content-search.ts）共用。
+export const rgBin = rgPath.replace('app.asar', 'app.asar.unpacked')
 
 /** 逻辑路径（/）→ 系统路径。 */
 function toSys(logical: string): string {

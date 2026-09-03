@@ -32,6 +32,9 @@ _Avoid_: Git 面板, 图谱 Tab, 仓库视图
 **Files Tab（文件标签页）**：项目的文件浏览与编辑视图——展示该项目根下文件系统可见的**全部**条目（不按 `.gitignore` 等忽略规则过滤）。已展开的文件树与当前打开条目随磁盘变化自动跟进。打开条目时按类型分流：文本进编辑器；图片内嵌预览；Chromium 可播的音视频内嵌预览；其余只读占位并可以系统应用打开。同一时刻**至多打开一个条目**（点树即切换，无内层多文件 Tab）。正文在左、文件树在右。支持**基础文件管理**：树上右键新建文件 / 新建文件夹 / 重命名 / 删除（删除移入系统回收站）；**复制 / 移动仍不做**——走系统文件管理器或 **Terminal**。每项目**恒有一个**、常驻 Tab 栏**第二位**（紧接 **Git Tab** 之后、会话 Tab 之前）、不可关闭；它不是会话（无进程、无输出流），是 Tab 模型中的非会话 Tab 之一（与 **Git Tab** 同类）。
 _Avoid_: Editor Tab, Code Tab, 文件面板, 编辑器 Tab, Workspace
 
+**Content Search（内容搜索）**：在当前 **Project** 内按文本搜索文件内容的居中浮层面板；结果按文件分组、可预览，确认命中后经 **Files Tab** 打开并定位到行。
+_Avoid_: 全文搜索, 全局搜索, Find in Files
+
 **未提交更改行（未提交更改）**：Git 图谱最上方一条合成的虚拟行，代表工作区相对 HEAD 的改动（HEAD 未出生的空仓库相对空树；仅有改动时才出现）。HEAD 未出生时它不锚定任何提交，承担首次提交的入口。选中它，其详情面板即该项目的**提交入口**——按「已暂存 / 未暂存」两段管理文件、勾选即暂存、并从中提交（支持修正、提交并推送）。
 _Avoid_: 工作区行, WIP 行, 暂存行
 
@@ -58,6 +61,7 @@ _Avoid_: Channel（裸用）, Track, Flavor, Variant, 通道（指安装身份�
 - 一个 **Project** 恒有一个 **Git Tab**（非会话、不可关闭、常驻其 Tab 栏最前）；它与 **Files Tab** / Run Session / Terminal 的 Tab 共用激活与循环规则。
 - 一个 **Project** 恒有一个 **Files Tab**（非会话、不可关闭、常驻其 Tab 栏第二位，紧接 Git Tab）；它与 Git Tab / Run Session / Terminal 的 Tab 共用激活与循环规则。一个 Files Tab 同一时刻至多打开一个条目。
 - 从 **Git Tab**「打开文件」进入该项目的 **Files Tab** 并打开对应路径；Files Tab 另提供「在其他应用中打开」（系统默认应用）。
+- **Content Search** 作用于当前 **Project**、同一时刻至多打开一个；它不是 Tab（浮层），确认命中后经 **Files Tab** 打开并定位，其忽略口径（gitignore + IDE 忽略名）与 Files Tab 树顶过滤一致。
 - 工作台按项目记住激活 Tab，并全局记住当前 **Project** 与左树选中；合法记忆优先于默认激活。**默认激活 Tab**（无合法记忆 / 首次解析）：若有运行中的 **Run Session**，取 Tab 栏从左到右第一个运行中的；否则按 Tab 栏顺序（常驻下即落在 **Git Tab**）。**关闭**激活 Tab 仍回落左邻，其次右邻（不套用上述默认规则）。**Run Session** Tab 不随工作台落盘跨冷启动恢复。
 - 一个 **Git Tab** 的图谱含 0..1 个 **未提交更改行**（工作区有改动才合成）；它是该项目在 DevCube 内的提交入口。
 - 一次安装恰好属于一个 **Release Edition**；正式版只消费非 Pre-release 的 GitHub Release，Beta 只消费 Pre-release 的 GitHub Release，二者不互相升级。

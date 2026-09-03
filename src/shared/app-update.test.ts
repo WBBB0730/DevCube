@@ -12,21 +12,15 @@ import { resolveReleaseEdition } from './release-edition'
 
 describe('resolveUpdatePackaging', () => {
   it('未包装视为开发形态', () => {
-    expect(
-      resolveUpdatePackaging({ isPackaged: false, platform: 'darwin' })
-    ).toBe('dev')
+    expect(resolveUpdatePackaging({ isPackaged: false, platform: 'darwin' })).toBe('dev')
   })
 
   it('mac 包装为 macApp', () => {
-    expect(
-      resolveUpdatePackaging({ isPackaged: true, platform: 'darwin' })
-    ).toBe('macApp')
+    expect(resolveUpdatePackaging({ isPackaged: true, platform: 'darwin' })).toBe('macApp')
   })
 
   it('Windows 无 portable 环境为 nsis', () => {
-    expect(
-      resolveUpdatePackaging({ isPackaged: true, platform: 'win32' })
-    ).toBe('nsis')
+    expect(resolveUpdatePackaging({ isPackaged: true, platform: 'win32' })).toBe('nsis')
   })
 
   it('Windows 有 PORTABLE_EXECUTABLE_DIR 为 portable', () => {

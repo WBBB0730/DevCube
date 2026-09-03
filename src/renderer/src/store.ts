@@ -204,6 +204,8 @@ interface AppState {
   projectFilterFocusNonce: number
   /** 添加项目后待滚入视口的路径；滚完即清 */
   scrollToProjectPath: string | null
+  /** 内容搜索面板开关（⌘⇧F / Ctrl+Shift+F；作用于当前项目） */
+  contentSearchOpen: boolean
   setTree: (tree: ProjectNode[]) => void
   setSession: (s: SessionState) => void
   /** 会话被销毁（关 Tab / shell 退出 / 删除配置或项目 / 对账）：清状态、删终端 Tab、修激活 Tab */
@@ -243,6 +245,7 @@ interface AppState {
   setProjectFilter: (query: string) => void
   /** 聚焦左树项目筛选框 */
   focusProjectFilter: () => void
+  setContentSearchOpen: (open: boolean) => void
   clearScrollToProjectPath: () => void
   run: (target: RunTarget, key: string, projectPath: string) => Promise<void>
   stop: (key: string) => Promise<void>
@@ -288,6 +291,7 @@ export const useApp = create<AppState>((set, get) => ({
   projectFilter: '',
   projectFilterFocusNonce: 0,
   scrollToProjectPath: null,
+  contentSearchOpen: false,
   setTree: (tree) => set({ tree }),
   setSession: (s) => set((state) => ({ sessions: { ...state.sessions, [s.key]: s } })),
   handleSessionRemoved: (key) => {
@@ -455,6 +459,7 @@ export const useApp = create<AppState>((set, get) => ({
   focusProjectFilter: () =>
     set((state) => ({ projectFilterFocusNonce: state.projectFilterFocusNonce + 1 })),
   clearScrollToProjectPath: () => set({ scrollToProjectPath: null }),
+  setContentSearchOpen: (open) => set({ contentSearchOpen: open }),
   run: async (target, key, projectPath) => {
     // 运行即选中该配置、聚焦（即将出现的）其 Tab，并为该会话 +1 运行序号（重跑清屏回填与聚焦）。
     const switched = get().currentProjectPath !== projectPath

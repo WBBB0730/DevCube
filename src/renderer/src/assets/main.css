@@ -104,6 +104,12 @@
      ⚠ 与 Console.tsx SEARCH_THEMES.dark 同值双写——xterm 是 JS API 吃不了 CSS 变量，改动需两处同步 */
   --find-match-bg: #2d543f;
   --find-match-active-bg: #3d7a49;
+  /* 内容搜索列表命中胶囊（平台 STYLE_SEARCH_MATCH：底取 New UI SearchMatch.startBackground＝
+     endBackground＝深 Yellow5 / 浅 Yellow7；文字为平台写死深字 JBColor(Gray._50, Gray._0)） */
+  --search-match-bg: #ba9752;
+  --search-match-fg: #000000;
+  /* 附属信息灰字（New UI `*.infoForeground`：两侧同为 Gray7；内容搜索行右侧「文件名 行号」） */
+  --fg-info: #6f737a;
 
   /* —— shadcn 语义 token → 映射到 JetBrains —— */
   --radius: 0.25rem;
@@ -225,6 +231,9 @@
        ⚠ 与 Console.tsx SEARCH_THEMES.light 同值双写，改动需两处同步 —— */
     --find-match-bg: #fcd47e;
     --find-match-active-bg: #c47233;
+    --search-match-bg: #fee6b1;
+    --search-match-fg: #323232;
+    --fg-info: #818594;
 
     /* —— shadcn 语义 token —— */
     --background: #f7f8fa;
@@ -444,6 +453,18 @@
 .files-codemirror .cm-gutterElement {
   font-size: 13px;
   line-height: 1.7 !important;
+}
+
+/* 编辑器外的代码行文本（内容搜索结果列表）：对齐 Files 编辑器字排——同字体 / 13px /
+   字重 500（macOS 渲染补偿同款）/ 关连字；行高交由行容器控制 */
+.code-line-text {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 500;
+  font-variant-ligatures: none;
+  font-feature-settings:
+    'liga' 0,
+    'calt' 0;
 }
 
 /* —— Diff 面板滚动结构：横向滚动条常驻面板底部 ——

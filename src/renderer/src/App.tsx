@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { ProjectTree } from '@renderer/components/ProjectTree'
 import { Console } from '@renderer/components/Console'
 import { ConfigDialog } from '@renderer/components/ConfigDialog'
+import { ContentSearchPanel } from '@renderer/components/ContentSearchPanel'
 import { AppTitleBar } from '@renderer/components/AppTitleBar'
 import { SettingsDialog } from '@renderer/components/SettingsDialog'
 import { useFiles } from '@renderer/files-store'
@@ -67,6 +68,9 @@ function handleAppShortcut(shortcut: AppShortcut): void {
     case 'focusFilesFilter':
       if (proj) useFiles.getState().focusFilesFilter(proj)
       return
+    case 'contentSearch':
+      if (proj) st.setContentSearchOpen(true)
+      return
     case 'prevProject':
       cycleProject(-1)
       return
@@ -119,6 +123,7 @@ function App(): React.JSX.Element {
   }, [windowTitle])
 
   const currentProjectPath = useApp((s) => s.currentProjectPath)
+  const contentSearchOpen = useApp((s) => s.contentSearchOpen)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [update, setUpdate] = useState<AppUpdateState | null>(null)
 
@@ -176,6 +181,13 @@ function App(): React.JSX.Element {
         <Console />
       </div>
       {dialog.open && <ConfigDialog key={dialog.config?.id ?? 'new'} />}
+      {contentSearchOpen && currentProjectPath && (
+        <ContentSearchPanel
+          key={currentProjectPath}
+          projectPath={currentProjectPath}
+          onClose={() => useApp.getState().setContentSearchOpen(false)}
+        />
+      )}
       {settingsOpen && (
         <SettingsDialog
           update={update}
