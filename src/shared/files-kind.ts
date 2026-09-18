@@ -151,6 +151,16 @@ export function isMarkdownPath(path: string): boolean {
   return lower.endsWith('.md') || lower.endsWith('.markdown')
 }
 
+/** SVG 文件（打开分流仍为 text；Files 编辑器另提供编辑 ↔ 预览）。 */
+export function isSvgPath(path: string): boolean {
+  return path.toLowerCase().endsWith('.svg')
+}
+
+/** Markdown / SVG：工具栏出现编辑 ↔ 预览切换。 */
+export function isPreviewableSourcePath(path: string): boolean {
+  return isMarkdownPath(path) || isSvgPath(path)
+}
+
 /**
  * 按文件名（含扩展名）判定打开分流。
  * `.svg` 走文本（可编辑）；位图走图片预览。音视频以内容 MIME 为准，不靠扩展名。
@@ -171,6 +181,26 @@ export function classifyFilesOpenKind(fileName: string): FilesOpenKind {
   if (ext) return 'other'
   // 无扩展名且不在白名单 → other（避免把二进制当文本）
   return 'other'
+}
+
+/** 看图组件可展示的路径：位图，或可切图形预览的 SVG。 */
+export function isImagePreviewPath(path: string): boolean {
+  return classifyFilesOpenKind(path) === 'image' || isSvgPath(path)
+}
+
+/**
+ * 同一目录条目（已按树序排好）里，当前看图文件的上一张 / 下一张。
+ * 只计入位图与 SVG；到头返回 null（不回绕）。
+ */
+export function adjacentImagePath(
+  entries: readonly { path: string; isDirectory: boolean }[],
+  currentPath: string,
+  dir: -1 | 1
+): string | null {
+  const images = entries.filter((e) => !e.isDirectory && isImagePreviewPath(e.path))
+  const idx = images.findIndex((e) => e.path === currentPath)
+  if (idx < 0) return null
+  return images[idx + dir]?.path ?? null
 }
 
 /** 若扩展名未知，用缓冲区嗅探：含 NUL 或大量非文本字节则 other，否则 text。 */

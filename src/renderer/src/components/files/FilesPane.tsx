@@ -39,9 +39,15 @@ import { EditorView, keymap } from '@codemirror/view'
 import { filesFindExtension, setFindQuery } from '@renderer/lib/cm6-find'
 import { gitDiffGutter, type GitGutterHunkClickPayload } from '@renderer/lib/cm6-git-gutter'
 import { FilesFindWidget } from './FilesFindWidget'
-import { isMarkdownPath } from '@shared/files-kind'
+import {
+  adjacentImagePath,
+  isMarkdownPath,
+  isPreviewableSourcePath,
+  isSvgPath
+} from '@shared/files-kind'
 import { FilesGutterHunkPopover } from './FilesGutterHunkPopover'
 import { FilesMarkdownPreview } from './FilesMarkdownPreview'
+import { FilesMediaPreview, FilesSvgPreview } from './FilesMediaPreview'
 import { FilesEntryDialog, type FilesEntryDialogRequest } from './FilesEntryDialog'
 import { FilesTreeMenu, type FilesTreeMenuTarget } from './FilesTreeMenu'
 import { useFiles } from '@renderer/files-store'
@@ -125,8 +131,8 @@ export function FilesPane({
   const [revealTick, setRevealTick] = useState(0)
   /** 右侧文件树可见性；不持久化，重挂载默认展开。 */
   const [treeVisible, setTreeVisible] = useState(true)
-  /** Markdown 编辑 ↔ 预览两态；会话内保持，不持久化，默认编辑。 */
-  const [mdPreview, setMdPreview] = useState(false)
+  /** Markdown / SVG 编辑 ↔ 预览两态；会话内保持，不持久化，默认编辑。 */
+  const [sourcePreview, setSourcePreview] = useState(false)
   /** 文件树右键菜单目标与条目操作弹窗（新建 / 重命名 / 删除）。 */
   const [treeMenu, setTreeMenu] = useState<FilesTreeMenuTarget | null>(null)
   const [entryDialog, setEntryDialog] = useState<FilesEntryDialogRequest | null>(null)
@@ -379,13 +385,15 @@ export function FilesPane({
   )
 
   const ensureDirLoaded = useCallback(
-    async (dirPath: string) => {
-      if (childrenByDirRef.current[dirPath]) return
+    async (dirPath: string): Promise<FilesDirEntry[]> => {
+      const cached = childrenByDirRef.current[dirPath]
+      if (cached) return cached
       const entries = await window.api.filesListDir(projectPath, dirPath)
-      setChildrenByDir((prev) => {
-        if (prev[dirPath]) return prev
-        return { ...prev, [dirPath]: entries }
-      })
+      const raced = childrenByDirRef.current[dirPath]
+      if (raced) return raced
+      childrenByDirRef.current = { ...childrenByDirRef.current, [dirPath]: entries }
+      setChildrenByDir((prev) => (prev[dirPath] ? prev : { ...prev, [dirPath]: entries }))
+      return entries
     },
     [projectPath]
   )
@@ -538,6 +546,25 @@ export function FilesPane({
     [expandToPath, persistUi]
   )
 
+  /** 看图：同一目录里上一张 / 下一张（位图 + SVG）；到头停下。 */
+  const goAdjacentImage = useCallback(
+    async (dir: -1 | 1) => {
+      const cur = loadedRef.current
+      if (!cur) return
+      if (cur.kind !== 'image' && !(cur.kind === 'text' && isSvgPath(cur.path))) return
+      const slash = cur.path.lastIndexOf('/')
+      if (slash <= 0) return
+      const next = adjacentImagePath(await ensureDirLoaded(cur.path.slice(0, slash)), cur.path, dir)
+      if (next === null) return
+      if (isSvgPath(next)) setSourcePreview(true)
+      await expandToFile(next)
+      await openFile(next)
+    },
+    [ensureDirLoaded, expandToFile, openFile]
+  )
+  const goPrevImage = useCallback(() => void goAdjacentImage(-1), [goAdjacentImage])
+  const goNextImage = useCallback(() => void goAdjacentImage(1), [goAdjacentImage])
+
   /** 在右侧文件树展开并滚到目标（不打开/切换正文，除非本来就是该文件）。 */
   const revealInTree = useCallback(
     async (logical: string, isDirectory: boolean): Promise<void> => {
@@ -654,8 +681,8 @@ export function FilesPane({
       await expandToFile(logical)
       await openFile(logical)
       if (req.at) {
-        // 定位落在编辑器上：Markdown 若停在预览态先切回编辑
-        setMdPreview(false)
+        // 定位落在编辑器上：Markdown / SVG 若停在预览态先切回编辑
+        setSourcePreview(false)
         setEditorJump({ path: logical, ...req.at, nonce: ++editorJumpNonce.current })
       }
     })()
@@ -940,13 +967,13 @@ export function FilesPane({
             recentPaths={recentPaths}
             fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
             treeVisible={treeVisible}
-            mdPreview={mdPreview}
-            onToggleMdPreview={() => {
-              const next = !mdPreview
+            sourcePreview={sourcePreview}
+            onToggleSourcePreview={() => {
+              const next = !sourcePreview
               // 切到预览前落盘，预览与磁盘一致；编辑器卸载，gutter 弹窗一并关闭
               if (next) void flushSave()
               setHunkPopup(null)
-              setMdPreview(next)
+              setSourcePreview(next)
             }}
             onShowTree={() => setTreeVisible(true)}
             onToggleTree={() => setTreeVisible((v) => !v)}
@@ -955,6 +982,9 @@ export function FilesPane({
             jump={editorJump}
             onJumpDone={() => setEditorJump(null)}
             onHunkClick={setHunkPopup}
+            onImagePrev={goPrevImage}
+            onImageNext={goNextImage}
+            imageNavActive={visible}
             onChange={(v) => {
               // 文档一变，gutter 弹窗的 hunk 即过期，统一在此关闭（含弹窗内回滚）
               setHunkPopup(null)
@@ -979,13 +1009,14 @@ export function FilesPane({
               onRevealInTree={revealInTree}
               onOpenRecent={openFromRecent}
             />
-            <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
-              <img
-                src={loaded.dataUrl}
-                alt={loaded.path}
-                className="max-h-full max-w-full object-contain"
-              />
-            </div>
+            <FilesMediaPreview
+              key={loaded.path}
+              src={loaded.dataUrl}
+              alt={loaded.path}
+              active={visible}
+              onPrev={goPrevImage}
+              onNext={goNextImage}
+            />
           </div>
         )}
         {loaded?.kind === 'video' && (
@@ -1274,8 +1305,8 @@ function FilesTextEditor({
   recentPaths,
   fileStatus,
   treeVisible,
-  mdPreview,
-  onToggleMdPreview,
+  sourcePreview,
+  onToggleSourcePreview,
   onShowTree,
   onToggleTree,
   onRevealInTree,
@@ -1283,7 +1314,10 @@ function FilesTextEditor({
   jump,
   onJumpDone,
   onHunkClick,
-  onChange
+  onChange,
+  onImagePrev,
+  onImageNext,
+  imageNavActive
 }: {
   path: string
   content: string
@@ -1294,9 +1328,9 @@ function FilesTextEditor({
   recentPaths: string[]
   fileStatus: GitFileStatus | undefined
   treeVisible: boolean
-  /** Markdown 两态：true = 预览正文；非 Markdown 文件忽略 */
-  mdPreview: boolean
-  onToggleMdPreview: () => void
+  /** Markdown / SVG 两态：true = 预览正文；其它文件忽略 */
+  sourcePreview: boolean
+  onToggleSourcePreview: () => void
   onShowTree: () => void
   onToggleTree: () => void
   onRevealInTree: (logical: string, isDirectory: boolean) => void | Promise<void>
@@ -1307,8 +1341,13 @@ function FilesTextEditor({
   /** 点击 gutter 标记行 → 打开 diff 弹窗 */
   onHunkClick: (payload: GitGutterHunkClickPayload) => void
   onChange: (value: string) => void
+  onImagePrev: () => void
+  onImageNext: () => void
+  imageNavActive: boolean
 }): React.JSX.Element {
+  const canPreview = isPreviewableSourcePath(path)
   const markdown = isMarkdownPath(path)
+  const svg = isSvgPath(path)
   const theme = useApp((s) => s.theme)
   const viewRef = useRef<EditorView | null>(null)
   const [viewNonce, setViewNonce] = useState(0)
@@ -1322,7 +1361,7 @@ function FilesTextEditor({
     setFindFocusNonce((n) => n + 1)
   }, [])
 
-  // 关闭查找（含切走 Markdown 预览态卸载编辑器前）统一在此清命中高亮
+  // 关闭查找（含切走预览态卸载编辑器前）统一在此清命中高亮
   useEffect(() => {
     if (findOpen) return
     const view = viewRef.current
@@ -1386,15 +1425,23 @@ function FilesTextEditor({
         recentPaths={recentPaths}
         fileStatus={fileStatus}
         treeVisible={treeVisible}
-        mdPreview={markdown ? mdPreview : null}
-        onToggleMdPreview={onToggleMdPreview}
+        sourcePreview={canPreview ? sourcePreview : null}
+        onToggleSourcePreview={onToggleSourcePreview}
         onShowTree={onShowTree}
         onToggleTree={onToggleTree}
         onRevealInTree={onRevealInTree}
         onOpenRecent={onOpenRecent}
       />
-      {markdown && mdPreview ? (
+      {markdown && sourcePreview ? (
         <FilesMarkdownPreview path={path} content={content} projectRoot={projectRoot} />
+      ) : svg && sourcePreview ? (
+        <FilesSvgPreview
+          path={path}
+          content={content}
+          active={imageNavActive}
+          onPrev={onImagePrev}
+          onNext={onImageNext}
+        />
       ) : (
         <>
           {findOpen && (
@@ -1438,8 +1485,8 @@ function FilesToolbar({
   recentPaths,
   fileStatus,
   treeVisible,
-  mdPreview = null,
-  onToggleMdPreview,
+  sourcePreview = null,
+  onToggleSourcePreview,
   onShowTree,
   onToggleTree,
   onRevealInTree,
@@ -1451,9 +1498,9 @@ function FilesToolbar({
   recentPaths: string[]
   fileStatus: GitFileStatus | undefined
   treeVisible: boolean
-  /** Markdown 编辑 ↔ 预览切换钮：null = 不显示（非 Markdown / 非文本） */
-  mdPreview?: boolean | null
-  onToggleMdPreview?: () => void
+  /** 编辑 ↔ 预览切换钮：null = 不显示（非 Markdown / SVG） */
+  sourcePreview?: boolean | null
+  onToggleSourcePreview?: () => void
   onShowTree: () => void
   onToggleTree: () => void
   onRevealInTree: (logical: string, isDirectory: boolean) => void | Promise<void>
@@ -1507,15 +1554,15 @@ function FilesToolbar({
         className="flex shrink-0 items-center gap-0.5"
         onDoubleClick={(e) => e.stopPropagation()}
       >
-        {mdPreview !== null && (
+        {sourcePreview !== null && (
           <>
             <button
               type="button"
-              title={mdPreview ? '编辑' : '预览'}
+              title={sourcePreview ? '编辑' : '预览'}
               className={TOOLBAR_BTN}
-              onClick={onToggleMdPreview}
+              onClick={onToggleSourcePreview}
             >
-              {mdPreview ? <Pencil className="size-4" /> : <Eye className="size-4" />}
+              {sourcePreview ? <Pencil className="size-4" /> : <Eye className="size-4" />}
             </button>
             <div className="mx-0.5 h-3 w-px shrink-0 bg-[var(--border-input)]" role="separator" />
           </>

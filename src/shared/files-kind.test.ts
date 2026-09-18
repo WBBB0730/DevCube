@@ -2,6 +2,11 @@ import { describe, expect, it } from 'vitest'
 import {
   classifyFilesOpenKind,
   filesOpenKindFromMime,
+  adjacentImagePath,
+  isImagePreviewPath,
+  isMarkdownPath,
+  isPreviewableSourcePath,
+  isSvgPath,
   primaryMime,
   resolveFilesOpenKind,
   sniffTextBuffer
@@ -59,6 +64,57 @@ describe('filesOpenKindFromMime / primaryMime', () => {
   it('非媒体 MIME → null', () => {
     expect(filesOpenKindFromMime('application/wasm')).toBeNull()
     expect(filesOpenKindFromMime('application/pdf')).toBeNull()
+  })
+})
+
+describe('isMarkdownPath / isSvgPath / isPreviewableSourcePath', () => {
+  it('Markdown 扩展名', () => {
+    expect(isMarkdownPath('README.md')).toBe(true)
+    expect(isMarkdownPath('a.markdown')).toBe(true)
+    expect(isMarkdownPath('a.mdx')).toBe(false)
+  })
+
+  it('SVG 扩展名', () => {
+    expect(isSvgPath('icon.svg')).toBe(true)
+    expect(isSvgPath('ICON.SVG')).toBe(true)
+    expect(isSvgPath('a.svgx')).toBe(false)
+  })
+
+  it('仅 Markdown / SVG 可切预览', () => {
+    expect(isPreviewableSourcePath('a.md')).toBe(true)
+    expect(isPreviewableSourcePath('a.svg')).toBe(true)
+    expect(isPreviewableSourcePath('a.ts')).toBe(false)
+    expect(isPreviewableSourcePath('a.png')).toBe(false)
+  })
+})
+
+describe('isImagePreviewPath / adjacentImagePath', () => {
+  it('位图与 SVG 可看图，源码不行', () => {
+    expect(isImagePreviewPath('a.png')).toBe(true)
+    expect(isImagePreviewPath('ICON.SVG')).toBe(true)
+    expect(isImagePreviewPath('a.ts')).toBe(false)
+    expect(isImagePreviewPath('clip.mp4')).toBe(false)
+  })
+
+  it('同目录按给定序取上一张 / 下一张，到头不回绕', () => {
+    const entries = [
+      { path: '/p/dir', isDirectory: true },
+      { path: '/p/a.png', isDirectory: false },
+      { path: '/p/note.ts', isDirectory: false },
+      { path: '/p/b.svg', isDirectory: false },
+      { path: '/p/c.jpg', isDirectory: false }
+    ]
+    expect(adjacentImagePath(entries, '/p/a.png', 1)).toBe('/p/b.svg')
+    expect(adjacentImagePath(entries, '/p/b.svg', 1)).toBe('/p/c.jpg')
+    expect(adjacentImagePath(entries, '/p/c.jpg', 1)).toBeNull()
+    expect(adjacentImagePath(entries, '/p/a.png', -1)).toBeNull()
+    expect(adjacentImagePath(entries, '/p/c.jpg', -1)).toBe('/p/b.svg')
+  })
+
+  it('当前路径不在看图序列里 → null', () => {
+    expect(
+      adjacentImagePath([{ path: '/p/a.png', isDirectory: false }], '/p/missing.png', 1)
+    ).toBeNull()
   })
 })
 
