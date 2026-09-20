@@ -4,7 +4,7 @@ DevCube 目前只能在本机手动打包，没有可重复的 Win / Mac 发布�
 
 ## Solution
 
-建立「本地 bumpp 打版本 → 推符合约定的 git tag → GitHub Actions 双端打包并上传 GitHub Releases」的发布流程；正式版与 beta 使用不同安装身份（见 ADR-0012）。`main` 上持续校验代码并预热依赖与 Electron 缓存。本轮 Mac 强制签名并公证；Windows 先出未签名包。应用内更新见 `docs/prd/in-app-update.md`（本流水线需挂 updater 元数据 yml）。
+建立「本地 bumpp 打版本 → 推符合约定的 git tag → GitHub Actions 双端打包并上传 GitHub Releases」的发布流程；正式版与 beta 使用不同安装身份（见 ADR-0012）。`main` 上持续校验代码，并为之后的发版产出 pnpm / Electron 缓存（每周定时保活）。本轮 Mac 强制签名并公证；Windows 先出未签名包。应用内更新见 `docs/prd/in-app-update.md`（本流水线需挂 updater 元数据 yml）。
 
 ## User Stories
 
@@ -31,9 +31,9 @@ DevCube 目前只能在本机手动打包，没有可重复的 Win / Mac 发布�
 21. 作为维护者，我想把证书与 API Key 放进 GitHub Secrets，以便仓库里不出现私钥。
 22. 作为维护者，我想本轮 Windows 包可以未签名先发，以便不被 Windows 证书采购卡住。
 23. 作为维护者，我不想本轮接应用内自动更新，以便先跑通「打 tag → 可下载」，updater 以后再做。
-24. 作为维护者，我想 push 到 `main` 时自动预热 pnpm / Electron 缓存，以便发版 job 少冷启动。
+24. 作为维护者，我想 push 到 `main`（以及每周定时）时产出并保活 pnpm / Electron 缓存，以便之后的发版 job 少冷启动。
 25. 作为维护者，我想 `main` 在 Win 与 Mac runner 上各跑一遍完整质量门禁，但不打安装包、不签名、不上传 Release，以便尽早发现跨平台问题。
-26. 作为维护者，我想发布 workflow 对 pnpm / Electron 使用与 `main` 相同的缓存键，并单独复用 electron-builder 缓存，以便缓存语义真实、清晰。
+26. 作为维护者，我想发布 workflow 只读恢复 `main` 产出的 pnpm / Electron 缓存（相同键、前缀回退）而不写入，以便缓存语义真实、不占配额。
 27. 作为维护者，我想用一份 electron-builder 自动发现的动态配置，按 `package.json` version 切换安装身份与图标，以便正式/beta 差异集中、不靠 workflow 里零散覆盖。
 28. 作为维护者，我想 `pnpm gen-icon` 无参数一次生成正式与 beta 两套图标并写入约定路径，以便不会互相覆盖。
 29. 作为维护者，我想两套图标都提交进仓库，CI 不跑 gen-icon，以便不依赖本机 WebStorm / `sips` / 系统字体。
@@ -55,7 +55,7 @@ DevCube 目前只能在本机手动打包，没有可重复的 Win / Mac 发布�
 - **Mac 签名与公证**：发布 Mac job 强制 Developer ID 签名与公证；凭证为证书（及密码）+ App Store Connect API Key（Key ID / Issuer ID / `.p8` 的 Base64 内容），全部来自 GitHub Secrets。workflow 将 Base64 内容解码到 runner 临时文件，验证其为有效的 PKCS#8 私钥，并把该文件的绝对路径交给 electron-builder。缺少任一凭证或私钥格式无效时在打包前失败；打包后显式校验应用签名与公证票据。非 tag 的本地构建不强制签名或公证。
 - **Windows 签名**：本轮不配置；确保未提供证书时构建仍成功（勿传入空证书路径导致误解析）。
 - **自动更新**：应用内更新见 `docs/prd/in-app-update.md`；本流水线须把 `latest.yml` / `latest-mac.yml` 与安装包一并挂到 GitHub Release（`publish.provider = github`，构建仍 `--publish never`，由收尾 `gh release` 上传）。
-- **质量门禁与缓存**：`push` 到 `main` 时 Win + Mac 矩阵执行 lint、test、typecheck 与应用构建，缓存 pnpm store和 Electron 二进制；不运行 electron-builder、不缓存其未产生的数据、不上传 Release。tag workflow 先在同一提交执行相同门禁；打包 job 复用 pnpm / Electron 缓存，并独立缓存真实产生的 electron-builder 数据。
+- **质量门禁与缓存**：`push` 到 `main` 与每周定时时，Win + Mac 矩阵执行 lint、test、typecheck 与应用构建，并把 pnpm store（`pnpm store path`）与 Electron 下载目录（Electron 官方文档所列的默认缓存目录，electron 包的 postinstall 与 electron-builder 下载到同一路径）存到 `main` 名下——GitHub 缓存按 ref 隔离，tag 上的运行只能读到默认分支的缓存，所以生产方只能是 `main`。缓存键含 lockfile 哈希并带前缀回退，lockfile 变了也能复用未变部分（setup-node 自带的 pnpm 缓存只认精确键，故不用）。每周定时是为了顶住「7 天未被访问即清除」，发版间隔常超过一周。不运行 electron-builder、不上传 Release。tag workflow 先在同一提交执行相同门禁；打包 job 对这两份缓存只读恢复、不写入（写在 tag 名下别的 tag 看不到，只占配额）；electron-builder 自身的工具缓存不做（只有打包会产出，跨 tag 无法复用）。
 - **图标**：改造 gen-icon——去掉全部 CLI 参数；一次运行写出正式 / beta 目标路径，并额外写出裁掉透明安全边距的 Windows 图标（`icon-win.png`）。共用 WebStorm 底 + 黑块 + `DEV` + 横线；仅 beta 再叠斜向 beta 标（几何/颜色允许后续改脚本微调）。生成物提交入库；动态配置按身份指向对应图标，`win.icon` 用裁切版。
 - **深模块（可单测）**：抽出「version → 发行身份」纯函数：输入版本字符串，输出正式/beta 判别及身份字段集合（appId、productName、userDataDirectory、executableName、是否 Pre-release、图标侧标识等）。动态配置、Windows 运行时身份、数据路径与 CI 元数据脚本都消费同一语义，避免多处复制字符串规则。
 - **Actions 安全**：第三方与官方 Actions 均固定到审核过的完整 commit SHA。workflow 默认 `contents: read`，只有最终发布 job 获取 `contents: write`。
@@ -93,4 +93,5 @@ DevCube 目前只能在本机手动打包，没有可重复的 Win / Mac 发布�
 - 应用内更新与 Release 上补传 `latest.yml` / `latest-mac.yml` 见 `docs/prd/in-app-update.md`、ADR-0014。
 - Apple 签名与公证 Secrets 由维护者在首次发布前提供；它们只影响 tag 发布，缺失时发布会在 Mac 打包前明确失败，不阻断 `main` CI。
 - bumpp 提交信息通常就是版本号，故 Release 说明刻意留空，避免无信息噪音。
+- pnpm 官方当前的 GitHub Actions 示例用 `pnpm/setup`（自带缓存，要求 pnpm 11+）；本仓库仍是 pnpm 10，故沿用 `actions/cache` + `pnpm store path`。GitHub 会在仓库 60 天无活动后自动停用定时 workflow，届时需手动重新启用。
 - 本仓库只维护 PRD，不另开 issue / 不跑 triage，除非另行要求。
