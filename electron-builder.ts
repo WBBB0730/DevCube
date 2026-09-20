@@ -50,6 +50,12 @@ const config: Configuration = {
     '**/@vscode/ripgrep-*/**',
     '**/{sharp,@img}/**'
   ],
+  // PDF.js 运行期资源（字体映射表 / 标准字体 / wasm）：渲染层经 dc-media 协议读取（ADR-0030）
+  extraResources: [
+    { from: 'node_modules/pdfjs-dist/cmaps', to: 'pdfjs/cmaps' },
+    { from: 'node_modules/pdfjs-dist/standard_fonts', to: 'pdfjs/standard_fonts' },
+    { from: 'node_modules/pdfjs-dist/wasm', to: 'pdfjs/wasm' }
+  ],
   // External Open deep link：scheme 按 Edition 分线（devcube / devcube-beta，ADR-0025）。
   // macOS 写入 Info.plist CFBundleURLTypes；Windows 由运行时 setAsDefaultProtocolClient 注册。
   protocols: [{ name: edition.productName, schemes: [edition.name] }],

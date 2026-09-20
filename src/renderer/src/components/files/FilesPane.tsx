@@ -5,18 +5,11 @@ import {
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
-  Eye,
   File as FileIcon,
-  FileClock,
   Folder,
-  FolderOpen,
-  ListTree,
   LoaderCircle,
   Minus,
-  PanelRight,
-  Pencil,
   Search,
-  SquareArrowOutUpRight,
   X
 } from 'lucide-react'
 import { pushRecentPath, type FilesDirEntry, type FilesReadResult } from '@shared/files'
@@ -50,15 +43,12 @@ import { FilesMarkdownPreview } from './FilesMarkdownPreview'
 import { FilesMediaPreview, FilesSvgPreview } from './FilesMediaPreview'
 import { FilesEntryDialog, type FilesEntryDialogRequest } from './FilesEntryDialog'
 import { FilesTreeMenu, type FilesTreeMenuTarget } from './FilesTreeMenu'
+import { FilesPdfPreview } from './FilesPdfPreview'
+import { FilesToolbar, TOOLBAR_BTN } from './FilesToolbar'
+import { relPathUnderRoot, toSysPath } from '@renderer/lib/files-paths'
 import { useFiles } from '@renderer/files-store'
 import { useApp } from '@renderer/store'
 import { FormDialogShell } from '@renderer/components/ui/form-dialog'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from '@renderer/components/ui/dropdown-menu'
 import { FILE_STATUS_COLOR, workingTreeStatusByPath } from '@renderer/components/git/git-details'
 
 /** 内容搜索跳转请求（FilesPane → FilesTextEditor）：定位行与选中区间。 */
@@ -92,6 +82,7 @@ type Loaded =
     }
   | { kind: 'audio'; path: string; mediaUrl: string; mime: string }
   | { kind: 'video'; path: string; mediaUrl: string; mime: string }
+  | { kind: 'pdf'; path: string; mediaUrl: string }
   | { kind: 'other'; path: string; size: number }
   | null
 
@@ -365,6 +356,8 @@ export function FilesPane({
             height: result.height,
             tiled: result.tiled
           })
+        } else if (result.kind === 'pdf') {
+          setLoaded({ kind: 'pdf', path: result.path, mediaUrl: result.mediaUrl })
         } else if (result.kind === 'audio') {
           setLoaded({
             kind: 'audio',
@@ -1133,6 +1126,23 @@ export function FilesPane({
             </div>
           </div>
         )}
+        {loaded?.kind === 'pdf' && (
+          <FilesPdfPreview
+            src={loaded.mediaUrl}
+            path={loaded.path}
+            active={visible}
+            toolbar={{
+              projectRoot: rootLogical,
+              recentPaths,
+              fileStatus: statusByRel.get(relPathUnderRoot(rootLogical, loaded.path)),
+              treeVisible,
+              onShowTree: () => setTreeVisible(true),
+              onToggleTree: () => setTreeVisible((v) => !v),
+              onRevealInTree: revealInTree,
+              onOpenRecent: openFromRecent
+            }}
+          />
+        )}
         {loaded?.kind === 'other' && (
           <div className="flex h-full min-h-0 flex-col">
             <FilesToolbar
@@ -1544,179 +1554,6 @@ function FilesTextEditor({
   )
 }
 
-/** 对齐 GitToolbar ICON_BTN：transition-colors + 钮组 gap-0.5 */
-const TOOLBAR_BTN =
-  'flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
-
-function FilesToolbar({
-  path,
-  projectRoot,
-  error,
-  recentPaths,
-  fileStatus,
-  treeVisible,
-  sourcePreview = null,
-  onToggleSourcePreview,
-  onShowTree,
-  onToggleTree,
-  onRevealInTree,
-  onOpenRecent
-}: {
-  path: string | null
-  projectRoot: string
-  error: string | null
-  recentPaths: string[]
-  fileStatus: GitFileStatus | undefined
-  treeVisible: boolean
-  /** 编辑 ↔ 预览切换钮：null = 不显示（非 Markdown / SVG） */
-  sourcePreview?: boolean | null
-  onToggleSourcePreview?: () => void
-  onShowTree: () => void
-  onToggleTree: () => void
-  onRevealInTree: (logical: string, isDirectory: boolean) => void | Promise<void>
-  onOpenRecent: (logical: string) => void | Promise<void>
-}): React.JSX.Element {
-  const rel =
-    path && path.startsWith(projectRoot + '/') ? path.slice(projectRoot.length + 1) : (path ?? '')
-  const parts = rel.split('/').filter((p) => p.length > 0)
-  const fileColour = fileStatus ? FILE_STATUS_COLOR[fileStatus] : undefined
-  return (
-    <div
-      className="flex h-10 shrink-0 cursor-default items-center gap-2 border-b border-[var(--separator)] bg-panel px-2 text-[13px] select-none"
-      onDoubleClick={onToggleTree}
-    >
-      <div className="flex min-w-0 flex-1 items-center overflow-hidden" title={path ?? undefined}>
-        {path && (
-          <div className="flex min-w-0 items-center gap-0.5 overflow-hidden">
-            {parts.map((part, i) => {
-              const last = i === parts.length - 1
-              const segmentPath = normalizePath(projectRoot + '/' + parts.slice(0, i + 1).join('/'))
-              return (
-                <span key={`${i}:${part}`} className="flex min-w-0 items-center gap-0.5">
-                  {i > 0 && <ChevronRight className="size-3 shrink-0 text-muted-foreground" />}
-                  <button
-                    type="button"
-                    title={segmentPath}
-                    className={cn(
-                      'max-w-full cursor-pointer truncate transition-colors hover:text-[color:var(--fg-primary)]',
-                      last ? 'text-[color:var(--files-crumb-file)]' : 'text-muted-foreground'
-                    )}
-                    style={
-                      last
-                        ? ({
-                            '--files-crumb-file': fileColour ?? 'var(--fg-primary)'
-                          } as React.CSSProperties)
-                        : undefined
-                    }
-                    onClick={() => void onRevealInTree(segmentPath, !last)}
-                    onDoubleClick={(e) => e.stopPropagation()}
-                  >
-                    {part}
-                  </button>
-                </span>
-              )
-            })}
-          </div>
-        )}
-      </div>
-      {error && <span className="shrink-0 text-xs text-[var(--status-failed)]">{error}</span>}
-      <div
-        className="flex shrink-0 items-center gap-0.5"
-        onDoubleClick={(e) => e.stopPropagation()}
-      >
-        {sourcePreview !== null && (
-          <>
-            <button
-              type="button"
-              title={sourcePreview ? '编辑' : '预览'}
-              className={TOOLBAR_BTN}
-              onClick={onToggleSourcePreview}
-            >
-              {sourcePreview ? <Pencil className="size-4" /> : <Eye className="size-4" />}
-            </button>
-            <div className="mx-0.5 h-3 w-px shrink-0 bg-[var(--border-input)]" role="separator" />
-          </>
-        )}
-        <DropdownMenu>
-          <DropdownMenuTrigger title="最近打开文件" className={TOOLBAR_BTN}>
-            <FileClock className="size-4" />
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="max-w-2xl">
-            {recentPaths.length === 0 ? (
-              <div className="px-2 py-1.5 text-[13px] text-muted-foreground">暂无最近打开文件</div>
-            ) : (
-              recentPaths.map((p) => {
-                const rel = relPathUnderRoot(projectRoot, p) || p
-                const slash = rel.lastIndexOf('/')
-                const name = slash >= 0 ? rel.slice(slash + 1) : rel
-                const dir = slash >= 0 ? rel.slice(0, slash) : ''
-                return (
-                  <DropdownMenuItem
-                    key={p}
-                    className="min-w-0 gap-1.5"
-                    onClick={() => void onOpenRecent(p)}
-                  >
-                    <span className="shrink-0" title={p}>
-                      {name}
-                    </span>
-                    {dir && (
-                      <span className="min-w-0 truncate text-muted-foreground" title={p}>
-                        {dir}
-                      </span>
-                    )}
-                  </DropdownMenuItem>
-                )
-              })
-            )}
-          </DropdownMenuContent>
-        </DropdownMenu>
-        {path && (
-          <>
-            <button
-              type="button"
-              title="在文件树中显示"
-              className={TOOLBAR_BTN}
-              onClick={() => void onRevealInTree(path, false)}
-            >
-              <ListTree className="size-4" />
-            </button>
-            <button
-              type="button"
-              title="在文件夹中显示"
-              className={TOOLBAR_BTN}
-              onClick={() => void window.api.revealInFolder(toSysPath(path))}
-            >
-              <FolderOpen className="size-4" />
-            </button>
-            <button
-              type="button"
-              title="在其他应用中打开"
-              className={TOOLBAR_BTN}
-              onClick={() => void window.api.openPath(toSysPath(path))}
-            >
-              <SquareArrowOutUpRight className="size-4" />
-            </button>
-          </>
-        )}
-        {!treeVisible && (
-          <>
-            <div className="mx-0.5 h-3 w-px shrink-0 bg-[var(--border-input)]" role="separator" />
-            <button type="button" title="显示文件树" className={TOOLBAR_BTN} onClick={onShowTree}>
-              <PanelRight className="size-4" />
-            </button>
-          </>
-        )}
-      </div>
-    </div>
-  )
-}
-
-function relPathUnderRoot(projectRoot: string, absolute: string): string {
-  if (absolute === projectRoot) return ''
-  if (absolute.startsWith(projectRoot + '/')) return absolute.slice(projectRoot.length + 1)
-  return absolute
-}
-
 /** 内容缩进：行背景全宽，仅左侧占位（对齐左树「背景不缩进」）。 */
 function treeIndent(levels: number): React.JSX.Element | null {
   return levels > 0 ? <span className="shrink-0" style={{ width: levels * 12 }} /> : null
@@ -1819,9 +1656,4 @@ function formatSize(n: number): string {
   if (n < 1024) return `${n} B`
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`
   return `${(n / (1024 * 1024)).toFixed(1)} MB`
-}
-
-/** 逻辑路径转系统路径（macOS/Linux 上通常相同）。 */
-function toSysPath(logical: string): string {
-  return logical
 }

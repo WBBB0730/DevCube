@@ -49,7 +49,7 @@ Markdown 与 SVG 文件的工具栏出现「编辑 ↔ 预览」两态切换：�
 - 代码块语法高亮。
 - 相对链接跳转到项目内其他文件。
 - Mermaid / KaTeX 等扩展渲染。
-- HTML / CSV / PDF 等其它格式的预览。
+- HTML / CSV 等其它格式的预览（PDF 见 `files-pdf-preview.md`）。
 - Markdown 正文里引用的 SVG 相对路径图（仍只放行位图扩展名）。
 
 ## Further Notes

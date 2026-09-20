@@ -1,5 +1,5 @@
 /** Files Tab 打开条目时的类型分流（见 docs/prd/files-tab.md）。 */
-export type FilesOpenKind = 'text' | 'image' | 'audio' | 'video' | 'other'
+export type FilesOpenKind = 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'other'
 
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico'])
 
@@ -130,12 +130,14 @@ export function primaryMime(mime: string): string {
  * - 可播音视频 → audio / video
  * - 不可播音视频（如 mkv/wmv）→ other（直接占位）
  * - 位图 → image；svg → text
- * - 非媒体/非图片 → null（交给扩展名或文本嗅探）
+ * - PDF → pdf（内嵌 PDF.js 预览）
+ * - 其余 → null（交给扩展名或文本嗅探）
  */
 export function filesOpenKindFromMime(mime: string): FilesOpenKind | null {
   const primary = primaryMime(mime)
   if (primary === 'image/svg+xml') return 'text'
   if (IMAGE_MIME.has(primary)) return 'image'
+  if (primary === 'application/pdf') return 'pdf'
   if (primary.startsWith('audio/')) {
     return PLAYABLE_AUDIO_MIME.has(primary) ? 'audio' : 'other'
   }

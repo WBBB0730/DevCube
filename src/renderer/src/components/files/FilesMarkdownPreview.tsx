@@ -4,6 +4,7 @@
 import { useMemo } from 'react'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import { isExternalLink } from '@shared/external-link'
 import { buildFilesMediaUrl } from '@shared/files'
 import { resolveWithinProject } from '@shared/files-path'
 import { imageMimeOf } from '@shared/git'
@@ -38,7 +39,7 @@ export function FilesMarkdownPreview({
           href={href}
           onClick={(e) => {
             e.preventDefault()
-            if (href !== undefined && /^(https?|mailto):/i.test(href)) {
+            if (href !== undefined && isExternalLink(href)) {
               void window.api.openExternal(href)
             }
           }}

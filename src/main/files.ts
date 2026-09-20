@@ -193,6 +193,14 @@ export async function readFileEntry(
     }
   }
 
+  if (kind === 'pdf') {
+    return {
+      kind: 'pdf',
+      path: logical,
+      mediaUrl: buildFilesMediaUrl(root, logical, 'application/pdf')
+    }
+  }
+
   if (kind === 'image') {
     const ext = path.extname(name).slice(1).toLowerCase() || 'png'
     const imageType = imageMime(mime ?? ext)

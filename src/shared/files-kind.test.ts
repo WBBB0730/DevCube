@@ -61,9 +61,13 @@ describe('filesOpenKindFromMime / primaryMime', () => {
     expect(filesOpenKindFromMime('image/svg+xml')).toBe('text')
   })
 
+  it('PDF → pdf', () => {
+    expect(filesOpenKindFromMime('application/pdf')).toBe('pdf')
+  })
+
   it('非媒体 MIME → null', () => {
     expect(filesOpenKindFromMime('application/wasm')).toBeNull()
-    expect(filesOpenKindFromMime('application/pdf')).toBeNull()
+    expect(filesOpenKindFromMime('application/zip')).toBeNull()
   })
 })
 

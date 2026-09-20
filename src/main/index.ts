@@ -1,10 +1,11 @@
-import { app, shell, BrowserWindow } from 'electron'
+import { app, BrowserWindow } from 'electron'
 import { join } from 'path'
 import { electronApp, optimizer, is } from '@electron-toolkit/utils'
 import icon from '../../resources/icon.png?asset'
 import iconWin from '../../resources/icon-win.png?asset'
 import { handleFilesMediaProtocol, registerFilesMediaScheme } from './files-media-protocol'
 import { installAppMenu } from './app-menu'
+import { installWebContentsGuard } from './web-contents-guard'
 import { wireAppShortcuts } from './app-shortcuts'
 import { initStore } from './store'
 import { registerIpc } from './ipc'
@@ -67,6 +68,8 @@ app.on('second-instance', (_event, argv, workingDirectory) => {
 registerFilesMediaScheme()
 // 必须在 app.ready 之前安装/清除应用菜单，否则 Electron 会挂上含 DevTools 的默认菜单。
 installAppMenu()
+// 渲染层主框架除重载外禁止导航、开窗一律改走系统浏览器：须早于建窗，只对之后创建的 webContents 生效。
+installWebContentsGuard()
 
 const WINDOW_DEFAULTS = {
   width: 1100,
@@ -122,11 +125,6 @@ function createWindow(): BrowserWindow {
     if (placement.isMaximized) mainWindow.maximize()
     if (placement.isFullScreen) mainWindow.setFullScreen(true)
     mainWindow.show()
-  })
-
-  mainWindow.webContents.setWindowOpenHandler((details) => {
-    shell.openExternal(details.url)
-    return { action: 'deny' }
   })
 
   // 应用快捷键：主进程 before-input-event 优先拦截（见 ADR-0013 / docs）。

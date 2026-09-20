@@ -3,6 +3,7 @@ import { IPC } from '../shared/ipc'
 import { configKey } from '../shared/runnable'
 import { isOpenInAppId } from '../shared/open-in-app'
 import { isSystemIntegrationFeatureId } from '../shared/system-integration'
+import { isExternalLink } from '../shared/external-link'
 import { applySystemIntegration, getSystemIntegrationState } from './system-integration'
 import type { DiscoverSource } from '../shared/discover-source'
 import type {
@@ -368,9 +369,9 @@ export function registerIpc(win: BrowserWindow): void {
   })
 
   // —— 外链 ——
-  // 终端/详情里点击链接 → 系统默认浏览器；放行 http/https 与 mailto（作者邮箱），杜绝 file:// 等其他协议。
+  // 终端/详情/预览里点击链接 → 系统默认浏览器；白名单 isExternalLink 与开窗守卫同一份。
   ipcMain.handle(IPC.openExternal, (_e, url: string) => {
-    if (/^(https?|mailto):/i.test(url)) shell.openExternal(url)
+    if (isExternalLink(url)) shell.openExternal(url)
   })
   // Git 详情面板「打开文件」→ 系统默认应用；只放行登记项目内的绝对路径。
   ipcMain.handle(IPC.openPath, (_e, path: string) => {

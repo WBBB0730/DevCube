@@ -3,6 +3,8 @@
 @plugin '@tailwindcss/typography';
 @import '@fontsource-variable/inter';
 @import '@git-diff-view/react/styles/diff-view.css';
+/* PDF.js viewer 样式放进级联层：未分层的应用样式天然压过分层样式，.files-pdf 覆盖不必再与库比特异性 */
+@import 'pdfjs-dist/legacy/web/pdf_viewer.css' layer(pdfjs);
 
 /* 官方完整 JetBrains Mono（含 ⇧⌃⌥⌘）；见 assets/fonts/jetbrains-mono/README.md */
 @font-face {
@@ -447,6 +449,33 @@
 }
 
 /* Files Tab · CodeMirror：压过 @codemirror/view baseTheme 的 line-height: 1.4。 */
+/* Files Tab PDF 预览（PDF.js viewer 组件，样式表在顶部以级联层引入）：页面保持白底，去掉库自带的
+   透明留白边框改用阴影；查找命中色对齐编辑器 TEXT_SEARCH_RESULT（黄 / 选中橙），带透明度以免盖住
+   文字层下的正文。变量声明在每块 .highlight 自身，须在同一元素覆盖，写在 .textLayer 上会被它压掉。 */
+.files-pdf .pdfViewer .page {
+  box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
+}
+.files-pdf .textLayer .highlight {
+  --highlight-bg-color: rgb(252 212 126 / 0.55);
+  --highlight-selected-bg-color: rgb(196 114 51 / 0.55);
+}
+/* 当前命中的滚动对齐由查找控制器子类负责（居中）；库为贴顶对齐留的 50px 滚动边距会让居中整体偏下 */
+.files-pdf .textLayer .highlight.selected {
+  scroll-margin-top: 0;
+}
+/* 链接 hover：沿用库的 20% 色块（无边框链接靠 <a> 的 opacity，带边框的直接给容器半透明底），只把黄换成链接蓝。
+   可点的 <a> 是盖在注解矩形上的透明盒子，矩形由作者工具决定、文字画在画布上，下划线 / 改字色都做不准。 */
+.files-pdf .annotationLayer .linkAnnotation:not(.hasBorder) > a:hover {
+  background-color: var(--link);
+}
+.files-pdf .annotationLayer .linkAnnotation.hasBorder:hover {
+  background-color: color-mix(in srgb, var(--link) 20%, transparent);
+}
+/* 按住空格的抓手模式：文字层默认的 text 光标也改成 grab */
+.files-pdf .pan-mode .textLayer * {
+  cursor: grab;
+}
+
 .files-codemirror .cm-scroller,
 .files-codemirror .cm-content,
 .files-codemirror .cm-line,
