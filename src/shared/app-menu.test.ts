@@ -1,39 +1,92 @@
 import { describe, expect, it } from 'vitest'
-import { resolveAppMenuRoles } from './app-menu'
+import { resolveAppMenuTemplate, type AppMenuItem } from './app-menu'
 
-describe('resolveAppMenuRoles', () => {
+const mac = (isDev: boolean): AppMenuItem[] | null =>
+  resolveAppMenuTemplate({ isDev, platform: 'darwin', appName: 'DevCube' })
+const win = (isDev: boolean): AppMenuItem[] | null =>
+  resolveAppMenuTemplate({ isDev, platform: 'win32', appName: 'DevCube' })
+
+const titles = (items: AppMenuItem[] | null): string[] =>
+  (items ?? []).map((i) => ('label' in i ? i.label : ''))
+
+/** 摊平某个顶层菜单（含子菜单）里的所有 role。 */
+function rolesOf(items: AppMenuItem[] | null, title: string): string[] {
+  const top = (items ?? []).find((i) => 'submenu' in i && i.label === title)
+  const walk = (list: AppMenuItem[]): string[] =>
+    list.flatMap((i) => ('submenu' in i ? walk(i.submenu) : 'role' in i ? [i.role] : []))
+  return top && 'submenu' in top ? walk(top.submenu) : []
+}
+
+describe('resolveAppMenuTemplate', () => {
   it('Win/Linux 生产 → null（suppress 默认菜单）', () => {
-    expect(resolveAppMenuRoles({ isDev: false, platform: 'win32' })).toBeNull()
-    expect(resolveAppMenuRoles({ isDev: false, platform: 'linux' })).toBeNull()
+    expect(resolveAppMenuTemplate({ isDev: false, platform: 'win32', appName: 'X' })).toBeNull()
+    expect(resolveAppMenuTemplate({ isDev: false, platform: 'linux', appName: 'X' })).toBeNull()
   })
 
-  it('macOS 生产 → app/edit/window，无 view', () => {
-    expect(resolveAppMenuRoles({ isDev: false, platform: 'darwin' })).toEqual([
-      'appMenu',
-      'editMenu',
-      'windowMenu'
-    ])
+  it('macOS 生产 → 应用 / 编辑 / 窗口，无视图', () => {
+    expect(titles(mac(false))).toEqual(['DevCube', '编辑', '窗口'])
   })
 
-  it('macOS 开发 → 含 viewMenu', () => {
-    expect(resolveAppMenuRoles({ isDev: true, platform: 'darwin' })).toEqual([
-      'appMenu',
-      'editMenu',
-      'viewMenu',
-      'windowMenu'
-    ])
+  it('macOS 开发 → 多一个视图', () => {
+    expect(titles(mac(true))).toEqual(['DevCube', '编辑', '视图', '窗口'])
   })
 
-  it('Win/Linux 开发 → edit/view/window（无 appMenu）', () => {
-    expect(resolveAppMenuRoles({ isDev: true, platform: 'win32' })).toEqual([
-      'editMenu',
-      'viewMenu',
-      'windowMenu'
+  it('Win/Linux 开发 → 编辑 / 视图 / 窗口（无应用菜单）', () => {
+    expect(titles(win(true))).toEqual(['编辑', '视图', '窗口'])
+  })
+
+  it('顶层与项全是中文文案，不跟随系统语言', () => {
+    const items = mac(true)
+    const editLabels = (() => {
+      const edit = (items ?? []).find((i) => 'submenu' in i && i.label === '编辑')
+      return edit && 'submenu' in edit
+        ? edit.submenu.flatMap((i) => ('label' in i ? [i.label] : []))
+        : []
+    })()
+    expect(editLabels).toContain('撤销')
+    expect(editLabels).toContain('粘贴并匹配样式')
+    expect(editLabels).toContain('语音')
+  })
+
+  it('应用名拼进关于 / 隐藏 / 退出', () => {
+    const appTop = (mac(false) ?? [])[0]
+    const labels = appTop && 'submenu' in appTop ? titles(appTop.submenu) : []
+    expect(labels).toContain('关于 DevCube')
+    expect(labels).toContain('隐藏 DevCube')
+    expect(labels).toContain('退出 DevCube')
+  })
+
+  it('各 role 照 Electron 原块保留，行为与快捷键不变', () => {
+    expect(rolesOf(mac(false), '编辑')).toEqual([
+      'undo',
+      'redo',
+      'cut',
+      'copy',
+      'paste',
+      'pasteAndMatchStyle',
+      'delete',
+      'selectAll',
+      'startSpeaking',
+      'stopSpeaking'
     ])
-    expect(resolveAppMenuRoles({ isDev: true, platform: 'linux' })).toEqual([
-      'editMenu',
-      'viewMenu',
-      'windowMenu'
+    expect(rolesOf(win(true), '编辑')).toEqual([
+      'undo',
+      'redo',
+      'cut',
+      'copy',
+      'paste',
+      'delete',
+      'selectAll'
     ])
+    expect(rolesOf(mac(false), '窗口')).toEqual(['minimize', 'zoom', 'front'])
+    expect(rolesOf(win(true), '窗口')).toEqual(['minimize', 'zoom', 'close'])
+  })
+
+  it('视图菜单不含整页缩放项：那三个键留给 Files 预览', () => {
+    const roles = rolesOf(mac(true), '视图')
+    expect(roles).toEqual(['reload', 'forceReload', 'toggleDevTools', 'togglefullscreen'])
+    expect(roles).not.toContain('resetZoom')
+    expect(roles).not.toContain('zoomIn')
+    expect(roles).not.toContain('zoomOut')
   })
 })

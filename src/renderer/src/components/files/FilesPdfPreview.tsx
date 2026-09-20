@@ -4,11 +4,13 @@
 //（PDF.js 只对 http(s) 用 fetch、其余走 XHR，这里自备 fetch 取数工厂，走协议明确支持的 fetch）。
 // Cmd/Ctrl+滚轮与触控板捏合按光标缩放（手感常量复用看图）；普通滚轮原生滚动；Cmd+F 查找。
 // 拖拽：按在文字上是选字，按在空白处（页边 / 图片 / 页间）是抓手，按住空格则处处抓手（Preview / 设计工具惯例）。
+// 工具栏四档：1:1（纸张实际尺寸）/ 适应高度 / 适应宽度 / 适应窗口，打开即适应窗口；
+// Cmd/Ctrl+0 回适应窗口、Cmd/Ctrl +/- 逐档缩放（这三个键已从应用菜单的视图块摘掉，见 ADR-0019）。
+// 空白处双击在「适应宽度 / 适应高度」两档间切换（文字上双击仍是选词）；容器尺寸一变，预设档按新尺寸重算。
 // 外链由库标 target=_blank，交主进程开窗守卫转系统浏览器（web-contents-guard）；内链（目录跳转）库自处理。
 // 库样式表在 main.css 顶部以级联层引入（.files-pdf 覆盖也在那里）。
 // 用 legacy 构建：默认构建依赖比当前 Electron 的 Chromium 更新的 JS 特性（如 Map#getOrInsertComputed），legacy 自带垫片。
 import { useCallback, useEffect, useRef, useState } from 'react'
-import { MoveHorizontal, ZoomIn, ZoomOut } from 'lucide-react'
 import {
   AnnotationMode,
   getDocument,
@@ -28,10 +30,10 @@ import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
 import { buildFilesAssetUrl, FILES_ASSET_PDFJS } from '@shared/files'
 import { useApp } from '@renderer/store'
 import { cn } from '@renderer/lib/utils'
-import { zoomFromWheel } from '@renderer/lib/files-media-zoom'
-import { MEDIA_SETTLE_MS } from './FilesMediaPreview'
+import { zoomFromWheel, type MediaFitMode } from '@renderer/lib/files-media-zoom'
+import { MEDIA_SETTLE_MS, MediaFitButtons } from './FilesMediaPreview'
 import { toSysPath } from '@renderer/lib/files-paths'
-import { FilesToolbar, TOOLBAR_BTN, type FilesToolbarProps } from './FilesToolbar'
+import { FilesToolbar, TOOLBAR_SEPARATOR, type FilesToolbarProps } from './FilesToolbar'
 import { FindBar } from './FindBar'
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl
@@ -107,6 +109,31 @@ function editableTarget(el: EventTarget | null): boolean {
   return el.closest('input, textarea, select, [contenteditable="true"]') !== null
 }
 
+/** 四档 ↔ PDF.js 的预设缩放值。`actual` 是纸张实际尺寸（1 pt = 1/72 英寸），与窗口无关。 */
+const PDF_SCALE_VALUE: Record<MediaFitMode, string> = {
+  actual: 'page-actual',
+  width: 'page-width',
+  height: 'page-height',
+  window: 'page-fit'
+}
+
+const PDF_FIT_MODE: Record<string, MediaFitMode> = {
+  'page-actual': 'actual',
+  'page-width': 'width',
+  'page-height': 'height',
+  'page-fit': 'window'
+}
+
+/** 文字层与注解控件上的鼠标动作让给选字与点击（抓手与双击都照此让路）。 */
+function overTextOrAnnotation(target: EventTarget | null): boolean {
+  return (
+    target instanceof Element &&
+    target.closest(
+      '.textLayer span, .textLayer br, .annotationLayer, a, button, input, select, textarea'
+    ) !== null
+  )
+}
+
 export function FilesPdfPreview({
   src,
   path,
@@ -133,7 +160,8 @@ export function FilesPdfPreview({
   const [page, setPage] = useState(1)
   /** 页码输入框正在编辑的草稿；null = 显示当前页 */
   const [pageDraft, setPageDraft] = useState<string | null>(null)
-  const [scale, setScale] = useState(1)
+  /** 当前所处的档；null = 滚轮缩出的自由倍率，四颗钮都不亮 */
+  const [fitMode, setFitMode] = useState<MediaFitMode | null>(null)
   const [findOpen, setFindOpen] = useState(false)
   const [findFocusNonce, setFindFocusNonce] = useState(0)
   const [findQuery, setFindQuery] = useState('')
@@ -171,11 +199,15 @@ export function FilesPdfPreview({
       removePageBorders: true
     })
     linkService.setViewer(viewer)
+    // 打开即整页显示得下（同看图默认）
     eventBus.on('pagesinit', () => {
-      viewer.currentScaleValue = 'page-width'
+      viewer.currentScaleValue = PDF_SCALE_VALUE.window
     })
     eventBus.on('pagechanging', (e: { pageNumber: number }) => setPage(e.pageNumber))
-    eventBus.on('scalechanging', (e: { scale: number }) => setScale(e.scale))
+    // 预设缩放才带 presetValue；滚轮缩出来的数值倍率给 undefined，四颗钮随之全灭
+    eventBus.on('scalechanging', (e: { presetValue?: string }) =>
+      setFitMode(e.presetValue ? (PDF_FIT_MODE[e.presetValue] ?? null) : null)
+    )
     eventBus.on(
       'updatefindcontrolstate',
       (e: { state: number; matchesCount: { current: number; total: number } }) =>
@@ -276,6 +308,25 @@ export function FilesPdfPreview({
     [findQuery, caseSensitive, wholeWord]
   )
 
+  /**
+   * 切到某一档。
+   * 给了 `anchor`（双击点，容器内坐标）就按倍率变化改滚动位置，让那一点下的内容留在原处
+   * ——库的预设缩放只保当前页可见，不认锚点。
+   */
+  const fit = useCallback((mode: MediaFitMode, anchor?: { x: number; y: number }): void => {
+    const viewer = viewerRef.current
+    const container = containerRef.current
+    if (!viewer || !container) return
+    const before = viewer.currentScale
+    const docX = container.scrollLeft + (anchor?.x ?? 0)
+    const docY = container.scrollTop + (anchor?.y ?? 0)
+    viewer.currentScaleValue = PDF_SCALE_VALUE[mode]
+    if (!anchor || before <= 0) return
+    const k = viewer.currentScale / before
+    container.scrollLeft = docX * k - anchor.x
+    container.scrollTop = docY * k - anchor.y
+  }, [])
+
   // 查询 / 选项变化即重新查找（PDF.js 自带防抖）
   useEffect(() => {
     if (!findOpen) return
@@ -299,6 +350,26 @@ export function FilesPdfPreview({
         openFind()
         return
       }
+      // Cmd/Ctrl+0 回适应窗口、Cmd/Ctrl +/- 逐档缩放。这三个键已从应用菜单的视图块里摘掉
+      //（Electron 的 viewMenu 自带整页缩放，菜单加速键优先级更高，留着就压住这里）。
+      if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+        // Cmd+= 与 Cmd+Shift+= 都算放大（后者就是键盘上的 Cmd++）；回基准视图则不许带 Shift
+        const zoomIn = e.code === 'Equal' || e.code === 'NumpadAdd'
+        const zoomOut = e.code === 'Minus' || e.code === 'NumpadSubtract'
+        const reset = e.code === 'Digit0' && !e.shiftKey
+        if (zoomIn || zoomOut || reset) {
+          if (!inside && (target !== document.body || editableTarget(target))) return
+          const app = useApp.getState()
+          if (overlayOpen() || app.contentSearchOpen || app.dialog.open) return
+          e.preventDefault()
+          e.stopPropagation()
+          const viewer = viewerRef.current
+          if (reset) fit('window')
+          else if (zoomIn) viewer?.increaseScale({ drawingDelay: MEDIA_SETTLE_MS })
+          else viewer?.decreaseScale({ drawingDelay: MEDIA_SETTLE_MS })
+          return
+        }
+      }
       if (e.key === 'Escape' && findOpen && inside && !editableTarget(target)) {
         e.preventDefault()
         closeFind()
@@ -306,7 +377,7 @@ export function FilesPdfPreview({
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [active, findOpen, openFind, closeFind])
+  }, [active, findOpen, openFind, closeFind, fit])
 
   useEffect(() => () => dragCleanup.current?.(), [])
 
@@ -343,6 +414,26 @@ export function FilesPdfPreview({
     }
   }, [active])
 
+  // 容器尺寸一变（拖窗口 / 文件树显隐 / 查找栏开合）就按新尺寸重算预设缩放：库自带的
+  // ResizeObserver 只更新内部缓存，重算缩放历来是官方 viewer 外壳的活，这里等价补上。
+  useEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const ro = new ResizeObserver(() => {
+      const viewer = viewerRef.current
+      if (!viewer?.pdfDocument) return
+      // Tab 切走是 display:none，容器塌成 0：按 0 重算会把页面缩到 0 宽高，之后连预设倍率都成了
+      // 0/0，切回来就落在一个无意义的倍率上。隐藏期间一概不动，等真有尺寸了再说。
+      if (container.clientWidth <= 0 || container.clientHeight <= 0) return
+      const value = viewer.currentScaleValue
+      // 预设值才跟随（page-actual 重设也无妨，它不看容器）；滚轮缩出来的数值倍率保持不动
+      if (!value) viewer.currentScaleValue = PDF_SCALE_VALUE.window
+      else if (Number.isNaN(Number(value))) viewer.currentScaleValue = value
+    })
+    ro.observe(container)
+    return () => ro.disconnect()
+  }, [])
+
   // Cmd/Ctrl+滚轮 / 捏合：按光标缩放，手势中只做 CSS 缩放、停手后重绘（drawingDelay）
   useEffect(() => {
     const wrap = wrapRef.current
@@ -368,14 +459,16 @@ export function FilesPdfPreview({
     if (e.button !== 0) return
     const container = containerRef.current
     if (!container || pages <= 0) return
-    const target = e.target
-    if (
-      !spaceRef.current &&
-      target instanceof Element &&
-      target.closest(
-        '.textLayer span, .textLayer br, .annotationLayer, a, button, input, select, textarea'
-      )
-    ) {
+    if (!spaceRef.current && overTextOrAnnotation(e.target)) return
+    // 空白处双击换档，从 mousedown 的点击计数判定而非接 dblclick：拖拽期间盖着的全屏遮罩会接走
+    // mouseup，click / dblclick 的 target 退化成两者的共同祖先，永远落不到这里。
+    // 文字 / 注解上已在前一行让路，原生双击选词不受影响。
+    if (e.detail === 2) {
+      const rect = container.getBoundingClientRect()
+      fit(viewerRef.current?.currentScaleValue === 'page-width' ? 'height' : 'width', {
+        x: e.clientX - rect.left,
+        y: e.clientY - rect.top
+      })
       return
     }
     e.preventDefault()
@@ -422,59 +515,33 @@ export function FilesPdfPreview({
 
   const controls = pages > 0 && (
     <>
-      <input
-        value={pageDraft ?? String(page)}
-        onChange={(e) => setPageDraft(e.target.value)}
-        onFocus={(e) => e.currentTarget.select()}
-        onBlur={() => setPageDraft(null)}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') {
-            e.preventDefault()
-            goToPage(Number(pageDraft))
-            e.currentTarget.blur()
-          } else if (e.key === 'Escape') {
-            e.preventDefault()
-            e.stopPropagation()
-            e.currentTarget.blur()
-          }
-        }}
-        inputMode="numeric"
-        title="页码"
-        className="h-6 w-9 shrink-0 rounded border border-[var(--border-input)] bg-transparent text-center text-[12px] text-foreground tabular-nums outline-none focus:border-[var(--fg-primary)]"
-      />
-      <span className="shrink-0 pr-1 text-[12px] text-muted-foreground tabular-nums">
-        / {pages}
-      </span>
-      <button
-        type="button"
-        title="缩小"
-        className={TOOLBAR_BTN}
-        onClick={() => viewerRef.current?.decreaseScale({ drawingDelay: MEDIA_SETTLE_MS })}
-      >
-        <ZoomOut className="size-4" />
-      </button>
-      <span className="w-10 shrink-0 text-center text-[12px] text-muted-foreground tabular-nums">
-        {Math.round(scale * 100)}%
-      </span>
-      <button
-        type="button"
-        title="放大"
-        className={TOOLBAR_BTN}
-        onClick={() => viewerRef.current?.increaseScale({ drawingDelay: MEDIA_SETTLE_MS })}
-      >
-        <ZoomIn className="size-4" />
-      </button>
-      <button
-        type="button"
-        title="适配宽度"
-        className={TOOLBAR_BTN}
-        onClick={() => {
-          const viewer = viewerRef.current
-          if (viewer) viewer.currentScaleValue = 'page-width'
-        }}
-      >
-        <MoveHorizontal className="size-4" />
-      </button>
+      {/* 页码这组自己撑出与钮一致的左右留白（钮是 size-7 装 size-4 图标，等效 px-1.5），
+          否则它紧贴面包屑与竖线，与右侧钮组的节奏对不上 */}
+      <div className="flex shrink-0 items-center gap-0.5 px-1.5">
+        <input
+          value={pageDraft ?? String(page)}
+          onChange={(e) => setPageDraft(e.target.value)}
+          onFocus={(e) => e.currentTarget.select()}
+          onBlur={() => setPageDraft(null)}
+          onKeyDown={(e) => {
+            if (e.key === 'Enter') {
+              e.preventDefault()
+              goToPage(Number(pageDraft))
+              e.currentTarget.blur()
+            } else if (e.key === 'Escape') {
+              e.preventDefault()
+              e.stopPropagation()
+              e.currentTarget.blur()
+            }
+          }}
+          inputMode="numeric"
+          title="页码"
+          className="h-6 w-9 shrink-0 rounded border border-[var(--border-input)] bg-transparent text-center text-[12px] text-foreground tabular-nums transition-colors outline-none focus:bg-[var(--bg-row-hover)]"
+        />
+        <span className="shrink-0 text-[12px] text-muted-foreground tabular-nums">/ {pages}</span>
+      </div>
+      <div className={TOOLBAR_SEPARATOR} role="separator" />
+      <MediaFitButtons active={fitMode} onFit={fit} />
     </>
   )
 
@@ -497,11 +564,13 @@ export function FilesPdfPreview({
         />
       )}
       <div ref={wrapRef} className="files-pdf relative min-h-0 flex-1 bg-deepest">
+        {/* 滚动容器不留内边距：库拿容器高度算 page-height，多一层 padding 就会让「适应高度」溢出、
+            整页看不全；页间留白由库的 .page margin 负责（removePageBorders 下是 0 auto 10px） */}
         <div
           ref={containerRef}
           tabIndex={0}
           className={cn(
-            'absolute inset-0 cursor-grab overflow-auto py-3 outline-none',
+            'absolute inset-0 cursor-grab overflow-auto outline-none',
             spaceHeld && 'pan-mode select-none'
           )}
           onMouseDown={startPan}

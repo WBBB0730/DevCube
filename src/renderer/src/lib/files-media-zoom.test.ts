@@ -7,6 +7,7 @@ import {
   isPinchZoomWheel,
   mediaCameraToViewport,
   mediaDisplaySize,
+  mediaFitZoom,
   MEDIA_ZOOM_MAX,
   MEDIA_ZOOM_MIN,
   panMediaCamera,
@@ -57,6 +58,29 @@ describe('fitBaseScale / mediaDisplaySize', () => {
   it('大图缩小以完整放入', () => {
     expect(fitBaseScale(400, 200, 200, 200)).toBe(0.5)
     expect(mediaDisplaySize(400, 200, 200, 200, 2)).toEqual({ w: 400, h: 200 })
+  })
+})
+
+describe('mediaFitZoom', () => {
+  it('倍率让该轴刚好铺满视口，小图也放大', () => {
+    // 大图：适配基准已是 0.5，宽度铺满即 zoom=1
+    expect(mediaFitZoom('width', 400, 200, 200, 200)).toBe(1)
+    // 同一张图按高度铺满要更大：200/200 ÷ 0.5 = 2
+    expect(mediaFitZoom('height', 400, 200, 200, 200)).toBe(2)
+    // 小图基准为 1（不放大），宽度铺满要放大到 4 倍
+    expect(mediaFitZoom('width', 100, 100, 400, 400)).toBe(4)
+  })
+
+  it('铺满那一轴后尺寸正好等于视口', () => {
+    const [w, h, availW, availH] = [100, 400, 300, 200]
+    const zoom = mediaFitZoom('height', w, h, availW, availH)
+    const size = mediaDisplaySize(w, h, availW, availH, zoom!)
+    expect(size.h).toBeCloseTo(availH)
+  })
+
+  it('尺寸不合法时返回 null', () => {
+    expect(mediaFitZoom('width', 100, 100, 0, 200)).toBeNull()
+    expect(mediaFitZoom('height', 0, 100, 200, 200)).toBeNull()
   })
 })
 

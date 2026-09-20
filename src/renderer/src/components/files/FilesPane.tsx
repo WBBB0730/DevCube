@@ -40,7 +40,13 @@ import {
 } from '@shared/files-kind'
 import { FilesGutterHunkPopover } from './FilesGutterHunkPopover'
 import { FilesMarkdownPreview } from './FilesMarkdownPreview'
-import { FilesMediaPreview, FilesSvgPreview } from './FilesMediaPreview'
+import type { MediaFitMode } from '@renderer/lib/files-media-zoom'
+import {
+  FilesMediaPreview,
+  FilesSvgPreview,
+  MediaFitButtons,
+  type MediaPreviewHandle
+} from './FilesMediaPreview'
 import { FilesEntryDialog, type FilesEntryDialogRequest } from './FilesEntryDialog'
 import { FilesTreeMenu, type FilesTreeMenuTarget } from './FilesTreeMenu'
 import { FilesPdfPreview } from './FilesPdfPreview'
@@ -123,9 +129,13 @@ export function FilesPane({
   const childrenByDirRef = useRef(childrenByDir)
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const treeScrollRef = useRef<HTMLDivElement>(null)
+  /** 看图相机：工具栏「适应」钮组驱动 */
+  const imageRef = useRef<MediaPreviewHandle>(null)
   /** 仅「打开文件 / 显式定位」时滚入；点目录改 expanded 不滚。 */
   const prevSelectedPath = useRef<string | null>(null)
   const pendingScrollPath = useRef<string | null>(null)
+  /** 看图当前所处的档；null = 自由倍率，四颗钮都不亮。 */
+  const [imageFit, setImageFit] = useState<MediaFitMode | null>(null)
   /** 同路径再次「在文件树中显示」时强制重跑滚动。 */
   const [revealTick, setRevealTick] = useState(0)
   /** 右侧文件树可见性；不持久化，重挂载默认展开。 */
@@ -1065,8 +1075,13 @@ export function FilesPane({
               onToggleTree={() => setTreeVisible((v) => !v)}
               onRevealInTree={revealInTree}
               onOpenRecent={openFromRecent}
+              extra={
+                <MediaFitButtons active={imageFit} onFit={(axis) => imageRef.current?.fit(axis)} />
+              }
             />
             <FilesMediaPreview
+              ref={imageRef}
+              onFitChange={setImageFit}
               src={loaded.mediaUrl}
               alt={loaded.path}
               width={loaded.width}
@@ -1429,6 +1444,9 @@ function FilesTextEditor({
   const svg = isSvgPath(path)
   const theme = useApp((s) => s.theme)
   const viewRef = useRef<EditorView | null>(null)
+  /** SVG 预览态的看图相机：工具栏「适应」钮组驱动 */
+  const svgRef = useRef<MediaPreviewHandle>(null)
+  const [svgFit, setSvgFit] = useState<MediaFitMode | null>(null)
   const [viewNonce, setViewNonce] = useState(0)
 
   // 编辑器内查找栏（Cmd+F）：keymap 闭包直接引用 findOpen，开关时 extensions 走一次
@@ -1506,6 +1524,11 @@ function FilesTextEditor({
         treeVisible={treeVisible}
         sourcePreview={canPreview ? sourcePreview : null}
         onToggleSourcePreview={onToggleSourcePreview}
+        extra={
+          svg && sourcePreview ? (
+            <MediaFitButtons active={svgFit} onFit={(axis) => svgRef.current?.fit(axis)} />
+          ) : undefined
+        }
         onShowTree={onShowTree}
         onToggleTree={onToggleTree}
         onRevealInTree={onRevealInTree}
@@ -1515,6 +1538,8 @@ function FilesTextEditor({
         <FilesMarkdownPreview path={path} content={content} projectRoot={projectRoot} />
       ) : svg && sourcePreview ? (
         <FilesSvgPreview
+          ref={svgRef}
+          onFitChange={setSvgFit}
           path={path}
           content={content}
           prefetch={imagePrefetch}

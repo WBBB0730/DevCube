@@ -12,8 +12,21 @@ const MEDIA_ZOOM_WHEEL = 0.001
  *（FlowVision `NSMagnificationGestureRecognizer`，sensitivity=1），×2.5 接近原生。
  */
 const MEDIA_ZOOM_PINCH = 0.025
+/** 键盘 Cmd/Ctrl +/- 一档的倍数；取 PDF.js 的 `DEFAULT_SCALE_DELTA`，两种预览手感一致。 */
+export const MEDIA_ZOOM_STEP = 1.1
 
 export type MediaCamera = { zoom: number; x: number; y: number }
+
+/** 适应轴：`width` = 宽度刚好铺满视口，`height` = 高度刚好铺满视口。 */
+export type MediaFitAxis = 'width' | 'height'
+
+/**
+ * 工具栏四档：`actual` = 1:1（像素对像素，PDF 则是纸张实际尺寸）、两条轴、
+ * `window` = 整个显示得下且小图不放大。
+ * `window` 是独立一档而不是「挑出较小的那条轴」：轴钉死后视口比例一变就可能让另一轴溢出，
+ * 而这一档每次按新尺寸重算，「整个看得见」一直成立（同 Acrobat Fit Page / 预览 Zoom to Fit）。
+ */
+export type MediaFitMode = 'actual' | MediaFitAxis | 'window'
 
 export function clampMediaZoom(zoom: number): number {
   return Math.min(MEDIA_ZOOM_MAX, Math.max(MEDIA_ZOOM_MIN, zoom))
@@ -80,6 +93,45 @@ export function mediaDisplaySize(
 ): { w: number; h: number } {
   const s = mediaDrawScale(naturalW, naturalH, availW, availH, zoom)
   return { w: naturalW * s, h: naturalH * s }
+}
+
+/** 该轴刚好铺满视口所需的倍率（相对「适配视口且不放大」的基准）；算不出返回 null。 */
+export function mediaFitZoom(
+  axis: MediaFitAxis,
+  naturalW: number,
+  naturalH: number,
+  availW: number,
+  availH: number
+): number | null {
+  if (naturalW <= 0 || naturalH <= 0 || availW <= 0 || availH <= 0) return null
+  const base = fitBaseScale(naturalW, naturalH, availW, availH)
+  if (base <= 0) return null
+  return clampMediaZoom((axis === 'width' ? availW / naturalW : availH / naturalH) / base)
+}
+
+/**
+ * 1:1（像素对像素）所需的倍率：抵消掉「适配视口」的基准，让绘制倍率回到 1。
+ * 图本就比视口小时基准已是 1，这一档与「适应窗口」同形。
+ */
+export function mediaActualZoom(
+  naturalW: number,
+  naturalH: number,
+  availW: number,
+  availH: number
+): number | null {
+  if (naturalW <= 0 || naturalH <= 0 || availW <= 0 || availH <= 0) return null
+  const base = fitBaseScale(naturalW, naturalH, availW, availH)
+  return base <= 0 ? null : clampMediaZoom(1 / base)
+}
+
+/** 图整个放得下视口（不放大也装得下）——打开时落 1:1 还是「适应窗口」看这个。 */
+export function mediaFitsViewport(
+  naturalW: number,
+  naturalH: number,
+  availW: number,
+  availH: number
+): boolean {
+  return naturalW > 0 && naturalH > 0 && naturalW <= availW && naturalH <= availH
 }
 
 export function clampMediaCamera(
