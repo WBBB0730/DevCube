@@ -79,7 +79,7 @@
 - **树顶过滤**（ADR-0009 / ADR-0027）：查询非空时主进程从**文件名索引**构建过滤树（保留结构）——ripgrep `--files` 一次枚举全项目、按项目缓存扁平名单，按键只做内存匹配；索引随文件监听的变更推送作废。匹配 = 相对项目根路径大小写不敏感包含；目录自身命中则整支子树纳入（子孙路径天然包含目录名）；过滤态自动展开至命中；无匹配文案「无匹配文件」；名单只含文件，名字命中的空目录不出现。索引跳过：IDE 忽略名 + gitignore（非仓库则仅 IDE）。防抖输入、冷索引首查显示「正在扫描」提示（延迟出现防闪烁）、扫描完成前不显示「无匹配文件」、以最新查询为准作废旧结果。过滤文字不持久化（切 Tab / 换项目 / 重启清空）。焦点在树上时可打印字写入筛选框；Esc 清空并恢复过滤前展开，若有当前打开文件再展开到可见。过滤期间展开/折叠只改过滤视图，不写入持久化展开态；清空后才回到浏览展开态。全局 Alt+CmdOrCtrl+F：有当前项目时激活其 Files Tab、必要时展开文件树、聚焦筛选框并选中已有查询（与左栏项目筛选 Alt+CmdOrCtrl+P 对称；不占用 CmdOrCtrl+F）。title / placeholder 文案走共享 `formatShortcutLabel`（对齐 VS Code UILabel：修饰键 Ctrl→Shift→Alt→Meta；macOS 符号无分隔符，Win/Linux `+` 连接）。不做命中高亮、排除目录 UI、Cmd+P、全文搜。
 - **编辑器内查找**（Cmd/Ctrl+F，焦点在编辑器时）：编辑器顶部整宽查找栏（占位压下正文，对齐 WebStorm）替换 CodeMirror 默认搜索面板；引擎复用 @codemirror/search 的 SearchQuery（官方给自定义查找 UI 的积木），高亮 / 计数 / 回绕导航由自持扩展提供（默认面板的高亮与其面板生命周期绑死，浮层形态无法复用）；大小写 / 全词 / 正则开关、计数封顶 999+、坏正则红字提示；不做替换；默认 searchKeymap 退役（跳行 / 选下一个等默认键随之移除）。
 - **语言高亮覆盖**（编辑器 / 内容搜索结果行 / 搜索预览三处共用同一映射）：官方 Lezer 包优先（js/ts、json、css/scss/sass/less、html、xml、markdown、yaml、python、go、rust、java、c/cpp、php、sql、vue），官方无包的走 `@codemirror/legacy-modes` 词法级高亮（C#、Kotlin、Swift、Dart、Obj-C、Ruby、Lua、Shell、TOML、Dockerfile、shader 等约 40 组长尾）；近似映射兜常见配置（.plist/.csproj→xml、Unity .meta/.unity/.prefab→yaml、.svelte/.ejs→html、.gitignore 族→properties、.gd→python 近似）。legacy-modes 无全量桶导出与官方扩展名映射表，映射表自维护；按需 import 逐文件 tree-shake。无覆盖仍为纯文本（zig / elixir / graphql / terraform 等官方与 legacy 均无语法）。
-- **打开分流**：已知文本扩展名走编辑器；其余用 `file-type` + `@file-type/av` 读魔数得 MIME。位图 → data URL 内嵌预览（内容区右上角显示 `naturalWidth × naturalHeight`；Cmd/Ctrl+滚轮按光标缩放（鼠标一格约 10%；触控板捏合跟手指距离）、普通滚轮或按住拖拽平移、方向键切同一目录上一张/下一张图，含 SVG，到头不回绕）；Chromium 可播音视频 → `dc-media://` 特权协议 + 显式 Range（206）流式 + 原生 `<audio>`/`<video>`（见 ADR-0010）；不可播音视频（如 mkv/wmv）与其它二进制 → 占位 +「在其他应用中打开」。魔数失败时：位图扩展名仍走图片；否则文本嗅探或占位。svg 仍走文本（可切图形预览，尺寸标注与看图操作与位图同，见 `files-markdown-preview.md`）。
+- **打开分流**：已知文本扩展名走编辑器；其余用 `file-type` + `@file-type/av` 读魔数得 MIME。位图 → `dc-media://` 流式内嵌预览（主进程读文件头得宽高，EXIF 转 90° 的按显示方向报；内容区右上角显示像素尺寸；Cmd/Ctrl+滚轮按光标缩放（鼠标一格约 10%；触控板捏合跟手指距离）、普通滚轮或按住拖拽平移、方向键切同一目录上一张/下一张图，含 SVG，到头不回绕）。渲染分两档（ADR-0029）：像素数 ≤ 3200 万且单边 ≤ 16384 走浏览器原生 `<img>`——手势只改 CSS transform，缩放停手 100ms 后把倍率烙进 width/height 由 Chromium 重新栅格化，任何倍率清晰，GIF / 动态 WebP 照常播放；超过阈值的位图先向主进程要 sharp 缩小解码的预览图（长边 4096，亚秒），同时后台一次性生成 Deep Zoom 瓦片金字塔（512 瓦片、无透明通道出 JPEG 否则 PNG，缓存在 userData/media-tiles 按路径+mtime+大小键，总量 2GB LRU），就绪后叠 OpenSeadragon 瓦片层，由同一相机驱动、手感不变。换图时新图解码完成再替换，旧图不闪；相邻普通图提前解码、相邻超大图提前备好预览与金字塔；Chromium 可播音视频 → `dc-media://` 特权协议 + 显式 Range（206）流式 + 原生 `<audio>`/`<video>`（见 ADR-0010）；不可播音视频（如 mkv/wmv）与其它二进制 → 占位 +「在其他应用中打开」。魔数失败时：位图扩展名仍走图片；否则文本嗅探或占位。svg 仍走文本（可切图形预览，尺寸标注与看图操作与位图同，见 `files-markdown-preview.md`）。
 - **编辑器**：实验分支用 CodeMirror 6（`@uiw/react-codemirror` + 语言包高亮，`basicSetup.autocompletion/lint` 关闭）。Monaco 完整实现保留在分支 `backup/files-tab-monaco` 供对照。明确不引入外部 LSP。查找等纯编辑器能力可用。
 - **保存**：事件自动保存——至少覆盖：切换打开条目、离开 Files Tab、窗口/面板失焦、短空闲。无常态「保存/不保存/取消」三按钮；竞态（未落盘 + 磁盘变更）单独弹窗：重载 / 保留编辑器内容。
 - **外部变更**（ADR-0011 / ADR-0021）：主进程用 @parcel/watcher 原生递归监听（与 Git / discovery 共用一条订阅）；有仓库时订阅根为**仓库根**（可宽于登记路径），Files 通道只入队落在该项目路径下的事件。尾沿防抖后推 `files:changed`；事件侧跳过 IDE 默认忽略名路径段，不硬编码 `node_modules` 等生态目录。Git 写动作期间（含余震）整条订阅静音。渲染端重拉**已缓存**目录列表（未展开过的不主动扫）；过滤态重跑当前过滤扫盘；当前打开文本：mtime 未变则不动，无脏则静默重载，有脏则冲突弹窗，路径已删则静默空态并剔除最近打开。不使用定时轮询 mtime。
@@ -98,7 +98,7 @@
 - **树忽略名**：给定条目名 → 是否按 IDE 默认 Ignored Files 隐藏（含正例 `.git` / `.DS_Store`、反例 `node_modules` / `.env`）。
 - **树顶过滤纯函数**：给定扁平相对路径名单 + 查询 → 过滤后的 `childrenByDir` / 应展开路径（含：路径包含匹配、目录命中带整支子树、祖先构建、排序目录在前）。
 - **树行拍平纯函数**：给定目录映射 + 展开集合 → 可见行数组（含：根子级恒可见、未展开不出子级、深度逐级递增、视觉序）。
-- **打开分流判定**：给定扩展名 → 文本 / 图片 / 其它；给定 MIME → 图片 / 可播 audio|video / 不可播 other / null（纯函数表驱动）。同目录看图上一张/下一张（`adjacentImagePath`）表驱动。
+- **打开分流判定**：给定扩展名 → 文本 / 图片 / 其它；给定 MIME → 图片 / 可播 audio|video / 不可播 other / null（纯函数表驱动）。同目录看图上一张/下一张（`adjacentImagePath`）表驱动。看图分档阈值（像素数 / 单边）、`.dzi` 解析、相机 → 瓦片视口映射表驱动。
 - **默认激活解析**：给定 Tab 列表 + 各会话是否 running → 期望激活键；关闭邻接用例与默认激活分离。
 - **持久化形状**：缺省字段、无效路径清空当前打开、展开集读写（与现有 store 补齐路径一致的风格）。不测过滤文字持久化（明确不持久）。
 - **外部变更纯函数**：目录列表是否等价（避免无变化重渲染）；打开文本相对磁盘读结果 → noop / reload / conflict / gone（表驱动）。
@@ -120,7 +120,7 @@
 
 ## Further Notes
 
-- 术语见 CONTEXT.md（**Files Tab**）；Tab 破例与默认激活见 ADR-0005；过滤与 gitignore 分见 ADR-0009、过滤索引机制见 ADR-0027；音视频协议见 ADR-0010；树/打开文件外部变更监听见 ADR-0011 / ADR-0021；视觉见 DESIGN.md。
+- 术语见 CONTEXT.md（**Files Tab**）；Tab 破例与默认激活见 ADR-0005；过滤与 gitignore 分见 ADR-0009、过滤索引机制见 ADR-0027；音视频协议见 ADR-0010；看图两档渲染与瓦片金字塔见 ADR-0029；树/打开文件外部变更监听见 ADR-0011 / ADR-0021；视觉见 DESIGN.md。
 - 「轻量」在此指少写业务胶水、不做文件管理与语言智能——不指捆绑包体积。编辑器壳在 Monaco / CM6 间实验对照后再定稿。
 - 保存触发的具体空闲秒数与失焦边可在实现时按 WebStorm 默认体感微调，不必再开产品讨论，除非要做成用户设置。
 - 过滤防抖毫秒数实现时可按体感微调，不必再开产品讨论。

@@ -86,7 +86,12 @@ describe('resolveOpenTextDiskSync', () => {
 
   it('种类不再是文本 → reopen', () => {
     expect(
-      resolveOpenTextDiskSync(loaded, { kind: 'image', path: '/p/a.ts', dataUrl: 'data:' })
+      resolveOpenTextDiskSync(loaded, {
+        kind: 'image',
+        path: '/p/a.ts',
+        mediaUrl: 'dc-media://',
+        mime: 'image/png'
+      })
     ).toEqual({ action: 'reopen' })
   })
 })

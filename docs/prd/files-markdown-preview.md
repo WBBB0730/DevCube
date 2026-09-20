@@ -28,19 +28,19 @@ Markdown 与 SVG 文件的工具栏出现「编辑 ↔ 预览」两态切换：�
 
 - Markdown 渲染用 `react-markdown` + `remark-gfm`：库默认不渲染原始 HTML，天然防注入，不额外接 rehype-raw。
 - 排版用 `@tailwindcss/typography` 的 prose 类，色板通过官方 `--tw-prose-*` 变量对齐工作区 token（Dark 主题），代码块用 `--font-mono`。
-- SVG 预览用 `<img>` + `data:image/svg+xml`（CSP 已放行 `data:`），不当 inline XML，脚本不执行。打开分流仍为 text。
+- SVG 预览用 `<img>` + `data:image/svg+xml`（CSP 已放行 `data:`），不当 inline XML，脚本不执行；放大时按新尺寸重新栅格化矢量，任何倍率清晰。打开分流仍为 text。
 - 两态（编辑 / 预览）而非 WebStorm 三态分屏；状态挂在 FilesPane（同 `treeVisible` 生命周期：会话内保持、不落盘），默认编辑。Markdown 与 SVG 共用同一开关。
 - 切换钮在 Files 工具栏右侧钮区最左，与「最近打开 / 在文件树中显示 / …」以既有 1×12px `--border-input` 竖线隔成单独一组（同「显示文件树」）。
 - 相对路径图片：按当前文件目录解析、限制在项目根内，经既有 dc-media 协议流式读取（`buildFilesMediaUrl` 移入 shared 供渲染端复用；CSP `img-src` 放行 `dc-media:`）。越界或非图片扩展名不渲染。
 - 链接一律拦截默认跳转：http/https/mailto 交 `shell.openExternal`（复用既有 IPC），锚点与相对链接不动作。
 - 切到预览前 flush 保存（与「离开 Files Tab 即保存」同语义）。
-- 位图预览与 SVG 预览共用看图组件：内容区右上角尺寸标注（`naturalWidth × naturalHeight`，12px `--fg-info`，无底、非等宽）；Cmd/Ctrl+滚轮按光标缩放（相对「适配视口且不放大」，约 10%–3200%；鼠标一格约 10%；触控板捏合跟手指距离——有 GestureEvent 用累计 scale，否则 Chromium 合成 ctrl+wheel 按 AppKit 手感补偿）；普通滚轮或按住拖拽平移；方向键切同一目录上一张/下一张（左/上上一张，右/下下一张，到头不回绕）。从位图切到 SVG 时自动进预览态。
+- 位图预览与 SVG 预览共用看图组件：内容区右上角尺寸标注（像素宽高，12px `--fg-info`，无底、非等宽）；Cmd/Ctrl+滚轮按光标缩放（相对「适配视口且不放大」，约 10%–3200%；鼠标一格约 10%；触控板捏合是 Chromium 合成的 ctrl+wheel，按 AppKit 手感补偿）；普通滚轮或按住拖拽平移；方向键切同一目录上一张/下一张（左/上上一张，右/下下一张，到头不回绕）。从位图切到 SVG 时自动进预览态。渲染走浏览器原生 `<img>`：手势期间只改 CSS transform，缩放停手 100ms 后把倍率烙进 width/height 让 Chromium 重新栅格化；超大位图先预览图后叠 OpenSeadragon 瓦片层，细节见 `files-tab.md` 与 ADR-0029。
 
 ## Testing Decisions
 
 - 预览是纯渲染（react-markdown / `<img>`），无自研纯逻辑，不配组件单测；路径解析复用已有 `resolveWithinProject`（shared 已有测试覆盖）。
 - 扩展名判定（`isMarkdownPath` / `isSvgPath` / `isPreviewableSourcePath` / `isImagePreviewPath` / `adjacentImagePath`）表驱动单测。
-- 缩放几何（适配倍率、滚轮倍率、光标锚点滚动）表驱动单测。
+- 缩放几何（适配倍率、滚轮倍率、相机锚点、相机 → 瓦片视口映射）表驱动单测。
 - 外部行为（切换、图片、链接、尺寸标注）人工回归。
 
 ## Out of Scope

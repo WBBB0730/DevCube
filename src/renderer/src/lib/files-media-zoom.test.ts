@@ -1,14 +1,17 @@
 import { describe, expect, it } from 'vitest'
 import {
+  centerMediaCamera,
+  clampMediaCamera,
   clampMediaZoom,
   fitBaseScale,
-  imagePointFromCursor,
   isPinchZoomWheel,
+  mediaCameraToViewport,
   mediaDisplaySize,
   MEDIA_ZOOM_MAX,
   MEDIA_ZOOM_MIN,
-  scrollToImagePoint,
-  zoomFromWheel
+  panMediaCamera,
+  zoomFromWheel,
+  zoomMediaCameraAt
 } from './files-media-zoom'
 
 describe('clampMediaZoom / zoomFromWheel', () => {
@@ -23,7 +26,7 @@ describe('clampMediaZoom / zoomFromWheel', () => {
     expect(inn).toBeLessThan(1.15)
   })
 
-  it('触控板捏合（ctrl+小步进）按手指比例缩放，强于 Chrome 页缩放', () => {
+  it('触控板捏合（Chromium 合成的 ctrl+小步进）按手指比例缩放，强于 Chrome 页缩放', () => {
     const pinch = { ctrlKey: true, deltaMode: 0 }
     expect(isPinchZoomWheel({ deltaY: 8, ...pinch })).toBe(true)
     expect(isPinchZoomWheel({ deltaY: 69, ...pinch })).toBe(true)
@@ -57,56 +60,65 @@ describe('fitBaseScale / mediaDisplaySize', () => {
   })
 })
 
-describe('imagePointFromCursor / scrollToImagePoint', () => {
-  it('居中小图：视口中心对准图中心', () => {
-    const pt = imagePointFromCursor({
-      cursorX: 100,
-      cursorY: 100,
-      scrollLeft: 0,
-      scrollTop: 0,
-      viewportW: 200,
-      viewportH: 200,
-      displayW: 100,
-      displayH: 100
+describe('MediaCamera', () => {
+  it('小图居中，放大后视口中心仍对准图中心', () => {
+    const cam = centerMediaCamera(1, 100, 100, 200, 200)
+    expect(cam).toEqual({ zoom: 1, x: 50, y: 50 })
+    expect(zoomMediaCameraAt(cam, 2, 100, 100, 100, 100, 200, 200)).toEqual({
+      zoom: 2,
+      x: 0,
+      y: 0
     })
-    expect(pt).toEqual({ x: 50, y: 50 })
-    expect(
-      scrollToImagePoint({
-        imageX: 50,
-        imageY: 50,
-        cursorX: 100,
-        cursorY: 100,
-        viewportW: 200,
-        viewportH: 200,
-        displayW: 100,
-        displayH: 100
-      })
-    ).toEqual({ left: 0, top: 0 })
   })
 
-  it('放大到铺满视口后仍对准同一像素', () => {
-    const pt = imagePointFromCursor({
-      cursorX: 100,
-      cursorY: 100,
-      scrollLeft: 0,
-      scrollTop: 0,
-      viewportW: 200,
-      viewportH: 200,
-      displayW: 100,
-      displayH: 100
+  it('图小于视口时平移被夹回居中', () => {
+    const cam = centerMediaCamera(1, 100, 100, 200, 200)
+    expect(panMediaCamera(cam, 40, -10, 100, 100, 200, 200)).toEqual(cam)
+  })
+
+  it('放大后可平移，但不会把图完全拖出视口', () => {
+    const cam = centerMediaCamera(4, 100, 100, 200, 200)
+    expect(cam).toEqual({ zoom: 4, x: -100, y: -100 })
+    expect(panMediaCamera(cam, 80, 0, 100, 100, 200, 200).x).toBe(-180)
+    expect(clampMediaCamera({ zoom: 4, x: 50, y: -100 }, 100, 100, 200, 200).x).toBe(0)
+  })
+})
+
+describe('mediaCameraToViewport', () => {
+  it('适配视口的横图：zoom 为显示宽 / 视口宽，中心是图中心', () => {
+    // 400×200 图放进 200×200 视口 → 缩到 200×100、垂直居中
+    const cam = centerMediaCamera(1, 400, 200, 200, 200)
+    expect(mediaCameraToViewport(cam, 400, 200, 200, 200)).toEqual({
+      zoom: 1,
+      centerX: 0.5,
+      centerY: 0.25
     })
-    const next = { x: pt.x * 2, y: pt.y * 2 }
-    expect(
-      scrollToImagePoint({
-        imageX: next.x,
-        imageY: next.y,
-        cursorX: 100,
-        cursorY: 100,
-        viewportW: 200,
-        viewportH: 200,
-        displayW: 200,
-        displayH: 200
-      })
-    ).toEqual({ left: 0, top: 0 })
+  })
+
+  it('放大到 2× 并把左上角对到视口左上：中心落在图的四分之一处', () => {
+    const cam = { zoom: 2, x: 0, y: 0 }
+    expect(mediaCameraToViewport(cam, 400, 200, 200, 200)).toEqual({
+      zoom: 2,
+      centerX: 0.25,
+      centerY: 0.25
+    })
+  })
+
+  it('竖图 y 也按图宽归一化', () => {
+    // 100×400 图放进 200×200 视口 → 缩到 50×200、水平居中：视口中心 = 图中心 (0.5, 2)
+    const cam = centerMediaCamera(1, 100, 400, 200, 200)
+    expect(mediaCameraToViewport(cam, 100, 400, 200, 200)).toEqual({
+      zoom: 0.25,
+      centerX: 0.5,
+      centerY: 2
+    })
+  })
+
+  it('非法尺寸给出可用的兜底', () => {
+    expect(mediaCameraToViewport({ zoom: 1, x: 0, y: 0 }, 0, 0, 200, 200)).toEqual({
+      zoom: 1,
+      centerX: 0.5,
+      centerY: 0.5
+    })
   })
 })

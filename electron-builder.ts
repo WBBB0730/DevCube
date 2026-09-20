@@ -43,10 +43,12 @@ const config: Configuration = {
     '!{tsconfig.json,tsconfig.node.json,tsconfig.web.json}'
   ],
   // @vscode/ripgrep-*：rg 平台二进制须在 asar 外才能 spawn（运行时映射见 files-index.ts）
+  // sharp / @img/*：原生 addon 与 libvips 动态库须在 asar 外才能 dlopen（ADR-0029）
   asarUnpack: [
     'resources/**',
     '**/{@parcel/watcher,@parcel/watcher-*}/**',
-    '**/@vscode/ripgrep-*/**'
+    '**/@vscode/ripgrep-*/**',
+    '**/{sharp,@img}/**'
   ],
   // External Open deep link：scheme 按 Edition 分线（devcube / devcube-beta，ADR-0025）。
   // macOS 写入 Info.plist CFBundleURLTypes；Windows 由运行时 setAsDefaultProtocolClient 注册。

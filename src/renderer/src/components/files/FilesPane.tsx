@@ -81,7 +81,15 @@ const ROW =
 
 type Loaded =
   | { kind: 'text'; path: string; content: string; mtimeMs: number; dirty: boolean }
-  | { kind: 'image'; path: string; dataUrl: string }
+  | {
+      kind: 'image'
+      path: string
+      mediaUrl: string
+      mime: string
+      width?: number
+      height?: number
+      tiled?: boolean
+    }
   | { kind: 'audio'; path: string; mediaUrl: string; mime: string }
   | { kind: 'video'; path: string; mediaUrl: string; mime: string }
   | { kind: 'other'; path: string; size: number }
@@ -142,6 +150,8 @@ export function FilesPane({
   const [editorJump, setEditorJump] = useState<EditorJumpRequest | null>(null)
   const editorJumpNonce = useRef(0)
   const [ready, setReady] = useState(false)
+  /** 看图：上一张/下一张普通位图的 dc-media URL，供提前解码；超大位图改为提前生成预览与金字塔。 */
+  const [prefetch, setPrefetch] = useState<string[]>([])
   /** 忽略过期的 openFile / git status / 全部展开 / 过滤扫盘 响应。 */
   const openSeqRef = useRef(0)
   const gitStatusSeqRef = useRef(0)
@@ -346,7 +356,15 @@ export function FilesPane({
             dirty: false
           })
         } else if (result.kind === 'image') {
-          setLoaded({ kind: 'image', path: result.path, dataUrl: result.dataUrl })
+          setLoaded({
+            kind: 'image',
+            path: result.path,
+            mediaUrl: result.mediaUrl,
+            mime: result.mime,
+            width: result.width,
+            height: result.height,
+            tiled: result.tiled
+          })
         } else if (result.kind === 'audio') {
           setLoaded({
             kind: 'audio',
@@ -564,6 +582,51 @@ export function FilesPane({
   )
   const goPrevImage = useCallback(() => void goAdjacentImage(-1), [goAdjacentImage])
   const goNextImage = useCallback(() => void goAdjacentImage(1), [goAdjacentImage])
+
+  const viewingImagePath =
+    loaded?.kind === 'image'
+      ? loaded.path
+      : loaded?.kind === 'text' && isSvgPath(loaded.path) && sourcePreview
+        ? loaded.path
+        : null
+
+  useEffect(() => {
+    if (!viewingImagePath) {
+      setPrefetch([])
+      return
+    }
+    let cancelled = false
+    const current = viewingImagePath
+    void (async () => {
+      const slash = current.lastIndexOf('/')
+      if (slash <= 0) return
+      const entries = await ensureDirLoaded(current.slice(0, slash))
+      if (cancelled) return
+      const urls: string[] = []
+      for (const d of [-1, 1] as const) {
+        const p = adjacentImagePath(entries, current, d)
+        if (!p || isSvgPath(p)) continue
+        try {
+          const result = await window.api.filesRead(projectPath, p)
+          if (cancelled) return
+          if (result.kind !== 'image') continue
+          if (result.tiled) {
+            // 超大位图：让主进程先把预览图与金字塔备好（命中缓存即返）
+            window.api.filesImagePreview(projectPath, p).catch(() => {})
+            window.api.filesImagePyramid(projectPath, p).catch(() => {})
+          } else {
+            urls.push(result.mediaUrl)
+          }
+        } catch {
+          /* skip */
+        }
+      }
+      if (!cancelled) setPrefetch(urls)
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [viewingImagePath, ensureDirLoaded, projectPath])
 
   /** 在右侧文件树展开并滚到目标（不打开/切换正文，除非本来就是该文件）。 */
   const revealInTree = useCallback(
@@ -985,6 +1048,7 @@ export function FilesPane({
             onImagePrev={goPrevImage}
             onImageNext={goNextImage}
             imageNavActive={visible}
+            imagePrefetch={prefetch}
             onChange={(v) => {
               // 文档一变，gutter 弹窗的 hunk 即过期，统一在此关闭（含弹窗内回滚）
               setHunkPopup(null)
@@ -1010,9 +1074,12 @@ export function FilesPane({
               onOpenRecent={openFromRecent}
             />
             <FilesMediaPreview
-              key={loaded.path}
-              src={loaded.dataUrl}
+              src={loaded.mediaUrl}
               alt={loaded.path}
+              width={loaded.width}
+              height={loaded.height}
+              tiled={loaded.tiled ? { projectPath, path: loaded.path } : null}
+              prefetch={prefetch}
               active={visible}
               onPrev={goPrevImage}
               onNext={goNextImage}
@@ -1317,7 +1384,8 @@ function FilesTextEditor({
   onChange,
   onImagePrev,
   onImageNext,
-  imageNavActive
+  imageNavActive,
+  imagePrefetch
 }: {
   path: string
   content: string
@@ -1344,6 +1412,7 @@ function FilesTextEditor({
   onImagePrev: () => void
   onImageNext: () => void
   imageNavActive: boolean
+  imagePrefetch?: readonly string[]
 }): React.JSX.Element {
   const canPreview = isPreviewableSourcePath(path)
   const markdown = isMarkdownPath(path)
@@ -1438,6 +1507,7 @@ function FilesTextEditor({
         <FilesSvgPreview
           path={path}
           content={content}
+          prefetch={imagePrefetch}
           active={imageNavActive}
           onPrev={onImagePrev}
           onNext={onImageNext}

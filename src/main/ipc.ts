@@ -80,6 +80,8 @@ import {
   assertProjectRoot,
   createEntry,
   filterFilesTreeQuery,
+  imagePreviewEntry,
+  imagePyramidEntry,
   listDir,
   readFileEntry,
   readHeadText,
@@ -418,6 +420,12 @@ export function registerIpc(win: BrowserWindow): void {
   )
   ipcMain.handle(IPC.filesHeadText, (_e, projectPath: string, filePath: string) =>
     readHeadText(projectPath, filePath)
+  )
+  ipcMain.handle(IPC.filesImagePreview, (_e, projectPath: string, filePath: string) =>
+    imagePreviewEntry(projectPath, filePath)
+  )
+  ipcMain.handle(IPC.filesImagePyramid, (_e, projectPath: string, filePath: string) =>
+    imagePyramidEntry(projectPath, filePath)
   )
   ipcMain.handle(
     IPC.filesCreate,

@@ -7,6 +7,7 @@ import type { AppUpdateState } from './app-update-state'
 import type { ContentSearchEvent, ContentSearchOptions } from './content-search'
 import type { DiscoverSource } from './discover-source'
 import type { FilesDirEntry, FilesReadResult, FilesUiState } from './files'
+import type { FilesImagePreview, FilesImagePyramid } from './files-image-tiles'
 import type { FilesTreeFilterResult } from './files-tree-search'
 import type { GitAPI, GitRepoSettings, GitViewPrefs } from './git'
 import type { OpenInAppId, OpenInAppResult, OpenInAppStatus } from './open-in-app'
@@ -307,6 +308,10 @@ export interface RunAPI extends GitAPI {
   filesWrite(projectPath: string, filePath: string, content: string): Promise<{ mtimeMs: number }>
   /** 文件在 HEAD 的基线文本（编辑器 gutter diff）；无基线（非仓库 / 未跟踪 / 二进制 / 超限）为 null */
   filesHeadText(projectPath: string, filePath: string): Promise<string | null>
+  /** 超大位图首屏：适配视口的预览图（缓存命中即返，否则 sharp 缩小解码） */
+  filesImagePreview(projectPath: string, filePath: string): Promise<FilesImagePreview>
+  /** 超大位图瓦片金字塔：缓存命中即返，否则生成后返回（秒级） */
+  filesImagePyramid(projectPath: string, filePath: string): Promise<FilesImagePyramid>
   /** 在 dirPath 下新建文件 / 文件夹；重名或名称非法时抛错 */
   filesCreate(
     projectPath: string,

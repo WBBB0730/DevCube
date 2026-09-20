@@ -10,12 +10,21 @@ export interface FilesDirEntry {
 
 export type FilesReadResult =
   | { kind: 'text'; path: string; content: string; mtimeMs: number }
-  | { kind: 'image'; path: string; dataUrl: string }
+  | {
+      kind: 'image'
+      path: string
+      mediaUrl: string
+      mime: string
+      width?: number
+      height?: number
+      /** 超大位图：走瓦片金字塔（`needsImageTiles`），渲染层先取预览图再叠瓦片 */
+      tiled?: boolean
+    }
   | { kind: 'audio'; path: string; mediaUrl: string; mime: string }
   | { kind: 'video'; path: string; mediaUrl: string; mime: string }
   | { kind: 'other'; path: string; size: number }
 
-/** Files Tab 媒体预览自定义协议（主进程 stream，渲染层 `<audio>`/`<video>`/`<img>`）。 */
+/** Files Tab 媒体预览自定义协议（主进程 stream，渲染层 `<img>` / `<audio>` / `<video>` / 瓦片）。 */
 export const FILES_MEDIA_SCHEME = 'dc-media'
 
 /** 构建仅限本应用渲染层使用的媒体 URL（项目根、文件路径、MIME）；主进程协议只放行登记项目内路径。 */
@@ -23,6 +32,20 @@ export function buildFilesMediaUrl(projectPath: string, filePath: string, mime: 
   const u = new URL(`${FILES_MEDIA_SCHEME}://local/`)
   u.searchParams.set('p', normalizePath(projectPath))
   u.searchParams.set('f', normalizePath(filePath))
+  u.searchParams.set('m', mime)
+  return u.toString()
+}
+
+/** 瓦片金字塔缓存目录键（sha1 hex）；协议只放行形状合法的键。 */
+export function isFilesTileKey(key: string): boolean {
+  return /^[0-9a-f]{40}$/.test(key)
+}
+
+/** 构建金字塔缓存内文件（预览图 / 瓦片）的 URL；`rel` 相对该键目录。 */
+export function buildFilesTileUrl(key: string, rel: string, mime: string): string {
+  const u = new URL(`${FILES_MEDIA_SCHEME}://local/`)
+  u.searchParams.set('t', key)
+  u.searchParams.set('f', rel)
   u.searchParams.set('m', mime)
   return u.toString()
 }

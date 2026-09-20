@@ -51,6 +51,9 @@ export const IPC = {
   filesRead: 'files:read',
   filesWrite: 'files:write',
   filesHeadText: 'files:head-text',
+  /** 超大位图：预览图（先）与瓦片金字塔（后台生成，命中缓存即返回） */
+  filesImagePreview: 'files:image-preview',
+  filesImagePyramid: 'files:image-pyramid',
   filesCreate: 'files:create',
   filesRename: 'files:rename',
   filesTrash: 'files:trash',

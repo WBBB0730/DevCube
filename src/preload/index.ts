@@ -73,6 +73,10 @@ const api: RunAPI = {
     ipcRenderer.invoke(IPC.filesWrite, projectPath, filePath, content),
   filesHeadText: (projectPath, filePath) =>
     ipcRenderer.invoke(IPC.filesHeadText, projectPath, filePath),
+  filesImagePreview: (projectPath, filePath) =>
+    ipcRenderer.invoke(IPC.filesImagePreview, projectPath, filePath),
+  filesImagePyramid: (projectPath, filePath) =>
+    ipcRenderer.invoke(IPC.filesImagePyramid, projectPath, filePath),
   filesCreate: (projectPath, dirPath, name, kind) =>
     ipcRenderer.invoke(IPC.filesCreate, projectPath, dirPath, name, kind),
   filesRename: (projectPath, entryPath, newName) =>

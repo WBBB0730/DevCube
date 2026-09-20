@@ -1,14 +1,19 @@
-/** Files 看图：缩放倍率相对「适配视口且不放大」（与原先 max-h/w-full object-contain 一致）。 */
+/**
+ * Files 看图相机：缩放倍率相对「适配视口且不放大」；同一相机驱动 `<img>` 层与瓦片层（ADR-0029）。
+ * 手感常量经人工调校，改前先试。
+ */
 export const MEDIA_ZOOM_MIN = 0.1
 export const MEDIA_ZOOM_MAX = 32
 /** 鼠标一格（deltaY≈100）约 10%。 */
 const MEDIA_ZOOM_WHEEL = 0.001
 /**
- * Chromium 把捏合成合成 ctrl+wheel，deltaY = 100 * ln(增量 scale)；
+ * Chromium 没有 Safari 的 GestureEvent，触控板捏合被合成成 ctrl+wheel，deltaY = 100 * ln(增量 scale)；
  * 还原手指比例是 exp(-deltaY/100)。Chrome 页缩放弱于 AppKit 捏合
  *（FlowVision `NSMagnificationGestureRecognizer`，sensitivity=1），×2.5 接近原生。
  */
 const MEDIA_ZOOM_PINCH = 0.025
+
+export type MediaCamera = { zoom: number; x: number; y: number }
 
 export function clampMediaZoom(zoom: number): number {
   return Math.min(MEDIA_ZOOM_MAX, Math.max(MEDIA_ZOOM_MIN, zoom))
@@ -55,6 +60,17 @@ export function fitBaseScale(
   return Math.min(1, availW / naturalW, availH / naturalH)
 }
 
+/** 原图像素 → CSS 像素的绘制倍率（含适配与用户缩放）。 */
+export function mediaDrawScale(
+  naturalW: number,
+  naturalH: number,
+  availW: number,
+  availH: number,
+  zoom: number
+): number {
+  return fitBaseScale(naturalW, naturalH, availW, availH) * zoom
+}
+
 export function mediaDisplaySize(
   naturalW: number,
   naturalH: number,
@@ -62,44 +78,105 @@ export function mediaDisplaySize(
   availH: number,
   zoom: number
 ): { w: number; h: number } {
-  const base = fitBaseScale(naturalW, naturalH, availW, availH)
-  return { w: naturalW * base * zoom, h: naturalH * base * zoom }
+  const s = mediaDrawScale(naturalW, naturalH, availW, availH, zoom)
+  return { w: naturalW * s, h: naturalH * s }
 }
 
-/** 视口坐标 + 滚动 → 当前显示图上的点（图居中于 min 视口大的衬底时）。 */
-export function imagePointFromCursor(args: {
-  cursorX: number
-  cursorY: number
-  scrollLeft: number
-  scrollTop: number
-  viewportW: number
-  viewportH: number
-  displayW: number
-  displayH: number
-}): { x: number; y: number } {
-  const offsetX = (Math.max(args.displayW, args.viewportW) - args.displayW) / 2
-  const offsetY = (Math.max(args.displayH, args.viewportH) - args.displayH) / 2
+export function clampMediaCamera(
+  cam: MediaCamera,
+  naturalW: number,
+  naturalH: number,
+  availW: number,
+  availH: number
+): MediaCamera {
+  const s = mediaDrawScale(naturalW, naturalH, availW, availH, cam.zoom)
+  const dw = naturalW * s
+  const dh = naturalH * s
   return {
-    x: args.scrollLeft + args.cursorX - offsetX,
-    y: args.scrollTop + args.cursorY - offsetY
+    zoom: cam.zoom,
+    x: dw <= availW ? (availW - dw) / 2 : Math.min(0, Math.max(availW - dw, cam.x)),
+    y: dh <= availH ? (availH - dh) / 2 : Math.min(0, Math.max(availH - dh, cam.y))
   }
 }
 
-/** 让指定图上的点落在光标下（缩放后保持指针对准同一像素）。 */
-export function scrollToImagePoint(args: {
-  imageX: number
-  imageY: number
-  cursorX: number
-  cursorY: number
-  viewportW: number
-  viewportH: number
-  displayW: number
-  displayH: number
-}): { left: number; top: number } {
-  const offsetX = (Math.max(args.displayW, args.viewportW) - args.displayW) / 2
-  const offsetY = (Math.max(args.displayH, args.viewportH) - args.displayH) / 2
+export function centerMediaCamera(
+  zoom: number,
+  naturalW: number,
+  naturalH: number,
+  availW: number,
+  availH: number
+): MediaCamera {
+  const s = mediaDrawScale(naturalW, naturalH, availW, availH, zoom)
+  return clampMediaCamera(
+    { zoom, x: (availW - naturalW * s) / 2, y: (availH - naturalH * s) / 2 },
+    naturalW,
+    naturalH,
+    availW,
+    availH
+  )
+}
+
+/** 缩放后让光标下的图上点仍在光标下，再夹紧平移。 */
+export function zoomMediaCameraAt(
+  cam: MediaCamera,
+  nextZoom: number,
+  cursorX: number,
+  cursorY: number,
+  naturalW: number,
+  naturalH: number,
+  availW: number,
+  availH: number
+): MediaCamera {
+  const z = clampMediaZoom(nextZoom)
+  const s0 = mediaDrawScale(naturalW, naturalH, availW, availH, cam.zoom)
+  const s1 = mediaDrawScale(naturalW, naturalH, availW, availH, z)
+  const imgX = s0 === 0 ? 0 : (cursorX - cam.x) / s0
+  const imgY = s0 === 0 ? 0 : (cursorY - cam.y) / s0
+  return clampMediaCamera(
+    { zoom: z, x: cursorX - imgX * s1, y: cursorY - imgY * s1 },
+    naturalW,
+    naturalH,
+    availW,
+    availH
+  )
+}
+
+export function panMediaCamera(
+  cam: MediaCamera,
+  dx: number,
+  dy: number,
+  naturalW: number,
+  naturalH: number,
+  availW: number,
+  availH: number
+): MediaCamera {
+  return clampMediaCamera(
+    { zoom: cam.zoom, x: cam.x - dx, y: cam.y - dy },
+    naturalW,
+    naturalH,
+    availW,
+    availH
+  )
+}
+
+/**
+ * 相机 → OpenSeadragon 视口（图宽归一化为 1，y 也按图宽计）：
+ * zoom = 显示宽 / 视口宽；center = 视口中点对应的图上点。
+ */
+export function mediaCameraToViewport(
+  cam: MediaCamera,
+  naturalW: number,
+  naturalH: number,
+  availW: number,
+  availH: number
+): { zoom: number; centerX: number; centerY: number } {
+  const s = mediaDrawScale(naturalW, naturalH, availW, availH, cam.zoom)
+  if (s <= 0 || availW <= 0 || naturalW <= 0) {
+    return { zoom: 1, centerX: 0.5, centerY: naturalW > 0 ? naturalH / naturalW / 2 : 0.5 }
+  }
   return {
-    left: args.imageX + offsetX - args.cursorX,
-    top: args.imageY + offsetY - args.cursorY
+    zoom: (naturalW * s) / availW,
+    centerX: (availW / 2 - cam.x) / s / naturalW,
+    centerY: (availH / 2 - cam.y) / s / naturalW
   }
 }

@@ -3,6 +3,8 @@ import { promises as fs } from 'node:fs'
 import path from 'node:path'
 import { detectAv } from '@file-type/av'
 import { fileTypeFromFile } from 'file-type'
+import { imageSize } from 'image-size'
+import { imageSizeFromFile } from 'image-size/fromFile'
 import {
   classifyFilesOpenKind,
   filesOpenKindFromMime,
@@ -21,11 +23,50 @@ import {
   type FilesReadResult,
   type FilesUiState
 } from '../shared/files'
+import {
+  needsImageTiles,
+  type FilesImagePreview,
+  type FilesImagePyramid
+} from '../shared/files-image-tiles'
+import { ensureImagePreview, ensureImagePyramid } from './files-image-pyramid'
 import { getFilesIndex } from './files-index'
 import { execGit, resolveRepoRoot } from './git-exec'
 import { getProjects } from './store'
 
 const MAX_TEXT_BYTES = 5 * 1024 * 1024
+const IMAGE_SIZE_PROBE_BYTES = 65536
+
+/** EXIF 方向 5–8 是转 90°，显示宽高与文件头相反（Chromium `<img>` 默认按 EXIF 转正）。 */
+function orientedSize(dim: { width: number; height: number; orientation?: number }): {
+  width: number
+  height: number
+} {
+  const swap = dim.orientation !== undefined && dim.orientation >= 5 && dim.orientation <= 8
+  return swap ? { width: dim.height, height: dim.width } : { width: dim.width, height: dim.height }
+}
+
+/** 只读文件头拿宽高，避免打开时整图解码。失败则渲染层由 `<img>` 加载后再取。 */
+async function probeImageSize(sys: string): Promise<{ width: number; height: number } | undefined> {
+  try {
+    const dim = await imageSizeFromFile(sys)
+    if (dim.width && dim.height) return orientedSize(dim)
+  } catch {
+    try {
+      const fh = await fs.open(sys, 'r')
+      try {
+        const buf = Buffer.alloc(IMAGE_SIZE_PROBE_BYTES)
+        const { bytesRead } = await fh.read(buf, 0, IMAGE_SIZE_PROBE_BYTES, 0)
+        const dim = imageSize(buf.subarray(0, bytesRead))
+        if (dim.width && dim.height) return orientedSize(dim)
+      } finally {
+        await fh.close()
+      }
+    } catch {
+      /* 渲染层加载时再取 */
+    }
+  }
+  return undefined
+}
 
 /** 逻辑路径（/）→ 系统路径。 */
 function toSys(logical: string): string {
@@ -91,12 +132,10 @@ export async function filterFilesTreeQuery(
   return filterFilesListTree(root, await getFilesIndex(root), q)
 }
 
-function imageDataUrl(buf: Buffer, mimeOrExt: string): string {
-  if (mimeOrExt.includes('/')) {
-    return `data:${mimeOrExt};base64,${buf.toString('base64')}`
-  }
+function imageMime(mimeOrExt: string): string {
+  if (mimeOrExt.includes('/')) return mimeOrExt
   const ext = mimeOrExt === 'jpg' ? 'jpeg' : mimeOrExt
-  return `data:image/${ext};base64,${buf.toString('base64')}`
+  return `image/${ext}`
 }
 
 /**
@@ -155,12 +194,17 @@ export async function readFileEntry(
   }
 
   if (kind === 'image') {
-    const buf = await fs.readFile(sys)
     const ext = path.extname(name).slice(1).toLowerCase() || 'png'
+    const imageType = imageMime(mime ?? ext)
+    const dim = await probeImageSize(sys)
     return {
       kind: 'image',
       path: logical,
-      dataUrl: imageDataUrl(buf, mime ?? ext)
+      mime: imageType,
+      mediaUrl: buildFilesMediaUrl(root, logical, imageType),
+      ...(dim
+        ? { width: dim.width, height: dim.height, tiled: needsImageTiles(dim.width, dim.height) }
+        : {})
     }
   }
 
@@ -179,6 +223,22 @@ export async function readFileEntry(
     }
   }
   return { kind: 'other', path: logical, size: buf.length }
+}
+
+/** 超大位图首屏预览图（路径限定在项目根内）。 */
+export function imagePreviewEntry(
+  projectPath: string,
+  filePath: string
+): Promise<FilesImagePreview> {
+  return ensureImagePreview(toSys(within(projectPath, filePath)))
+}
+
+/** 超大位图瓦片金字塔（路径限定在项目根内；缓存命中即返）。 */
+export function imagePyramidEntry(
+  projectPath: string,
+  filePath: string
+): Promise<FilesImagePyramid> {
+  return ensureImagePyramid(toSys(within(projectPath, filePath)))
 }
 
 /**
