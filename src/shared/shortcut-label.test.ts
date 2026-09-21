@@ -29,6 +29,8 @@ describe('formatShortcutLabel', () => {
   it('SHORTCUT 常量与筛选键一致', () => {
     expect(formatShortcutLabel(SHORTCUT.projectFilter, 'darwin')).toBe('⌥ ⌘ P')
     expect(formatShortcutLabel(SHORTCUT.filesFilter, 'win32')).toBe('Ctrl + Alt + F')
+    expect(formatShortcutLabel(SHORTCUT.fitWindow, 'darwin')).toBe('⌘ 0')
+    expect(formatShortcutLabel(SHORTCUT.fitWindow, 'win32')).toBe('Ctrl + 0')
   })
 
   it('Tab 直达 1–9', () => {

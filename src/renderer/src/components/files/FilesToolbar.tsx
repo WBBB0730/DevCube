@@ -1,6 +1,6 @@
 // Files Tab 工具栏：相对路径可点面包屑 + 右侧钮组（预览切换 / 最近打开 / 在文件树中显示 /
 // 在文件夹中显示 / 在其他应用中打开 / 显示文件树）。视觉见 DESIGN.md「Files Tab」。
-// `extra` 给特定正文（如 PDF 的页码与缩放）在钮组最左再加一组。
+// `extra` 给特定正文（如 PDF 的页码与缩放）在钮组最左再加一组；`pathExtra` 给特定正文在面包屑之后紧跟钮（如 PDF 缩略图开关）。
 import {
   ChevronRight,
   Eye,
@@ -42,6 +42,8 @@ export type FilesToolbarProps = {
   onToggleSourcePreview?: () => void
   /** 正文专属控件（如 PDF 页码与缩放），置于右侧钮组最左、以竖线隔开 */
   extra?: React.ReactNode
+  /** 正文专属钮（如 PDF 缩略图开关），紧跟在面包屑文件名之后 */
+  pathExtra?: React.ReactNode
   onShowTree: () => void
   onToggleTree: () => void
   onRevealInTree: (logical: string, isDirectory: boolean) => void | Promise<void>
@@ -58,6 +60,7 @@ export function FilesToolbar({
   sourcePreview = null,
   onToggleSourcePreview,
   extra,
+  pathExtra,
   onShowTree,
   onToggleTree,
   onRevealInTree,
@@ -103,6 +106,15 @@ export function FilesToolbar({
                 </span>
               )
             })}
+          </div>
+        )}
+        {/* 与文件名留 8px（同工具栏各区之间的 gap-2）；面包屑截断时钮不缩；双击不触发文件树显隐（同右侧钮组） */}
+        {pathExtra !== undefined && pathExtra !== null && (
+          <div
+            className="ml-2 flex shrink-0 items-center gap-0.5"
+            onDoubleClick={(e) => e.stopPropagation()}
+          >
+            {pathExtra}
           </div>
         )}
       </div>

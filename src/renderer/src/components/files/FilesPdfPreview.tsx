@@ -5,12 +5,16 @@
 // Cmd/Ctrl+滚轮与触控板捏合按光标缩放（手感常量复用看图）；普通滚轮原生滚动；Cmd+F 查找。
 // 拖拽：按在文字上是选字，按在空白处（页边 / 图片 / 页间）是抓手，按住空格则处处抓手（Preview / 设计工具惯例）。
 // 工具栏四档：1:1（纸张实际尺寸）/ 适应高度 / 适应宽度 / 适应窗口，打开即适应窗口；
-// Cmd/Ctrl+0 回适应窗口、Cmd/Ctrl +/- 逐档缩放（这三个键已从应用菜单的视图块摘掉，见 ADR-0019）。
+// Cmd/Ctrl+0 回适应窗口、Cmd/Ctrl +/- 按视口中心逐档缩放（同看图；这三个键已从应用菜单的视图块摘掉，见 ADR-0019）。
 // 空白处双击在「适应宽度 / 适应高度」两档间切换（文字上双击仍是选词）；容器尺寸一变，预设档按新尺寸重算。
+// 正文左侧缩略图侧栏（FilesPdfThumbnails）：点格跳页、翻页跟随点亮；面包屑文件名后一颗开关钮（开着点亮），状态归 FilesPane 会话内保持；
+// 小图的排队 / 缓存归 PdfThumbnailRenderer，随文档建、随文档销毁，侧栏开合不丢缓存。
+// ↑/↓ 始终上一页 / 下一页（不看档位，正文与侧栏内都如此，同看图的方向键切图）。
 // 外链由库标 target=_blank，交主进程开窗守卫转系统浏览器（web-contents-guard）；内链（目录跳转）库自处理。
 // 库样式表在 main.css 顶部以级联层引入（.files-pdf 覆盖也在那里）。
 // 用 legacy 构建：默认构建依赖比当前 Electron 的 Chromium 更新的 JS 特性（如 Map#getOrInsertComputed），legacy 自带垫片。
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { PanelLeft } from 'lucide-react'
 import {
   AnnotationMode,
   getDocument,
@@ -31,9 +35,16 @@ import { buildFilesAssetUrl, FILES_ASSET_PDFJS } from '@shared/files'
 import { useApp } from '@renderer/store'
 import { cn } from '@renderer/lib/utils'
 import { zoomFromWheel, type MediaFitMode } from '@renderer/lib/files-media-zoom'
+import { PdfThumbnailRenderer } from '@renderer/lib/files-pdf-thumbnails'
 import { MEDIA_SETTLE_MS, MediaFitButtons } from './FilesMediaPreview'
 import { toSysPath } from '@renderer/lib/files-paths'
-import { FilesToolbar, TOOLBAR_SEPARATOR, type FilesToolbarProps } from './FilesToolbar'
+import { FilesPdfThumbnails } from './FilesPdfThumbnails'
+import {
+  FilesToolbar,
+  TOOLBAR_BTN,
+  TOOLBAR_SEPARATOR,
+  type FilesToolbarProps
+} from './FilesToolbar'
 import { FindBar } from './FindBar'
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl
@@ -138,15 +149,20 @@ export function FilesPdfPreview({
   src,
   path,
   active,
+  thumbnails,
+  onToggleThumbnails,
   toolbar
 }: {
   src: string
   path: string
   /** Files Tab 可见时才响应 Cmd+F */
   active: boolean
+  /** 缩略图侧栏可见性（会话内保持，归 FilesPane） */
+  thumbnails: boolean
+  onToggleThumbnails: () => void
   toolbar: Omit<
     FilesToolbarProps,
-    'path' | 'error' | 'extra' | 'sourcePreview' | 'onToggleSourcePreview'
+    'path' | 'error' | 'extra' | 'pathExtra' | 'sourcePreview' | 'onToggleSourcePreview'
   >
 }): React.JSX.Element {
   const rootRef = useRef<HTMLDivElement>(null)
@@ -155,7 +171,11 @@ export function FilesPdfPreview({
   const viewerRef = useRef<PDFViewer | null>(null)
   const linkServiceRef = useRef<PDFLinkService | null>(null)
   const busRef = useRef<EventBus | null>(null)
-  const [docInfo, setDocInfo] = useState<{ src: string; pages: number } | null>(null)
+  const [docInfo, setDocInfo] = useState<{
+    src: string
+    doc: PDFDocumentProxy
+    thumbs: PdfThumbnailRenderer
+  } | null>(null)
   const [loadError, setLoadError] = useState<{ src: string; message: string } | null>(null)
   const [page, setPage] = useState(1)
   /** 页码输入框正在编辑的草稿；null = 显示当前页 */
@@ -174,7 +194,9 @@ export function FilesPdfPreview({
   const [spaceHeld, setSpaceHeld] = useState(false)
   const dragCleanup = useRef<(() => void) | null>(null)
 
-  const pages = docInfo?.src === src ? docInfo.pages : 0
+  const doc = docInfo?.src === src ? docInfo.doc : null
+  const thumbs = docInfo?.src === src ? docInfo.thumbs : null
+  const pages = doc?.numPages ?? 0
   const error = loadError?.src === src ? loadError.message : null
 
   // viewer 组件只建一次；换文件只换文档
@@ -240,10 +262,12 @@ export function FilesPdfPreview({
   useEffect(() => {
     const viewer = viewerRef.current
     const linkService = linkServiceRef.current
-    if (!viewer || !linkService) return
+    const bus = busRef.current
+    if (!viewer || !linkService || !bus) return
     let dead = false
     let task: PDFDocumentLoadingTask | null = null
     let doc: PDFDocumentProxy | null = null
+    let thumbs: PdfThumbnailRenderer | null = null
     void (async () => {
       try {
         const res = await fetch(src)
@@ -265,7 +289,9 @@ export function FilesPdfPreview({
         if (dead) return
         viewer.setDocument(doc)
         linkService.setDocument(doc, null)
-        setDocInfo({ src, pages: doc.numPages })
+        // 缩略图渲染器随文档建；等正文首页画完（onePageRendered）才开工
+        thumbs = new PdfThumbnailRenderer(doc, bus, viewer.onePageRendered)
+        setDocInfo({ src, doc, thumbs })
         setPage(1)
         containerRef.current?.focus({ preventScroll: true })
       } catch (e) {
@@ -274,6 +300,7 @@ export function FilesPdfPreview({
     })()
     return () => {
       dead = true
+      thumbs?.destroy()
       viewer.setDocument(null as unknown as PDFDocumentProxy)
       linkService.setDocument(null, null)
       void task?.destroy()
@@ -327,6 +354,21 @@ export function FilesPdfPreview({
     container.scrollTop = docY * k - anchor.y
   }, [])
 
+  /**
+   * 键盘逐档缩放：按视口中心锚定（同看图）。库不带 origin 时会把视口左上角那点放回原处，
+   * 内容随放大往右下漂出视野。origin 以容器的 offsetParent 为基准，容器贴满 wrap，故等于容器内坐标。
+   */
+  const stepZoom = useCallback((steps: 1 | -1): void => {
+    const viewer = viewerRef.current
+    const container = containerRef.current
+    if (!viewer?.pdfDocument || !container) return
+    viewer.updateScale({
+      steps,
+      origin: [container.clientWidth / 2, container.clientHeight / 2],
+      drawingDelay: MEDIA_SETTLE_MS
+    })
+  }, [])
+
   // 查询 / 选项变化即重新查找（PDF.js 自带防抖）
   useEffect(() => {
     if (!findOpen) return
@@ -363,12 +405,30 @@ export function FilesPdfPreview({
           if (overlayOpen() || app.contentSearchOpen || app.dialog.open) return
           e.preventDefault()
           e.stopPropagation()
-          const viewer = viewerRef.current
           if (reset) fit('window')
-          else if (zoomIn) viewer?.increaseScale({ drawingDelay: MEDIA_SETTLE_MS })
-          else viewer?.decreaseScale({ drawingDelay: MEDIA_SETTLE_MS })
+          else stepZoom(zoomIn ? 1 : -1)
           return
         }
+      }
+      // ↑/↓ 始终上一页 / 下一页（不看档位；正文与缩略图侧栏内都如此），同看图的方向键切图：
+      // 不抢输入框与弹层，不要求焦点在预览内
+      if (
+        (e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !e.shiftKey
+      ) {
+        if (editableTarget(target) || overlayOpen()) return
+        const app = useApp.getState()
+        if (app.contentSearchOpen || app.dialog.open) return
+        const viewer = viewerRef.current
+        if (!viewer?.pdfDocument) return
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.key === 'ArrowUp') viewer.previousPage()
+        else viewer.nextPage()
+        return
       }
       if (e.key === 'Escape' && findOpen && inside && !editableTarget(target)) {
         e.preventDefault()
@@ -377,7 +437,7 @@ export function FilesPdfPreview({
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [active, findOpen, openFind, closeFind, fit])
+  }, [active, findOpen, openFind, closeFind, fit, stepZoom])
 
   useEffect(() => () => dragCleanup.current?.(), [])
 
@@ -504,6 +564,12 @@ export function FilesPdfPreview({
     viewer.currentPageNumber = Math.min(pages, Math.max(1, Math.round(n)))
   }
 
+  /** 点缩略图跳页后把焦点还给正文，PageUp / PageDown 与 ←/→ 继续滚正文（同关查找栏） */
+  const selectThumbnail = (n: number): void => {
+    goToPage(n)
+    containerRef.current?.focus({ preventScroll: true })
+  }
+
   const countLabel =
     !findOpen || findQuery === '' || !findResult
       ? null
@@ -545,9 +611,31 @@ export function FilesPdfPreview({
     </>
   )
 
+  // 缩略图侧栏开关紧跟面包屑文件名（侧栏在正文左侧，钮也靠左）；开着时点亮，激活态同四档钮 / 查找栏方形开关
+  const thumbsToggle = pages > 0 && (
+    <button
+      type="button"
+      title="缩略图"
+      className={cn(
+        TOOLBAR_BTN,
+        thumbnails &&
+          'bg-[var(--selection-row)] text-foreground hover:bg-[var(--selection-row)] hover:text-foreground'
+      )}
+      onClick={onToggleThumbnails}
+    >
+      <PanelLeft className="size-4" />
+    </button>
+  )
+
   return (
     <div ref={rootRef} className="flex h-full min-h-0 flex-col">
-      <FilesToolbar path={path} error={null} extra={controls || undefined} {...toolbar} />
+      <FilesToolbar
+        path={path}
+        error={null}
+        extra={controls || undefined}
+        pathExtra={thumbsToggle || undefined}
+        {...toolbar}
+      />
       {findOpen && (
         <FindBar
           query={findQuery}
@@ -563,34 +651,40 @@ export function FilesPdfPreview({
           onClose={closeFind}
         />
       )}
-      <div ref={wrapRef} className="files-pdf relative min-h-0 flex-1 bg-deepest">
-        {/* 滚动容器不留内边距：库拿容器高度算 page-height，多一层 padding 就会让「适应高度」溢出、
-            整页看不全；页间留白由库的 .page margin 负责（removePageBorders 下是 0 auto 10px） */}
-        <div
-          ref={containerRef}
-          tabIndex={0}
-          className={cn(
-            'absolute inset-0 cursor-grab overflow-auto outline-none',
-            spaceHeld && 'pan-mode select-none'
-          )}
-          onMouseDown={startPan}
-        >
-          <div className="pdfViewer" />
-        </div>
-        {panning && <div className="fixed inset-0 z-50 cursor-grabbing" />}
-        {error && (
-          <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-deepest px-6 text-sm text-muted-foreground">
-            <p>无法预览此 PDF</p>
-            <p className="text-xs">{error}</p>
-            <button
-              type="button"
-              className="rounded-lg px-3 py-1.5 text-[color:var(--fg-primary)] transition-colors hover:bg-[var(--bg-button-hover)]"
-              onClick={() => void window.api.openPath(toSysPath(path))}
-            >
-              在其他应用中打开
-            </button>
-          </div>
+      <div className="flex min-h-0 flex-1">
+        {/* 侧栏按文档重挂（尺寸一次算好）；加载中先出空壳占位，正文宽度不来回跳；打不开则不出 */}
+        {thumbnails && !error && (
+          <FilesPdfThumbnails key={src} renderer={thumbs} page={page} onSelect={selectThumbnail} />
         )}
+        <div ref={wrapRef} className="files-pdf relative min-h-0 min-w-0 flex-1 bg-deepest">
+          {/* 滚动容器不留内边距：库拿容器高度算 page-height，多一层 padding 就会让「适应高度」溢出、
+              整页看不全；页间留白由库的 .page margin 负责（removePageBorders 下是 0 auto 10px） */}
+          <div
+            ref={containerRef}
+            tabIndex={0}
+            className={cn(
+              'absolute inset-0 cursor-grab overflow-auto outline-none',
+              spaceHeld && 'pan-mode select-none'
+            )}
+            onMouseDown={startPan}
+          >
+            <div className="pdfViewer" />
+          </div>
+          {panning && <div className="fixed inset-0 z-50 cursor-grabbing" />}
+          {error && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-deepest px-6 text-sm text-muted-foreground">
+              <p>无法预览此 PDF</p>
+              <p className="text-xs">{error}</p>
+              <button
+                type="button"
+                className="rounded-lg px-3 py-1.5 text-[color:var(--fg-primary)] transition-colors hover:bg-[var(--bg-button-hover)]"
+                onClick={() => void window.api.openPath(toSysPath(path))}
+              >
+                在其他应用中打开
+              </button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   )

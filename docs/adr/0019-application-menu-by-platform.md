@@ -6,4 +6,6 @@
 
 视图块另有一处刻意偏离：不放 `resetZoom` / `zoomIn` / `zoomOut`。那三项占住 CmdOrCtrl+0 与 +/-，而这几个键在 Files 预览里另有用处（回适应窗口 / 放大 / 缩小），菜单加速键优先级更高，留着就压住预览；整页缩放对本应用本身也没意义——它不是网页浏览器。
 
+同一件事还有第二道闸：`@electron-toolkit/utils` 的 `optimizer.watchWindowShortcuts` 默认（`zoom: false`）在 `before-input-event` 里把 CmdOrCtrl+- 与 CmdOrCtrl+Shift+= 直接 `preventDefault`，意图同样是关掉网页缩放，结果是这两个键连页面的 keydown 都收不到（CmdOrCtrl+= 不带 Shift 反而放过，症状就是"能放大不能缩小"）。菜单里既然已无缩放角色，这道闸只剩副作用，故传 `{ zoom: true }` 放行；它对 Cmd+R / 开发者工具的生产态拦截照旧。
+
 代价：菜单文案不再随系统语言切换（英文系统下也是中文），且 Electron 未来给这些块加项时我们不会自动跟进。单测锁住了各块的 role 顺序与中文文案。

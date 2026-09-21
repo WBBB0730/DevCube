@@ -142,6 +142,8 @@ export function FilesPane({
   const [treeVisible, setTreeVisible] = useState(true)
   /** Markdown / SVG 编辑 ↔ 预览两态；会话内保持，不持久化，默认编辑。 */
   const [sourcePreview, setSourcePreview] = useState(false)
+  /** PDF 缩略图侧栏可见性；会话内保持，不持久化，默认显示。 */
+  const [pdfThumbnails, setPdfThumbnails] = useState(true)
   /** 文件树右键菜单目标与条目操作弹窗（新建 / 重命名 / 删除）。 */
   const [treeMenu, setTreeMenu] = useState<FilesTreeMenuTarget | null>(null)
   const [entryDialog, setEntryDialog] = useState<FilesEntryDialogRequest | null>(null)
@@ -1146,6 +1148,8 @@ export function FilesPane({
             src={loaded.mediaUrl}
             path={loaded.path}
             active={visible}
+            thumbnails={pdfThumbnails}
+            onToggleThumbnails={() => setPdfThumbnails((v) => !v)}
             toolbar={{
               projectRoot: rootLogical,
               recentPaths,

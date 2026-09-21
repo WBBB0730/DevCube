@@ -20,7 +20,9 @@ import {
 import { GalleryHorizontal, GalleryVertical, Scan } from 'lucide-react'
 import { useApp } from '@renderer/store'
 import { cn } from '@renderer/lib/utils'
+import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import type { FilesImagePyramid } from '@shared/files-image-tiles'
+import { SHORTCUT } from '@shared/shortcut-label'
 import {
   centerMediaCamera,
   clampMediaCamera,
@@ -122,7 +124,7 @@ export function MediaFitButtons({
       </button>
       <button
         type="button"
-        title="适应窗口"
+        title={shortcutTitle('适应窗口', SHORTCUT.fitWindow)}
         className={cls('window')}
         onClick={() => onFit('window')}
       >

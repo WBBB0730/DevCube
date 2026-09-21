@@ -165,8 +165,10 @@ app.whenReady().then(async () => {
 
   // Default open or close DevTools by F12 in development
   // and ignore CommandOrControl + R in production.
+  // zoom: true —— 该钩子默认还会拦下 CmdOrCtrl+- 与 CmdOrCtrl+Shift+=（它以为是网页缩放键），
+  // 页面连 keydown 都收不到；这两个键归 Files 预览用，菜单里也早无缩放角色（ADR-0019）。
   app.on('browser-window-created', (_, window) => {
-    optimizer.watchWindowShortcuts(window)
+    optimizer.watchWindowShortcuts(window, { zoom: true })
   })
 
   await initStore()
