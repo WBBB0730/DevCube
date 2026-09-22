@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest'
 import {
   classifyFilesOpenKind,
   filesOpenKindFromMime,
-  adjacentImagePath,
+  adjacentMediaPath,
   isImagePreviewPath,
+  isMediaPreviewPath,
   isMarkdownPath,
   isPreviewableSourcePath,
   isSvgPath,
@@ -92,7 +93,7 @@ describe('isMarkdownPath / isSvgPath / isPreviewableSourcePath', () => {
   })
 })
 
-describe('isImagePreviewPath / adjacentImagePath', () => {
+describe('isImagePreviewPath / isMediaPreviewPath / adjacentMediaPath', () => {
   it('位图与 SVG 可看图，源码不行', () => {
     expect(isImagePreviewPath('a.png')).toBe(true)
     expect(isImagePreviewPath('ICON.SVG')).toBe(true)
@@ -100,7 +101,16 @@ describe('isImagePreviewPath / adjacentImagePath', () => {
     expect(isImagePreviewPath('clip.mp4')).toBe(false)
   })
 
-  it('同目录按给定序取上一张 / 下一张，到头不回绕', () => {
+  it('媒体序列含位图 / SVG / PDF / 可播音视频，不含文本与不可播容器', () => {
+    for (const p of ['a.png', 'b.svg', 'c.pdf', 'd.mp4', 'e.mp3', 'F.WEBM']) {
+      expect(isMediaPreviewPath(p)).toBe(true)
+    }
+    for (const p of ['a.ts', 'README.md', 'movie.mkv', 'noext']) {
+      expect(isMediaPreviewPath(p)).toBe(false)
+    }
+  })
+
+  it('按给定序取上一个 / 下一个媒体，跨类型，到头不回绕', () => {
     const entries = [
       { path: '/p/dir', isDirectory: true },
       { path: '/p/a.png', isDirectory: false },
@@ -108,16 +118,16 @@ describe('isImagePreviewPath / adjacentImagePath', () => {
       { path: '/p/b.svg', isDirectory: false },
       { path: '/p/c.jpg', isDirectory: false }
     ]
-    expect(adjacentImagePath(entries, '/p/a.png', 1)).toBe('/p/b.svg')
-    expect(adjacentImagePath(entries, '/p/b.svg', 1)).toBe('/p/c.jpg')
-    expect(adjacentImagePath(entries, '/p/c.jpg', 1)).toBeNull()
-    expect(adjacentImagePath(entries, '/p/a.png', -1)).toBeNull()
-    expect(adjacentImagePath(entries, '/p/c.jpg', -1)).toBe('/p/b.svg')
+    expect(adjacentMediaPath(entries, '/p/a.png', 1)).toBe('/p/b.svg')
+    expect(adjacentMediaPath(entries, '/p/b.svg', 1)).toBe('/p/c.jpg')
+    expect(adjacentMediaPath(entries, '/p/c.jpg', 1)).toBeNull()
+    expect(adjacentMediaPath(entries, '/p/a.png', -1)).toBeNull()
+    expect(adjacentMediaPath(entries, '/p/c.jpg', -1)).toBe('/p/b.svg')
   })
 
   it('当前路径不在看图序列里 → null', () => {
     expect(
-      adjacentImagePath([{ path: '/p/a.png', isDirectory: false }], '/p/missing.png', 1)
+      adjacentMediaPath([{ path: '/p/a.png', isDirectory: false }], '/p/missing.png', 1)
     ).toBeNull()
   })
 })

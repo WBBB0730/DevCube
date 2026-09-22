@@ -7,6 +7,7 @@ import {
   isPinchZoomWheel,
   mediaCameraToViewport,
   mediaDisplaySize,
+  mediaFitWindowAxis,
   mediaFitZoom,
   MEDIA_ZOOM_MAX,
   MEDIA_ZOOM_MIN,
@@ -81,6 +82,19 @@ describe('mediaFitZoom', () => {
   it('尺寸不合法时返回 null', () => {
     expect(mediaFitZoom('width', 100, 100, 0, 200)).toBeNull()
     expect(mediaFitZoom('height', 0, 100, 200, 200)).toBeNull()
+  })
+})
+
+describe('mediaFitWindowAxis', () => {
+  it('宽图顶住宽度、高图顶住高度', () => {
+    expect(mediaFitWindowAxis(400, 200, 200, 200)).toBe('width')
+    expect(mediaFitWindowAxis(200, 400, 200, 200)).toBe('height')
+    // 只看两边的宽高比，图比视口小也一样
+    expect(mediaFitWindowAxis(40, 20, 200, 200)).toBe('width')
+  })
+
+  it('图与视口同比例时两轴同时铺满，取宽度', () => {
+    expect(mediaFitWindowAxis(400, 200, 200, 100)).toBe('width')
   })
 })
 

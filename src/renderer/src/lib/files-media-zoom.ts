@@ -124,6 +124,19 @@ export function mediaActualZoom(
   return base <= 0 ? null : clampMediaZoom(1 / base)
 }
 
+/**
+ * 「适应窗口」这一档实际顶住的是哪条轴：内容比视口更「扁」宽度先铺满，更「高」则高度先铺满。
+ * 双击换档要先知道眼下落在哪条轴上，才能切到另一条。只看两边的宽高比，与当前倍率无关。
+ */
+export function mediaFitWindowAxis(
+  naturalW: number,
+  naturalH: number,
+  availW: number,
+  availH: number
+): MediaFitAxis {
+  return availW * naturalH <= availH * naturalW ? 'width' : 'height'
+}
+
 /** 图整个放得下视口（不放大也装得下）——打开时落 1:1 还是「适应窗口」看这个。 */
 export function mediaFitsViewport(
   naturalW: number,

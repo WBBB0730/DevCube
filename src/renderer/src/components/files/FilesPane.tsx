@@ -5,8 +5,8 @@ import {
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
-  File as FileIcon,
   Folder,
+  FolderOpen,
   LoaderCircle,
   Minus,
   Search,
@@ -38,7 +38,7 @@ import { filesFindExtension, setFindQuery } from '@renderer/lib/cm6-find'
 import { gitDiffGutter, type GitGutterHunkClickPayload } from '@renderer/lib/cm6-git-gutter'
 import { FilesFindWidget } from './FilesFindWidget'
 import {
-  adjacentImagePath,
+  adjacentMediaPath,
   isMarkdownPath,
   isPreviewableSourcePath,
   isSvgPath
@@ -56,6 +56,9 @@ import { FilesEntryDialog, type FilesEntryDialogRequest } from './FilesEntryDial
 import { FilesTreeMenu, type FilesTreeMenuTarget } from './FilesTreeMenu'
 import { FilesPdfPreview } from './FilesPdfPreview'
 import { FilesToolbar, TOOLBAR_BTN } from './FilesToolbar'
+import { FilesContentMenu, type FilesContentMenuTarget } from './FilesContentMenu'
+import { FilesTreeIcon } from './FilesTreeIcon'
+import { arrowDirection, editableTarget, overlayOpen } from '@renderer/lib/files-key-guards'
 import { filterFilesTreeByType, type FilesTypeCategory } from '@shared/files-type-filter'
 import { FILES_ALL_TYPES, PreviewTypeFilterButton } from './PreviewTreeControls'
 import { relPathUnderRoot, toSysPath } from '@renderer/lib/files-paths'
@@ -186,6 +189,8 @@ export function FilesPane({
   const [pdfThumbnails, setPdfThumbnails] = useState(true)
   /** 文件树右键菜单目标与条目操作弹窗（新建 / 重命名 / 删除）。 */
   const [treeMenu, setTreeMenu] = useState<FilesTreeMenuTarget | null>(null)
+  /** 正文区（看图 / SVG 预览）右键菜单：复制图片 / 在文件夹中显示 / 在其他应用中打开 */
+  const [contentMenu, setContentMenu] = useState<FilesContentMenuTarget | null>(null)
   const [entryDialog, setEntryDialog] = useState<FilesEntryDialogRequest | null>(null)
   /** gutter diff 弹窗（点击标记行号格子；文档一变即关，见 onChange / openFile）。 */
   const [hunkPopup, setHunkPopup] = useState<GitGutterHunkClickPayload | null>(null)
@@ -621,23 +626,49 @@ export function FilesPane({
   )
 
   /**
-   * 看图：上一张 / 下一张（位图 + SVG）按**树里当前可见的顺序**走——跨目录，但只进已展开的目录
-   * （折叠的不自动钻），并尊重类型筛选；到头停下。
+   * 上一个 / 下一个媒体（位图 / SVG / PDF / 音视频）按**树里当前可见的顺序**走——跨目录、跨类型，
+   * 但只进已展开的目录（折叠的不自动钻），并尊重类型筛选；到头停下。
+   * 当前正文是媒体才响应（看图 / SVG 预览态 / PDF / 音视频）。
    */
-  const goAdjacentImage = useCallback(
+  const goAdjacentMedia = useCallback(
     async (dir: -1 | 1) => {
       const cur = loadedRef.current
       if (!cur) return
-      if (cur.kind !== 'image' && !(cur.kind === 'text' && isSvgPath(cur.path))) return
-      const next = adjacentImagePath(flatRows, cur.path, dir)
+      const isMedia =
+        cur.kind === 'image' ||
+        cur.kind === 'pdf' ||
+        cur.kind === 'audio' ||
+        cur.kind === 'video' ||
+        (cur.kind === 'text' && isSvgPath(cur.path))
+      if (!isMedia) return
+      const next = adjacentMediaPath(flatRows, cur.path, dir)
       if (next === null) return
       if (isSvgPath(next)) setSourcePreview(true)
       await openFile(next)
     },
     [flatRows, openFile]
   )
-  const goPrevImage = useCallback(() => void goAdjacentImage(-1), [goAdjacentImage])
-  const goNextImage = useCallback(() => void goAdjacentImage(1), [goAdjacentImage])
+  const goPrevImage = useCallback(() => void goAdjacentMedia(-1), [goAdjacentMedia])
+  const goNextImage = useCallback(() => void goAdjacentMedia(1), [goAdjacentMedia])
+
+  // 音视频正文：四个方向键切上一个 / 下一个媒体（同看图；守卫同看图——不抢输入框与弹层）。
+  // 焦点落在播放器上时也拦下，播放器自己的键盘进度 / 音量让位给切换，进度条仍可拖。
+  const avOpen = loaded?.kind === 'audio' || loaded?.kind === 'video'
+  useEffect(() => {
+    if (!visible || !avOpen) return
+    const onKey = (e: KeyboardEvent): void => {
+      const dir = arrowDirection(e)
+      if (dir === null) return
+      if (editableTarget(e.target) || overlayOpen()) return
+      const app = useApp.getState()
+      if (app.contentSearchOpen || app.dialog.open) return
+      e.preventDefault()
+      e.stopPropagation()
+      void goAdjacentMedia(dir)
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [visible, avOpen, goAdjacentMedia])
 
   const viewingImagePath =
     loaded?.kind === 'image'
@@ -656,7 +687,7 @@ export function FilesPane({
     void (async () => {
       const urls: string[] = []
       for (const d of [-1, 1] as const) {
-        const p = adjacentImagePath(flatRows, current, d)
+        const p = adjacentMediaPath(flatRows, current, d)
         if (!p || isSvgPath(p)) continue
         try {
           const result = await window.api.filesRead(rootPath, p)
@@ -1091,7 +1122,26 @@ export function FilesPane({
 
   return (
     <div className="flex h-full min-h-0">
-      <div className="relative min-h-0 min-w-0 flex-1 bg-deepest">
+      <div
+        className="relative min-h-0 min-w-0 flex-1 bg-deepest"
+        onContextMenu={(e) => {
+          // 任何已打开的条目都有正文菜单；空态没有。看图 / SVG 预览态另给「复制图片」取图源
+          const cur = loaded
+          if (!cur) return
+          e.preventDefault()
+          let imageSrc: (() => Promise<string>) | null = null
+          if (cur.kind === 'image') {
+            // 超大位图复制其预览图（长边 4096，缓存命中即返），整图塞剪贴板不现实
+            imageSrc = cur.tiled
+              ? () => window.api.filesImagePreview(rootPath, cur.path).then((p) => p.url)
+              : () => Promise.resolve(cur.mediaUrl)
+          } else if (cur.kind === 'text' && isSvgPath(cur.path) && sourcePreview) {
+            const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(cur.content)}`
+            imageSrc = () => Promise.resolve(src)
+          }
+          setContentMenu({ x: e.clientX, y: e.clientY, path: cur.path, imageSrc })
+        }}
+      >
         {!loaded && (
           <div className="flex h-full min-h-0 flex-col">
             <FilesToolbar
@@ -1236,6 +1286,8 @@ export function FilesPane({
             active={visible}
             thumbnails={pdfThumbnails}
             onToggleThumbnails={() => setPdfThumbnails((v) => !v)}
+            onPrev={goPrevImage}
+            onNext={goNextImage}
             toolbar={{
               projectRoot: rootLogical,
               recentPaths,
@@ -1345,6 +1397,25 @@ export function FilesPane({
               </button>
             </div>
           </div>
+          {host.kind === 'preview' && (
+            // 当前根文件夹行：告诉你树的根在哪（上翻下钻后不迷路），右键即空白区那份根菜单——
+            // 文件铺满时也永远点得到。固定在列表之上不随滚动走；它是全树的根，图标顶格（不占层级缩进位）。
+            <div
+              title={rootLogical}
+              className={cn(
+                'mx-1.5 mt-1 flex h-8 shrink-0 cursor-default items-center gap-1 rounded px-1.5 text-[13px] text-foreground transition-colors',
+                treeMenu !== null && treeMenu.path === rootLogical
+                  ? 'bg-[var(--bg-row-hover)]'
+                  : 'hover:bg-[var(--bg-row-hover)]'
+              )}
+              onContextMenu={(e) => openTreeMenu(rootLogical, true, e)}
+            >
+              <FolderOpen className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
+              <span className="min-w-0 flex-1 truncate font-medium">
+                {rootLogical.slice(rootLogical.lastIndexOf('/') + 1) || rootLogical}
+              </span>
+            </div>
+          )}
           <div
             ref={treeScrollRef}
             tabIndex={0}
@@ -1432,6 +1503,7 @@ export function FilesPane({
         />
       )}
 
+      <FilesContentMenu menu={contentMenu} onClose={() => setContentMenu(null)} />
       <FilesTreeMenu
         projectPath={rootPath}
         terminal={host.kind === 'project'}
@@ -1771,7 +1843,11 @@ function FileTreeFileRow({
     >
       {treeIndent(depth)}
       <span className="size-3.5 shrink-0" />
-      <FileIcon className="size-3.5 shrink-0" style={{ color: colour ?? 'var(--fg-icon)' }} />
+      <FilesTreeIcon
+        name={name}
+        className="size-3.5 shrink-0"
+        style={{ color: colour ?? 'var(--fg-icon)' }}
+      />
       <span
         className="min-w-0 flex-1 truncate transition-colors"
         style={{ color: selected ? 'var(--fg-primary)' : colour }}

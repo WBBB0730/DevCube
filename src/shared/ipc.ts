@@ -62,6 +62,8 @@ export const IPC = {
   filesCreate: 'files:create',
   filesRename: 'files:rename',
   filesTrash: 'files:trash',
+  /** 「复制文件」：把文件 / 文件夹本身放进系统剪贴板（只放行授权根内路径） */
+  filesCopyFile: 'files:copy-file',
   filesGetUi: 'files:ui-get',
   filesSetUi: 'files:ui-set',
   filesChanged: 'files:changed',

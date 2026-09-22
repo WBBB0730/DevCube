@@ -331,6 +331,8 @@ export interface RunAPI extends GitAPI {
   filesRename(projectPath: string, entryPath: string, newName: string): Promise<{ path: string }>
   /** 移入系统回收站（文件或目录） */
   filesTrash(projectPath: string, entryPath: string): Promise<void>
+  /** 「复制文件」：把文件 / 文件夹本身放进系统剪贴板（系统路径；只放行授权根内） */
+  filesCopyFile(path: string): Promise<void>
   filesGetUi(projectPath: string): Promise<FilesUiState>
   filesSetUi(projectPath: string, patch: Partial<FilesUiState>): Promise<FilesUiState>
   /** 项目文件树相关磁盘变化：渲染端应重拉已缓存目录并同步当前打开文件 */

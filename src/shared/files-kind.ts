@@ -221,19 +221,33 @@ export function isImagePreviewPath(path: string): boolean {
   return classifyFilesOpenKind(path) === 'image' || isSvgPath(path)
 }
 
+const AV_EXT: ReadonlySet<string> = new Set([
+  ...FILES_OPEN_WITH_EXTS.audio,
+  ...FILES_OPEN_WITH_EXTS.video
+])
+
+/** 正文可内嵌预览、可用方向键前后切换的媒体：位图 / SVG / PDF / 可播音视频（按扩展名）。 */
+export function isMediaPreviewPath(path: string): boolean {
+  if (isImagePreviewPath(path)) return true
+  const lower = path.toLowerCase()
+  const dot = lower.lastIndexOf('.')
+  const ext = dot >= 0 ? lower.slice(dot + 1) : ''
+  return ext === 'pdf' || AV_EXT.has(ext)
+}
+
 /**
- * 给定一串条目（同目录列表或树里拍平的可见行，皆已按树序排好），当前看图文件的上一张 / 下一张。
- * 只计入位图与 SVG；到头返回 null（不回绕）。
+ * 给定一串条目（同目录列表或树里拍平的可见行，皆已按树序排好），当前媒体文件的上一个 / 下一个。
+ * 只计入 `isMediaPreviewPath` 的文件；到头返回 null（不回绕）。
  */
-export function adjacentImagePath(
+export function adjacentMediaPath(
   entries: readonly { path: string; isDirectory: boolean }[],
   currentPath: string,
   dir: -1 | 1
 ): string | null {
-  const images = entries.filter((e) => !e.isDirectory && isImagePreviewPath(e.path))
-  const idx = images.findIndex((e) => e.path === currentPath)
+  const media = entries.filter((e) => !e.isDirectory && isMediaPreviewPath(e.path))
+  const idx = media.findIndex((e) => e.path === currentPath)
   if (idx < 0) return null
-  return images[idx + dir]?.path ?? null
+  return media[idx + dir]?.path ?? null
 }
 
 /** 若扩展名未知，用缓冲区嗅探：含 NUL 或大量非文本字节则 other，否则 text。 */

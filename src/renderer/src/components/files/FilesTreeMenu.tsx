@@ -1,6 +1,6 @@
 // Files 树右键菜单：文件 / 目录 / 空白区（=项目根）共用一个受控 ContextMenu + 鼠标点
 // 虚拟 anchor（同 GitContextMenu 模式，非行级 Trigger）。排布四组：新建 → 打开（在文件夹
-// 中显示 / 其他应用打开 / 在终端中打开）→ 复制路径 → 重命名/删除（危险项垫底，同左树
+// 中显示 / 其他应用打开 / 在终端中打开）→ 复制文件 / 复制路径 → 重命名/删除（危险项垫底，同左树
 // 「移除项目」）；文件行的新建与终端按「就近」语义作用于所在目录。弹窗类请求交
 // FilesPane 统一执行，直接动作就地派发。Preview Window 宿主另在「打开」组后加一组根导航：
 // 「上一级文件夹」「添加为项目 / 转到项目」（仅空白区 / 根；到文件系统根置灰）与「进入此文件夹」（目录，根自身没有），
@@ -12,6 +12,7 @@ import {
   CornerRightDown,
   FilePen,
   FilePlus,
+  Files,
   FolderOpen,
   FolderPen,
   FolderPlus,
@@ -21,6 +22,7 @@ import {
   Trash2
 } from 'lucide-react'
 import { useApp } from '@renderer/store'
+import { toSysPath } from '@renderer/lib/files-paths'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -184,6 +186,14 @@ export function FilesTreeMenu({
           </>
         )}
         <ContextMenuSeparator />
+        <ContextMenuItem
+          onClick={() => {
+            onClose()
+            void window.api.filesCopyFile(toSysPath(menu.path))
+          }}
+        >
+          <Files className="size-4" /> {menu.isDirectory ? '复制文件夹' : '复制文件'}
+        </ContextMenuItem>
         <ContextMenuItem onClick={() => copyText(menu.path)}>
           <Copy className="size-4" /> 复制路径
         </ContextMenuItem>

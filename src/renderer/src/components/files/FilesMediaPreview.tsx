@@ -19,6 +19,7 @@ import {
 } from 'react'
 import { GalleryHorizontal, GalleryVertical, Scan } from 'lucide-react'
 import { useApp } from '@renderer/store'
+import { editableTarget, overlayOpen } from '@renderer/lib/files-key-guards'
 import { cn } from '@renderer/lib/utils'
 import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import type { FilesImagePyramid } from '@shared/files-image-tiles'
@@ -29,6 +30,7 @@ import {
   mediaActualZoom,
   mediaDrawScale,
   mediaFitsViewport,
+  mediaFitWindowAxis,
   mediaFitZoom,
   MEDIA_ZOOM_STEP,
   panMediaCamera,
@@ -138,17 +140,6 @@ export function MediaFitButtons({
 type Shown = { key: string; src: string; w: number; h: number }
 
 const NO_PREFETCH: readonly string[] = []
-
-function overlayOpen(): boolean {
-  return [...document.querySelectorAll('.fixed.inset-0.z-50.flex.items-center')].some(
-    (el) => el.getClientRects().length > 0
-  )
-}
-
-function editableTarget(el: EventTarget | null): boolean {
-  if (!(el instanceof HTMLElement)) return false
-  return el.closest('input, textarea, select, [contenteditable="true"]') !== null
-}
 
 function wheelPx(delta: number, deltaMode: number): number {
   if (deltaMode === 1) return delta * 16
@@ -542,7 +533,11 @@ export function FilesMediaPreview({
     // click / dblclick 的 target 退化成两者的共同祖先，永远落不到这里
     if (e.detail === 2) {
       const rect = el.getBoundingClientRect()
-      fit(fitModeRef.current === 'width' ? 'height' : 'width', {
+      // 「适应窗口」也顶着某一条轴，按它实际顶住的那条算「另一条」；1:1 与自由倍率不在轴上，落适应宽度
+      const mode = fitModeRef.current
+      const current =
+        mode === 'window' ? mediaFitWindowAxis(nat.w, nat.h, el.clientWidth, el.clientHeight) : mode
+      fit(current === 'width' ? 'height' : 'width', {
         x: e.clientX - rect.left,
         y: e.clientY - rect.top
       })

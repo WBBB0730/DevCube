@@ -127,6 +127,7 @@ import { confirmQuitIfNeeded } from './quit-confirm'
 import { markQuitAllowed } from './app-shutdown'
 import { isPathUnderGrantedRoot } from './files-roots'
 import { openPreviewWindowForRoot, setPreviewWindowRoot } from './preview-window'
+import { copyFileToClipboard } from './clipboard-file'
 
 let mainWindow: BrowserWindow | null = null
 /** 没有主窗口时（只开着预览窗口 / macOS 全关）由 index 提供建窗；工作台已预置当前项目 */
@@ -405,6 +406,10 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   // 「在文件夹中显示」→ 系统文件管理器定位并选中；同样只放行授权根内的绝对路径。
   ipcMain.handle(IPC.openInFolder, (_e, path: string) => {
     if (isPathUnderGrantedRoot(path)) shell.showItemInFolder(path)
+  })
+  // 「复制文件」→ 文件 / 文件夹本身进系统剪贴板；同样只放行授权根内的绝对路径。
+  ipcMain.handle(IPC.filesCopyFile, async (_e, path: string) => {
+    if (isPathUnderGrantedRoot(path)) await copyFileToClipboard(path)
   })
   // —— Preview Window（预览窗口） ——
   ipcMain.handle(IPC.previewSetRoot, (e, root: unknown) => {

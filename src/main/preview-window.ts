@@ -30,7 +30,8 @@ interface PreviewEntry {
 
 /** 开窗目标（规范化文件路径，或无文件时的根路径）→ 窗口 */
 const byFile = new Map<string, PreviewEntry>()
-let lastOpened: BrowserWindow | null = null
+/** 最近聚焦过的预览窗口：新窗继承它的实时几何（最大化 / 位置尺寸），而不是只认最近关掉的那份 */
+let lastFocused: BrowserWindow | null = null
 
 /** 逻辑路径（/）→ 系统路径（Windows 盘符路径还原反斜杠）。 */
 function toSys(logical: string): string {
@@ -102,10 +103,14 @@ function openPreview(
     return existing.win
   }
 
+  // 几何只在进程内记（退出即清，与主窗口同；两者各记一份）。还开着的预览窗口是最新事实：
+  // 先把它此刻的状态写进记忆再取，新窗就跟它一样是否最大化、多大、在哪；没有活窗则用最近关掉的那份。
+  const live = lastFocused && !lastFocused.isDestroyed() ? lastFocused : null
+  if (live) rememberWindowPlacement(live, 'preview')
   const placement = resolveRememberedWindowPlacement(PREVIEW_DEFAULTS, 'preview')
-  // 多开：从上一窗错位级联，而不是叠在同一位置
-  if (lastOpened && !lastOpened.isDestroyed()) {
-    const b = lastOpened.getNormalBounds()
+  // 多开且不是最大化 / 全屏：从活窗错位级联，别叠在同一位置
+  if (live && !placement.isMaximized && !placement.isFullScreen) {
+    const b = live.getNormalBounds()
     placement.x = b.x + CASCADE_OFFSET
     placement.y = b.y + CASCADE_OFFSET
   }
@@ -116,7 +121,7 @@ function openPreview(
   })
   const entry: PreviewEntry = { win, root, watcher: null }
   byFile.set(key, entry)
-  lastOpened = win
+  lastFocused = win
   grantFilesRoot(win.id, root)
   attachWatcher(entry)
 
@@ -124,8 +129,12 @@ function openPreview(
   if (process.platform === 'darwin') win.setRepresentedFilename(sysPath)
   wirePreviewShortcuts(win)
 
+  win.on('focus', () => {
+    lastFocused = win
+  })
   win.on('ready-to-show', () => {
     if (placement.isMaximized) win.maximize()
+    if (placement.isFullScreen) win.setFullScreen(true)
     win.show()
   })
   win.on('close', () => rememberWindowPlacement(win, 'preview'))
@@ -134,7 +143,7 @@ function openPreview(
     void entry.watcher?.dispose()
     entry.watcher = null
     if (byFile.get(key) === entry) byFile.delete(key)
-    if (lastOpened === win) lastOpened = null
+    if (lastFocused === win) lastFocused = null
   })
   return win
 }

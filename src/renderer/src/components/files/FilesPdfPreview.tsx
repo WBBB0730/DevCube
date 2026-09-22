@@ -33,8 +33,14 @@ import {
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
 import { buildFilesAssetUrl, FILES_ASSET_PDFJS } from '@shared/files'
 import { useApp } from '@renderer/store'
+import { editableTarget, overlayOpen } from '@renderer/lib/files-key-guards'
 import { cn } from '@renderer/lib/utils'
-import { zoomFromWheel, type MediaFitMode } from '@renderer/lib/files-media-zoom'
+import {
+  mediaFitWindowAxis,
+  zoomFromWheel,
+  type MediaFitAxis,
+  type MediaFitMode
+} from '@renderer/lib/files-media-zoom'
 import { PdfThumbnailRenderer } from '@renderer/lib/files-pdf-thumbnails'
 import { MEDIA_SETTLE_MS, MediaFitButtons } from './FilesMediaPreview'
 import { toSysPath } from '@renderer/lib/files-paths'
@@ -109,17 +115,6 @@ class CenteringFindController extends PDFFindController {
 
 type FindResult = { state: number; current: number; total: number }
 
-function overlayOpen(): boolean {
-  return [...document.querySelectorAll('.fixed.inset-0.z-50.flex.items-center')].some(
-    (el) => el.getClientRects().length > 0
-  )
-}
-
-function editableTarget(el: EventTarget | null): boolean {
-  if (!(el instanceof HTMLElement)) return false
-  return el.closest('input, textarea, select, [contenteditable="true"]') !== null
-}
-
 /** 四档 ↔ PDF.js 的预设缩放值。`actual` 是纸张实际尺寸（1 pt = 1/72 英寸），与窗口无关。 */
 const PDF_SCALE_VALUE: Record<MediaFitMode, string> = {
   actual: 'page-actual',
@@ -151,12 +146,17 @@ export function FilesPdfPreview({
   active,
   thumbnails,
   onToggleThumbnails,
+  onPrev,
+  onNext,
   toolbar
 }: {
   src: string
   path: string
   /** Files Tab 可见时才响应 Cmd+F */
   active: boolean
+  /** ←/→ 切上一个 / 下一个媒体文件（↑/↓ 归翻页）；由 FilesPane 按树内可见序给 */
+  onPrev?: () => void
+  onNext?: () => void
   /** 缩略图侧栏可见性（会话内保持，归 FilesPane） */
   thumbnails: boolean
   onToggleThumbnails: () => void
@@ -355,6 +355,29 @@ export function FilesPdfPreview({
   }, [])
 
   /**
+   * 双击落到哪条适应轴：在两条之间来回。「适应窗口」（page-fit）是库在两条轴里取小的那个，
+   * 也就顶着其中一条——比一下当前页与容器的宽高比就知道是哪条，再切到另一条
+   *（库的 padding 已被 `removePageBorders` 归零，比值与库内部算的一致）。
+   * 1:1 与自由倍率不在轴上，落适应宽度。
+   */
+  const doubleClickAxis = useCallback((): MediaFitAxis => {
+    const viewer = viewerRef.current
+    const container = containerRef.current
+    const preset = viewer?.currentScaleValue
+    const mode = preset ? (PDF_FIT_MODE[preset] ?? null) : null
+    const page =
+      mode === 'window' && viewer && container
+        ? (viewer.getPageView(viewer.currentPageNumber - 1) as
+            { width: number; height: number } | undefined)
+        : undefined
+    const current =
+      page && container
+        ? mediaFitWindowAxis(page.width, page.height, container.clientWidth, container.clientHeight)
+        : mode
+    return current === 'width' ? 'height' : 'width'
+  }, [])
+
+  /**
    * 键盘逐档缩放：按视口中心锚定（同看图）。库不带 origin 时会把视口左上角那点放回原处，
    * 内容随放大往右下漂出视野。origin 以容器的 offsetParent 为基准，容器贴满 wrap，故等于容器内坐标。
    */
@@ -410,8 +433,26 @@ export function FilesPdfPreview({
           return
         }
       }
+      // ←/→ 切上一个 / 下一个媒体文件（↑/↓ 留给翻页，所以 PDF 只用左右）；守卫同下
+      if (
+        (e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
+        !e.metaKey &&
+        !e.ctrlKey &&
+        !e.altKey &&
+        !e.shiftKey &&
+        (onPrev || onNext)
+      ) {
+        if (editableTarget(target) || overlayOpen()) return
+        const app = useApp.getState()
+        if (app.contentSearchOpen || app.dialog.open) return
+        e.preventDefault()
+        e.stopPropagation()
+        if (e.key === 'ArrowLeft') onPrev?.()
+        else onNext?.()
+        return
+      }
       // ↑/↓ 始终上一页 / 下一页（不看档位；正文与缩略图侧栏内都如此），同看图的方向键切图：
-      // 不抢输入框与弹层，不要求焦点在预览内
+      // 不抢输入框与弹层，不要求焦点在预览内。已在第一页 / 最后一页时再按，就切上一个 / 下一个媒体
       if (
         (e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
         !e.metaKey &&
@@ -426,7 +467,10 @@ export function FilesPdfPreview({
         if (!viewer?.pdfDocument) return
         e.preventDefault()
         e.stopPropagation()
-        if (e.key === 'ArrowUp') viewer.previousPage()
+        if (e.key === 'ArrowUp') {
+          if (viewer.currentPageNumber <= 1) onPrev?.()
+          else viewer.previousPage()
+        } else if (viewer.currentPageNumber >= viewer.pagesCount) onNext?.()
         else viewer.nextPage()
         return
       }
@@ -437,7 +481,7 @@ export function FilesPdfPreview({
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [active, findOpen, openFind, closeFind, fit, stepZoom])
+  }, [active, findOpen, openFind, closeFind, fit, stepZoom, onPrev, onNext])
 
   useEffect(() => () => dragCleanup.current?.(), [])
 
@@ -525,7 +569,7 @@ export function FilesPdfPreview({
     // 文字 / 注解上已在前一行让路，原生双击选词不受影响。
     if (e.detail === 2) {
       const rect = container.getBoundingClientRect()
-      fit(viewerRef.current?.currentScaleValue === 'page-width' ? 'height' : 'width', {
+      fit(doubleClickAxis(), {
         x: e.clientX - rect.left,
         y: e.clientY - rect.top
       })
