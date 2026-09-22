@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process'
 import { createHash } from 'node:crypto'
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join, posix, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { app } from 'electron'
 import { FILES_OPEN_WITH_EXTS } from '../shared/files-kind'
@@ -28,8 +28,9 @@ export const DEV_OPENER_APP_NAME = 'DevCube Dev'
 /** Info.plist 里的自定义键：记录生成时的指纹，启动同步据此判断要不要重建 */
 const FINGERPRINT_KEY = 'DevCubeOpenerFingerprint'
 
+// 仅 macOS 使用；用 posix.join 使 Windows CI 上的单测也得到 darwin 形态路径（同 cli-shim）
 export function devOpenerAppPath(userData: string = app.getPath('userData')): string {
-  return join(userData, `${DEV_OPENER_APP_NAME}.app`)
+  return posix.join(userData, `${DEV_OPENER_APP_NAME}.app`)
 }
 
 /** dev 正在运行的 Electron.app（execPath 在 <App>.app/Contents/MacOS/ 之下，上三级即 .app） */

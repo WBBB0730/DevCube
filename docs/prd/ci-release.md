@@ -71,6 +71,13 @@ DevCube 目前只能在本机手动打包，没有可重复的 Win / Mac 发布�
 
 不写 workflow 的 e2e；图标像素与 Apple 公证靠维护者在 CI/真机冒烟。
 
+跨平台断言：门禁在 Win + Mac 双 runner 上跑同一套 vitest，而 `node:path` / `node:url` 默认跟**宿主**走——Windows 上 `join` 产出反斜杠，`pathToFileURL('/Users/me/a.png')` 补成带盘符的 `file:///D:/Users/me/a.png`。按路径语义归属分两种处理，不可混用：
+
+- **语义天然是 POSIX**（macOS / Linux 专属功能，路径不可能是 Windows 形态）：在**实现**里锁死 posix 语义——`posix.join`、`pathToFileURL(p, { windows: false })`；测试照常写死 POSIX 字面量，断言保持强度。见 `cli-shim`、`open-in-app`、`clipboard-file`、`dev-opener-app`。
+- **语义跟用户所在平台走**（argv、cwd 等真实输入，Windows 用户确实传 Windows 路径）：保留平台原生 API，**期望值**用同一个 API 算出。见 `external-open`。
+
+已三次踩中（`external-open`、`clipboard-file`、`dev-opener-app`），而 Windows job 一挂就连带缓存停更（见 Further Notes）。
+
 先例：仓库内 vitest「构造输入 → 断言输出」的 shared/main 纯函数测试（如 `project-sort`、`runnable`）。
 
 ## Out of Scope
@@ -94,4 +101,7 @@ DevCube 目前只能在本机手动打包，没有可重复的 Win / Mac 发布�
 - Apple 签名与公证 Secrets 由维护者在首次发布前提供；它们只影响 tag 发布，缺失时发布会在 Mac 打包前明确失败，不阻断 `main` CI。
 - bumpp 提交信息通常就是版本号，故 Release 说明刻意留空，避免无信息噪音。
 - pnpm 官方当前的 GitHub Actions 示例用 `pnpm/setup`（自带缓存，要求 pnpm 11+）；本仓库仍是 pnpm 10，故沿用 `actions/cache` + `pnpm store path`。GitHub 会在仓库 60 天无活动后自动停用定时 workflow，届时需手动重新启用。
+- 缓存的生产方只有 `main` 的 CI，而失败或被取消的 job 不保存缓存：Windows 门禁一挂，Windows 侧缓存就停更；bumpp 一次推 beta 与正式两个 tag，两次 `main` push 的前一个 CI 会被 `cancel-in-progress` 取消，同样不写。lockfile 没变时精确键照样命中、问题不显形，一旦 lockfile 变就只能前缀回退到旧缓存。
+- 每周定时保活截至 2026-09-22 一次都没触发过（仓库运行记录里 `schedule` 事件为 0，加 cron 后的第一个时间点 2026-09-21 03:00 UTC 无记录）。发版时的只读恢复也会刷新缓存的最后访问时间，所以定时空跑只在「发版间隔超过一周」时才兜底，该场景尚未验证。
+- 缓存收益实测（v1.6.1 冷启动 vs v1.7.0 / v1.8.0 命中）：macOS 的 Install 从 1:21 降到 0:42，省的是 electron 包 postinstall 那次约 100MB 下载；打包阶段那行 `downloaded label=electron` 冷热都不到 1 秒，因为它复用的是同一 job 内 postinstall 刚下好的 zip——这份缓存的收益只有一份，全在 Install。Windows 的 Install 反而由 1:51 变成 2:33，与缓存无关（取包只用 6 秒、`downloaded 0`，慢的是 `electron-builder install-app-deps` 的重建）。
 - 本仓库只维护 PRD，不另开 issue / 不跑 triage，除非另行要求。

@@ -26,7 +26,9 @@ export function planCopyFileToClipboard(
       args: ['-NoProfile', '-NonInteractive', '-Command', `Set-Clipboard -LiteralPath ${quoted}`]
     }
   }
-  const url = pathToFileURL(sysPath).href
+  // 只有 darwin / linux 走到这里，路径必是 POSIX 形态；锁死 posix 语义（默认跟宿主走，
+  // Windows CI 上会把 '/Users/me' 补成带盘符的 'file:///D:/Users/me'），同 cli-shim 的 posix.join
+  const url = pathToFileURL(sysPath, { windows: false }).href
   if (platform === 'darwin') return { kind: 'buffer', format: 'public.file-url', data: url }
   return { kind: 'buffer', format: 'text/uri-list', data: `${url}\r\n` }
 }
