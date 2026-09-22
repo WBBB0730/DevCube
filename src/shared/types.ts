@@ -293,6 +293,14 @@ export interface RunAPI extends GitAPI {
   /** 在外部桌面工具中打开已登记项目根；未装或失败时返回 ok:false */
   openInApp(id: OpenInAppId, projectPath: string): Promise<OpenInAppResult>
 
+  // —— Preview Window（预览窗口） ——
+  /** 「上一级」：把本窗口的根换成 root（主进程换授权与监听）；非预览窗口调用返回 false */
+  previewSetRoot(root: string): Promise<boolean>
+  /** 「添加为项目」：未登记则登记、已登记则聚焦，并显示主窗口选中它；返回是否已是登记项目 */
+  previewAddProject(root: string): Promise<{ registered: boolean }>
+  /** 主窗口项目菜单「在新窗口中打开」：以该已登记项目根开一个 Preview Window（未登记则忽略） */
+  previewOpenRoot(projectPath: string): Promise<void>
+
   // —— 系统集成（设置「系统集成」栏；External Open 入口） ——
   getSystemIntegration(): Promise<SystemIntegrationState>
   /** 安装 / 移除某项系统入口；失败时 ok:false 并附带最新状态 */

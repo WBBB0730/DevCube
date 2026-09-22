@@ -31,6 +31,17 @@ function initialTheme(): ThemeMode {
   }
 }
 
+/**
+ * 让 JS 侧色源跟随 prefers-color-scheme：主进程改 themeSource（任一窗口的设置弹窗都能改）后
+ * 每个窗口的 CSS 即刻翻转，这里把 store.theme 也同步过去（CodeMirror / diff 面板等按 JS 取色）。
+ */
+export function syncThemeWithSystem(): () => void {
+  const mq = window.matchMedia('(prefers-color-scheme: light)')
+  const sync = (): void => useApp.setState({ theme: mq.matches ? 'light' : 'dark' })
+  mq.addEventListener('change', sync)
+  return () => mq.removeEventListener('change', sync)
+}
+
 function initialWorkspaceSlice(): ReturnType<typeof workspaceSliceFromBootstrap> {
   try {
     return workspaceSliceFromBootstrap(window.api.getBootstrap())

@@ -38,7 +38,7 @@ DevCube 目前只能从自己的面板里添加 / 打开 **Project**（选择器
 - **外部唤起层**（一切入口的汇聚点）：
   - 单实例锁：第二实例把 argv 转发给主实例后立即退出；主实例恢复 / 聚焦窗口（Windows 托盘隐藏态先 show）。
   - deep link：scheme 按 Release Edition 分线（`devcube` / `devcube-beta`），格式仅认 `<scheme>://open?path=<绝对路径>`；macOS 由 Info.plist（electron-builder `protocols`）声明，Windows 运行时 `setAsDefaultProtocolClient`，仅打包后注册（Dev 不注册，避免抢注已安装版本）。
-  - macOS `open-file` 事件承接 Finder 快速操作与 `open -b <bundleId> <dir>`；目录同文件一样走该事件。
+  - macOS `open-file` 事件承接 Finder 快速操作、「打开方式」与 `open -b <bundleId> <路径>`；按 stat 分流——目录 → 项目语义，文件 → Preview Window（见 `file-preview-window.md`）。
   - 启动参数：跳过 flag，取存在的目录参数（相对路径按第二实例工作目录解析）。
   - 冷启动时项目在渲染层加载前登记，并把 workspace 当前项目预置为该路径（bootstrap 快照直接带出）；运行中则推送 IPC 事件，渲染端复用「添加项目后的统一收尾」（选中 + 滚入视口）。
 - **macOS 快速操作**：生成 `.workflow` bundle（Info.plist `NSServices` 收 `public.folder` + Automator「运行 Shell 脚本」执行 `open -b <bundleId> "$@"`）写入 `~/Library/Services`；移除即删目录。不用 FinderSync（见 ADR-0025）。
@@ -61,7 +61,7 @@ DevCube 目前只能从自己的面板里添加 / 打开 **Project**（选择器
 - Windows 11 新版一级右键菜单（需 IExplorerCommand COM + 稀疏 MSIX，成本远超收益）。
 - Windows / Linux 的 CLI 安装（Windows 改用户 PATH 风险大且无成熟库；Linux deb 已自带，AppImage / snap 用户自理）。
 - 全局「复制路径」类与产品无关的系统工具。
-- 打开文件（非目录）语义：所有入口只收目录。
+- 打开文件（非目录）语义已由 `file-preview-window.md` 承接：文件 → **Preview Window**，目录语义不变。
 
 ## Further Notes
 

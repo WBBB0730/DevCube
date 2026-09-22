@@ -12,7 +12,12 @@ import {
   Search,
   X
 } from 'lucide-react'
-import { pushRecentPath, type FilesDirEntry, type FilesReadResult } from '@shared/files'
+import {
+  pushRecentPath,
+  type FilesDirEntry,
+  type FilesReadResult,
+  type FilesUiState
+} from '@shared/files'
 import { flattenFilesTree } from '@shared/files-tree-flatten'
 import type { GitFileStatus } from '@shared/git'
 import { normalizePath, remapPathPrefix } from '@shared/files-path'
@@ -51,6 +56,8 @@ import { FilesEntryDialog, type FilesEntryDialogRequest } from './FilesEntryDial
 import { FilesTreeMenu, type FilesTreeMenuTarget } from './FilesTreeMenu'
 import { FilesPdfPreview } from './FilesPdfPreview'
 import { FilesToolbar, TOOLBAR_BTN } from './FilesToolbar'
+import { filterFilesTreeByType, type FilesTypeCategory } from '@shared/files-type-filter'
+import { FILES_ALL_TYPES, PreviewTypeFilterButton } from './PreviewTreeControls'
 import { relPathUnderRoot, toSysPath } from '@renderer/lib/files-paths'
 import { useFiles } from '@renderer/files-store'
 import { useApp } from '@renderer/store'
@@ -92,9 +99,9 @@ type Loaded =
   | { kind: 'other'; path: string; size: number }
   | null
 
-async function loadWorkingTreeStatus(projectPath: string): Promise<Map<string, GitFileStatus>> {
+async function loadWorkingTreeStatus(rootPath: string): Promise<Map<string, GitFileStatus>> {
   try {
-    const result = await window.api.gitDetails(projectPath, { kind: 'uncommitted' })
+    const result = await window.api.gitDetails(rootPath, { kind: 'uncommitted' })
     return result.error || !result.uncommitted
       ? new Map()
       : workingTreeStatusByPath(result.uncommitted)
@@ -103,14 +110,47 @@ async function loadWorkingTreeStatus(projectPath: string): Promise<Map<string, G
   }
 }
 
+/**
+ * 面板宿主（docs/prd/file-preview-window.md「同一个组件、两种宿主」）：
+ * - project：主窗口 Files Tab——根即 Project 根，状态按项目落盘，树菜单含「在终端中打开」。
+ * - preview：Preview Window——根可在树菜单「上一级」/「作为根目录」换、初始文件由宿主给、状态只在窗口内存，
+ *   树顶栏多「按类型筛选」（集合由宿主持有以跨换根保留）；「添加为项目 / 转到项目」在窗口顶栏与树空白区菜单各一份。
+ */
+export type FilesPaneHost =
+  | { kind: 'project' }
+  | {
+      kind: 'preview'
+      /** 初始打开的文件（已删除等无文件时 null） */
+      initialFile: string | null
+      /** 「上一级」（树空白区右键菜单）；null = 已到文件系统根 */
+      onAscend: (() => void) | null
+      /** 「添加为项目」/「转到项目」（树空白区右键菜单；窗口顶栏另有一份） */
+      onAddProject: () => void
+      projectRegistered: boolean
+      /** 当前打开文件变化（宿主上翻根时据此保留打开的文件） */
+      onOpenPathChange: (path: string | null) => void
+      /** 把某目录设为树的根（树菜单「作为根目录」） */
+      onSetRoot: (dir: string) => void
+      /** 树顶类型筛选（勾选类别集合；全选即未筛选） */
+      typeFilter: ReadonlySet<FilesTypeCategory>
+      onTypeFilterChange: (next: ReadonlySet<FilesTypeCategory>) => void
+    }
+
+const PROJECT_HOST: FilesPaneHost = { kind: 'project' }
+
 export function FilesPane({
-  projectPath,
-  visible
+  rootPath,
+  visible,
+  host = PROJECT_HOST
 }: {
-  projectPath: string
+  /** 树的根（项目根或预览窗口当前根） */
+  rootPath: string
   visible: boolean
+  host?: FilesPaneHost
 }): React.JSX.Element {
-  const rootLogical = normalizePath(projectPath)
+  const rootLogical = normalizePath(rootPath)
+  /** 只有项目宿主落盘（上次打开 / 展开 / 最近）；预览窗口是临时的 */
+  const persist = host.kind === 'project'
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [childrenByDir, setChildrenByDir] = useState<Record<string, FilesDirEntry[]>>({})
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
@@ -163,13 +203,15 @@ export function FilesPane({
 
   const [filterQuery, setFilterQuery] = useState('')
   const [filterScanning, setFilterScanning] = useState(false)
+  /** 树顶类型筛选：仅预览宿主有（由宿主持有）；项目宿主恒为全选 */
+  const typeFilter = host.kind === 'preview' ? host.typeFilter : FILES_ALL_TYPES
   const [filterView, setFilterView] = useState<{
     childrenByDir: Record<string, FilesDirEntry[]>
     expanded: Set<string>
   } | null>(null)
   const filterInputRef = useRef<HTMLInputElement>(null)
   const consumedFilterFocusNonce = useRef(0)
-  const filterFocusNonce = useFiles((s) => s.filterFocusNonceByProject[projectPath] ?? 0)
+  const filterFocusNonce = useFiles((s) => s.filterFocusNonceByProject[rootPath] ?? 0)
   const filterViewRef = useRef(filterView)
 
   useLayoutEffect(() => {
@@ -201,8 +243,12 @@ export function FilesPane({
 
   const filtering = filterQuery.trim().length > 0
   const displayChildren = useMemo(
-    () => (filtering ? (filterView?.childrenByDir ?? { [rootLogical]: [] }) : childrenByDir),
-    [childrenByDir, filterView, filtering, rootLogical]
+    () =>
+      filterFilesTreeByType(
+        filtering ? (filterView?.childrenByDir ?? { [rootLogical]: [] }) : childrenByDir,
+        typeFilter
+      ),
+    [childrenByDir, filterView, filtering, rootLogical, typeFilter]
   )
   const displayExpanded = useMemo(
     () => (filtering ? (filterView?.expanded ?? new Set([rootLogical])) : expanded),
@@ -238,22 +284,22 @@ export function FilesPane({
 
   const refreshGitStatus = useCallback(async () => {
     const seq = ++gitStatusSeqRef.current
-    const status = await loadWorkingTreeStatus(projectPath)
+    const status = await loadWorkingTreeStatus(rootPath)
     if (seq === gitStatusSeqRef.current) setStatusByRel(status)
-  }, [projectPath])
+  }, [rootPath])
 
   // Files 可见时拉未提交状态；仓库变动（含工作区 watcher）后刷新
   useEffect(() => {
     if (!visible) return
     const seq = ++gitStatusSeqRef.current
-    void loadWorkingTreeStatus(projectPath).then((status) => {
+    void loadWorkingTreeStatus(rootPath).then((status) => {
       if (seq === gitStatusSeqRef.current) setStatusByRel(status)
     })
     const dispose = window.api.onGitChanged((p) => {
-      if (p === projectPath) void refreshGitStatus()
+      if (p === rootPath) void refreshGitStatus()
     })
     return dispose
-  }, [visible, projectPath, refreshGitStatus])
+  }, [visible, rootPath, refreshGitStatus])
 
   // 打开文本文件时取 HEAD 基线（gutter diff）；提交 / 暂存等 git 变化后重取
   const openTextPath = loaded?.kind === 'text' ? loaded.path : null
@@ -262,7 +308,7 @@ export function FilesPane({
     let stale = false
     const load = (): void => {
       window.api
-        .filesHeadText(projectPath, openTextPath)
+        .filesHeadText(rootPath, openTextPath)
         .then((content) => {
           if (stale) return
           setHeadText((prev) =>
@@ -279,13 +325,13 @@ export function FilesPane({
     }
     load()
     const dispose = window.api.onGitChanged((p) => {
-      if (p === projectPath) load()
+      if (p === rootPath) load()
     })
     return () => {
       stale = true
       dispose()
     }
-  }, [visible, openTextPath, projectPath])
+  }, [visible, openTextPath, rootPath])
 
   // 打开文件 / 显式定位后滚入视口；目标行尚未进树（目录加载中）时保持挂起重试
   useLayoutEffect(() => {
@@ -301,18 +347,23 @@ export function FilesPane({
     pendingScrollPath.current = null
   }, [visible, treeVisible, selectedPath, flatRows, revealTick, rowVirtualizer])
 
-  const persistUi = useCallback(
-    (openPath: string | null, expandedPaths: string[]) => {
-      void window.api.filesSetUi(projectPath, { openPath, expandedPaths })
+  /** 落盘 UI 态（仅项目宿主）；预览窗口一律不写集中配置存储 */
+  const setUi = useCallback(
+    (patch: Partial<FilesUiState>) => {
+      if (persist) void window.api.filesSetUi(rootPath, patch)
     },
-    [projectPath]
+    [persist, rootPath]
+  )
+  const persistUi = useCallback(
+    (openPath: string | null, expandedPaths: string[]) => setUi({ openPath, expandedPaths }),
+    [setUi]
   )
 
   const flushSave = useCallback(async (): Promise<boolean> => {
     const cur = loadedRef.current
     if (!cur || cur.kind !== 'text' || !cur.dirty) return true
     try {
-      const { mtimeMs } = await window.api.filesWrite(projectPath, cur.path, cur.content)
+      const { mtimeMs } = await window.api.filesWrite(rootPath, cur.path, cur.content)
       // 同步写 ref，避免保存触发的 files:changed 仍读到旧 dirty/mtime 而误报冲突
       const next = { ...cur, dirty: false, mtimeMs }
       loadedRef.current = next
@@ -324,7 +375,7 @@ export function FilesPane({
       setSaveError(e instanceof Error ? e.message : String(e))
       return false
     }
-  }, [projectPath, refreshGitStatus])
+  }, [rootPath, refreshGitStatus])
 
   const scheduleIdleSave = useCallback(() => {
     if (idleTimer.current) clearTimeout(idleTimer.current)
@@ -348,7 +399,7 @@ export function FilesPane({
         if (seq !== openSeqRef.current) return
       }
       try {
-        const result: FilesReadResult = await window.api.filesRead(projectPath, filePath)
+        const result: FilesReadResult = await window.api.filesRead(rootPath, filePath)
         if (seq !== openSeqRef.current) return
         if (result.kind === 'text') {
           setLoaded({
@@ -391,7 +442,7 @@ export function FilesPane({
         setSaveError(null)
         const nextRecent = pushRecentPath(recentPathsRef.current, filePath)
         setRecentPaths(nextRecent)
-        void window.api.filesSetUi(projectPath, {
+        setUi({
           openPath: filePath,
           expandedPaths: [...expandedRef.current],
           recentPaths: nextRecent
@@ -404,21 +455,21 @@ export function FilesPane({
         persistUi(null, [...expandedRef.current])
       }
     },
-    [flushSave, persistUi, projectPath]
+    [flushSave, persistUi, setUi, rootPath]
   )
 
   const ensureDirLoaded = useCallback(
     async (dirPath: string): Promise<FilesDirEntry[]> => {
       const cached = childrenByDirRef.current[dirPath]
       if (cached) return cached
-      const entries = await window.api.filesListDir(projectPath, dirPath)
+      const entries = await window.api.filesListDir(rootPath, dirPath)
       const raced = childrenByDirRef.current[dirPath]
       if (raced) return raced
       childrenByDirRef.current = { ...childrenByDirRef.current, [dirPath]: entries }
       setChildrenByDir((prev) => (prev[dirPath] ? prev : { ...prev, [dirPath]: entries }))
       return entries
     },
-    [projectPath]
+    [rootPath]
   )
 
   const toggleDir = useCallback(
@@ -504,7 +555,7 @@ export function FilesPane({
       nextExpanded.add(dir)
       try {
         if (!nextChildren[dir]) {
-          nextChildren[dir] = await window.api.filesListDir(projectPath, dir)
+          nextChildren[dir] = await window.api.filesListDir(rootPath, dir)
         }
       } catch {
         nextChildren[dir] = nextChildren[dir] ?? []
@@ -533,7 +584,7 @@ export function FilesPane({
         persistUi(loadedRef.current?.path ?? null, [...expandedRef.current])
       }
     }
-  }, [filterQuery, persistUi, projectPath, rootLogical])
+  }, [filterQuery, persistUi, rootPath, rootLogical])
 
   /** 展开到目标：文件只展开祖先；目录连自身一并展开。 */
   const expandToPath = useCallback(
@@ -569,21 +620,21 @@ export function FilesPane({
     [expandToPath, persistUi]
   )
 
-  /** 看图：同一目录里上一张 / 下一张（位图 + SVG）；到头停下。 */
+  /**
+   * 看图：上一张 / 下一张（位图 + SVG）按**树里当前可见的顺序**走——跨目录，但只进已展开的目录
+   * （折叠的不自动钻），并尊重类型筛选；到头停下。
+   */
   const goAdjacentImage = useCallback(
     async (dir: -1 | 1) => {
       const cur = loadedRef.current
       if (!cur) return
       if (cur.kind !== 'image' && !(cur.kind === 'text' && isSvgPath(cur.path))) return
-      const slash = cur.path.lastIndexOf('/')
-      if (slash <= 0) return
-      const next = adjacentImagePath(await ensureDirLoaded(cur.path.slice(0, slash)), cur.path, dir)
+      const next = adjacentImagePath(flatRows, cur.path, dir)
       if (next === null) return
       if (isSvgPath(next)) setSourcePreview(true)
-      await expandToFile(next)
       await openFile(next)
     },
-    [ensureDirLoaded, expandToFile, openFile]
+    [flatRows, openFile]
   )
   const goPrevImage = useCallback(() => void goAdjacentImage(-1), [goAdjacentImage])
   const goNextImage = useCallback(() => void goAdjacentImage(1), [goAdjacentImage])
@@ -603,22 +654,18 @@ export function FilesPane({
     let cancelled = false
     const current = viewingImagePath
     void (async () => {
-      const slash = current.lastIndexOf('/')
-      if (slash <= 0) return
-      const entries = await ensureDirLoaded(current.slice(0, slash))
-      if (cancelled) return
       const urls: string[] = []
       for (const d of [-1, 1] as const) {
-        const p = adjacentImagePath(entries, current, d)
+        const p = adjacentImagePath(flatRows, current, d)
         if (!p || isSvgPath(p)) continue
         try {
-          const result = await window.api.filesRead(projectPath, p)
+          const result = await window.api.filesRead(rootPath, p)
           if (cancelled) return
           if (result.kind !== 'image') continue
           if (result.tiled) {
             // 超大位图：让主进程先把预览图与金字塔备好（命中缓存即返）
-            window.api.filesImagePreview(projectPath, p).catch(() => {})
-            window.api.filesImagePyramid(projectPath, p).catch(() => {})
+            window.api.filesImagePreview(rootPath, p).catch(() => {})
+            window.api.filesImagePyramid(rootPath, p).catch(() => {})
           } else {
             urls.push(result.mediaUrl)
           }
@@ -631,7 +678,7 @@ export function FilesPane({
     return () => {
       cancelled = true
     }
-  }, [viewingImagePath, ensureDirLoaded, projectPath])
+  }, [viewingImagePath, flatRows, rootPath])
 
   /** 在右侧文件树展开并滚到目标（不打开/切换正文，除非本来就是该文件）。 */
   const revealInTree = useCallback(
@@ -683,7 +730,7 @@ export function FilesPane({
     const timer = setTimeout(() => {
       void (async () => {
         try {
-          const result = await window.api.filesFilterTree(projectPath, q)
+          const result = await window.api.filesFilterTree(rootPath, q)
           if (cancelled || seq !== filterSeqRef.current) return
           const snap = {
             childrenByDir: result.childrenByDir,
@@ -708,16 +755,29 @@ export function FilesPane({
       cancelled = true
       clearTimeout(timer)
     }
-  }, [filterQuery, projectPath, rootLogical, visible])
+  }, [filterQuery, rootPath, rootLogical, visible])
 
-  // 首次变为可见时：恢复树展开与上次打开（pending 由下一 effect 统一消费，避免竞态）
+  // 首次变为可见时：项目宿主恢复树展开与上次打开（pending 由下一 effect 统一消费，避免竞态）；
+  // 预览宿主不读落盘态，展开到初始文件并打开（SVG 起手即图：被当图打开的就先看图）。
+  const previewInitialFile = host.kind === 'preview' ? host.initialFile : null
   useEffect(() => {
     if (!visible || ready) return
     let cancelled = false
     void (async () => {
       await ensureDirLoaded(rootLogical)
       if (cancelled) return
-      const ui = await window.api.filesGetUi(projectPath)
+      if (!persist) {
+        if (previewInitialFile) {
+          if (isSvgPath(previewInitialFile)) setSourcePreview(true)
+          await expandToFile(previewInitialFile)
+          if (cancelled) return
+          await openFile(previewInitialFile, { force: true })
+        }
+        if (cancelled) return
+        setReady(true)
+        return
+      }
+      const ui = await window.api.filesGetUi(rootPath)
       if (cancelled) return
       const exp = new Set(ui.expandedPaths.length ? ui.expandedPaths : [])
       expandedRef.current = exp
@@ -727,7 +787,7 @@ export function FilesPane({
         await ensureDirLoaded(d).catch(() => undefined)
         if (cancelled) return
       }
-      const hasPending = !!useFiles.getState().pendingOpenByProject[projectPath]
+      const hasPending = !!useFiles.getState().pendingOpenByProject[rootPath]
       if (!hasPending && ui.openPath) await openFile(ui.openPath, { force: true })
       if (cancelled) return
       setReady(true)
@@ -735,13 +795,30 @@ export function FilesPane({
     return () => {
       cancelled = true
     }
-  }, [visible, ready, ensureDirLoaded, openFile, projectPath, rootLogical])
+  }, [
+    visible,
+    ready,
+    persist,
+    previewInitialFile,
+    ensureDirLoaded,
+    expandToFile,
+    openFile,
+    rootPath,
+    rootLogical
+  ])
+
+  // 预览宿主：把当前打开文件回报给窗口壳（上翻根时据此保留打开的文件、更新标题）
+  const onOpenPathChange = host.kind === 'preview' ? host.onOpenPathChange : null
+  const openPath = loaded?.path ?? null
+  useEffect(() => {
+    if (ready) onOpenPathChange?.(openPath)
+  }, [ready, openPath, onOpenPathChange])
 
   // Git / 内容搜索等外部 pending open（ready 之后才消费）
-  const pending = useFiles((s) => s.pendingOpenByProject[projectPath])
+  const pending = useFiles((s) => s.pendingOpenByProject[rootPath])
   useEffect(() => {
     if (!ready || !pending) return
-    const req = useFiles.getState().consumePendingOpen(projectPath)
+    const req = useFiles.getState().consumePendingOpen(rootPath)
     if (!req) return
     // 不在 cleanup 里取消：consume 会立刻把 pending 置空并重跑 effect，取消会误杀本次打开。
     void (async () => {
@@ -754,7 +831,7 @@ export function FilesPane({
         setEditorJump({ path: logical, ...req.at, nonce: ++editorJumpNonce.current })
       }
     })()
-  }, [ready, pending, projectPath, expandToFile, openFile])
+  }, [ready, pending, rootPath, expandToFile, openFile])
 
   // ⌥⌘F：切到本 Tab 后聚焦文件树筛选；树隐藏时先展开再等下一拍聚焦。
   useEffect(() => {
@@ -796,7 +873,7 @@ export function FilesPane({
       await Promise.all(
         dirs.map(async (dir) => {
           try {
-            reloaded[dir] = await window.api.filesListDir(projectPath, dir)
+            reloaded[dir] = await window.api.filesListDir(rootPath, dir)
           } catch {
             reloaded[dir] = null
           }
@@ -823,7 +900,7 @@ export function FilesPane({
       const seq = ++filterSeqRef.current
       setFilterScanning(true)
       try {
-        const result = await window.api.filesFilterTree(projectPath, q)
+        const result = await window.api.filesFilterTree(rootPath, q)
         if (seq !== filterSeqRef.current) return
         const snap = {
           childrenByDir: result.childrenByDir,
@@ -849,7 +926,7 @@ export function FilesPane({
     const path = cur.path
     let fresh: FilesReadResult | null = null
     try {
-      fresh = await window.api.filesRead(projectPath, path)
+      fresh = await window.api.filesRead(rootPath, path)
     } catch {
       fresh = null
     }
@@ -862,7 +939,7 @@ export function FilesPane({
       setConflict(null)
       const nextRecent = recentPathsRef.current.filter((p) => p !== path)
       setRecentPaths(nextRecent)
-      void window.api.filesSetUi(projectPath, {
+      setUi({
         openPath: null,
         expandedPaths: [...expandedRef.current],
         recentPaths: nextRecent
@@ -899,15 +976,15 @@ export function FilesPane({
       return
     }
     if (fresh.kind !== still.kind) await openFile(path, { force: true })
-  }, [filterQuery, openFile, persistUi, projectPath, rootLogical])
+  }, [filterQuery, openFile, persistUi, setUi, rootPath, rootLogical])
 
   useEffect(() => {
     if (!ready) return
     return window.api.onFilesChanged((p) => {
-      if (p !== projectPath) return
+      if (p !== rootPath) return
       void refreshFromDisk()
     })
-  }, [ready, projectPath, refreshFromDisk])
+  }, [ready, rootPath, refreshFromDisk])
 
   /** 树行 / 空白区右键 → 打开条目菜单。 */
   const openTreeMenu = useCallback((path: string, isDirectory: boolean, e: React.MouseEvent) => {
@@ -924,7 +1001,7 @@ export function FilesPane({
     async (req: FilesEntryDialogRequest, name: string) => {
       if (req.kind === 'create-file' || req.kind === 'create-dir') {
         const entry = await window.api.filesCreate(
-          projectPath,
+          rootPath,
           req.dir,
           name,
           req.kind === 'create-dir' ? 'directory' : 'file'
@@ -944,7 +1021,7 @@ export function FilesPane({
         // 先落未保存的编辑（旧路径此刻仍在），失败则不动文件
         const saved = await flushSave()
         if (!saved) throw new Error('有未保存的更改且写入失败，已取消重命名')
-        const { path: newPath } = await window.api.filesRename(projectPath, req.path, name)
+        const { path: newPath } = await window.api.filesRename(rootPath, req.path, name)
         setEntryDialog(null)
         if (newPath === req.path) return
         const remap = (p: string): string => remapPathPrefix(p, req.path, newPath)
@@ -956,7 +1033,7 @@ export function FilesPane({
         setRecentPaths(nextRecent)
         const cur = loadedRef.current
         const openRemapped = cur === null ? null : remap(cur.path)
-        void window.api.filesSetUi(projectPath, {
+        setUi({
           openPath: openRemapped,
           expandedPaths: [...nextExpanded],
           recentPaths: nextRecent
@@ -975,7 +1052,7 @@ export function FilesPane({
         return
       }
 
-      await window.api.filesTrash(projectPath, req.path)
+      await window.api.filesTrash(rootPath, req.path)
       setEntryDialog(null)
       const gone = (p: string): boolean => p === req.path || p.startsWith(req.path + '/')
       const cur = loadedRef.current
@@ -989,7 +1066,7 @@ export function FilesPane({
         setConflict(null)
         const nextRecent = recentPathsRef.current.filter((p) => !gone(p))
         setRecentPaths(nextRecent)
-        void window.api.filesSetUi(projectPath, {
+        setUi({
           openPath: null,
           expandedPaths: [...expandedRef.current].filter((p) => !gone(p)),
           recentPaths: nextRecent
@@ -998,7 +1075,16 @@ export function FilesPane({
       setSelectedPath((prev) => (prev !== null && gone(prev) ? null : prev))
       await refreshFromDisk()
     },
-    [projectPath, refreshFromDisk, revealInTree, expandToFile, openFile, flushSave, ensureDirLoaded]
+    [
+      rootPath,
+      refreshFromDisk,
+      revealInTree,
+      expandToFile,
+      openFile,
+      flushSave,
+      ensureDirLoaded,
+      setUi
+    ]
   )
 
   const filterHint = shortcutTitle('筛选文件', SHORTCUT.filesFilter)
@@ -1088,7 +1174,7 @@ export function FilesPane({
               alt={loaded.path}
               width={loaded.width}
               height={loaded.height}
-              tiled={loaded.tiled ? { projectPath, path: loaded.path } : null}
+              tiled={loaded.tiled ? { projectPath: rootPath, path: loaded.path } : null}
               prefetch={prefetch}
               active={visible}
               onPrev={goPrevImage}
@@ -1227,6 +1313,12 @@ export function FilesPane({
               )}
             </div>
             <div className="flex shrink-0 items-center gap-0.5">
+              {host.kind === 'preview' && (
+                <PreviewTypeFilterButton
+                  typeFilter={host.typeFilter}
+                  onTypeFilterChange={host.onTypeFilterChange}
+                />
+              )}
               <button
                 type="button"
                 title="全部展开"
@@ -1341,7 +1433,16 @@ export function FilesPane({
       )}
 
       <FilesTreeMenu
-        projectPath={projectPath}
+        projectPath={rootPath}
+        terminal={host.kind === 'project'}
+        {...(host.kind === 'preview'
+          ? {
+              onSetRoot: host.onSetRoot,
+              onAscend: host.onAscend,
+              onAddProject: host.onAddProject,
+              projectRegistered: host.projectRegistered
+            }
+          : {})}
         projectRoot={rootLogical}
         menu={treeMenu}
         onClose={() => setTreeMenu(null)}

@@ -2,15 +2,20 @@
 // 虚拟 anchor（同 GitContextMenu 模式，非行级 Trigger）。排布四组：新建 → 打开（在文件夹
 // 中显示 / 其他应用打开 / 在终端中打开）→ 复制路径 → 重命名/删除（危险项垫底，同左树
 // 「移除项目」）；文件行的新建与终端按「就近」语义作用于所在目录。弹窗类请求交
-// FilesPane 统一执行，直接动作就地派发。
+// FilesPane 统一执行，直接动作就地派发。Preview Window 宿主另在「打开」组后加一组根导航：
+// 「上一级文件夹」「添加为项目 / 转到项目」（仅空白区 / 根；到文件系统根置灰）与「进入此文件夹」（目录，根自身没有），
+// 见 docs/prd/file-preview-window.md。
 import { useMemo } from 'react'
 import {
   Copy,
+  CornerLeftUp,
+  CornerRightDown,
   FilePen,
   FilePlus,
   FolderOpen,
   FolderPen,
   FolderPlus,
+  FolderSymlink,
   SquareArrowOutUpRight,
   Terminal,
   Trash2
@@ -36,11 +41,25 @@ export function FilesTreeMenu({
   projectPath,
   projectRoot,
   menu,
+  terminal = true,
+  onSetRoot,
+  onAscend,
+  onAddProject,
+  projectRegistered = false,
   onClose,
   onRequest
 }: {
   /** 项目标识（原始路径；终端会话 / Tab 归属用它） */
   projectPath: string
+  /** 是否提供「在终端中打开」（Preview Window 无 Terminal，传 false） */
+  terminal?: boolean
+  /** Preview Window：把该目录设为树的根（上翻后可再收回到子目录）；不传则无此项 */
+  onSetRoot?: (dir: string) => void
+  /** Preview Window：空白区 / 根的「上一级」；undefined = 宿主不支持，null = 已到文件系统根（置灰） */
+  onAscend?: (() => void) | null
+  /** Preview Window：空白区 / 根的「添加为项目 / 转到项目」（作用于当前根）；不传则无此项 */
+  onAddProject?: () => void
+  projectRegistered?: boolean
   /** 归一化项目根（树内逻辑路径的前缀） */
   projectRoot: string
   menu: FilesTreeMenuTarget | null
@@ -108,14 +127,62 @@ export function FilesTreeMenu({
             <SquareArrowOutUpRight className="size-4" /> 在其他应用中打开
           </ContextMenuItem>
         )}
-        <ContextMenuItem
-          onClick={() => {
-            onClose()
-            void useApp.getState().newTerminal(projectPath, nearestDir)
-          }}
-        >
-          <Terminal className="size-4" /> 在终端中打开
-        </ContextMenuItem>
+        {terminal && (
+          <ContextMenuItem
+            onClick={() => {
+              onClose()
+              void useApp.getState().newTerminal(projectPath, nearestDir)
+            }}
+          >
+            <Terminal className="size-4" /> 在终端中打开
+          </ContextMenuItem>
+        )}
+        {isRoot && onAscend !== undefined && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              disabled={onAscend === null}
+              title={onAscend === null ? '已是最顶层文件夹' : undefined}
+              onClick={() => {
+                onClose()
+                onAscend?.()
+              }}
+            >
+              <CornerLeftUp className="size-4" /> 上一级文件夹
+            </ContextMenuItem>
+            {onAddProject !== undefined && (
+              <ContextMenuItem
+                onClick={() => {
+                  onClose()
+                  onAddProject()
+                }}
+              >
+                {projectRegistered ? (
+                  <>
+                    <FolderSymlink className="size-4" /> 转到项目
+                  </>
+                ) : (
+                  <>
+                    <FolderPlus className="size-4" /> 添加为项目
+                  </>
+                )}
+              </ContextMenuItem>
+            )}
+          </>
+        )}
+        {onSetRoot !== undefined && !isRoot && (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem
+              onClick={() => {
+                onClose()
+                onSetRoot(nearestDir)
+              }}
+            >
+              <CornerRightDown className="size-4" /> 进入此文件夹
+            </ContextMenuItem>
+          </>
+        )}
         <ContextMenuSeparator />
         <ContextMenuItem onClick={() => copyText(menu.path)}>
           <Copy className="size-4" /> 复制路径

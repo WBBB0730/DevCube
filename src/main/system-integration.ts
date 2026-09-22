@@ -1,14 +1,23 @@
 import { access } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { join } from 'node:path'
 import { app } from 'electron'
 import { resolveReleaseEdition } from '../shared/release-edition'
-import type {
-  SystemIntegrationApplyResult,
-  SystemIntegrationFeature,
-  SystemIntegrationFeatureId,
-  SystemIntegrationState
+import {
+  OPEN_WITH_FEATURE_IDS,
+  isOpenWithFeatureId,
+  type SystemIntegrationApplyResult,
+  type SystemIntegrationFeature,
+  type SystemIntegrationFeatureId,
+  type SystemIntegrationState
 } from '../shared/system-integration'
+import { probeOpenWith, setOpenWithDefault } from './default-opener'
+import {
+  DEV_OPENER_APP_ID,
+  devElectronAppPath,
+  devOpenerAppPath,
+  ensureDevOpenerApp
+} from './dev-opener-app'
 import { candidateAppPaths } from './open-in-app'
 import {
   hasCodexHandler,
@@ -34,7 +43,7 @@ import {
 /** 系统集成编排：按平台列出功能、探测状态、执行安装 / 移除。状态全部实时探测不落盘。 */
 
 /** 各入口共用的注册身份：打包走 Release Edition，Dev 以「DevCube Dev」独立分线不抢注。 */
-type IntegrationProfile = {
+export type IntegrationProfile = {
   /** 入口显示名（菜单文案「在 <productName> 中打开」/ Codex label） */
   productName: string
   /** CLI 命令名 / Codex handler id（devcube / devcube-beta / devcube-dev） */
@@ -43,11 +52,18 @@ type IntegrationProfile = {
   macOpenArgs: string[]
   /** Windows 唤起命令——打包 [exe]；Dev [electron.exe, 项目入口]（第二实例把路径转发给运行中的 dev 实例） */
   windowsLaunch: string[]
+  /** macOS 文件打开方式的实体 .app：打包 = 正在运行的应用本体；Dev = 数据目录里生成的「DevCube Dev.app」小壳 */
+  macAppPath: string
+  /** 上述实体的 bundle id（打包 Edition appId；Dev 小壳 com.wbbb.devcube.dev） */
+  macBundleId: string
+  /** macOS 正在运行的 Electron.app（Dev 小壳把文件转发到它） */
+  macElectronApp: string
   /** 入口图标（png；Codex 必填、快速操作嵌入 workflow） */
   iconPath: string
 }
 
 function integrationProfile(): IntegrationProfile {
+  const macElectronApp = process.platform === 'darwin' ? devElectronAppPath() : process.execPath
   if (app.isPackaged) {
     const e = resolveReleaseEdition(app.getVersion())
     return {
@@ -55,17 +71,22 @@ function integrationProfile(): IntegrationProfile {
       name: e.executableName,
       macOpenArgs: ['-b', e.appId],
       windowsLaunch: [process.execPath],
+      macAppPath: macElectronApp,
+      macBundleId: e.appId,
+      macElectronApp,
       iconPath: join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'icon.png')
     }
   }
-  // Dev 无安装身份：mac 以 electron App bundle 路径经 `open -a` 唤起，win 以 electron.exe + 项目入口
-  const devElectronApp =
-    process.platform === 'darwin' ? resolve(process.execPath, '..', '..', '..') : process.execPath
+  // Dev 无安装身份：mac 以 electron App bundle 路径经 `open -a` 唤起，win 以 electron.exe + 项目入口；
+  // 文件打开方式另有生成的「DevCube Dev.app」小壳作实体（dev-opener-app）
   return {
     productName: 'DevCube Dev',
     name: 'devcube-dev',
-    macOpenArgs: ['-a', devElectronApp],
+    macOpenArgs: ['-a', macElectronApp],
     windowsLaunch: [process.execPath, app.getAppPath()],
+    macAppPath: devOpenerAppPath(),
+    macBundleId: DEV_OPENER_APP_ID,
+    macElectronApp,
     iconPath: join(app.getAppPath(), 'resources', 'icon.png')
   }
 }
@@ -102,17 +123,22 @@ function codexHandlerSpec(profile: IntegrationProfile): CodexHandlerSpec {
   return { ...base, command, ...(args.length > 0 ? { args } : {}) }
 }
 
-/** 当前平台可呈现的功能列表（linux 无：打开方式由 desktop entry 声明、CLI 由 deb 自带）。 */
+/** 当前平台可呈现的功能列表（linux 只有「文件打开方式」：目录打开方式由 desktop entry 声明、CLI 由 deb 自带）。 */
 function platformFeatureIds(): SystemIntegrationFeatureId[] {
-  if (process.platform === 'darwin') return ['quickAction', 'cliShim', 'codexOpenIn']
-  if (process.platform === 'win32') return ['windowsContextMenu', 'codexOpenIn']
-  return []
+  const openWith = [...OPEN_WITH_FEATURE_IDS]
+  if (process.platform === 'darwin') return ['quickAction', 'cliShim', 'codexOpenIn', ...openWith]
+  if (process.platform === 'win32') return ['windowsContextMenu', 'codexOpenIn', ...openWith]
+  return openWith
 }
 
 async function probeFeature(
   id: SystemIntegrationFeatureId,
   profile: IntegrationProfile
 ): Promise<SystemIntegrationFeature> {
+  if (isOpenWithFeatureId(id)) {
+    const probe = await probeOpenWith(id, profile)
+    return { id, mode: 'default', ...probe }
+  }
   switch (id) {
     case 'quickAction':
       return { id, available: true, enabled: await isQuickActionInstalled(profile.productName) }
@@ -165,6 +191,15 @@ export async function applySystemIntegration(
 ): Promise<SystemIntegrationApplyResult> {
   const profile = integrationProfile()
   try {
+    if (isOpenWithFeatureId(id)) {
+      if (!enable) throw new Error('默认打开方式只能设置，不能从这里取消')
+      // Dev：小壳启动时已同步，这里兜底（指纹一致即跳过）
+      if (!app.isPackaged && process.platform === 'darwin') {
+        await ensureDevOpenerApp(profile.macElectronApp)
+      }
+      await setOpenWithDefault(id, profile)
+      return { ok: true, state: await getSystemIntegrationState() }
+    }
     switch (id) {
       case 'quickAction':
         if (enable)

@@ -4,6 +4,37 @@ export type FilesOpenKind = 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'othe
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico'])
 
 /**
+ * 「文件打开方式」三类扩展名（无点、小写）：打包时的文件关联声明、设置里的设为默认、
+ * 树顶类型筛选共用同一张表，保证「设成默认的类型」恒能在 Files 面板内嵌预览。
+ * 图片含 svg（打开分流仍为 text，Files 编辑器另给编辑 ↔ 预览）；音视频只列 Chromium 可播的容器。
+ */
+export const FILES_OPEN_WITH_EXTS = {
+  image: [...IMAGE_EXT].map((e) => e.slice(1)).concat('svg'),
+  pdf: ['pdf'],
+  audio: ['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'oga'],
+  video: ['mp4', 'webm', 'ogv']
+} as const satisfies Record<string, readonly string[]>
+
+export type FilesOpenWithCategory = keyof typeof FILES_OPEN_WITH_EXTS
+
+/** 三类对应的 MIME（Linux desktop entry 声明与 xdg-mime 设默认用；与扩展名表同源维护） */
+export const FILES_OPEN_WITH_MIME: Record<FilesOpenWithCategory, readonly string[]> = {
+  image: [
+    'image/png',
+    'image/jpeg',
+    'image/gif',
+    'image/webp',
+    'image/bmp',
+    'image/x-icon',
+    'image/vnd.microsoft.icon',
+    'image/svg+xml'
+  ],
+  pdf: ['application/pdf'],
+  audio: ['audio/mpeg', 'audio/mp4', 'audio/aac', 'audio/x-wav', 'audio/flac', 'audio/ogg'],
+  video: ['video/mp4', 'video/webm', 'video/ogg']
+}
+
+/**
  * Chromium / Electron 可直接用 `<audio>` / `<video>` 播放的 MIME（不含 `; codecs=`）。
  * 探测到音视频但不在此表 → `other`（直接占位，不尝试播放）。
  */
@@ -191,7 +222,7 @@ export function isImagePreviewPath(path: string): boolean {
 }
 
 /**
- * 同一目录条目（已按树序排好）里，当前看图文件的上一张 / 下一张。
+ * 给定一串条目（同目录列表或树里拍平的可见行，皆已按树序排好），当前看图文件的上一张 / 下一张。
  * 只计入位图与 SVG；到头返回 null（不回绕）。
  */
 export function adjacentImagePath(

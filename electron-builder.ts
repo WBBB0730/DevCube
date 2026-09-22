@@ -1,6 +1,8 @@
 import { createRequire } from 'node:module'
 import type { Configuration } from 'electron-builder'
+import { existsSync } from 'node:fs'
 import { resolveReleaseEdition } from './src/shared/release-edition'
+import { FILES_OPEN_WITH_EXTS, FILES_OPEN_WITH_MIME } from './src/shared/files-kind'
 
 const { version: pkgVersion } = createRequire(import.meta.url)('./package.json') as {
   version: string
@@ -19,6 +21,12 @@ function resolveBuildVersion(version: string): string {
 const version = resolveBuildVersion(pkgVersion)
 const edition = resolveReleaseEdition(version)
 const releaseBuild = process.env.GITHUB_ACTIONS === 'true' && process.env.GITHUB_REF_TYPE === 'tag'
+
+/** macOS「设为默认打开方式」小助手（scripts/build-mac-helper.ts 产物）；缺失时不带入，设置里该行显示不可用 */
+const MAC_HELPER = 'build/mac/default-app-helper'
+const macHelperResources = existsSync(MAC_HELPER)
+  ? [{ from: MAC_HELPER, to: 'default-app-helper' }]
+  : []
 
 const config: Configuration = {
   appId: edition.appId,
@@ -54,11 +62,21 @@ const config: Configuration = {
   extraResources: [
     { from: 'node_modules/pdfjs-dist/cmaps', to: 'pdfjs/cmaps' },
     { from: 'node_modules/pdfjs-dist/standard_fonts', to: 'pdfjs/standard_fonts' },
-    { from: 'node_modules/pdfjs-dist/wasm', to: 'pdfjs/wasm' }
+    { from: 'node_modules/pdfjs-dist/wasm', to: 'pdfjs/wasm' },
+    ...macHelperResources
   ],
   // External Open deep link：scheme 按 Edition 分线（devcube / devcube-beta，ADR-0025）。
   // macOS 写入 Info.plist CFBundleURLTypes；Windows 由运行时 setAsDefaultProtocolClient 注册。
   protocols: [{ name: edition.productName, schemes: [edition.name] }],
+  // 「文件打开方式」（docs/prd/file-preview-window.md）：安装即出现在系统「打开方式」列表，
+  // 但角色 Viewer + LSHandlerRank Alternate，绝不因安装而自动成为默认；设为默认走设置里的按钮。
+  // Windows 由 NSIS 按 electron-builder 生成的 ProgID 注册；扩展名表与 Files 类型判定同源。
+  fileAssociations: [
+    { ext: [...FILES_OPEN_WITH_EXTS.image], name: 'Image', role: 'Viewer', rank: 'Alternate' },
+    { ext: [...FILES_OPEN_WITH_EXTS.pdf], name: 'PDF', role: 'Viewer', rank: 'Alternate' },
+    { ext: [...FILES_OPEN_WITH_EXTS.audio], name: 'Audio', role: 'Viewer', rank: 'Alternate' },
+    { ext: [...FILES_OPEN_WITH_EXTS.video], name: 'Video', role: 'Viewer', rank: 'Alternate' }
+  ],
   win: {
     executableName: edition.executableName,
     icon: edition.winIcon,
@@ -108,8 +126,8 @@ const config: Configuration = {
     target: ['AppImage', 'snap', 'deb'],
     maintainer: 'WBBB',
     category: 'Utility',
-    // 文件管理器「用其他应用打开」对目录可见（External Open 的 Linux 投影）
-    mimeTypes: ['inode/directory']
+    // 文件管理器「用其他应用打开」对目录可见（External Open 的 Linux 投影）；图片 / PDF / 音视频同列
+    mimeTypes: ['inode/directory', ...Object.values(FILES_OPEN_WITH_MIME).flat()]
   },
   appImage: {
     artifactName: '${name}-${version}.${ext}'

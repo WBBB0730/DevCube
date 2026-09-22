@@ -18,6 +18,7 @@ import {
   ClockArrowDown,
   ClockArrowUp,
   SquareArrowOutUpRight,
+  AppWindow,
   FilePlusCorner,
   Folder,
   FolderGit2,
@@ -1638,7 +1639,7 @@ function MoreMenu({
   )
 }
 
-/** 项目菜单项：⋮ 与右键共用（打开文件夹 / 打开于 / 新建配置 / 新建终端 / 置顶 / 移除项目）。 */
+/** 项目菜单项：⋮ 与右键共用（打开文件夹 / 打开于 / 在新窗口中打开 / 新建终端 / 新建配置 / 置顶 / 移除项目）。 */
 function ProjectMenuItems({
   projectPath,
   pinned
@@ -1699,6 +1700,10 @@ function ProjectMenuItems({
           ))}
         </DropdownMenuSubContent>
       </DropdownMenuSub>
+      {/* 以项目根开一个 Preview Window（同一根复开即聚焦），见 docs/prd/file-preview-window.md */}
+      <DropdownMenuItem onClick={() => void window.api.previewOpenRoot(projectPath)}>
+        <AppWindow className="size-4" /> 在新窗口中打开
+      </DropdownMenuItem>
       <DropdownMenuItem onClick={() => void newTerminal(projectPath)}>
         <Terminal className="size-4" /> 新建终端
       </DropdownMenuItem>

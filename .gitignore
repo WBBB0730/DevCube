@@ -10,3 +10,6 @@ scripts/out
 
 # TS 增量构建缓存
 *.tsbuildinfo
+
+# macOS 设默认小助手编译产物（scripts/build-mac-helper.ts）
+build/mac/default-app-helper

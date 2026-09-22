@@ -1,14 +1,11 @@
 import { app, BrowserWindow } from 'electron'
-import { join } from 'path'
-import { electronApp, optimizer, is } from '@electron-toolkit/utils'
-import icon from '../../resources/icon.png?asset'
-import iconWin from '../../resources/icon-win.png?asset'
+import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { handleFilesMediaProtocol, registerFilesMediaScheme } from './files-media-protocol'
 import { installAppMenu } from './app-menu'
 import { installWebContentsGuard } from './web-contents-guard'
 import { wireAppShortcuts } from './app-shortcuts'
 import { initStore } from './store'
-import { registerIpc } from './ipc'
+import { bindMainWindow, registerIpcHandlers } from './ipc'
 import { isAppQuitting, isQuitAllowed, markAppQuitting, markQuitAllowed } from './app-shutdown'
 import { killAllSessions } from './runner'
 import { closeAllProjectWatchers } from './project-watchers'
@@ -21,18 +18,21 @@ import { disposeTray, installTray } from './tray'
 import { configureUserData } from './user-data'
 import {
   argvTailStart,
+  classifyExternalPath,
   dispatchExternalOpen,
   drainPendingExternalOpens,
-  extractOpenDirs,
-  isDirectoryPath,
+  extractOpenTargets,
   parseDeepLink,
-  setExternalOpenHandler
+  setExternalOpenHandler,
+  type ExternalOpenTarget
 } from './external-open'
 import { openProjectFromExternal } from './ipc'
 import { addProjectByPath } from './projects'
 import { getAppPrefs, getWorkspaceUi, setWorkspaceUi } from './store'
-import { WINDOW_CHROME } from '../shared/theme'
 import { applyTheme } from './theme'
+import { createAppWindow } from './app-window'
+import { closeAllPreviewWatchers, openPreviewWindow } from './preview-window'
+import { devElectronAppPath, ensureDevOpenerApp } from './dev-opener-app'
 
 // 必须早于 app.ready、Store 初始化和 Chromium Session 创建，隔离 Stable / Beta / Dev。
 configureUserData(app)
@@ -46,22 +46,28 @@ if (!app.requestSingleInstanceLock()) app.exit(0)
 const deepLinkScheme = resolveReleaseEdition(app.getVersion()).name
 if (app.isPackaged) app.setAsDefaultProtocolClient(deepLinkScheme)
 
-// Finder 快速操作与 `open -b <bundleId> <目录>` 走 open-file（目录同文件一样走该事件）
+// Finder 快速操作 / 「打开方式」/ `open -b <bundleId> <路径>` 走 open-file：目录 → 项目，文件 → 预览窗口
 app.on('open-file', (event, path) => {
   event.preventDefault()
-  if (isDirectoryPath(path)) dispatchExternalOpen(path)
+  const target = classifyExternalPath(path)
+  if (target) dispatchExternalOpen(target)
 })
 app.on('open-url', (event, url) => {
   event.preventDefault()
-  const dir = parseDeepLink(url, deepLinkScheme)
-  if (dir !== null && isDirectoryPath(dir)) dispatchExternalOpen(dir)
+  const path = parseDeepLink(url, deepLinkScheme)
+  const target = path === null ? null : classifyExternalPath(path)
+  if (target) dispatchExternalOpen(target)
 })
 app.on('second-instance', (_event, argv, workingDirectory) => {
-  focusMainWindow()
   const args = argv.slice(argvTailStart(app.isPackaged))
-  for (const dir of extractOpenDirs(args, { scheme: deepLinkScheme, cwd: workingDirectory })) {
-    dispatchExternalOpen(dir)
+  const targets = extractOpenTargets(args, { scheme: deepLinkScheme, cwd: workingDirectory })
+  // 只带文件时不动主窗口（双击文件只多开一个预览窗口）；带目录或空唤起才把主窗口带到前台
+  if (targets.every((t) => t.kind === 'file') && targets.length > 0) {
+    for (const t of targets) dispatchExternalOpen(t)
+    return
   }
+  focusMainWindow()
+  for (const t of targets) dispatchExternalOpen(t)
 })
 
 // 必须在 app.ready 之前注册特权 scheme，否则渲染层无法用自定义协议播媒体。
@@ -78,78 +84,49 @@ const WINDOW_DEFAULTS = {
   minHeight: 480
 } as const
 
+let mainWindow: BrowserWindow | null = null
+
+function liveMainWindow(): BrowserWindow | null {
+  return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+}
+
 function createWindow(): BrowserWindow {
-  const placement = resolveRememberedWindowPlacement(WINDOW_DEFAULTS)
-  const chrome = WINDOW_CHROME[getAppPrefs().theme]
-  const mainWindow = new BrowserWindow({
-    width: placement.width,
-    height: placement.height,
-    ...(placement.x !== undefined && placement.y !== undefined
-      ? { x: placement.x, y: placement.y }
-      : {}),
-    minWidth: WINDOW_DEFAULTS.minWidth,
-    minHeight: WINDOW_DEFAULTS.minHeight,
-    show: false,
-    autoHideMenuBar: true,
-    backgroundColor: chrome.background,
-    titleBarStyle: 'hidden',
-    ...(process.platform === 'darwin' ? { trafficLightPosition: { x: 16, y: 12 } } : {}),
-    ...(process.platform !== 'darwin'
-      ? {
-          titleBarOverlay: {
-            color: chrome.background,
-            symbolColor: chrome.symbol,
-            height: 40
-          }
-        }
-      : {}),
-    ...(process.platform === 'linux' ? { icon } : {}),
-    ...(process.platform === 'win32' ? { icon: iconWin } : {}),
-    webPreferences: {
-      preload: join(__dirname, '../preload/index.js'),
-      sandbox: false
-    }
-  })
+  const placement = resolveRememberedWindowPlacement(WINDOW_DEFAULTS, 'main')
+  const win = createAppWindow({ placement, defaults: WINDOW_DEFAULTS })
 
   // 关窗前写入进程内记忆（macOS 点 Dock 重开时恢复；重启进程则清空）。
   // Windows：点关闭隐藏到托盘，真正退出走托盘「退出」/ before-quit。
-  mainWindow.on('close', (event) => {
-    rememberWindowPlacement(mainWindow)
+  win.on('close', (event) => {
+    rememberWindowPlacement(win, 'main')
     if (process.platform === 'win32' && !isAppQuitting()) {
       event.preventDefault()
-      mainWindow.hide()
+      win.hide()
     }
   })
 
-  mainWindow.on('ready-to-show', () => {
-    if (placement.isMaximized) mainWindow.maximize()
-    if (placement.isFullScreen) mainWindow.setFullScreen(true)
-    mainWindow.show()
+  win.on('ready-to-show', () => {
+    if (placement.isMaximized) win.maximize()
+    if (placement.isFullScreen) win.setFullScreen(true)
+    win.show()
   })
 
   // 应用快捷键：主进程 before-input-event 优先拦截（见 ADR-0013 / docs）。
-  wireAppShortcuts(mainWindow)
-
-  // HMR for renderer base on electron-vite cli.
-  // Load the remote URL for development or the local html file for production.
-  if (is.dev && process.env['ELECTRON_RENDERER_URL']) {
-    mainWindow.loadURL(process.env['ELECTRON_RENDERER_URL'])
-  } else {
-    mainWindow.loadFile(join(__dirname, '../renderer/index.html'))
-  }
-
-  return mainWindow
-}
-
-function openMainWindow(): BrowserWindow {
-  const win = createWindow()
-  registerIpc(win)
+  wireAppShortcuts(win)
   return win
 }
 
-/** 外部唤起 / 第二实例：把既有窗口带到前台（Windows 托盘隐藏态先 show），没有则重开。 */
+function openMainWindow(): BrowserWindow {
+  const existing = liveMainWindow()
+  if (existing) return existing
+  const win = createWindow()
+  mainWindow = win
+  bindMainWindow(win)
+  return win
+}
+
+/** 外部唤起 / 第二实例 / 托盘：把主窗口带到前台（Windows 托盘隐藏态先 show），没有则重开。 */
 function focusMainWindow(): void {
-  const win = BrowserWindow.getAllWindows()[0]
+  const win = liveMainWindow()
   if (!win) {
     if (app.isReady() && !isAppQuitting()) openMainWindow()
     return
@@ -157,6 +134,15 @@ function focusMainWindow(): void {
   if (win.isMinimized()) win.restore()
   win.show()
   win.focus()
+}
+
+/** 运行中的 External Open：目录 → 登记 / 聚焦项目（主窗口不在则建）；文件 → 预览窗口。 */
+function handleExternalOpen(target: ExternalOpenTarget): void {
+  if (target.kind === 'file') {
+    openPreviewWindow(target.path)
+    return
+  }
+  openProjectFromExternal(target.path)
 }
 
 app.whenReady().then(async () => {
@@ -178,26 +164,39 @@ app.whenReady().then(async () => {
   // preload sendSync 依赖此通道；必须在 createWindow / loadURL 之前。
   registerBootstrapIpc()
 
-  // 冷启动 External Open（启动参数 / 就绪前已到的 open-file）：开窗前登记并预置
-  // 当前项目，渲染端从 bootstrap 快照直接带出选中，无需事后推送。
-  const argvDirs = extractOpenDirs(process.argv.slice(argvTailStart(app.isPackaged)), {
+  // IPC handler 只注册一次且早于任何窗口：冷启动可能只开预览窗口而没有主窗口。
+  registerIpcHandlers(openMainWindow)
+
+  // 冷启动 External Open（启动参数 / 就绪前已到的 open-file）：目录在开窗前登记并预置
+  // 当前项目（渲染端从 bootstrap 快照直接带出选中，无需事后推送）；文件各开一个预览窗口。
+  // 只带文件时不建主窗口——看一张图不必拉起整个工作台。
+  const argvTargets = extractOpenTargets(process.argv.slice(argvTailStart(app.isPackaged)), {
     scheme: deepLinkScheme,
     cwd: process.cwd()
   })
-  for (const dir of [...argvDirs, ...drainPendingExternalOpens()]) {
-    if (addProjectByPath(dir) !== null) {
-      setWorkspaceUi({ ...getWorkspaceUi(), currentProjectPath: dir, selectedKey: null })
+  const targets = [...argvTargets, ...drainPendingExternalOpens()]
+  const dirs = targets.filter((t) => t.kind === 'dir')
+  const files = targets.filter((t) => t.kind === 'file')
+  for (const { path } of dirs) {
+    if (addProjectByPath(path) !== null) {
+      setWorkspaceUi({ ...getWorkspaceUi(), currentProjectPath: path, selectedKey: null })
     }
   }
 
-  openMainWindow()
+  if (files.length === 0 || dirs.length > 0) openMainWindow()
+  for (const { path } of files) openPreviewWindow(path)
   installTray(openMainWindow)
 
-  // 运行中的 External Open（第二实例 / open-file / open-url）：登记 + 推送渲染端选中。
-  setExternalOpenHandler((dir) => {
-    focusMainWindow()
-    openProjectFromExternal(dir)
-  })
+  // Dev 身份的「文件打开方式」实体：启动即同步（打包身份靠 Info.plist 声明，安装即在「打开方式」里），
+  // 指纹不变则跳过；失败只记日志，不影响启动。
+  if (!app.isPackaged && process.platform === 'darwin') {
+    ensureDevOpenerApp(devElectronAppPath()).catch((err) => {
+      console.warn('[dev-opener-app] sync failed', err)
+    })
+  }
+
+  // 运行中的 External Open（第二实例 / open-file / open-url）
+  setExternalOpenHandler(handleExternalOpen)
 
   app.on('activate', function () {
     // On macOS re-create a window when the dock icon is clicked and none are open.
@@ -216,7 +215,7 @@ async function runQuitCleanup(): Promise<void> {
   markAppQuitting()
   disposeTray()
   killAllSessions()
-  await closeAllProjectWatchers()
+  await Promise.all([closeAllProjectWatchers(), closeAllPreviewWatchers()])
   // 给原生 watcher stop 一点时间收尾，再拆 Node Environment。
   await new Promise<void>((resolve) => setTimeout(resolve, 50))
 }

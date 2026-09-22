@@ -120,7 +120,7 @@ export function Console(): React.JSX.Element {
           const visible = n.project.path === currentProjectPath && fk === activeKey
           return (
             <div key={fk} className={cn('absolute inset-0', !visible && 'hidden')}>
-              <FilesPane projectPath={n.project.path} visible={visible} />
+              <FilesPane rootPath={n.project.path} visible={visible} />
             </div>
           )
         })}

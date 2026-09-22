@@ -41,8 +41,11 @@ _Avoid_: 工作区行, WIP 行, 暂存行
 **Worktree（工作树）**：同一仓库在磁盘上的另一份检出——共享同一套提交、分支与远程，但各有自己的目录、HEAD 与暂存区。`git worktree list` 首条为**主工作树**，其余为**链接工作树**。DevCube 不把工作树当新实体：要在 DevCube 里使用某个工作树目录，就把它登记为一个 **Project**，与主工作树的 Project 并列；**Git Tab** 负责列出同仓库的全部工作树、新建与删除工作树、标注被其他工作树占用的分支，并提供前往对应 Project 的入口；新建的工作树默认放在主工作树旁的 `<主项目名>.worktrees/` 目录下。
 _Avoid_: 工作区（指工作树时）, 副本, 多检出, Linked checkout
 
-**External Open（外部唤起）**：DevCube 被系统或外部工具带着一个目录路径拉起 / 聚焦的入口统称（命令行、deep link、系统右键菜单、其他应用的 Open in 都汇于此）。语义与手动添加项目一致：未登记则登记为 **Project**，已登记则仅聚焦选中；只收目录。
+**External Open（外部唤起）**：DevCube 被系统或外部工具带着一个路径拉起 / 聚焦的入口统称（命令行、deep link、系统右键菜单、「打开方式」、其他应用的 Open in 都汇于此）。目录走「添加项目」语义：未登记则登记为 **Project**，已登记则仅聚焦选中；文件则开一个 **Preview Window**。
 _Avoid_: 协议唤起, 命令行打开, Deep link（指整个入口时）
+
+**Preview Window（预览窗口）**：DevCube 作为系统「打开方式」被带着一个**文件**拉起时开的独立窗口——就是一个根泛化了的 **Files Tab** 面板（左正文、右文件树、同一套编辑 / 预览 / 快捷键），根默认是文件所在文件夹（落在已登记 **Project** 内则取项目根）、可逐级上翻；一文件一窗、可多开、不是 Project、不是 Tab、不落盘；没有 Git Tab / Terminal / Run Session / Content Search，多一颗「添加为项目」。
+_Avoid_: 看图窗口, 独立窗口, Viewer, 预览器
 
 **Release Edition（发行身份）**：正式版或 Beta 二者之一，决定一次安装的系统身份（与另一身份可并行、数据隔离、显示名可辨），并由 semver 派生——无 prerelease 为正式版，仅 `-beta` / `-beta.N` 为 Beta。应用内更新只跟随**同一发行身份**的 GitHub Release，不跨线。
 _Avoid_: Channel（裸用）, Track, Flavor, Variant, 通道（指安装身份时）
@@ -70,7 +73,8 @@ _Avoid_: Channel（裸用）, Track, Flavor, Variant, 通道（指安装身份�
 - 工作台按项目记住激活 Tab，并全局记住当前 **Project** 与左树选中；合法记忆优先于默认激活。**默认激活 Tab**（无合法记忆 / 首次解析）：若有运行中的 **Run Session**，取 Tab 栏从左到右第一个运行中的；否则按 Tab 栏顺序（常驻下即落在 **Git Tab**）。**关闭**激活 Tab 仍回落左邻，其次右邻（不套用上述默认规则）。**Run Session** Tab 不随工作台落盘跨冷启动恢复。
 - 一个 **Git Tab** 的图谱含 0..1 个 **未提交更改行**（工作区有改动才合成）；它是该项目在 DevCube 内的提交入口。
 - 一次安装恰好属于一个 **Release Edition**；正式版只消费非 Pre-release 的 GitHub Release，Beta 只消费 Pre-release 的 GitHub Release，二者不互相升级。
-- **External Open** 的系统入口（协议、右键菜单、CLI 名）随 **Release Edition** 分线注册，双装互不抢注；一次唤起落到既有的「添加项目」语义上，不引入新的登记方式。
+- **External Open** 的系统入口（协议、右键菜单、CLI 名、文件打开方式）随 **Release Edition** 分线注册，双装互不抢注；目录唤起落到既有的「添加项目」语义上，不引入新的登记方式；文件唤起落到 **Preview Window**。
+- 一个 **Preview Window** 对应一个文件（同一文件复开即聚焦），持有一个可上翻的根；也可从主窗口项目菜单「在新窗口中打开」以某个 **Project** 根开出（无初始文件）；它的根不必是 **Project**，但「添加为项目」可把当前根按 External Open 的目录语义登记 / 聚焦。**Files Tab** 与 Preview Window 共用同一套面板能力；预览窗口的树顶栏另有「按类型筛选」，「上一级文件夹 / 进入此文件夹」在树右键菜单，「添加为项目」在其窗口顶栏与树空白区菜单。
 
 - 一个仓库恒有 1 个主 **Worktree**、0..N 个链接 **Worktree**；每个 Worktree 至多对应一个 **Project**（按目录登记），登记与否不影响它在 git 层面的存在。
 - 一条本地分支同一时刻至多被一个 **Worktree** 检出；**Git Tab** 对被其他 Worktree 占用的分支不执行检出，改为引导前往该 Worktree 对应的 **Project**（未登记则先登记）。
@@ -87,6 +91,8 @@ _Avoid_: Channel（裸用）, Track, Flavor, Variant, 通道（指安装身份�
 > **领域专家**：那就在它下面开个 **Terminal**——项目根目录里的一个自由 shell，跟任何配置都无关，想开几个开几个。关掉或 shell 自己退出，Tab 就没了；重启后仍会按你留下的名字和顺序把壳找回来，但里面是新的空 shell，上次输出不保留。它不是 **Run Session**，别混为一谈。
 > **开发者**：`web` 我天天用，想让它永远在列表最上面，哪怕按名称排序。
 > **领域专家**：给它打上 **Pin**——已置顶的项目整段浮在未置顶之上；组内仍按你选的排序排。往下滚时，置顶项目的名字行会叠在列表顶上不走（中间留一条细缝），配置行照常滚；滚到未置顶项目时，它的名字行会贴在置顶堆下面，直到被下一个项目顶走。这和「新加的项目碰巧排到最前」不是一回事。
+> **开发者**：我在 Finder 里双击一张 png，DevCube 弹了个窗口出来，但左边项目列表里没多出「下载」。
+> **领域专家**：那是 **Preview Window**——DevCube 作为「打开方式」被带着一个文件拉起时开的独立窗口，里面就是 **Files Tab** 的那套面板，根落在文件所在文件夹，能上翻、能编辑、能按类型只看图。它不是 **Project**，关掉不留痕；真要收进面板，工具栏上「添加为项目」走的就是 **External Open** 的目录语义。
 > **开发者**：我想改一下 `src/app.ts`，又不想离开这个面板去开 WebStorm。
 > **领域专家**：切到它的 **Files Tab**——和 **Git Tab** 一样常驻、不可关，排在 Git 后面。右边是项目根下的完整文件树，左边一次只开一个文件；从 Git 图谱里「打开文件」也会进这里。树上右键就能新建、重命名、删除（删除进回收站）；复制移动还是去 Finder 或 **Terminal**。
 > **开发者**：我同时装着 DevCube 和 DevCube Beta，应用内更新会不会把 Beta 升成正式版？

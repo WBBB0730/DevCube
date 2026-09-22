@@ -31,7 +31,7 @@ import {
 import { ensureImagePreview, ensureImagePyramid } from './files-image-pyramid'
 import { getFilesIndex } from './files-index'
 import { execGit, resolveRepoRoot } from './git-exec'
-import { getProjects } from './store'
+import { isGrantedFilesRoot } from './files-roots'
 
 const MAX_TEXT_BYTES = 5 * 1024 * 1024
 const IMAGE_SIZE_PROBE_BYTES = 65536
@@ -73,16 +73,15 @@ function toSys(logical: string): string {
   return path.normalize(logical.split('/').join(path.sep))
 }
 
-export function assertProjectRoot(projectPath: string): string {
-  const root = normalizePath(projectPath)
-  if (!getProjects().some((p) => normalizePath(p.path) === root)) {
-    throw new Error('项目未登记')
-  }
+/** 根须在授权表内（已登记 Project 根或 Preview Window 当前根，见 files-roots）。 */
+export function assertFilesRoot(rootPath: string): string {
+  const root = normalizePath(rootPath)
+  if (!isGrantedFilesRoot(root)) throw new Error('目录未授权')
   return root
 }
 
 function within(projectPath: string, candidate: string): string {
-  const root = assertProjectRoot(projectPath)
+  const root = assertFilesRoot(projectPath)
   const resolved = resolveWithinProject(root, candidate)
   if (!resolved) throw new Error('路径越界')
   return resolved
@@ -124,7 +123,7 @@ export async function filterFilesTreeQuery(
   projectPath: string,
   query: string
 ): Promise<FilesTreeFilterResult> {
-  const root = assertProjectRoot(projectPath)
+  const root = assertFilesRoot(projectPath)
   const q = query.trim()
   if (!q) {
     return { childrenByDir: { [root]: await listDir(projectPath, root) }, expandedPaths: [] }
@@ -155,7 +154,7 @@ export async function readFileEntry(
   projectPath: string,
   filePath: string
 ): Promise<FilesReadResult> {
-  const root = assertProjectRoot(projectPath)
+  const root = assertFilesRoot(projectPath)
   const logical = within(projectPath, filePath)
   const sys = toSys(logical)
   const st = await fs.stat(sys)
@@ -313,7 +312,7 @@ export async function renameEntry(
   newName: string
 ): Promise<{ path: string }> {
   const logical = within(projectPath, entryPath)
-  if (logical === normalizePath(projectPath)) throw new Error('不能重命名项目根目录')
+  if (logical === normalizePath(projectPath)) throw new Error('不能重命名根文件夹')
   assertEntryName(newName)
   const parent = logical.slice(0, logical.lastIndexOf('/'))
   const target = normalizePath(parent + '/' + newName)
@@ -331,7 +330,7 @@ export async function renameEntry(
 /** 移入系统回收站（可恢复；不做永久删除）。 */
 export async function trashEntry(projectPath: string, entryPath: string): Promise<void> {
   const logical = within(projectPath, entryPath)
-  if (logical === normalizePath(projectPath)) throw new Error('不能删除项目根目录')
+  if (logical === normalizePath(projectPath)) throw new Error('不能删除根文件夹')
   await shell.trashItem(toSys(logical))
 }
 

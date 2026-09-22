@@ -16,6 +16,11 @@ export const IPC = {
   windowsShellOptions: 'app:windows-shell-options',
   /** External Open：主进程登记项目后通知渲染端选中（携带 focusPath） */
   projectExternalOpen: 'project:external-open',
+  /** Preview Window：上翻根（换授权与监听）/ 把当前根登记为项目并在主窗口选中 */
+  previewSetRoot: 'preview:set-root',
+  previewAddProject: 'preview:add-project',
+  /** 主窗口项目菜单「在新窗口中打开」：以已登记项目根开一个 Preview Window */
+  previewOpenRoot: 'preview:open-root',
   /** 系统集成（设置「系统集成」栏） */
   integrationGet: 'integration:get',
   integrationApply: 'integration:apply',

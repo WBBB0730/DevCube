@@ -4,15 +4,38 @@ export const SYSTEM_INTEGRATION_FEATURE_IDS = [
   'quickAction',
   'cliShim',
   'codexOpenIn',
-  'windowsContextMenu'
+  'windowsContextMenu',
+  'openWithImage',
+  'openWithPdf',
+  'openWithAudio',
+  'openWithVideo'
 ] as const
+
+/** 「文件打开方式」四个子项（docs/prd/file-preview-window.md）：设为默认而非安装 / 移除 */
+export const OPEN_WITH_FEATURE_IDS = [
+  'openWithImage',
+  'openWithPdf',
+  'openWithAudio',
+  'openWithVideo'
+] as const
+export type OpenWithFeatureId = (typeof OPEN_WITH_FEATURE_IDS)[number]
+
+export function isOpenWithFeatureId(id: SystemIntegrationFeatureId): id is OpenWithFeatureId {
+  return (OPEN_WITH_FEATURE_IDS as readonly string[]).includes(id)
+}
 
 export type SystemIntegrationFeatureId = (typeof SYSTEM_INTEGRATION_FEATURE_IDS)[number]
 
 export interface SystemIntegrationFeature {
   id: SystemIntegrationFeatureId
   available: boolean
+  /** install 型：已安装；default 型：已是默认打开方式 */
   enabled: boolean
+  /**
+   * install：安装 / 移除开关（默认）。
+   * default：「设为默认」单向动作——macOS / Linux 直接生效；Windows 只能注册候选再由用户在系统「默认应用」页点选。
+   */
+  mode?: 'install' | 'default'
   /** 不可用时的说明（置灰 hover / 行内展示） */
   unavailableReason?: string
 }

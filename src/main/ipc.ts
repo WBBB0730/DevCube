@@ -78,7 +78,7 @@ import {
 } from './store'
 import { applyTheme } from './theme'
 import {
-  assertProjectRoot,
+  assertFilesRoot,
   createEntry,
   filterFilesTreeQuery,
   imagePreviewEntry,
@@ -125,9 +125,16 @@ import {
 } from './app-updater'
 import { confirmQuitIfNeeded } from './quit-confirm'
 import { markQuitAllowed } from './app-shutdown'
+import { isPathUnderGrantedRoot } from './files-roots'
+import { openPreviewWindowForRoot, setPreviewWindowRoot } from './preview-window'
 
 let mainWindow: BrowserWindow | null = null
-let registered = false
+/** 没有主窗口时（只开着预览窗口 / macOS 全关）由 index 提供建窗；工作台已预置当前项目 */
+let mainWindowFactory: (() => BrowserWindow) | null = null
+
+function liveMainWindow(): BrowserWindow | null {
+  return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+}
 
 /** 主动向渲染端推送最新树（供文件监听 / 自动删除等 main 侧变更使用）。 */
 export function emitTree(): void {
@@ -151,14 +158,27 @@ function emitFilesChanged(projectPath: string): void {
   }
 }
 
-/** External Open（运行中）：登记（或命中已登记）后对齐 watcher，并推送渲染端选中。 */
-export function openProjectFromExternal(path: string): void {
+/**
+ * External Open（运行中）：登记（或命中已登记）后对齐 watcher，并推送渲染端选中。
+ * 主窗口不存在时把当前项目预置进工作台再建窗（bootstrap 快照直接带出选中，不依赖事后推送）。
+ * 返回该路径是否在调用前就已登记。
+ */
+export function openProjectFromExternal(path: string): { registered: boolean } {
+  const registered = getProjects().some((p) => p.path === path)
   const focusPath = addProjectByPath(path)
-  if (focusPath === null) return
+  if (focusPath === null) return { registered }
   refreshWatchers()
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send(IPC.projectExternalOpen, focusPath)
+  const win = liveMainWindow()
+  if (win) {
+    if (win.isMinimized()) win.restore()
+    win.show()
+    win.focus()
+    win.webContents.send(IPC.projectExternalOpen, focusPath)
+  } else if (mainWindowFactory) {
+    setWorkspaceUi({ ...getWorkspaceUi(), currentProjectPath: focusPath, selectedKey: null })
+    mainWindowFactory()
   }
+  return { registered }
 }
 
 // 每项目一条原生递归监听：解析仓库根后对齐（非仓库 repoRoot=null → 探测 .git 出现）。
@@ -216,15 +236,20 @@ function refreshWatchers(): void {
   void refreshProjectWatchers()
 }
 
-export function registerIpc(win: BrowserWindow): void {
+/** 主窗口建成后绑定：运行器输出、更新推送、树推送都只面向主窗口；预览窗口不在此列。 */
+export function bindMainWindow(win: BrowserWindow): void {
   mainWindow = win
   setRunnerWindow(win)
-  startAppUpdater(win)
-  if (registered) {
-    refreshWatchers()
-    return
-  }
-  registered = true
+  startAppUpdater()
+  refreshWatchers()
+}
+
+/**
+ * 注册全部 IPC handler（进程内一次，须早于任何窗口——冷启动可能只开预览窗口而无主窗口）。
+ * `createMainWindow` 供 External Open / 「添加为项目」在没有主窗口时拉起。
+ */
+export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void {
+  mainWindowFactory = createMainWindow
   reconcileConfigs() // 启动对账：清掉关闭期间 script 已消失的引用型配置
   refreshWatchers()
 
@@ -373,17 +398,28 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(IPC.openExternal, (_e, url: string) => {
     if (isExternalLink(url)) shell.openExternal(url)
   })
-  // Git 详情面板「打开文件」→ 系统默认应用；只放行登记项目内的绝对路径。
+  // Git 详情面板「打开文件」→ 系统默认应用；只放行授权根（登记项目 / 预览窗口根）内的绝对路径。
   ipcMain.handle(IPC.openPath, (_e, path: string) => {
-    if (getProjects().some((p) => path.startsWith(p.path + '/') || path === p.path)) {
-      void shell.openPath(path)
-    }
+    if (isPathUnderGrantedRoot(path)) void shell.openPath(path)
   })
-  // 「在文件夹中显示」→ 系统文件管理器定位并选中；同样只放行登记项目内的绝对路径。
+  // 「在文件夹中显示」→ 系统文件管理器定位并选中；同样只放行授权根内的绝对路径。
   ipcMain.handle(IPC.openInFolder, (_e, path: string) => {
-    if (getProjects().some((p) => path.startsWith(p.path + '/') || path === p.path)) {
-      shell.showItemInFolder(path)
-    }
+    if (isPathUnderGrantedRoot(path)) shell.showItemInFolder(path)
+  })
+  // —— Preview Window（预览窗口） ——
+  ipcMain.handle(IPC.previewSetRoot, (e, root: unknown) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    if (!win || typeof root !== 'string') return false
+    return setPreviewWindowRoot(win, root)
+  })
+  ipcMain.handle(IPC.previewAddProject, (_e, root: unknown) => {
+    if (typeof root !== 'string') return { registered: false }
+    return openProjectFromExternal(root)
+  })
+  ipcMain.handle(IPC.previewOpenRoot, (_e, projectPath: unknown) => {
+    if (typeof projectPath !== 'string') return
+    if (!getProjects().some((p) => p.path === projectPath)) return
+    openPreviewWindowForRoot(projectPath)
   })
   // —— 系统集成（设置「系统集成」栏；状态实时探测不落盘） ——
   ipcMain.handle(IPC.integrationGet, () => getSystemIntegrationState())
@@ -444,7 +480,7 @@ export function registerIpc(win: BrowserWindow): void {
   ipcMain.handle(
     IPC.contentSearchStart,
     (_e, projectPath: string, query: string, options: ContentSearchOptions, seq: number) => {
-      startContentSearch(assertProjectRoot(projectPath), query, options, seq, (ev) => {
+      startContentSearch(assertFilesRoot(projectPath), query, options, seq, (ev) => {
         if (mainWindow && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send(IPC.contentSearchEvent, ev)
         }

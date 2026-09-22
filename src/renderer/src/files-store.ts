@@ -25,6 +25,8 @@ interface FilesStore {
   consumePendingOpen: (projectPath: string) => PendingFilesOpen | null
   /** 切到 Files Tab 并聚焦文件树筛选框（树若隐藏则先展开） */
   focusFilesFilter: (projectPath: string) => void
+  /** 只递增聚焦 nonce、不碰 Tab（Preview Window 用：根路径即键） */
+  bumpFilesFilterFocus: (rootPath: string) => void
 }
 
 export const useFiles = create<FilesStore>((set, get) => ({
@@ -51,12 +53,15 @@ export const useFiles = create<FilesStore>((set, get) => ({
     return pending
   },
   focusFilesFilter: (projectPath) => {
+    get().bumpFilesFilterFocus(projectPath)
+    useApp.getState().activateTab(projectPath, filesTabKey(projectPath))
+  },
+  bumpFilesFilterFocus: (rootPath) => {
     set((s) => ({
       filterFocusNonceByProject: {
         ...s.filterFocusNonceByProject,
-        [projectPath]: (s.filterFocusNonceByProject[projectPath] ?? 0) + 1
+        [rootPath]: (s.filterFocusNonceByProject[rootPath] ?? 0) + 1
       }
     }))
-    useApp.getState().activateTab(projectPath, filesTabKey(projectPath))
   }
 }))

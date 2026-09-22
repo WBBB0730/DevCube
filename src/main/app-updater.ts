@@ -32,7 +32,6 @@ let packaging: UpdatePackaging = 'dev'
 let phase: AppUpdatePhase = 'upToDate'
 let availableVersion: string | null = null
 let lastError: string | null = null
-let win: BrowserWindow | null = null
 let started = false
 /** 是否接线并跑检查（未包装开发与可更新包装形态为 true）。 */
 let checksEnabled = false
@@ -70,9 +69,11 @@ function buildState(): AppUpdateState {
   }
 }
 
+/** 推给全部窗口：主窗口与 Preview Window 的顶栏 / 设置弹窗共用同一份更新状态。 */
 function emit(): void {
-  if (win && !win.isDestroyed()) {
-    win.webContents.send(IPC.appUpdateState, buildState())
+  const state = buildState()
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send(IPC.appUpdateState, state)
   }
 }
 
@@ -232,8 +233,7 @@ function wireUpdater(): void {
  * 未包装开发：官方 forceDevUpdateConfig，策略同便携（只检查 / 开 Release）。
  * Linux 等仍解析为 `dev` 但已包装：本轮不启用检查。
  */
-export function startAppUpdater(mainWindow: BrowserWindow): void {
-  win = mainWindow
+export function startAppUpdater(): void {
   packaging = resolveUpdatePackaging({
     isPackaged: app.isPackaged,
     platform: process.platform,

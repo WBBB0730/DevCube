@@ -1,15 +1,18 @@
 import { useEffect, useState } from 'react'
 import type { AppUpdateState } from '@shared/app-update-state'
 import { APP_SHORTCUT_LIST } from '@shared/app-shortcut-list'
-import type {
-  SystemIntegrationFeature,
-  SystemIntegrationFeatureId,
-  SystemIntegrationState
+import {
+  OPEN_WITH_FEATURE_IDS,
+  type OpenWithFeatureId,
+  type SystemIntegrationFeature,
+  type SystemIntegrationFeatureId,
+  type SystemIntegrationState
 } from '@shared/system-integration'
+import { FILES_OPEN_WITH_EXTS } from '@shared/files-kind'
 import type { AppPrefs, WindowsShell, WindowsShellOption } from '@shared/types'
 import { DEFAULT_APP_PREFS } from '@shared/types'
 import { THEME_MODES, type ThemeMode } from '@shared/theme'
-import { LoaderCircle, TriangleAlert } from 'lucide-react'
+import { Check, Info, LoaderCircle, TriangleAlert } from 'lucide-react'
 import { SettingsModal } from '@renderer/components/SettingsModal'
 import { Button } from '@renderer/components/ui/button'
 import { DialogMask, DialogPanel } from '@renderer/components/ui/form-dialog'
@@ -45,11 +48,40 @@ const THEME_LABELS: Record<ThemeMode, string> = {
   light: '浅色'
 }
 
+/** 「文件打开方式」的四个子项类型名 */
+const OPEN_WITH_LABEL: Record<OpenWithFeatureId, string> = {
+  openWithImage: '图片',
+  openWithPdf: 'PDF',
+  openWithAudio: '音频',
+  openWithVideo: '视频'
+}
+
+/** 完整扩展名只在 `Info` 图标的 hover 里给：日常用不着，摊在版面上是噪声。 */
+function extList(category: keyof typeof FILES_OPEN_WITH_EXTS): string {
+  return FILES_OPEN_WITH_EXTS[category].map((e) => `.${e}`).join(' ')
+}
+
+/** 入口行（安装 / 移除），与「文件打开方式」一行同级并列。 */
+const ENTRY_FEATURE_IDS = ['quickAction', 'cliShim', 'codexOpenIn', 'windowsContextMenu'] as const
+
+/** 一行的文案：名字必有；说明、名字后的 `Info` hover、按钮 hover 各按需。 */
+type IntegrationRowCopy = { label: string; desc?: string; info?: string; buttonHint?: string }
+
 /** 系统集成各行文案（统一「在 X 中添加 / 安装 Y」句式；入口详情见 docs/prd/system-integration.md）。 */
 function integrationCopy(
-  state: SystemIntegrationState
-): Record<SystemIntegrationFeatureId, { label: string; desc: string }> {
+  state: SystemIntegrationState,
+  platform: string
+): Record<SystemIntegrationFeatureId, IntegrationRowCopy> {
+  // Windows 点「设为默认」只能注册候选再跳系统页；这层落差挂按钮 hover，不占版面
+  const buttonHint =
+    platform === 'win32'
+      ? `Windows 不允许程序直接改默认程序：将注册为候选并打开系统「默认应用」页，在其中选择 ${state.productName}`
+      : undefined
   return {
+    openWithImage: { label: OPEN_WITH_LABEL.openWithImage, info: extList('image'), buttonHint },
+    openWithPdf: { label: OPEN_WITH_LABEL.openWithPdf, info: extList('pdf'), buttonHint },
+    openWithAudio: { label: OPEN_WITH_LABEL.openWithAudio, info: extList('audio'), buttonHint },
+    openWithVideo: { label: OPEN_WITH_LABEL.openWithVideo, info: extList('video'), buttonHint },
     quickAction: {
       label: 'Finder',
       desc: `在 Finder 的「快速操作」中添加「在 ${state.productName} 中打开」`
@@ -112,10 +144,8 @@ export function SettingsDialog({
   const setTheme = useApp((s) => s.setTheme)
   const platform = window.electron.process.platform
   const isWin = platform === 'win32'
-  // 偏好全平台可见（主题）；其中「默认终端」仅 Windows。系统集成仅 macOS / Windows（Linux 无可开关项）。
-  const sections = SECTIONS.filter((s) =>
-    s.id === 'integration' ? isWin || platform === 'darwin' : true
-  )
+  // 偏好全平台可见（主题）；其中「默认终端」仅 Windows。系统集成全平台可见（Linux 只有「文件打开方式」）。
+  const sections = SECTIONS
 
   // Esc 分层关闭：先收错误框，再关设置。
   useEffect(() => {
@@ -149,14 +179,100 @@ export function SettingsDialog({
     void window.api.getSystemIntegration().then(setIntegration)
   }, [section])
 
+  // install 型是开关；default 型（文件打开方式）只有「设为默认」单向动作
   const toggleIntegration = async (feature: SystemIntegrationFeature): Promise<void> => {
     setIntegrationBusy(feature.id)
     setIntegrationError(null)
-    const result = await window.api.applySystemIntegration(feature.id, !feature.enabled)
+    const enable = feature.mode === 'default' ? true : !feature.enabled
+    const result = await window.api.applySystemIntegration(feature.id, enable)
     setIntegration(result.state)
     if (!result.ok) setIntegrationError(result.error)
     setIntegrationBusy(null)
   }
+
+  const renderIntegrationRow = (
+    f: SystemIntegrationFeature,
+    copy: IntegrationRowCopy
+  ): React.JSX.Element => (
+    <div key={f.id} className="flex min-h-7 items-center justify-between gap-4">
+      <div className="min-w-0 space-y-0.5">
+        <div className="text-[color:var(--fg-primary)]">{copy.label}</div>
+        {copy.desc && <div className="text-[12px] text-[color:var(--fg-muted)]">{copy.desc}</div>}
+      </div>
+      <Button
+        type="button"
+        size="sm"
+        className="relative shrink-0"
+        variant={f.enabled ? 'ghost' : 'default'}
+        disabled={!f.available || integrationBusy !== null}
+        title={f.available ? undefined : f.unavailableReason}
+        onClick={() => void toggleIntegration(f)}
+      >
+        {/* loading 时文字隐形占位保宽，spinner 居中叠加，按钮不跳宽 */}
+        <span className={integrationBusy === f.id ? 'invisible' : undefined}>
+          {f.enabled ? '移除' : '安装'}
+        </span>
+        {integrationBusy === f.id && (
+          <LoaderCircle className="absolute inset-0 m-auto size-3.5 animate-spin" />
+        )}
+      </Button>
+    </div>
+  )
+
+  /**
+   * 类型子项一行一个：**`Info` 紧跟类型名成一块、该块定宽**，按钮列随之对齐并贴左——
+   * 名字与动作分踞两端会把行拉空，聚在左侧读起来才是一组。按钮仍写着动词：「设为默认」改的是
+   * 系统级关联、且系统没有「取消默认」这个反向动作，不能退化成只写类型名、点下去就生效的开关；
+   * 完整动作在 hover 里补全。
+   */
+  const renderOpenWithRow = (
+    f: SystemIntegrationFeature,
+    copy: IntegrationRowCopy
+  ): React.JSX.Element => (
+    <div key={f.id} className="flex min-h-7 items-center gap-2">
+      {/* 名字与 ⓘ 同处一个定宽块：ⓘ 贴着名字，按钮列仍对齐 */}
+      <span className="flex w-16 shrink-0 items-center gap-1 text-foreground">
+        {copy.label}
+        {copy.info && (
+          // 完整扩展名收进 hover：行里只留类型名
+          <span
+            title={copy.info}
+            className="inline-flex cursor-default text-[color:var(--fg-disabled)] transition-colors hover:text-[color:var(--fg-icon)]"
+          >
+            <Info className="size-3.5" />
+          </span>
+        )}
+      </span>
+      {f.enabled ? (
+        // 已是默认：没有反向动作，不摆一颗按不动的按钮，改用带勾灰字
+        <div
+          title="已是默认打开程序"
+          className="flex h-7 shrink-0 items-center gap-1 px-1 text-[12px] text-[color:var(--fg-muted)]"
+        >
+          <Check className="size-3.5" />
+          默认
+        </div>
+      ) : (
+        <Button
+          type="button"
+          size="sm"
+          className="relative shrink-0"
+          disabled={!f.available || integrationBusy !== null}
+          title={
+            f.available
+              ? (copy.buttonHint ?? `把 ${copy.label}文件的默认打开程序设置为本应用`)
+              : f.unavailableReason
+          }
+          onClick={() => void toggleIntegration(f)}
+        >
+          <span className={integrationBusy === f.id ? 'invisible' : undefined}>设置</span>
+          {integrationBusy === f.id && (
+            <LoaderCircle className="absolute inset-0 m-auto size-3.5 animate-spin" />
+          )}
+        </Button>
+      )}
+    </div>
+  )
 
   const setWindowsShell = (windowsShell: WindowsShell): void => {
     const opt = shellOptions?.find((o) => o.id === windowsShell)
@@ -302,35 +418,35 @@ export function SettingsDialog({
           )}
 
           {section === 'integration' && integration && (
-            <div className="space-y-4">
-              {integration.features.map((f) => {
-                const copy = integrationCopy(integration)[f.id]
+            <div className="space-y-3">
+              {(() => {
+                const copy = integrationCopy(integration, platform)
+                const find = (
+                  id: SystemIntegrationFeatureId
+                ): SystemIntegrationFeature | undefined =>
+                  integration.features.find((f) => f.id === id)
+                const openWith = OPEN_WITH_FEATURE_IDS.map(find).filter((f) => f !== undefined)
                 return (
-                  <div key={f.id} className="flex items-center justify-between gap-4">
-                    <div className="min-w-0 space-y-0.5">
-                      <div className="text-[color:var(--fg-primary)]">{copy.label}</div>
-                      <div className="text-[12px] text-[color:var(--fg-muted)]">{copy.desc}</div>
-                    </div>
-                    <Button
-                      type="button"
-                      size="sm"
-                      className="relative"
-                      variant={f.enabled ? 'ghost' : 'default'}
-                      disabled={!f.available || integrationBusy !== null}
-                      {...(f.available ? {} : { title: f.unavailableReason })}
-                      onClick={() => void toggleIntegration(f)}
-                    >
-                      {/* loading 时文字隐形占位保宽，spinner 居中叠加，按钮不跳宽 */}
-                      <span className={integrationBusy === f.id ? 'invisible' : undefined}>
-                        {f.enabled ? '移除' : '安装'}
-                      </span>
-                      {integrationBusy === f.id && (
-                        <LoaderCircle className="absolute inset-0 m-auto size-3.5 animate-spin" />
-                      )}
-                    </Button>
-                  </div>
+                  <>
+                    {ENTRY_FEATURE_IDS.map(find).map((f) =>
+                      f ? renderIntegrationRow(f, copy[f.id]) : null
+                    )}
+                    {openWith.length > 0 && (
+                      <div className="space-y-2">
+                        <div className="min-w-0 space-y-0.5">
+                          <div className="text-[color:var(--fg-primary)]">文件打开方式</div>
+                          <div className="text-[12px] text-[color:var(--fg-muted)]">
+                            {`把 ${integration.productName} 设为这些类型文件的默认打开程序`}
+                          </div>
+                        </div>
+                        <div className="space-y-1">
+                          {openWith.map((f) => renderOpenWithRow(f, copy[f.id]))}
+                        </div>
+                      </div>
+                    )}
+                  </>
                 )
-              })}
+              })()}
             </div>
           )}
 

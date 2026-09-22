@@ -61,6 +61,9 @@ const api: RunAPI = {
   revealInFolder: (path) => ipcRenderer.invoke(IPC.openInFolder, path),
   listOpenInApps: () => ipcRenderer.invoke(IPC.openInAppList),
   openInApp: (id, projectPath) => ipcRenderer.invoke(IPC.openInApp, id, projectPath),
+  previewSetRoot: (root) => ipcRenderer.invoke(IPC.previewSetRoot, root),
+  previewAddProject: (root) => ipcRenderer.invoke(IPC.previewAddProject, root),
+  previewOpenRoot: (projectPath) => ipcRenderer.invoke(IPC.previewOpenRoot, projectPath),
   getSystemIntegration: () => ipcRenderer.invoke(IPC.integrationGet),
   applySystemIntegration: (id, enable) => ipcRenderer.invoke(IPC.integrationApply, id, enable),
 

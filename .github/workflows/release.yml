@@ -94,6 +94,10 @@ jobs:
       - name: Build
         run: pnpm exec electron-vite build
 
+      - name: Build macOS default-app helper
+        if: runner.os == 'macOS'
+        run: pnpm build:mac-helper
+
       - name: Package (macOS)
         if: runner.os == 'macOS'
         shell: bash

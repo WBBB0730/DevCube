@@ -1,6 +1,6 @@
 import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { extractOpenDirs, parseDeepLink } from './external-open'
+import { extractOpenTargets, parseDeepLink } from './external-open'
 
 describe('parseDeepLink', () => {
   it('认 <scheme>://open?path=<绝对路径>', () => {
@@ -19,30 +19,40 @@ describe('parseDeepLink', () => {
   })
 })
 
-describe('extractOpenDirs', () => {
+describe('extractOpenTargets', () => {
   // argv 路径要过 node:path 的 resolve，走的是**平台原生**语义（win32 下 '/Users/me' + 'web'
   // 解析成 `C:\Users\me\web`），所以期望值不能写死 POSIX 字面量，必须用同一个 resolve 算出来，
   // 否则这些用例只在 POSIX 上成立、在 Windows 上恒为空数组。
   const cwd = resolve('/Users/me')
   const webDir = resolve(cwd, 'web')
+  const photo = resolve(cwd, 'a.png')
   // 同一个 /tmp 有两种形态：走 argv 会被 resolve 成平台原生路径，走 deep link 则原样传出不解析。
   const tmpFromArgv = resolve(cwd, '/tmp')
   const tmpFromLink = '/tmp'
   const deps = {
-    isDirectory: (p: string) => p === webDir || p === tmpFromArgv || p === tmpFromLink
+    classify: (p: string): 'dir' | 'file' | null =>
+      p === webDir || p === tmpFromArgv || p === tmpFromLink ? 'dir' : p === photo ? 'file' : null
   }
   const opts = { scheme: 'devcube', cwd }
 
-  it('跳过 flag，相对路径按 cwd 解析，仅收存在的目录', () => {
-    expect(extractOpenDirs(['--no-sandbox', 'web', '/nope'], opts, deps)).toEqual([webDir])
+  it('跳过 flag，相对路径按 cwd 解析，仅收存在的目录与文件并标注种类', () => {
+    expect(extractOpenTargets(['--no-sandbox', 'web', 'a.png', '/nope'], opts, deps)).toEqual([
+      { kind: 'dir', path: webDir },
+      { kind: 'file', path: photo }
+    ])
   })
 
   it('deep link 参数走协议解析且不再按 cwd 拼接', () => {
-    expect(extractOpenDirs(['devcube://open?path=%2Ftmp'], opts, deps)).toEqual([tmpFromLink])
-    expect(extractOpenDirs(['other://open?path=%2Ftmp'], opts, deps)).toEqual([])
+    expect(extractOpenTargets(['devcube://open?path=%2Ftmp'], opts, deps)).toEqual([
+      { kind: 'dir', path: tmpFromLink }
+    ])
+    expect(extractOpenTargets(['other://open?path=%2Ftmp'], opts, deps)).toEqual([])
   })
 
   it('去重且保持出现顺序', () => {
-    expect(extractOpenDirs(['/tmp', 'web', '/tmp'], opts, deps)).toEqual([tmpFromArgv, webDir])
+    expect(extractOpenTargets(['/tmp', 'web', '/tmp'], opts, deps)).toEqual([
+      { kind: 'dir', path: tmpFromArgv },
+      { kind: 'dir', path: webDir }
+    ])
   })
 })

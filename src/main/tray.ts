@@ -4,19 +4,16 @@ import iconWin from '../../resources/icon-win.png?asset'
 
 let tray: Tray | null = null
 
-function showMainWindow(createIfMissing: () => BrowserWindow): void {
-  const existing = BrowserWindow.getAllWindows().find((w) => !w.isDestroyed())
-  if (!existing) {
-    createIfMissing()
-    return
-  }
-  if (existing.isMinimized()) existing.restore()
-  existing.show()
-  existing.focus()
+/** `ensureMain` 返回既有主窗口或新建（预览窗口不算主窗口，不能拿 getAllWindows 首个充数）。 */
+function showMainWindow(ensureMain: () => BrowserWindow): void {
+  const win = ensureMain()
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
 }
 
 /** 仅 Windows：系统托盘。macOS / Linux 不创建。 */
-export function installTray(createIfMissing: () => BrowserWindow): void {
+export function installTray(ensureMain: () => BrowserWindow): void {
   if (process.platform !== 'win32' || tray) return
 
   const image = nativeImage.createFromPath(iconWin)
@@ -26,7 +23,7 @@ export function installTray(createIfMissing: () => BrowserWindow): void {
     Menu.buildFromTemplate([
       {
         label: '打开主窗口',
-        click: () => showMainWindow(createIfMissing)
+        click: () => showMainWindow(ensureMain)
       },
       {
         label: '退出',
@@ -34,8 +31,8 @@ export function installTray(createIfMissing: () => BrowserWindow): void {
       }
     ])
   )
-  tray.on('click', () => showMainWindow(createIfMissing))
-  tray.on('double-click', () => showMainWindow(createIfMissing))
+  tray.on('click', () => showMainWindow(ensureMain))
+  tray.on('double-click', () => showMainWindow(ensureMain))
 }
 
 export function disposeTray(): void {

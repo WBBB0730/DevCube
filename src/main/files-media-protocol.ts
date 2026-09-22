@@ -7,7 +7,7 @@ import { parseBytesRange } from '../shared/files-media-range'
 import { normalizePath, resolveWithinProject } from '../shared/files-path'
 import { imageTilesCacheRoot } from './files-image-pyramid'
 import { isPdfjsAssetPath, pdfjsAssetMime, pdfjsAssetRoot } from './pdfjs-assets'
-import { getProjects } from './store'
+import { isGrantedFilesRoot } from './files-roots'
 
 /** 逻辑路径（/）→ 系统路径。 */
 function toSys(logical: string): string {
@@ -48,7 +48,7 @@ function fileStreamResponse(
 }
 
 /**
- * 三种来源：`p` + `f` = 已登记项目根内的文件；`t` + `f` = 瓦片金字塔缓存目录内的文件
+ * 三种来源：`p` + `f` = 授权根（已登记项目根 / 预览窗口根）内的文件；`t` + `f` = 瓦片金字塔缓存目录内的文件
  * （预览图 / 瓦片，键形状须合法）；`a` + `f` = 应用自带静态资源（PDF.js 字体映射表等，MIME 按扩展名）。
  * 都限制在各自根内，越界 403。
  */
@@ -71,13 +71,13 @@ function resolveMediaSysPath(u: URL): { sys: string; mime?: string } | { status:
   const projectPath = u.searchParams.get('p')
   if (!projectPath) return { status: 400 }
   const root = normalizePath(projectPath)
-  if (!getProjects().some((p) => normalizePath(p.path) === root)) return { status: 403 }
+  if (!isGrantedFilesRoot(root)) return { status: 403 }
   const logical = resolveWithinProject(root, rel)
   return logical ? { sys: toSys(logical) } : { status: 403 }
 }
 
 /**
- * 在 `app.ready` 之后注册一次。只放行已登记项目根内的路径与本应用的瓦片缓存。
+ * 在 `app.ready` 之后注册一次。只放行授权根内的路径与本应用的瓦片缓存。
  * 显式处理 HTTP Range（206），对齐 Electron 社区通用做法（Signal / Joplin 等）。
  * 带 CORS 头：OpenSeadragon 的 WebGL 绘制器要把瓦片 `<img crossorigin>` 传进 WebGL。
  */

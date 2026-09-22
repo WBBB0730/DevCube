@@ -1,5 +1,5 @@
 import { Menu } from '@base-ui-components/react/menu'
-import { ChevronRight } from 'lucide-react'
+import { Check, ChevronRight } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 
 const DropdownMenu = Menu.Root
@@ -70,6 +70,35 @@ function DropdownMenuItem({
   )
 }
 
+/** 多选项：点击切换勾选、菜单不关闭（类型筛选等「勾几项」场景）。 */
+function DropdownMenuCheckboxItem({
+  className,
+  children,
+  checked,
+  onCheckedChange
+}: {
+  className?: string
+  children?: React.ReactNode
+  checked: boolean
+  onCheckedChange: (checked: boolean) => void
+}): React.JSX.Element {
+  return (
+    <Menu.CheckboxItem
+      className={cn(MENU_ITEM, className)}
+      checked={checked}
+      onCheckedChange={onCheckedChange}
+      closeOnClick={false}
+    >
+      <span className="flex size-3.5 shrink-0 items-center justify-center">
+        <Menu.CheckboxItemIndicator>
+          <Check className="size-3.5" />
+        </Menu.CheckboxItemIndicator>
+      </span>
+      {children}
+    </Menu.CheckboxItem>
+  )
+}
+
 function DropdownMenuSubTrigger({
   className,
   children
@@ -134,6 +163,7 @@ export {
   DropdownMenuTrigger,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuCheckboxItem,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubTrigger,
