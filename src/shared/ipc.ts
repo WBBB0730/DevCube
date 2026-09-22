@@ -5,6 +5,12 @@ export const IPC = {
   projectAdd: 'project:add',
   projectAddByPath: 'project:add-by-path',
   projectCreate: 'project:create',
+  /** 从 Git 仓库克隆并登记：start 启动（进度经 progress 事件流式推送）、cancel 取消、
+   * check-target 探测目标目录是否可用 */
+  projectClone: 'project:clone',
+  projectCloneCancel: 'project:clone-cancel',
+  projectCloneCheckTarget: 'project:clone-check-target',
+  projectCloneProgress: 'project:clone-progress',
   projectRemove: 'project:remove',
   projectReorder: 'project:reorder',
   projectTouch: 'project:touch',
@@ -13,6 +19,10 @@ export const IPC = {
   projectSortPrefsSet: 'project:sort-prefs-set',
   appPrefsGet: 'app:prefs-get',
   appPrefsSet: 'app:prefs-set',
+  /** 通用目录选择器（不绑定项目；克隆对话框选存放位置用） */
+  pickDirectory: 'dialog:pick-directory',
+  /** 读系统剪贴板纯文本（克隆对话框预填仓库地址用） */
+  clipboardReadText: 'clipboard:read-text',
   windowsShellOptions: 'app:windows-shell-options',
   /** External Open：主进程登记项目后通知渲染端选中（携带 focusPath） */
   projectExternalOpen: 'project:external-open',

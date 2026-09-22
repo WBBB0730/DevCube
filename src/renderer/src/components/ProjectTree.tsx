@@ -172,6 +172,7 @@ export function ProjectTree(): React.JSX.Element {
   const addProject = useApp((s) => s.addProject)
   const addProjectByPath = useApp((s) => s.addProjectByPath)
   const createProject = useApp((s) => s.createProject)
+  const setCloneDialogOpen = useApp((s) => s.setCloneDialogOpen)
 
   // 拖项目时强制全部收起；松手后恢复各行原展开态（由 forceCollapsed 驱动，不改各行本地 open）。
   // 锚点用「所见视口 Y」（getBoundingClientRect，含吸顶卡住）；收起后关掉 sticky。
@@ -474,7 +475,8 @@ export function ProjectTree(): React.JSX.Element {
     clearCollapsePad()
   }
 
-  const emptyMessage = tree.length === 0 ? '拖入文件夹，或点上方 + 新建 / 添加项目' : '无匹配项目'
+  const emptyMessage =
+    tree.length === 0 ? '拖入文件夹，或点上方 + 新建 / 添加 / 克隆项目' : '无匹配项目'
 
   // 当前项目常驻吸顶（滚过自身后钉住，再往下也不走）：
   // - 未置顶：摊平钉在置顶堆下；仅「排在其后」的未置顶段顶 +1 行（其前仍用原 top，避免空一截）
@@ -692,7 +694,7 @@ export function ProjectTree(): React.JSX.Element {
           />
           <DropdownMenu>
             <DropdownMenuTrigger
-              title="新建 / 添加项目"
+              title="新建 / 添加 / 克隆项目"
               className={cn(
                 BTN,
                 'text-muted-foreground hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
@@ -703,6 +705,9 @@ export function ProjectTree(): React.JSX.Element {
             <DropdownMenuContent>
               <DropdownMenuItem onClick={createProject}>新建空项目…</DropdownMenuItem>
               <DropdownMenuItem onClick={addProject}>添加现有项目…</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setCloneDialogOpen(true)}>
+                从 Git 仓库克隆…
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>

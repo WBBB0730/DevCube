@@ -5,7 +5,7 @@
 // v1 取舍：D6（创建 Pull Request）不做（无 PR 配置契约）；D30 数据加载错误的「重试」在
 // GitPane 的 error 态，不在此处。
 import { useEffect, useMemo, useState } from 'react'
-import { Info, LoaderCircle, RotateCw, TriangleAlert } from 'lucide-react'
+import { LoaderCircle, RotateCw, TriangleAlert } from 'lucide-react'
 import {
   type GitAction,
   type GitActionResult,
@@ -36,7 +36,9 @@ import { Button } from '@renderer/components/ui/button'
 import {
   DialogMask as Mask,
   DialogPanel,
-  FormDialogShell
+  FieldRow,
+  FormDialogShell,
+  InfoIcon
 } from '@renderer/components/ui/form-dialog'
 import { Input } from '@renderer/components/ui/input'
 import { Checkbox } from '@renderer/components/ui/checkbox'
@@ -1762,14 +1764,6 @@ function dialogKey(req: GitDialogRequest): string {
 }
 
 /** ⓘ 提示图标：原生 title tooltip（项目约定，无 tooltip 组件）。 */
-function InfoIcon({ text }: { text: string }): React.JSX.Element {
-  return (
-    <span title={text} className="flex shrink-0 cursor-help items-center">
-      <Info className="size-3.5 text-muted-foreground" />
-    </span>
-  )
-}
-
 /** 通用表单渲染器：按 DialogSpec 渲染消息 + 输入 + 按钮，含 TextRef 校验与键盘处理。 */
 function DialogForm({
   spec,
@@ -2017,26 +2011,6 @@ function DialogInputRow({
 // —— 自定义表单对话框（联动 / combobox / 行内刷新等超出声明式 spec 的表单；pull/push 用） ——
 
 /** 自定义表单的字段行：标签 + 可选 ⓘ + 控件（DialogInputRow 标签包装的可组合版）。 */
-function FieldRow({
-  label,
-  info,
-  children
-}: {
-  label: string
-  info?: string
-  children: React.ReactNode
-}): React.JSX.Element {
-  return (
-    <div>
-      <div className="mb-1 flex items-center gap-1.5">
-        <span className="text-[12px] text-muted-foreground">{label}</span>
-        {info !== undefined && <InfoIcon text={info} />}
-      </div>
-      {children}
-    </div>
-  )
-}
-
 /** 行内刷新钮（分支字段旁）：对所选 remote 静默 fetch，期间转圈禁点；观感对齐输入控件。 */
 function InlineRefreshButton({
   refreshing,

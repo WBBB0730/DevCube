@@ -5,8 +5,8 @@ import { applyProjectPinned } from '../shared/project-sort'
 import { getAppPrefs, getConfigs, getProjects, setAppPrefs, setConfigs, setProjects } from './store'
 import type { Project } from '../shared/types'
 
-/** 记住所选项目文件夹的父目录，作为下次新建 / 添加项目对话框的默认位置。 */
-function rememberProjectParentDir(projectPath: string): void {
+/** 记住所选项目文件夹的父目录，作为下次新建 / 添加 / 克隆项目对话框的默认位置。 */
+export function rememberProjectParentDir(projectPath: string): void {
   setAppPrefs({ lastProjectParentDir: dirname(projectPath) })
 }
 

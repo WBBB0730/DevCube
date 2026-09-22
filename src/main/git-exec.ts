@@ -6,6 +6,7 @@
 import * as cp from 'child_process'
 import { promises as fs } from 'fs'
 import { isAbsolute, join, normalize, posix, resolve } from 'path'
+import { StringDecoder } from 'string_decoder'
 import { getResolvedShellEnv } from './shell-env'
 
 /** 行分割：兼容 \r\n / \r / \n（与 git-parse 中的常量同义，为避免层间依赖各自持有）。 */
@@ -45,6 +46,17 @@ function resolveShellEnvironment(): Promise<NodeJS.ProcessEnv> {
   return shellEnvPromise
 }
 
+/**
+ * git 子进程的环境：登录 shell 环境盖在进程自身环境之上（VS Code 扩展宿主同款合并顺序），
+ * git 的钩子 / git-lfs / 凭据助手都按用户终端里的 PATH 找。
+ * GIT_TERMINAL_PROMPT=0：防止任何命令意外等待终端输入（读取类命令全部离线）。
+ * GIT_EDITOR=true：会拉编辑器的命令（rebase/cherry-pick/revert --continue 等）
+ * 直接零修改退出、git 用默认信息——应用内 git 永不交互，交互式变基走 Terminal 不经此处。
+ */
+function gitEnv(shellEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  return { ...process.env, ...shellEnv, GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true' }
+}
+
 /** spawn 一个进程并收集输出；永不 reject（结束以 close 事件为准，此时 stdio 已收集完）。 */
 async function run(file: string, args: string[], cwd?: string): Promise<GitExecResult> {
   const shellEnv = await resolveShellEnvironment()
@@ -66,15 +78,7 @@ async function run(file: string, args: string[], cwd?: string): Promise<GitExecR
     }
     let child: cp.ChildProcess
     try {
-      child = cp.spawn(file, args, {
-        cwd,
-        // 登录 shell 环境盖在进程自身环境之上（VS Code 扩展宿主同款合并顺序），git 的钩子 /
-        // git-lfs / 凭据助手都按用户终端里的 PATH 找。
-        // GIT_TERMINAL_PROMPT=0：防止任何命令意外等待终端输入（读取类命令全部离线）。
-        // GIT_EDITOR=true：会拉编辑器的命令（rebase/cherry-pick/revert --continue 等）
-        // 直接零修改退出、git 用默认信息——应用内 git 永不交互，交互式变基走 Terminal 不经此处
-        env: { ...process.env, ...shellEnv, GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true' }
-      })
+      child = cp.spawn(file, args, { cwd, env: gitEnv(shellEnv) })
     } catch (e) {
       // spawn 同步抛错（参数非法等）也不外抛，统一走结果对象
       error = e as Error
@@ -169,6 +173,73 @@ export async function execGit(cwd: string, args: string[]): Promise<GitExecResul
     if (rediscovered) return run(rediscovered.path, args, cwd)
   }
   return result
+}
+
+/** 一次流式 git 执行：进程已起，done 在结束时收口（永不 reject），cancel 可中途终止。 */
+export interface GitStreamRun {
+  /** 取消：SIGTERM —— git 自己注册了信号清理，会删掉它中途创建的产物 */
+  cancel: () => void
+  done: Promise<GitExecResult>
+}
+
+/**
+ * 流式执行一条 git 命令（长任务专用，如 clone）：stderr 按块实时回调，
+ * 同时照常累积进完整结果。与 execGit 共用 git 发现与环境，但不做 ENOENT 重试
+ * ——长任务重来一遍代价太大，直接把失败交给调用方。
+ */
+export async function execGitStreaming(
+  cwd: string,
+  args: string[],
+  onStderr: (chunk: string) => void
+): Promise<GitStreamRun> {
+  const git = await findGit()
+  if (!git) {
+    return {
+      cancel: () => {},
+      done: Promise.resolve({
+        code: -1,
+        stdout: Buffer.alloc(0),
+        stderr: '',
+        error: new Error('未找到 git，请安装或将其加入 PATH')
+      })
+    }
+  }
+  const shellEnv = await resolveShellEnvironment()
+  let child: cp.ChildProcess
+  try {
+    child = cp.spawn(git.path, args, { cwd, env: gitEnv(shellEnv) })
+  } catch (e) {
+    return {
+      cancel: () => {},
+      done: Promise.resolve({ code: -1, stdout: Buffer.alloc(0), stderr: '', error: e as Error })
+    }
+  }
+  const stdoutChunks: Buffer[] = []
+  let stderrText = ''
+  let error: Error | null = null
+  child.stdout?.on('data', (chunk: Buffer) => stdoutChunks.push(chunk))
+  // 流式解码：多字节字符可能被 chunk 边界劈开，StringDecoder 缓存半个字符到下一 chunk
+  const decoder = new StringDecoder('utf8')
+  child.stderr?.on('data', (chunk: Buffer) => {
+    const text = decoder.write(chunk)
+    if (text === '') return
+    stderrText += text
+    onStderr(text)
+  })
+  const done = new Promise<GitExecResult>((resolve) => {
+    let settled = false
+    const finish = (code: number): void => {
+      if (settled) return
+      settled = true
+      resolve({ code, stdout: Buffer.concat(stdoutChunks), stderr: stderrText, error })
+    }
+    child.on('error', (e) => {
+      error = e
+      if (child.pid === undefined) finish(-1)
+    })
+    child.on('close', (code) => finish(code ?? -1))
+  })
+  return { cancel: () => child.kill('SIGTERM'), done }
 }
 
 /** 从执行结果提炼展示给用户的错误消息：stderr 在前、stdout 在后拼接，无条件丢掉最后一段

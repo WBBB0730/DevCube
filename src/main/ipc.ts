@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, shell } from 'electron'
+import { ipcMain, BrowserWindow, clipboard, shell } from 'electron'
 import { IPC } from '../shared/ipc'
 import { configKey } from '../shared/runnable'
 import { isOpenInAppId } from '../shared/open-in-app'
@@ -9,10 +9,12 @@ import type { DiscoverSource } from '../shared/discover-source'
 import type {
   AppPrefs,
   CommandRunConfig,
+  ProjectCloneResult,
   ProjectSortPrefs,
   RunTarget,
   WindowsShellOption
 } from '../shared/types'
+import { resolveClonePath, type GitCloneInput } from '../shared/git-clone'
 import { listOpenInApps, openInApp } from './open-in-app'
 import {
   resolveRepoSettings,
@@ -33,10 +35,12 @@ import {
   updateCommandConfig
 } from './configs'
 import { pickDirectory } from './dialogs'
+import { cancelClone, checkCloneTarget, runClone } from './git-clone'
 import {
   addProjectByPath,
   createAndAddProject,
   pickAndAddProject,
+  rememberProjectParentDir,
   removeProject,
   reorderProjects,
   setProjectPinned,
@@ -275,6 +279,30 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     return { tree: buildTree(), focusPath }
   })
 
+  ipcMain.handle(
+    IPC.projectClone,
+    async (_e, input: GitCloneInput): Promise<ProjectCloneResult> => {
+      const outcome = await runClone(input, (progress) => {
+        if (mainWindow && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send(IPC.projectCloneProgress, progress)
+        }
+      })
+      if (outcome.status !== 'ok') return outcome
+      // 克隆成功：与其余三条登记路径同一收口（登记 + 对齐监听 + 记住父目录）
+      const focusPath = addProjectByPath(outcome.path)
+      if (focusPath === null) return { status: 'error', message: '克隆完成，但目录无法登记为项目' }
+      rememberProjectParentDir(outcome.path)
+      refreshWatchers()
+      return { status: 'ok', tree: buildTree(), focusPath }
+    }
+  )
+
+  ipcMain.handle(IPC.projectCloneCancel, () => cancelClone())
+
+  ipcMain.handle(IPC.projectCloneCheckTarget, (_e, parentDir: string, name: string) =>
+    checkCloneTarget(resolveClonePath(parentDir, name))
+  )
+
   ipcMain.handle(IPC.projectRemove, (_e, path: string) => {
     // 先销毁该项目名下所有会话（杀进程树 + 清状态），再移除项目。
     for (const config of getConfigs().filter((c) => c.projectPath === path)) {
@@ -318,6 +346,10 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     if (patch.theme !== undefined) applyTheme(merged.theme)
     return merged
   })
+  ipcMain.handle(IPC.pickDirectory, (_e, defaultPath?: string) =>
+    pickDirectory(defaultPath, mainWindow)
+  )
+  ipcMain.handle(IPC.clipboardReadText, () => clipboard.readText())
   ipcMain.handle(IPC.windowsShellOptions, (): WindowsShellOption[] => [
     { id: 'git-bash', available: findGitBash() !== null },
     { id: 'powershell', available: true },

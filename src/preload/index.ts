@@ -20,6 +20,11 @@ const api: RunAPI = {
   addProject: () => ipcRenderer.invoke(IPC.projectAdd),
   addProjectByPath: (path) => ipcRenderer.invoke(IPC.projectAddByPath, path),
   createProject: () => ipcRenderer.invoke(IPC.projectCreate),
+  cloneProject: (input) => ipcRenderer.invoke(IPC.projectClone, input),
+  cancelProjectClone: () => ipcRenderer.invoke(IPC.projectCloneCancel),
+  checkCloneTarget: (parentDir, name) =>
+    ipcRenderer.invoke(IPC.projectCloneCheckTarget, parentDir, name),
+  onProjectCloneProgress: (cb) => subscribe(IPC.projectCloneProgress, cb),
   removeProject: (path) => ipcRenderer.invoke(IPC.projectRemove, path),
   reorderProjects: (orderedPaths) => ipcRenderer.invoke(IPC.projectReorder, orderedPaths),
   touchProject: (path) => ipcRenderer.invoke(IPC.projectTouch, path),
@@ -28,6 +33,8 @@ const api: RunAPI = {
   setProjectSortPrefs: (patch) => ipcRenderer.invoke(IPC.projectSortPrefsSet, patch),
   getAppPrefs: () => ipcRenderer.invoke(IPC.appPrefsGet),
   setAppPrefs: (patch) => ipcRenderer.invoke(IPC.appPrefsSet, patch),
+  pickDirectory: (defaultPath) => ipcRenderer.invoke(IPC.pickDirectory, defaultPath),
+  readClipboardText: () => ipcRenderer.invoke(IPC.clipboardReadText),
   getWindowsShellOptions: () => ipcRenderer.invoke(IPC.windowsShellOptions),
 
   run: (target: RunTarget) => ipcRenderer.invoke(IPC.run, target),

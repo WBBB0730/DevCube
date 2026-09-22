@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ProjectTree } from '@renderer/components/ProjectTree'
 import { Console } from '@renderer/components/Console'
+import { CloneProjectDialog } from '@renderer/components/CloneProjectDialog'
 import { ConfigDialog } from '@renderer/components/ConfigDialog'
 import { ContentSearchPanel } from '@renderer/components/ContentSearchPanel'
 import { AppTitleBar } from '@renderer/components/AppTitleBar'
@@ -124,6 +125,7 @@ function App(): React.JSX.Element {
 
   const currentProjectPath = useApp((s) => s.currentProjectPath)
   const contentSearchOpen = useApp((s) => s.contentSearchOpen)
+  const cloneDialogOpen = useApp((s) => s.cloneDialogOpen)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [update, setUpdate] = useState<AppUpdateState | null>(null)
 
@@ -181,6 +183,7 @@ function App(): React.JSX.Element {
         <Console />
       </div>
       {dialog.open && <ConfigDialog key={dialog.config?.id ?? 'new'} />}
+      {cloneDialogOpen && <CloneProjectDialog />}
       {contentSearchOpen && currentProjectPath && (
         <ContentSearchPanel
           key={currentProjectPath}

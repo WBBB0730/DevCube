@@ -3,6 +3,7 @@ import type {
   CommandRunConfig,
   DiscoverSource,
   ProjectAddResult,
+  ProjectCloneResult,
   ProjectNode,
   ProjectSortPrefs,
   RunConfig,
@@ -11,6 +12,7 @@ import type {
   SessionStatus
 } from '@shared/types'
 import { DEFAULT_PROJECT_SORT_PREFS } from '@shared/types'
+import type { GitCloneInput } from '@shared/git-clone'
 import type { ThemeMode } from '@shared/theme'
 import { configKey, filesTabKey, gitTabKey, isResidentTabKey } from '@shared/runnable'
 import { cycleProjectSort } from '@shared/project-sort'
@@ -217,6 +219,8 @@ interface AppState {
   scrollToProjectPath: string | null
   /** 内容搜索面板开关（⌘⇧F / Ctrl+Shift+F；作用于当前项目） */
   contentSearchOpen: boolean
+  /** 「从 Git 仓库克隆」对话框开关（同一时刻只允许一个克隆，故对话框亦单例） */
+  cloneDialogOpen: boolean
   setTree: (tree: ProjectNode[]) => void
   setSession: (s: SessionState) => void
   /** 会话被销毁（关 Tab / shell 退出 / 删除配置或项目 / 对账）：清状态、删终端 Tab、修激活 Tab */
@@ -242,6 +246,8 @@ interface AppState {
   /** External Open：主进程已登记，选中并滚入视口（收尾同 addProjectByPath） */
   openExternalProject: (focusPath: string) => Promise<void>
   createProject: () => Promise<void>
+  /** 克隆仓库并登记；成功后收尾同 addProjectByPath。终局原样返回给对话框展示 */
+  cloneProject: (input: GitCloneInput) => Promise<ProjectCloneResult>
   removeProject: (path: string) => Promise<void>
   /** 重排项目列表（自定义排序落盘） */
   reorderProjects: (orderedPaths: string[]) => Promise<void>
@@ -257,6 +263,7 @@ interface AppState {
   /** 聚焦左树项目筛选框 */
   focusProjectFilter: () => void
   setContentSearchOpen: (open: boolean) => void
+  setCloneDialogOpen: (open: boolean) => void
   clearScrollToProjectPath: () => void
   run: (target: RunTarget, key: string, projectPath: string) => Promise<void>
   stop: (key: string) => Promise<void>
@@ -303,6 +310,7 @@ export const useApp = create<AppState>((set, get) => ({
   projectFilterFocusNonce: 0,
   scrollToProjectPath: null,
   contentSearchOpen: false,
+  cloneDialogOpen: false,
   setTree: (tree) => set({ tree }),
   setSession: (s) => set((state) => ({ sessions: { ...state.sessions, [s.key]: s } })),
   handleSessionRemoved: (key) => {
@@ -422,6 +430,16 @@ export const useApp = create<AppState>((set, get) => ({
   createProject: async () => {
     await applyAddedProject(set, get, () => window.api.createProject())
   },
+  cloneProject: async (input) => {
+    const result = await window.api.cloneProject(input)
+    if (result.status === 'ok') {
+      await applyAddedProject(set, get, async () => ({
+        tree: result.tree,
+        focusPath: result.focusPath
+      }))
+    }
+    return result
+  },
   removeProject: async (path) => {
     const tree = await window.api.removeProject(path)
     // 该项目的会话/终端已由 main 销毁（逐个 sessionRemoved）；这里清掉指向它的当前项目与激活项。
@@ -471,6 +489,7 @@ export const useApp = create<AppState>((set, get) => ({
     set((state) => ({ projectFilterFocusNonce: state.projectFilterFocusNonce + 1 })),
   clearScrollToProjectPath: () => set({ scrollToProjectPath: null }),
   setContentSearchOpen: (open) => set({ contentSearchOpen: open }),
+  setCloneDialogOpen: (open) => set({ cloneDialogOpen: open }),
   run: async (target, key, projectPath) => {
     // 运行即选中该配置、聚焦（即将出现的）其 Tab，并为该会话 +1 运行序号（重跑清屏回填与聚焦）。
     const switched = get().currentProjectPath !== projectPath

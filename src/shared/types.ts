@@ -10,6 +10,7 @@ import type { FilesDirEntry, FilesReadResult, FilesUiState } from './files'
 import type { FilesImagePreview, FilesImagePyramid } from './files-image-tiles'
 import type { FilesTreeFilterResult } from './files-tree-search'
 import type { GitAPI, GitRepoSettings, GitViewPrefs } from './git'
+import type { GitCloneInput, GitCloneProgress, GitCloneTargetState } from './git-clone'
 import type { OpenInAppId, OpenInAppResult, OpenInAppStatus } from './open-in-app'
 import type { RendererBootstrap } from './renderer-bootstrap'
 import type {
@@ -158,6 +159,12 @@ export interface ProjectAddResult {
   focusPath: string | null
 }
 
+/** 克隆的结果：成功即已登记为项目（树 + 聚焦路径同上），否则给出取消 / 报错。 */
+export type ProjectCloneResult =
+  | { status: 'ok'; tree: ProjectNode[]; focusPath: string }
+  | { status: 'canceled' }
+  | { status: 'error'; message: string }
+
 export type SessionStatus = 'running' | 'exited' | 'failed'
 
 /** 运行目标：一条探测脚本，或一条已保存配置。 */
@@ -218,6 +225,13 @@ export interface RunAPI extends GitAPI {
   addProjectByPath(path: string): Promise<ProjectAddResult>
   /** 打开系统保存面板新建项目文件夹并登记；取消则 focusPath 为 null */
   createProject(): Promise<ProjectAddResult>
+  /** 克隆仓库并登记为项目；进度经 onProjectCloneProgress 推送，同一时刻只允许一个 */
+  cloneProject(input: GitCloneInput): Promise<ProjectCloneResult>
+  /** 取消进行中的克隆（cloneProject 随后以 canceled 收口） */
+  cancelProjectClone(): Promise<void>
+  /** 探测克隆目标目录：不存在 / 空目录 / 被占用 */
+  checkCloneTarget(parentDir: string, name: string): Promise<GitCloneTargetState>
+  onProjectCloneProgress(cb: (progress: GitCloneProgress) => void): () => void
   removeProject(path: string): Promise<ProjectNode[]>
   /** 重排项目列表顺序（自定义排序的落盘顺序） */
   reorderProjects(orderedPaths: string[]): Promise<ProjectNode[]>
@@ -229,6 +243,10 @@ export interface RunAPI extends GitAPI {
   setProjectSortPrefs(patch: Partial<ProjectSortPrefs>): Promise<ProjectSortPrefs>
   getAppPrefs(): Promise<AppPrefs>
   setAppPrefs(patch: Partial<AppPrefs>): Promise<AppPrefs>
+  /** 通用目录选择器（不绑定项目）；取消返回 null */
+  pickDirectory(defaultPath?: string): Promise<string | null>
+  /** 系统剪贴板纯文本 */
+  readClipboardText(): Promise<string>
   /** Windows：列出 shell 选项及是否可用（非 win32 仍可调用，git-bash 通常为 false） */
   getWindowsShellOptions(): Promise<WindowsShellOption[]>
 
