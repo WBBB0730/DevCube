@@ -19,6 +19,8 @@ export const IPC = {
   projectSortPrefsSet: 'project:sort-prefs-set',
   appPrefsGet: 'app:prefs-get',
   appPrefsSet: 'app:prefs-set',
+  /** 主进程 → 全部窗口：应用偏好已变（任一窗口的设置弹窗改的） */
+  appPrefsChanged: 'app:prefs-changed',
   /** 通用目录选择器（不绑定项目；克隆对话框选存放位置用） */
   pickDirectory: 'dialog:pick-directory',
   /** 读系统剪贴板纯文本（克隆对话框预填仓库地址用） */

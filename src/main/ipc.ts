@@ -344,6 +344,10 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     const merged = setAppPrefs(patch)
     // 主题改动即时落到原生侧（themeSource 驱动渲染层 prefers-color-scheme，无需重启窗口）。
     if (patch.theme !== undefined) applyTheme(merged.theme)
+    // 推给全部窗口：主窗口与 Preview Window 的设置弹窗都能改，JS 侧读的偏好（自动获取）各窗口同步
+    for (const w of BrowserWindow.getAllWindows()) {
+      if (!w.isDestroyed()) w.webContents.send(IPC.appPrefsChanged, merged)
+    }
     return merged
   })
   ipcMain.handle(IPC.pickDirectory, (_e, defaultPath?: string) =>
@@ -569,8 +573,8 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     async (_e, projectPath: string, action: GitAction, opts?: { silent?: boolean }) => {
       const result = await runGitAction(projectPath, action)
       if (action.kind === 'init') {
-        // init 会改变仓库根（非仓库 → 仓库）：显式重验 + 对齐 watcher 形态。不能依赖探测
-        // watcher 的事件——动作执行期间（含余震窗口）watcher 静音，事件会被丢弃
+        // init 会改变仓库根（非仓库 → 仓库）：显式重验 + 对齐 watcher 形态。不等探测
+        // watcher 的事件——动作执行期间（含余震窗口）它挂起，转闲才补发，界面会慢一拍
         await revalidateRepoRoot(projectPath)
         await refreshProjectWatchers()
       }

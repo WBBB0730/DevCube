@@ -70,15 +70,18 @@ export interface AppPrefs {
   theme: ThemeMode
   /** 上次新建 / 添加项目时，所选项目文件夹的父目录，作为下次对话框的默认位置。 */
   lastProjectParentDir?: string
+  /** 自动获取远程更新：Git Tab 到前台时、以及定时对当前项目做一次「刷新」（fetch + 软重载） */
+  gitAutoFetch: boolean
 }
 
 export const WINDOWS_SHELLS: readonly WindowsShell[] = ['git-bash', 'powershell', 'cmd']
 
-/** shell 默认 Git Bash，探测不到时运行时回退 PowerShell（见 ADR-0022）；主题默认深色。 */
+/** shell 默认 Git Bash，探测不到时运行时回退 PowerShell（见 ADR-0022）；主题默认深色；自动获取默认开。 */
 export const DEFAULT_APP_PREFS: AppPrefs = {
   windowsShell: 'git-bash',
   theme: 'dark',
-  lastProjectParentDir: undefined
+  lastProjectParentDir: undefined,
+  gitAutoFetch: true
 }
 
 /** Windows shell 选项及本机是否可用（供设置页置灰不可选项）。 */
@@ -243,6 +246,7 @@ export interface RunAPI extends GitAPI {
   setProjectSortPrefs(patch: Partial<ProjectSortPrefs>): Promise<ProjectSortPrefs>
   getAppPrefs(): Promise<AppPrefs>
   setAppPrefs(patch: Partial<AppPrefs>): Promise<AppPrefs>
+  onAppPrefsChanged(cb: (prefs: AppPrefs) => void): () => void
   /** 通用目录选择器（不绑定项目）；取消返回 null */
   pickDirectory(defaultPath?: string): Promise<string | null>
   /** 系统剪贴板纯文本 */

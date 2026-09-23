@@ -3,26 +3,30 @@
 // chokidar 在 Windows 上逐目录挂 fs.watch 拖垮主进程。
 //
 // 通道划分在 classify 纯函数里完成；git 工作区是否刷新仍经 git check-ignore
-// （零硬编码生态目录）。discovery / files / git 共用同一条订阅。
+// （零硬编码生态目录）。discovery / files / git 共用同一条订阅与同一轮调度（见 schedule）。
 // 链接工作树（`.git` 为文件、refs 与各工作树 HEAD 都在主仓库的公共 gitdir 里）再加一条
 // 只驱动 git 通道的公共 gitdir 订阅；主工作树的公共 gitdir 就在监听根内，不需要。
-// Git 写动作期间（含余震）整条订阅静音，避免动作自身事件打到任一通道。
+// 该仓库有写动作排队 / 执行中（含余震）时，到点的通知挂起不发，转闲后补发一次——
+// 不与动作抢锁，也不丢动作期间的外部变化。
 
 import parcelWatcher, { type AsyncSubscription, type Event } from '@parcel/watcher'
 import { isAppQuitting } from './app-shutdown'
-import { isGitActionRunning } from './git-actions'
-import { execGit, type GitDirs } from './git-exec'
+import { isRepoBusy, onRepoIdle } from './git-actions'
+import { execGit, repoKeyOf, type GitDirs } from './git-exec'
 import {
   classifyCommonDirPath,
   classifyWatchPathAll,
   isPathInside,
   resolveWatchRoot
 } from './project-watch-classify'
-
-const FILES_DEBOUNCE_MS = 750
-const GIT_DEBOUNCE_MS = 750
-/** 防抖窗口内待 check-ignore 的路径上限；超过则本轮直接刷新。 */
-const PENDING_PATHS_MAX = 200
+import {
+  addWatchChange,
+  emptyPending,
+  hasPending,
+  markRescan,
+  watchFlushDelay,
+  type PendingChanges
+} from './project-watch-schedule'
 
 export type ProjectWatchHandlers = {
   onDiscoveryChange: () => void
@@ -37,22 +41,26 @@ export interface ProjectWatchTarget {
   gitDirs: GitDirs | null
 }
 
-/** git 防抖桶：强制刷新（meta/probe）或待 check-ignore 的工作区相对路径。 */
-type GitPending = { mode: 'force' } | { mode: 'paths'; paths: Set<string> }
-
 interface ProjectWatcherEntry {
   projectPath: string
   repoRoot: string | null
+  /** 与写动作队列同键：该仓库忙时本项目的通知挂起 */
+  repoKey: string
   watchRoot: string
   /** 链接工作树额外盯的公共 gitdir；主工作树 / 非仓库为 null */
   commonDir: string | null
   gitDir: string | null
+  handlers: ProjectWatchHandlers
   subscription: AsyncSubscription | null
   commonSubscription: AsyncSubscription | null
   closed: boolean
-  filesTimer: ReturnType<typeof setTimeout> | null
-  gitTimer: ReturnType<typeof setTimeout> | null
-  gitPending: GitPending
+  /** 本轮待发通知 */
+  pending: PendingChanges
+  /** 本轮首个事件时刻（最长等待的起点）；无待发为 null */
+  firstEventAt: number | null
+  timer: ReturnType<typeof setTimeout> | null
+  /** 到点时仓库忙：挂起，等转闲补发 */
+  held: boolean
 }
 
 const watchers = new Map<string, ProjectWatcherEntry>()
@@ -63,49 +71,13 @@ function clearTimer(timer: ReturnType<typeof setTimeout> | null): void {
 
 async function disposeEntry(projectPath: string, entry: ProjectWatcherEntry): Promise<void> {
   entry.closed = true
-  clearTimer(entry.filesTimer)
-  clearTimer(entry.gitTimer)
-  entry.filesTimer = null
-  entry.gitTimer = null
+  clearTimer(entry.timer)
+  entry.timer = null
   watchers.delete(projectPath)
   const subs = [entry.subscription, entry.commonSubscription]
   entry.subscription = null
   entry.commonSubscription = null
   await Promise.all(subs.map((sub) => (sub ? sub.unsubscribe() : Promise.resolve())))
-}
-
-function scheduleFiles(entry: ProjectWatcherEntry, onFilesChange: (p: string) => void): void {
-  clearTimer(entry.filesTimer)
-  entry.filesTimer = setTimeout(() => {
-    entry.filesTimer = null
-    if (!entry.closed) onFilesChange(entry.projectPath)
-  }, FILES_DEBOUNCE_MS)
-}
-
-function scheduleGit(
-  entry: ProjectWatcherEntry,
-  onGitChange: (p: string) => void,
-  relPath: string | null
-): void {
-  if (relPath === null || entry.gitPending.mode === 'force') {
-    entry.gitPending = { mode: 'force' }
-  } else if (entry.gitPending.paths.size >= PENDING_PATHS_MAX) {
-    entry.gitPending = { mode: 'force' }
-  } else {
-    entry.gitPending.paths.add(relPath)
-  }
-  clearTimer(entry.gitTimer)
-  entry.gitTimer = setTimeout(() => {
-    entry.gitTimer = null
-    if (entry.closed) return
-    const pending = entry.gitPending
-    entry.gitPending = { mode: 'paths', paths: new Set() }
-    if (pending.mode === 'force' || entry.repoRoot === null) {
-      onGitChange(entry.projectPath)
-      return
-    }
-    void notifyIfNotIgnored(entry.projectPath, entry.repoRoot, [...pending.paths], onGitChange)
-  }, GIT_DEBOUNCE_MS)
 }
 
 async function notifyIfNotIgnored(
@@ -125,60 +97,78 @@ async function notifyIfNotIgnored(
   onGitChange(projectPath)
 }
 
-function handleEvents(
-  entry: ProjectWatcherEntry,
-  events: Event[],
-  handlers: ProjectWatchHandlers
-): void {
+/** 发出本轮待发通知并清空本轮状态。 */
+function flush(entry: ProjectWatcherEntry): void {
+  clearTimer(entry.timer)
+  entry.timer = null
+  entry.held = false
+  entry.firstEventAt = null
+  const { discovery, files, git } = entry.pending
+  entry.pending = emptyPending()
   if (entry.closed || isAppQuitting()) return
-  // 写动作期间（含余震）整条订阅静音：discovery / files / git 一律不调度。
-  if (isGitActionRunning()) return
-
-  let discovery = false
-  let files = false
-  let gitForceRefresh = false
-  const worktreeRels: string[] = []
-
-  for (const event of events) {
-    for (const cls of classifyWatchPathAll(entry.projectPath, entry.repoRoot, event.path)) {
-      switch (cls.kind) {
-        case 'discovery':
-          discovery = true
-          break
-        case 'files':
-          files = true
-          break
-        case 'git-meta':
-        case 'git-probe':
-          gitForceRefresh = true
-          break
-        case 'git-worktree':
-          worktreeRels.push(cls.relPath)
-          break
-      }
-    }
-  }
-
+  const { handlers, projectPath, repoRoot } = entry
   if (discovery) handlers.onDiscoveryChange()
-  if (files) scheduleFiles(entry, handlers.onFilesChange)
-  if (gitForceRefresh) scheduleGit(entry, handlers.onGitChange, null)
-  else {
-    for (const rel of worktreeRels) scheduleGit(entry, handlers.onGitChange, rel)
+  if (files) handlers.onFilesChange(projectPath)
+  if (git === null) return
+  if (git.mode === 'force' || repoRoot === null) {
+    handlers.onGitChange(projectPath)
+    return
   }
+  void notifyIfNotIgnored(projectPath, repoRoot, [...git.paths], handlers.onGitChange)
 }
 
-/** 公共 gitdir 订阅的事件：只有白名单元数据（共享 refs、各工作树 HEAD、worktrees 增删）才强制刷新。 */
+/** 有新变化并入后排期：尾沿防抖 + 最长等待；已挂起则只并入，等转闲一起补发。 */
+function schedule(entry: ProjectWatcherEntry): void {
+  if (entry.held || !hasPending(entry.pending)) return
+  const now = Date.now()
+  entry.firstEventAt ??= now
+  clearTimer(entry.timer)
+  entry.timer = setTimeout(
+    () => {
+      entry.timer = null
+      if (entry.closed) return
+      if (isRepoBusy(entry.repoKey)) entry.held = true
+      else flush(entry)
+    },
+    watchFlushDelay(entry.firstEventAt, now)
+  )
+}
+
+// 仓库转闲：补发该仓库下挂起的通知（动作期间的外部变化与动作自身的文件变化都在其中）
+onRepoIdle((repoKey) => {
+  for (const entry of watchers.values()) {
+    if (entry.repoKey === repoKey && entry.held) flush(entry)
+  }
+})
+
+function handleEvents(entry: ProjectWatcherEntry, err: Error | null, events: Event[]): void {
+  if (entry.closed || isAppQuitting()) return
+  // 监听报错（如 FSEvents 丢事件需重扫）：这批不完整，各通道强制刷新；事件照常并入
+  if (err) markRescan(entry.pending)
+  for (const event of events) {
+    for (const cls of classifyWatchPathAll(entry.projectPath, entry.repoRoot, event.path)) {
+      addWatchChange(entry.pending, cls)
+    }
+  }
+  schedule(entry)
+}
+
+/** 公共 gitdir 订阅的事件：只有白名单元数据（共享 refs、各工作树 HEAD、worktrees 增删）或报错才强制刷新 git。 */
 function handleCommonDirEvents(
   entry: ProjectWatcherEntry,
-  events: Event[],
-  handlers: ProjectWatchHandlers
+  err: Error | null,
+  events: Event[]
 ): void {
-  if (entry.closed || isAppQuitting() || isGitActionRunning()) return
+  if (entry.closed || isAppQuitting()) return
   if (entry.commonDir === null || entry.gitDir === null) return
-  const meta = events.some(
-    (event) => classifyCommonDirPath(entry.commonDir!, entry.gitDir!, event.path).length > 0
-  )
-  if (meta) scheduleGit(entry, handlers.onGitChange, null)
+  const meta =
+    err !== null ||
+    events.some(
+      (event) => classifyCommonDirPath(entry.commonDir!, entry.gitDir!, event.path).length > 0
+    )
+  if (!meta) return
+  addWatchChange(entry.pending, { kind: 'git-meta' })
+  schedule(entry)
 }
 
 /** 链接工作树才需要额外盯公共 gitdir：它在监听根之外（主工作树的 .git 本就在根内）。 */
@@ -197,35 +187,36 @@ async function startEntry(
   const entry: ProjectWatcherEntry = {
     projectPath,
     repoRoot,
+    repoKey: repoKeyOf(projectPath, repoRoot, gitDirs),
     watchRoot,
     commonDir: extra ? gitDirs!.commonDir : null,
     gitDir: extra ? gitDirs!.gitDir : null,
+    handlers,
     subscription: null,
     commonSubscription: null,
     closed: false,
-    filesTimer: null,
-    gitTimer: null,
-    gitPending: { mode: 'paths', paths: new Set() }
+    pending: emptyPending(),
+    firstEventAt: null,
+    timer: null,
+    held: false
   }
   watchers.set(projectPath, entry)
 
   const stale = (): boolean =>
     entry.closed || isAppQuitting() || watchers.get(projectPath) !== entry
   try {
-    const subscription = await parcelWatcher.subscribe(watchRoot, (err, events) => {
-      if (err || entry.closed) return
-      handleEvents(entry, events, handlers)
-    })
+    const subscription = await parcelWatcher.subscribe(watchRoot, (err, events) =>
+      handleEvents(entry, err, events)
+    )
     if (stale()) {
       await subscription.unsubscribe()
       return
     }
     entry.subscription = subscription
     if (entry.commonDir !== null) {
-      const commonSubscription = await parcelWatcher.subscribe(entry.commonDir, (err, events) => {
-        if (err || entry.closed) return
-        handleCommonDirEvents(entry, events, handlers)
-      })
+      const commonSubscription = await parcelWatcher.subscribe(entry.commonDir, (err, events) =>
+        handleCommonDirEvents(entry, err, events)
+      )
       if (stale()) {
         await commonSubscription.unsubscribe()
         return
@@ -237,9 +228,12 @@ async function startEntry(
   }
 }
 
-/** 订阅形态是否一致：仓库根与公共 gitdir 任一变化（init / 删 .git / 变成或不再是链接工作树）即重建。 */
+/** 订阅形态是否一致：仓库根、仓库键与公共 gitdir 任一变化（init / 删 .git / 变成或不再是链接工作树）即重建。 */
 function sameShape(entry: ProjectWatcherEntry, target: ProjectWatchTarget): boolean {
   if (entry.repoRoot !== target.repoRoot) return false
+  if (entry.repoKey !== repoKeyOf(target.projectPath, target.repoRoot, target.gitDirs)) {
+    return false
+  }
   const wantCommon = needsCommonDirWatch(entry.watchRoot, target.gitDirs)
     ? target.gitDirs!.commonDir
     : null

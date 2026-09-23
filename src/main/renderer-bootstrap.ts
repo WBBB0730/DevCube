@@ -1,7 +1,7 @@
 import { ipcMain } from 'electron'
 import { IPC } from '../shared/ipc'
 import type { RendererBootstrap } from '../shared/renderer-bootstrap'
-import { getProjectSortPrefs, getWorkspaceUi } from './store'
+import { getAppPrefs, getProjectSortPrefs, getWorkspaceUi } from './store'
 import { getSessions, getTerminals } from './runner'
 import { buildTree } from './tree'
 
@@ -11,7 +11,8 @@ export function getRendererBootstrap(): RendererBootstrap {
     sessions: getSessions(),
     terminals: getTerminals(),
     projectSortPrefs: getProjectSortPrefs(),
-    workspace: getWorkspaceUi()
+    workspace: getWorkspaceUi(),
+    appPrefs: getAppPrefs()
   }
 }
 

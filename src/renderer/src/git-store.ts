@@ -94,8 +94,11 @@ export interface GitStoreState {
   viewPrefs: GitViewPrefs
   /** 加载/刷新某项目：默认软刷新（ready 原地换数据）；hard=true 清空后 loading 重拉 */
   load(projectPath: string, opts?: { hard?: boolean }): Promise<void>
-  /** 显式刷新（工具栏刷新钮 / ⌘R）：先软刷新本地图谱，再静默 fetch 全部远程并把远程 ref 软刷进图 */
-  refresh(projectPath: string): Promise<void>
+  /**
+   * 刷新（工具栏刷新钮 / ⌘R / 自动获取）：先软刷新本地图谱，再静默 fetch 全部远程并把远程 ref
+   * 软刷进图；在途则跳过。suppressErrorBox：fetch 失败不弹错误框（自动获取用，网络不通不打扰）
+   */
+  refresh(projectPath: string, opts?: { suppressErrorBox?: boolean }): Promise<void>
   /** 「加载更多」：maxCommits += loadMoreCommits 后软刷新；有在途请求时幂等跳过 */
   loadMore(projectPath: string): Promise<void>
   /** 切换分支筛选：重置 maxCommits 并硬刷新 */
@@ -528,7 +531,7 @@ export const useGit = create<GitStoreState>((set, get) => {
       }
     },
 
-    refresh: async (projectPath) => {
+    refresh: async (projectPath, opts) => {
       // 在途防重入（⌘R 连按 / 首段软刷新窗口内按钮尚未置灰）：避免并发多个 fetch --all
       // 争抢 ref 锁，也避免先完成的一轮把 fetching 提前复位
       if (refreshing.has(projectPath)) return
@@ -554,8 +557,8 @@ export const useGit = create<GitStoreState>((set, get) => {
             // invoke 通道异常兜底（主进程 handler 约定不 reject，此处仅防御）
             result = { status: 'error', errors: ['IPC 调用失败'] }
           }
-          // 4) 用户显式点了刷新：网络失败要可见，落 actionErrors 走统一错误框
-          if (result.status === 'error') {
+          // 4) 用户显式点了刷新：网络失败要可见，落 actionErrors 走统一错误框（自动获取除外）
+          if (result.status === 'error' && opts?.suppressErrorBox !== true) {
             patchProject(projectPath, { actionErrors: result.errors })
           }
         } finally {

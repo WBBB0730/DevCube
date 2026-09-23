@@ -45,12 +45,27 @@ export function isDiscoveryRootName(name: string): boolean {
 }
 
 /**
+ * 引用存储（gitdir 或 `worktrees/<名>` 内的相对路径，'/' 分隔）：files 后端的 HEAD / refs / packed-refs，
+ * reftable 后端的 reftable/（该格式下 HEAD 文件是固定占位，切分支只改 reftable/）。任一变化即引用变化。
+ */
+function isRefStorage(rel: string): boolean {
+  return (
+    rel === 'HEAD' ||
+    rel === 'packed-refs' ||
+    rel === 'refs' ||
+    rel.startsWith('refs/') ||
+    rel === 'reftable' ||
+    rel.startsWith('reftable/')
+  )
+}
+
+/**
  * gitdir 内路径分类：白名单元数据 vs objects/logs 等噪声。
  * `ownGitDirRel` = 本项目工作树在该 gitdir 内的私有目录：盯自己的 `.git` 时为 null；
  * 链接工作树盯主仓库公共 gitdir 时为 `worktrees/<名>`（见 classifyCommonDirPath）。
- * - 顶层 HEAD：null 时是自己的 HEAD，非 null 时是主工作树的 HEAD（分支占用标注要跟进）→ 均 meta
+ * - 顶层引用存储：null 时含自己的 HEAD，非 null 时含主工作树的 HEAD（分支占用标注要跟进）→ 均 meta
  * - 顶层 index：只有自己的才 meta（别的工作树的暂存区与本项目无关）
- * - `worktrees` / `worktrees/<名>`：工作树增删 → meta；`worktrees/<名>/HEAD`：任一工作树切分支 → meta；
+ * - `worktrees` / `worktrees/<名>`：工作树增删 → meta；`worktrees/<名>` 内的引用存储：任一工作树切分支 → meta；
  *   `worktrees/<名>/index`：仅自己的 → meta
  */
 export function classifyGitDirRel(
@@ -60,14 +75,13 @@ export function classifyGitDirRel(
   if (relFromGitDir.endsWith('.lock')) return 'noise'
   const norm = relFromGitDir.split(/[/\\]/).join('/')
   const ownNorm = ownGitDirRel === null ? null : ownGitDirRel.split(/[/\\]/).join('/')
-  if (norm === 'HEAD' || norm === 'config') return 'meta'
+  if (isRefStorage(norm) || norm === 'config') return 'meta'
   if (norm === 'index') return ownNorm === null ? 'meta' : 'noise'
-  if (norm === 'refs' || norm.startsWith('refs/')) return 'meta'
   if (norm === 'worktrees') return 'meta'
   const linked = norm.match(/^worktrees\/([^/]+)(?:\/(.*))?$/)
   if (linked) {
     const inner = linked[2] ?? ''
-    if (inner === '' || inner === 'HEAD') return 'meta'
+    if (inner === '' || isRefStorage(inner)) return 'meta'
     if (inner === 'index' && ownNorm === `worktrees/${linked[1]}`) return 'meta'
   }
   return 'noise'

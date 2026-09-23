@@ -1,11 +1,12 @@
 // Git Tab 的根组件：每项目常驻一个（Console 里切走仅隐藏不卸载，现场保留）。
-// 当前项目由 App 预加载（Tab 栏分支名）；本组件可见时若仍 idle 则补拉，已加载则重验仓库根。
+// 当前项目由 App 预加载（Tab 栏分支名）；本组件到前台时自动获取（开关开着）或补拉 idle，并重验仓库根。
 // 四态渲染（非仓库 / 空仓库 / 加载中 / 出错）+ 就绪表格；
 // 全局键盘只在可见时挂 capture 监听：Esc 分层关闭、Cmd/Ctrl+F 打开查找、Cmd/Ctrl+R 刷新
 // （fetch + 软刷新；导航类快捷键改由主进程 before-input-event；F/R 须排除 Alt）。
-import { useEffect } from 'react'
+import { useEffect, useSyncExternalStore } from 'react'
 import { LoaderCircle } from 'lucide-react'
 import { gitState, useGit } from '@renderer/git-store'
+import { useApp } from '@renderer/store'
 import { GitToolbar } from './GitToolbar'
 import { GitOpStatusBar } from './GitOpStatusBar'
 import { GitCommitTable } from './GitCommitTable'
@@ -14,6 +15,20 @@ import { GitCommitDetails } from './GitCommitDetails'
 import { GitDiffView } from './GitDiffView'
 import { GitContextMenu } from './GitContextMenu'
 import { GitDialogs } from './GitDialogs'
+
+function subscribeWindowFocus(onChange: () => void): () => void {
+  window.addEventListener('focus', onChange)
+  window.addEventListener('blur', onChange)
+  return () => {
+    window.removeEventListener('focus', onChange)
+    window.removeEventListener('blur', onChange)
+  }
+}
+
+/** 窗口是否处于激活状态（从别的应用切回、从最小化恢复都会转为 true）。 */
+function useWindowFocused(): boolean {
+  return useSyncExternalStore(subscribeWindowFocus, () => document.hasFocus())
+}
 
 export function GitPane({
   projectPath,
@@ -30,19 +45,22 @@ export function GitPane({
   const hasExpanded = useGit((s) => gitState(s, projectPath).expanded !== null)
   const graphLoading = useGit((s) => gitState(s, projectPath).graphLoading)
   const load = useGit((s) => s.load)
+  const gitAutoFetch = useApp((s) => s.gitAutoFetch)
+  const windowFocused = useWindowFocused()
+  const foreground = visible && windowFocused
 
-  // 可见时：仍 idle（未成过当前项目、App 预加载未赶上）则补拉；已加载则重验仓库根——
-  // init / .git 删除后仓库形态变化的兜底（主通道是 watcher），变化时主进程推 git:changed。
-  // 隐藏期间状态保留；.git 变动由 App 的 onGitChanged 软刷新。load 同步置 loading，
-  // StrictMode 双挂载幂等；重验本身幂等，双挂载多跑一次无害。
+  // 到前台（本 Tab 可见且窗口激活：切项目 / 切 Tab / 应用切回前台）的那一刻：
+  // 自动获取开着则「刷新」（先软刷新本地再 fetch；在途跳过，失败不弹框），否则仍 idle
+  // （App 预加载未赶上）则补拉。已加载的同时重验仓库根——init / .git 删除后仓库形态变化的
+  // 兜底（主通道是 watcher），变化时主进程推 git:changed。隐藏期间状态保留；.git 变动由 App 的
+  // onGitChanged 软刷新。StrictMode 双挂载：load 同步置 loading、refresh 在途跳过、重验幂等。
   useEffect(() => {
-    if (!visible) return
-    if (gitState(useGit.getState(), projectPath).status === 'idle') {
-      void load(projectPath)
-    } else {
-      void window.api.gitRevalidate(projectPath)
-    }
-  }, [visible, projectPath, load])
+    if (!foreground) return
+    const idle = gitState(useGit.getState(), projectPath).status === 'idle'
+    if (!idle) void window.api.gitRevalidate(projectPath)
+    if (gitAutoFetch) void useGit.getState().refresh(projectPath, { suppressErrorBox: true })
+    else if (idle) void load(projectPath)
+  }, [foreground, projectPath, gitAutoFetch, load])
 
   // 全局键盘：capture 阶段拦截（抢在内部控件与 Electron 默认行为之前），仅可见时监听。
   useEffect(() => {

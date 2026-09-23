@@ -55,7 +55,9 @@ import {
   opSkipVersionGate,
   parseGitVersion,
   parseNameList,
-  toActionResult
+  toActionResult,
+  isRepoBusy,
+  runInRepoQueue
 } from './git-actions'
 
 describe('buildInitArgs', () => {
@@ -1071,5 +1073,61 @@ describe('worktreeRemoveNeedsForce', () => {
         "fatal: cannot remove a locked working tree, lock reason: x\nuse 'remove -f -f' to override or unlock first"
       )
     ).toBe(false)
+  })
+})
+
+describe('runInRepoQueue', () => {
+  /** 可手动放行的任务：记录开始顺序，started 在任务真正开始执行时 resolve。 */
+  function gate(
+    log: string[],
+    name: string,
+    fail = false
+  ): { task: () => Promise<string>; release: () => void; started: Promise<void> } {
+    let release!: () => void
+    let markStarted!: () => void
+    const released = new Promise<void>((r) => (release = r))
+    const started = new Promise<void>((r) => (markStarted = r))
+    const task = async (): Promise<string> => {
+      log.push(`start:${name}`)
+      markStarted()
+      await released
+      log.push(`end:${name}`)
+      if (fail) throw new Error(name)
+      return name
+    }
+    return { task, release, started }
+  }
+
+  it('同仓库严格串行：前一个结束后一个才开始；前一个失败不阻塞后续', async () => {
+    const log: string[] = []
+    const a = gate(log, 'a', true)
+    const b = gate(log, 'b')
+    const pa = runInRepoQueue('/repo-serial/.git', a.task)
+    const pb = runInRepoQueue('/repo-serial/.git', b.task)
+    await a.started
+    expect(log).toEqual(['start:a'])
+    a.release()
+    await expect(pa).rejects.toThrow('a')
+    await b.started
+    b.release()
+    await expect(pb).resolves.toBe('b')
+    expect(log).toEqual(['start:a', 'end:a', 'start:b', 'end:b'])
+  })
+
+  it('执行期间仓库为忙；不同仓库互不阻塞', async () => {
+    const log: string[] = []
+    const a = gate(log, 'a')
+    const b = gate(log, 'b')
+    expect(isRepoBusy('/repo-a/.git')).toBe(false)
+    const pa = runInRepoQueue('/repo-a/.git', a.task)
+    const pb = runInRepoQueue('/repo-b/.git', b.task)
+    await Promise.all([a.started, b.started])
+    expect(isRepoBusy('/repo-a/.git')).toBe(true)
+    expect(isRepoBusy('/repo-b/.git')).toBe(true)
+    a.release()
+    b.release()
+    await Promise.all([pa, pb])
+    // 结束后仍在余震窗口内：依旧为忙（动作自身的文件事件可能晚到）
+    expect(isRepoBusy('/repo-a/.git')).toBe(true)
   })
 })

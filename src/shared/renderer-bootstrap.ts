@@ -1,6 +1,6 @@
 /** 主进程在 preload 阶段同步注入的首屏快照，避免首帧空树。 */
 
-import type { ProjectNode, ProjectSortPrefs, SessionState, TerminalInfo } from './types'
+import type { AppPrefs, ProjectNode, ProjectSortPrefs, SessionState, TerminalInfo } from './types'
 import { configKey } from './runnable'
 import {
   mergeTerminalTabs,
@@ -15,10 +15,12 @@ export type RendererBootstrap = {
   terminals: TerminalInfo[]
   projectSortPrefs: ProjectSortPrefs
   workspace: WorkspaceUiState
+  /** 首帧即需的应用偏好（如自动获取开关：Git Tab 首次到前台就要按它决定是否 fetch） */
+  appPrefs: AppPrefs
 }
 
 /** 由 bootstrap 快照得到工作台首屏字段（与历史 init 对齐）。 */
-export function workspaceSliceFromBootstrap(boot: RendererBootstrap): {
+export function workspaceSliceFromBootstrap(boot: Omit<RendererBootstrap, 'appPrefs'>): {
   tree: ProjectNode[]
   sessions: Record<string, SessionState>
   terminals: ReturnType<typeof mergeTerminalTabs>

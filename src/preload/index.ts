@@ -33,6 +33,7 @@ const api: RunAPI = {
   setProjectSortPrefs: (patch) => ipcRenderer.invoke(IPC.projectSortPrefsSet, patch),
   getAppPrefs: () => ipcRenderer.invoke(IPC.appPrefsGet),
   setAppPrefs: (patch) => ipcRenderer.invoke(IPC.appPrefsSet, patch),
+  onAppPrefsChanged: (cb) => subscribe(IPC.appPrefsChanged, cb),
   pickDirectory: (defaultPath) => ipcRenderer.invoke(IPC.pickDirectory, defaultPath),
   readClipboardText: () => ipcRenderer.invoke(IPC.clipboardReadText),
   getWindowsShellOptions: () => ipcRenderer.invoke(IPC.windowsShellOptions),

@@ -513,16 +513,66 @@ async function gitExec(): Promise<GitExecModule> {
   return gitExecCache
 }
 
-/** 正在执行的动作数（可能多项目并发）。 */
-let runningActions = 0
-/** 最近一次动作结束的时间戳（毫秒），余震窗口的起点。 */
-let lastActionEndedAt = 0
-/** 动作结束后的余震窗口：动作自身引发的 .git 文件事件可能晚到，这段时间内仍视为「进行中」。 */
+/** 动作结束后的余震窗口：动作自身引发的文件事件可能晚到，这段时间内仓库仍视为「忙」。 */
 const ACTION_AFTERSHOCK_MS = 1500
 
-/** 是否有 git 动作正在执行（含结束后 1500ms 的余震窗口），供项目文件监听静音全部通道。 */
-export function isGitActionRunning(): boolean {
-  return runningActions > 0 || Date.now() - lastActionEndedAt < ACTION_AFTERSHOCK_MS
+/** 某仓库的写动作队列：排队 / 执行中的动作数、串行链尾、余震计时。 */
+interface RepoQueue {
+  pending: number
+  tail: Promise<void>
+  aftershock: ReturnType<typeof setTimeout> | null
+}
+
+/** 仓库键（repoKeyOf）→ 队列；条目存在即「忙」，余震结束才删除并通知转闲。 */
+const repoQueues = new Map<string, RepoQueue>()
+const idleListeners = new Set<(repoKey: string) => void>()
+
+/** 仓库是否忙：有写动作排队 / 执行中，或仍在余震窗口内。项目监听据此挂起通知、转闲后补发。 */
+export function isRepoBusy(repoKey: string): boolean {
+  return repoQueues.has(repoKey)
+}
+
+/** 订阅仓库由忙转闲（余震结束）；返回取消订阅。 */
+export function onRepoIdle(listener: (repoKey: string) => void): () => void {
+  idleListeners.add(listener)
+  return () => idleListeners.delete(listener)
+}
+
+function repoQueueOf(repoKey: string): RepoQueue {
+  const existing = repoQueues.get(repoKey)
+  if (existing) return existing
+  const created: RepoQueue = { pending: 0, tail: Promise.resolve(), aftershock: null }
+  repoQueues.set(repoKey, created)
+  return created
+}
+
+/**
+ * 同一仓库的写动作按 FIFO 串行：git 遇锁即失败而不等待，并发的 fetch / pull / add 会互相报
+ * 「cannot lock ref」「index.lock exists」。链尾恒 resolve，前一个动作失败不影响后续。导出供测试。
+ */
+export async function runInRepoQueue<T>(repoKey: string, task: () => Promise<T>): Promise<T> {
+  const queue = repoQueueOf(repoKey)
+  if (queue.aftershock !== null) {
+    clearTimeout(queue.aftershock)
+    queue.aftershock = null
+  }
+  queue.pending++
+  const result = queue.tail.then(task)
+  queue.tail = result.then(
+    () => undefined,
+    () => undefined
+  )
+  try {
+    return await result
+  } finally {
+    queue.pending--
+    if (queue.pending === 0) {
+      queue.aftershock = setTimeout(() => {
+        repoQueues.delete(repoKey)
+        for (const listener of idleListeners) listener(repoKey)
+      }, ACTION_AFTERSHOCK_MS)
+    }
+  }
 }
 
 /** git 不可用或项目不在仓库内时的统一错误文案。 */
@@ -895,24 +945,20 @@ async function execAction(
 }
 
 /**
- * 执行一个写动作：解析仓库根 → 分发执行 → 归并结果。执行期间（含结束后 1500ms 余震窗口）
- * isGitActionRunning() 为 true，项目文件监听据此丢弃动作自身引发的全部通道事件
- * （discovery / files / git）。
+ * 执行一个写动作：解析仓库根 → 进该仓库的队列串行执行 → 归并结果。排队 / 执行期间（含结束后
+ * 1500ms 余震窗口）isRepoBusy 为 true，该仓库的项目监听挂起通知，转闲后补发一次。
  */
 export async function runGitAction(
   projectPath: string,
   action: GitAction
 ): Promise<GitActionResult> {
-  runningActions++
-  try {
-    // init 是唯一合法作用于非仓库的动作：不解析仓库根，cwd 用项目路径本身
-    if (action.kind === 'init') return await runInit(projectPath, action)
-    const { resolveRepoRoot } = await gitExec()
-    const repoRoot = await resolveRepoRoot(projectPath)
-    if (repoRoot === null) return { status: 'error', errors: [NOT_A_REPO_ERROR] }
-    return await execAction(repoRoot, action)
-  } finally {
-    runningActions--
-    lastActionEndedAt = Date.now()
+  const { resolveRepoRoot, resolveGitDirs, repoKeyOf } = await gitExec()
+  // init 是唯一合法作用于非仓库的动作：不解析仓库根，cwd 与仓库键都用项目路径本身
+  if (action.kind === 'init') {
+    return runInRepoQueue(repoKeyOf(projectPath, null, null), () => runInit(projectPath, action))
   }
+  const repoRoot = await resolveRepoRoot(projectPath)
+  if (repoRoot === null) return { status: 'error', errors: [NOT_A_REPO_ERROR] }
+  const repoKey = repoKeyOf(projectPath, repoRoot, await resolveGitDirs(repoRoot))
+  return runInRepoQueue(repoKey, () => execAction(repoRoot, action))
 }

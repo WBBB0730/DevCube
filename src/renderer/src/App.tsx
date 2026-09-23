@@ -13,6 +13,7 @@ import type { AppShortcut } from '@shared/app-shortcut'
 import type { AppUpdateState } from '@shared/app-update-state'
 import { filterProjectNodes, sortProjectNodes } from '@shared/project-sort'
 import { isResidentTabKey } from '@shared/runnable'
+import { GIT_DEFAULTS } from '@shared/git'
 
 // 在当前项目的全部 Tab（Git + Files + 运行会话 + 终端）间循环。dir: +1 下一个 / -1 上一个。
 function cycleTab(projectPath: string, dir: 1 | -1): void {
@@ -169,6 +170,18 @@ function App(): React.JSX.Element {
       void git.load(currentProjectPath)
     }
   }, [currentProjectPath])
+
+  // 自动获取的定时部分：每隔固定间隔「刷新」当时的当前项目（不论选中哪个 Tab、窗口是否在前台）；
+  // 在途跳过、失败不弹框。Git Tab 到前台那一下由 GitPane 触发，两者撞上时由 refresh 的在途判断去重。
+  const gitAutoFetch = useApp((s) => s.gitAutoFetch)
+  useEffect(() => {
+    if (!gitAutoFetch) return
+    const timer = setInterval(() => {
+      const projectPath = useApp.getState().currentProjectPath
+      if (projectPath) void useGit.getState().refresh(projectPath, { suppressErrorBox: true })
+    }, GIT_DEFAULTS.autoFetchIntervalMs)
+    return () => clearInterval(timer)
+  }, [gitAutoFetch])
 
   return (
     <div className="flex h-full flex-col">

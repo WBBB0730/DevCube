@@ -340,6 +340,18 @@ export interface GitDirs {
 }
 
 /**
+ * 仓库键：写动作排队与项目监听挂起共用。取公共 gitdir（同仓库各工作树共享 refs，写动作会互相抢锁）；
+ * gitdir 解析失败退回仓库根，非仓库（仅 init）为项目路径本身。
+ */
+export function repoKeyOf(
+  projectPath: string,
+  repoRoot: string | null,
+  gitDirs: GitDirs | null
+): string {
+  return gitDirs?.commonDir ?? repoRoot ?? projectPath
+}
+
+/**
  * 链接工作树的主工作树目录：gitDir ≠ commonDir 且 commonDir 名为 .git 时取其父目录
  * （Zed 同款推导）；主工作树、裸仓库（commonDir 不叫 .git）为 null。输入输出均为 '/' 分隔。
  */

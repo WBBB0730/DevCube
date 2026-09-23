@@ -42,6 +42,14 @@ describe('classifyGitDirRel', () => {
     expect(classifyGitDirRel('index.lock')).toBe('noise')
     expect(classifyGitDirRel(join('objects', 'aa', 'bb'))).toBe('noise')
   })
+
+  it('引用存储整类：packed-refs（fetch --prune / 删打包引用只改它）与 reftable 后端', () => {
+    expect(classifyGitDirRel('packed-refs')).toBe('meta')
+    expect(classifyGitDirRel('packed-refs.lock')).toBe('noise')
+    expect(classifyGitDirRel('reftable')).toBe('meta')
+    expect(classifyGitDirRel(join('reftable', 'tables.list'))).toBe('meta')
+    expect(classifyGitDirRel(join('reftable', 'tables.list.lock'))).toBe('noise')
+  })
 })
 
 describe('isDiscoveryRootName', () => {
@@ -107,6 +115,14 @@ describe('classifyGitDirRel：工作树白名单', () => {
     expect(classifyGitDirRel(join('worktrees', 'feat', 'index'))).toBe('noise')
     expect(classifyGitDirRel(join('worktrees', 'feat', 'logs', 'HEAD'))).toBe('noise')
     expect(classifyGitDirRel(join('worktrees', 'feat', 'index.lock'))).toBe('noise')
+  })
+
+  it('reftable 后端：工作树切分支只改其 reftable/，任一工作树均为 meta', () => {
+    const own = join('worktrees', 'feat')
+    expect(classifyGitDirRel(join('worktrees', 'other', 'reftable', 'tables.list'), own)).toBe(
+      'meta'
+    )
+    expect(classifyGitDirRel(join('reftable', 'tables.list'), own)).toBe('meta')
   })
 
   it('链接工作树盯公共 gitdir：只有自己的 index 为 meta，主工作树的顶层 index 为噪声，顶层 HEAD 与 refs 仍为 meta', () => {

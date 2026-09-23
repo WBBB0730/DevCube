@@ -12,9 +12,11 @@ import { FILES_OPEN_WITH_EXTS } from '@shared/files-kind'
 import type { AppPrefs, WindowsShell, WindowsShellOption } from '@shared/types'
 import { DEFAULT_APP_PREFS } from '@shared/types'
 import { THEME_MODES, type ThemeMode } from '@shared/theme'
+import { GIT_DEFAULTS } from '@shared/git'
 import { Check, Info, LoaderCircle, TriangleAlert } from 'lucide-react'
 import { SettingsModal } from '@renderer/components/SettingsModal'
 import { Button } from '@renderer/components/ui/button'
+import { Checkbox } from '@renderer/components/ui/checkbox'
 import { DialogMask, DialogPanel } from '@renderer/components/ui/form-dialog'
 import {
   Select,
@@ -146,6 +148,8 @@ export function SettingsDialog({
   const [integrationBusy, setIntegrationBusy] = useState<SystemIntegrationFeatureId | null>(null)
   const [integrationError, setIntegrationError] = useState<string | null>(null)
   const setTheme = useApp((s) => s.setTheme)
+  const gitAutoFetch = useApp((s) => s.gitAutoFetch)
+  const setGitAutoFetch = useApp((s) => s.setGitAutoFetch)
   const platform = window.electron.process.platform
   const isWin = platform === 'win32'
   // 偏好全平台可见（主题）；其中「默认终端」仅 Windows。系统集成全平台可见（Linux 只有「文件打开方式」）。
@@ -386,6 +390,21 @@ export function SettingsDialog({
                 ) : (
                   <div className="text-[color:var(--fg-muted)]">正在加载…</div>
                 )}
+              </div>
+
+              <div className="space-y-2">
+                <div className="text-[color:var(--fg-primary)]">Git</div>
+                <label className="flex cursor-pointer select-none items-center gap-1.5 text-foreground">
+                  <Checkbox
+                    checked={gitAutoFetch}
+                    onCheckedChange={(checked) => void setGitAutoFetch(checked)}
+                  />
+                  自动获取远程更新
+                </label>
+                <div className="text-[12px] text-[color:var(--fg-muted)]">
+                  Git 标签页切到前台时，以及每 {GIT_DEFAULTS.autoFetchIntervalMs / 60_000}{' '}
+                  分钟，对当前项目执行一次刷新（fetch）
+                </div>
               </div>
 
               {isWin && (

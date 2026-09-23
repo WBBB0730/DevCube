@@ -437,7 +437,9 @@ export const GIT_DEFAULTS = {
   onlyFollowFirstParent: false,
   commitOrdering: 'date' as GitCommitOrdering,
   initialLoadCommits: 300,
-  loadMoreCommits: 100
+  loadMoreCommits: 100,
+  /** 自动获取的定时间隔（与 VS Code git.autofetchPeriod 默认 180 秒一致） */
+  autoFetchIntervalMs: 180_000
 } as const
 
 export const DEFAULT_GIT_REPO_SETTINGS: GitRepoSettings = {

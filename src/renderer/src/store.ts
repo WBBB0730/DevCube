@@ -11,7 +11,7 @@ import type {
   SessionState,
   SessionStatus
 } from '@shared/types'
-import { DEFAULT_PROJECT_SORT_PREFS } from '@shared/types'
+import { DEFAULT_APP_PREFS, DEFAULT_PROJECT_SORT_PREFS } from '@shared/types'
 import type { GitCloneInput } from '@shared/git-clone'
 import type { ThemeMode } from '@shared/theme'
 import { configKey, filesTabKey, gitTabKey, isResidentTabKey } from '@shared/runnable'
@@ -42,6 +42,23 @@ export function syncThemeWithSystem(): () => void {
   const sync = (): void => useApp.setState({ theme: mq.matches ? 'light' : 'dark' })
   mq.addEventListener('change', sync)
   return () => mq.removeEventListener('change', sync)
+}
+
+/** 首帧自动获取开关：preload 快照同步带出，Git Tab 首次到前台即按真实设置决定是否 fetch。 */
+function initialGitAutoFetch(): boolean {
+  try {
+    return window.api.getBootstrap().appPrefs.gitAutoFetch
+  } catch {
+    // vitest / 非 Electron 环境
+    return DEFAULT_APP_PREFS.gitAutoFetch
+  }
+}
+
+/** 任一窗口改了应用偏好，主进程推给全部窗口：把 JS 侧读的字段（自动获取开关）同步进本窗口 store。 */
+export function syncAppPrefsAcrossWindows(): () => void {
+  return window.api.onAppPrefsChanged((prefs) =>
+    useApp.setState({ gitAutoFetch: prefs.gitAutoFetch })
+  )
 }
 
 function initialWorkspaceSlice(): ReturnType<typeof workspaceSliceFromBootstrap> {
@@ -211,6 +228,8 @@ interface AppState {
    * diff 面板的 data-theme。
    */
   theme: ThemeMode
+  /** 自动获取远程更新（落盘）：Git Tab 到前台与定时刷新是否 fetch */
+  gitAutoFetch: boolean
   /** 左树项目名搜索（纯内存） */
   projectFilter: string
   /** +1 驱动左树聚焦项目筛选框（⌥⌘P / Ctrl+Alt+P） */
@@ -259,6 +278,8 @@ interface AppState {
   setPinSticky: (pinSticky: boolean) => Promise<void>
   /** 切换主题：本地即时生效，主进程随后同步 themeSource 与窗口色（CSS 由此翻） */
   setTheme: (theme: ThemeMode) => Promise<void>
+  /** 开关自动获取：本地即时生效并落盘 */
+  setGitAutoFetch: (enabled: boolean) => Promise<void>
   setProjectFilter: (query: string) => void
   /** 聚焦左树项目筛选框 */
   focusProjectFilter: () => void
@@ -304,6 +325,7 @@ async function applyAddedProject(
 export const useApp = create<AppState>((set, get) => ({
   ...initialWorkspaceSlice(),
   theme: initialTheme(),
+  gitAutoFetch: initialGitAutoFetch(),
   runNonce: {},
   dialog: { open: false },
   projectFilter: '',
@@ -391,22 +413,24 @@ export const useApp = create<AppState>((set, get) => ({
   // 首屏已由 preload bootstrap 灌入；此处只做打开对账（touch / 懒 spawn）。HMR 时再拉一遍快照。
   init: async () => {
     if (import.meta.env.DEV) {
-      const [tree, sessions, terminals, projectSortPrefs, workspace] = await Promise.all([
+      const [tree, sessions, terminals, projectSortPrefs, workspace, appPrefs] = await Promise.all([
         window.api.getTree(),
         window.api.getSessions(),
         window.api.getTerminals(),
         window.api.getProjectSortPrefs(),
-        window.api.getWorkspaceUi()
+        window.api.getWorkspaceUi(),
+        window.api.getAppPrefs()
       ])
-      set(
-        workspaceSliceFromBootstrap({
+      set({
+        ...workspaceSliceFromBootstrap({
           tree,
           sessions,
           terminals,
           projectSortPrefs,
           workspace
-        })
-      )
+        }),
+        gitAutoFetch: appPrefs.gitAutoFetch
+      })
     }
     const currentProjectPath = get().currentProjectPath
     if (currentProjectPath) {
@@ -483,6 +507,10 @@ export const useApp = create<AppState>((set, get) => ({
   setTheme: async (theme) => {
     set({ theme })
     await window.api.setAppPrefs({ theme })
+  },
+  setGitAutoFetch: async (enabled) => {
+    set({ gitAutoFetch: enabled })
+    await window.api.setAppPrefs({ gitAutoFetch: enabled })
   },
   setProjectFilter: (query) => set({ projectFilter: query }),
   focusProjectFilter: () =>
