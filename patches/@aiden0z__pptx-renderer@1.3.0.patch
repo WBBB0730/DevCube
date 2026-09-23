@@ -1,0 +1,68 @@
+diff --git a/dist/aiden0z-pptx-renderer.es.js b/dist/aiden0z-pptx-renderer.es.js
+index 6de7e508a1674c2ff54cb7ea1341e474a9fc7497..fad079c90f08d6dc128b199140efa7aeae70eae9 100644
+--- a/dist/aiden0z-pptx-renderer.es.js
++++ b/dist/aiden0z-pptx-renderer.es.js
+@@ -3477,10 +3477,24 @@ function Gl(t) {
+   const e = Wo(t);
+   return D0[e] ?? [t.trim()];
+ }
++// 缺字体时按原字体的风格补备选（原先只给少数已知中文黑体补，其余落到浏览器默认的衬线字体）：
++// 西文风格看首个字体（西文位）；中文风格从后往前取第一个看得出中文风格的字体（中文位排在西文位之后），都看不出则随西文
++const LATIN_MONO_HINT = /\bmono\b|code|courier|consolas|menlo|monaco/, LATIN_SERIF_HINT = /serif|times|cambria|georgia|garamond|antiqua|palatino|constantia|bookman|century schoolbook|sitka|baskerville|bodoni|rockwell|didot/, CJK_SANS_HINT = /黑|hei|gothic|han sans|sans cjk|sans (sc|tc|hk|jp|kr|cn)\b/, CJK_SERIF_HINT = /宋|明|楷|仿宋|song|ming|mincho|kai|simsun|batang|myungjo|han serif|serif cjk|serif (sc|tc|hk|jp|kr|cn)\b/, CJK_SERIF_FALLBACKS = ["Songti SC", "STSong", "SimSun", "Noto Serif CJK SC", "Source Han Serif SC", "serif"];
++function latinGeneric(t) {
++  const e = Wo(t);
++  return LATIN_MONO_HINT.test(e) ? "monospace" : /sans/.test(e) || CJK_SANS_HINT.test(e) ? "sans-serif" : LATIN_SERIF_HINT.test(e) || CJK_SERIF_HINT.test(e) ? "serif" : "sans-serif";
++}
++function cjkGeneric(t, n) {
++  for (let i = t.length - 1; i >= 0; i--) {
++    const e = Wo(t[i]);
++    if (O0.has(e) || CJK_SANS_HINT.test(e)) return "sans-serif";
++    if (CJK_SERIF_HINT.test(e)) return "serif";
++    if (/[\u3400-\u9fff]/.test(e)) return "sans-serif";
++  }
++  return n === "serif" ? "serif" : "sans-serif";
++}
+ function ii(t) {
+-  const e = Array.isArray(t) ? t.flatMap(Gl) : Gl(t), i = e.some(
+-    (s) => O0.has(Wo(s))
+-  ) ? [...e, ...I0] : e, o = /* @__PURE__ */ new Set();
++  const n = Array.isArray(t) ? t : [t], e = n.flatMap(Gl), r = latinGeneric(n[0] ?? ""), l = cjkGeneric(n, r), s = l === "serif" ? CJK_SERIF_FALLBACKS : I0, i = [...e, ...r === l ? s : [r, ...s]], o = /* @__PURE__ */ new Set();
+   return i.filter((s) => {
+     const l = Wo(s);
+     return o.has(l) ? !1 : (o.add(l), !0);
+@@ -4128,6 +4142,7 @@ function ad(t, e, n, i, o) {
+         thaiDist: "justify"
+       };
+       E.style.textAlign = et[B.align] || "left";
++      (B.align === "dist" || B.align === "thaiDist") && (E.style.textAlignLast = "justify", E.style.setProperty("text-justify", "inter-character"));
+     }
+     B.rtl !== void 0 && (E.style.direction = B.rtl ? "rtl" : "ltr"), E.style.lineBreak = B.eastAsianLineBreak === !1 ? "anywhere" : "auto", B.marginLeft !== void 0 && (E.style.paddingLeft = `${B.marginLeft}px`), B.textIndent !== void 0 && (E.style.textIndent = `${B.textIndent}px`);
+     let _ = B.lineHeight ?? (o == null ? void 0 : o.defaultLineHeight);
+@@ -4168,7 +4183,7 @@ function ad(t, e, n, i, o) {
+     }
+     if (K) {
+       const et = document.createElement("span");
+-      et.textContent = K + " ";
++      et.textContent = K + " ", et.dataset.pptxBullet = "";
+       const ot = B.marginLeft, X = B.textIndent;
+       if (ot !== void 0 && ot > 0 && X !== void 0 && X < 0) {
+         const Ct = Math.max(0, ot + X), It = Math.max(0, ot - Ct);
+@@ -17564,6 +17579,7 @@ function s1(t, e) {
+         continue;
+       }
+       const g = document.createElement("td");
++      g.dataset.pptxCell = `${f}:${p.cells.indexOf(y)}`;
+       g.style.overflow = "hidden", y.gridSpan > 1 && (g.colSpan = y.gridSpan), y.rowSpan > 1 && (g.rowSpan = y.rowSpan);
+       let $ = [];
+       if (s) {
+@@ -21844,6 +21860,10 @@ function Xx(t) {
+   };
+ }
+ function Uo(t, e) {
++  const n = renderNodeElement(t, e);
++  return n.dataset.pptxNode = `${e.nodeOrigin ?? "slide"}:${t.id}`, n;
++}
++function renderNodeElement(t, e) {
+   switch (t.nodeType) {
+     case "shape":
+       return Rg(t, e);

@@ -9,6 +9,7 @@ import {
   Image,
   Music,
   Package2,
+  Presentation,
   Table2,
   Terminal,
   Type
@@ -47,6 +48,7 @@ function SquarePdf(props: React.SVGProps<SVGSVGElement>): React.JSX.Element {
 const ICONS: Record<FilesTreeIconKind, React.ComponentType<React.SVGProps<SVGSVGElement>>> = {
   image: Image,
   pdf: SquarePdf,
+  slides: Presentation,
   audio: Music,
   video: Film,
   text: Type,

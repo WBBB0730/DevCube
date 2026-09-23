@@ -6,6 +6,7 @@ import {
   isImagePreviewPath,
   isMediaPreviewPath,
   isMarkdownPath,
+  isPptxPath,
   isPreviewableSourcePath,
   isSvgPath,
   primaryMime,
@@ -66,6 +67,21 @@ describe('filesOpenKindFromMime / primaryMime', () => {
     expect(filesOpenKindFromMime('application/pdf')).toBe('pdf')
   })
 
+  it('PPT（pptx 及放映版 / 模板 / 带宏变体）→ pptx；老二进制 ppt 不认', () => {
+    for (const mime of [
+      'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+      'application/vnd.openxmlformats-officedocument.presentationml.template',
+      'application/vnd.ms-powerpoint.presentation.macroenabled.12',
+      'application/vnd.ms-powerpoint.slideshow.macroenabled.12',
+      'application/vnd.ms-powerpoint.template.macroenabled.12'
+    ]) {
+      expect(filesOpenKindFromMime(mime)).toBe('pptx')
+    }
+    expect(filesOpenKindFromMime('application/vnd.ms-powerpoint')).toBeNull()
+    expect(filesOpenKindFromMime('application/x-cfb')).toBeNull()
+  })
+
   it('非媒体 MIME → null', () => {
     expect(filesOpenKindFromMime('application/wasm')).toBeNull()
     expect(filesOpenKindFromMime('application/zip')).toBeNull()
@@ -101,12 +117,21 @@ describe('isImagePreviewPath / isMediaPreviewPath / adjacentMediaPath', () => {
     expect(isImagePreviewPath('clip.mp4')).toBe(false)
   })
 
-  it('媒体序列含位图 / SVG / PDF / 可播音视频，不含文本与不可播容器', () => {
-    for (const p of ['a.png', 'b.svg', 'c.pdf', 'd.mp4', 'e.mp3', 'F.WEBM']) {
+  it('媒体序列含位图 / SVG / PDF / PPT / 可播音视频，不含文本、不可播容器与老 ppt', () => {
+    for (const p of ['a.png', 'b.svg', 'c.pdf', 'd.mp4', 'e.mp3', 'F.WEBM', 'g.pptx', 'H.PPSX']) {
       expect(isMediaPreviewPath(p)).toBe(true)
     }
-    for (const p of ['a.ts', 'README.md', 'movie.mkv', 'noext']) {
+    for (const p of ['a.ts', 'README.md', 'movie.mkv', 'noext', 'old.ppt']) {
       expect(isMediaPreviewPath(p)).toBe(false)
+    }
+  })
+
+  it('PPT 按扩展名：pptx 与同格式的放映版 / 模板 / 带宏变体', () => {
+    for (const p of ['a.pptx', 'b.ppsx', 'c.potx', 'd.pptm', 'e.ppsm', 'f.potm', 'G.PPTX']) {
+      expect(isPptxPath(p)).toBe(true)
+    }
+    for (const p of ['old.ppt', 'a.pps', 'a.pptx.bak', '/dir.pptx/noext']) {
+      expect(isPptxPath(p)).toBe(false)
     }
   })
 

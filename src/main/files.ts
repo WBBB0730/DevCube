@@ -200,6 +200,11 @@ export async function readFileEntry(
     }
   }
 
+  // PPT 只由内容 MIME 分流而来（不按扩展名认），这里 mime 恒在
+  if (kind === 'pptx' && mime) {
+    return { kind: 'pptx', path: logical, mediaUrl: buildFilesMediaUrl(root, logical, mime) }
+  }
+
   if (kind === 'image') {
     const ext = path.extname(name).slice(1).toLowerCase() || 'png'
     const imageType = imageMime(mime ?? ext)

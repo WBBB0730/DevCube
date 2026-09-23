@@ -7,14 +7,16 @@ export const SYSTEM_INTEGRATION_FEATURE_IDS = [
   'windowsContextMenu',
   'openWithImage',
   'openWithPdf',
+  'openWithPptx',
   'openWithAudio',
   'openWithVideo'
 ] as const
 
-/** 「文件打开方式」四个子项（docs/prd/file-preview-window.md）：设为默认而非安装 / 移除 */
+/** 「文件打开方式」各类型子项（docs/prd/file-preview-window.md）：设为默认而非安装 / 移除 */
 export const OPEN_WITH_FEATURE_IDS = [
   'openWithImage',
   'openWithPdf',
+  'openWithPptx',
   'openWithAudio',
   'openWithVideo'
 ] as const

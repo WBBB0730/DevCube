@@ -74,6 +74,12 @@ const config: Configuration = {
   fileAssociations: [
     { ext: [...FILES_OPEN_WITH_EXTS.image], name: 'Image', role: 'Viewer', rank: 'Alternate' },
     { ext: [...FILES_OPEN_WITH_EXTS.pdf], name: 'PDF', role: 'Viewer', rank: 'Alternate' },
+    {
+      ext: [...FILES_OPEN_WITH_EXTS.pptx],
+      name: 'Presentation',
+      role: 'Viewer',
+      rank: 'Alternate'
+    },
     { ext: [...FILES_OPEN_WITH_EXTS.audio], name: 'Audio', role: 'Viewer', rank: 'Alternate' },
     { ext: [...FILES_OPEN_WITH_EXTS.video], name: 'Video', role: 'Viewer', rank: 'Alternate' }
   ],
@@ -126,7 +132,7 @@ const config: Configuration = {
     target: ['AppImage', 'snap', 'deb'],
     maintainer: 'WBBB',
     category: 'Utility',
-    // 文件管理器「用其他应用打开」对目录可见（External Open 的 Linux 投影）；图片 / PDF / 音视频同列
+    // 文件管理器「用其他应用打开」对目录可见（External Open 的 Linux 投影）；图片 / PDF / PPT / 音视频同列
     mimeTypes: ['inode/directory', ...Object.values(FILES_OPEN_WITH_MIME).flat()]
   },
   appImage: {

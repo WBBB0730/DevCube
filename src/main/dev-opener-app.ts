@@ -12,7 +12,7 @@ import { macHelperPath } from './default-opener'
  * Dev 身份的「文件打开方式」实体（docs/prd/file-preview-window.md）。
  * LaunchServices 只把**声明了文档类型**的应用列进「打开方式」，设默认对未声明的应用也静默无效；
  * dev 跑的 node_modules 里的 Electron.app 什么都没声明。于是同快速操作的思路：用系统自带的
- * `osacompile` 在 Dev 数据目录生成一个「DevCube Dev.app」AppleScript 小壳，Info.plist 声明三类文件，
+ * `osacompile` 在 Dev 数据目录生成一个「DevCube Dev.app」AppleScript 小壳，Info.plist 声明「文件打开方式」各类文件，
  * `on open` 把收到的文件用 `open -a <Electron.app>` 转给运行中的 dev 实例（未运行则只拉起空 Electron，
  * 与快速操作同一口径）。零依赖、整目录可删（注册经设默认助手调 LSRegisterURL，Dev 下需先 `pnpm build:mac-helper`）。打包身份自己就声明了文档类型，不需要这层。
  * 与打包身份「安装即出现在打开方式、点按钮才成默认」对齐：dev **启动时**就同步小壳（指纹不变则跳过），
@@ -64,7 +64,7 @@ export function devOpenerScript(electronAppPath: string): string {
   ].join('\n')
 }
 
-/** 写进 Info.plist 的键：身份 + 三类文档声明（角色 Viewer、优先级 Alternate，与打包声明一致）。 */
+/** 写进 Info.plist 的键：身份 + 各类文档声明（角色 Viewer、优先级 Alternate，与打包声明一致）。 */
 export function devOpenerPlistPatch(
   extsByCategory: Record<string, readonly string[]> = FILES_OPEN_WITH_EXTS
 ): Record<string, unknown> {

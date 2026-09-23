@@ -1,5 +1,5 @@
 /**
- * Files Tab PDF 缩略图：一份文档一个渲染器，管页面尺寸、排队画图与缓存。
+ * Files Tab PDF 缩略图：一份文档一个渲染器，管页面尺寸、排队画图与缓存（取页顺序见 files-page-thumbnails）。
  * PDF.js 组件层不导出其阅读器的 PDFThumbnailViewer，这里照它的模型自写、重活仍交给库：
  * - 一次只画一张，永远先画离侧栏视口最近的页；视口画完再顺着滚动方向预取有限几屏，不画整本；
  * - 画好的小图存成压缩图片的 blob 对象 URL（二进制不转 base64、由浏览器托管不进 JS 堆、同图反复挂载共用解码；
@@ -11,49 +11,14 @@
  */
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import type { EventBus } from 'pdfjs-dist/legacy/web/pdf_viewer.mjs'
+import { nextThumbnailPage, PAGE_THUMB_W, type ThumbnailWindow } from './files-page-thumbnails'
 
-/** 小图宽（CSS px），高按每页真实宽高比 */
-export const PDF_THUMB_W = 128
 /** 视口画完后顺着滚动方向预取的屏数，与反方向补的屏数（一屏 = 当前视口内的页数） */
 const AHEAD_SCREENS = 2
 const BEHIND_SCREENS = 1
 /** 缓存用 JPEG：白底页面几十 KB 一张，几百页也就几 MB；PNG 遇到照片页会到一两百 KB */
 const THUMB_MIME = 'image/jpeg'
 const THUMB_QUALITY = 0.9
-
-export type ThumbnailWindow = {
-  /** 侧栏视口内首尾页（1 起，含） */
-  first: number
-  last: number
-  /** 侧栏最近一次的滚动方向 */
-  direction: 'forward' | 'backward'
-}
-
-/**
- * 下一张该画的页：视口内未画的按顺序优先；然后顺着滚动方向往前预取 `ahead` 页，再反方向补 `behind` 页。
- * 都画好了返回 null。
- */
-export function nextThumbnailPage(
-  win: ThumbnailWindow,
-  pages: number,
-  done: (page: number) => boolean,
-  ahead: number,
-  behind: number
-): number | null {
-  const first = Math.max(1, win.first)
-  const last = Math.min(pages, win.last)
-  for (let n = first; n <= last; n++) if (!done(n)) return n
-  const forward = win.direction === 'forward'
-  for (let d = 1; d <= ahead; d++) {
-    const n = forward ? last + d : first - d
-    if (n >= 1 && n <= pages && !done(n)) return n
-  }
-  for (let d = 1; d <= behind; d++) {
-    const n = forward ? first - d : last + d
-    if (n >= 1 && n <= pages && !done(n)) return n
-  }
-  return null
-}
 
 export class PdfThumbnailRenderer {
   readonly #doc: PDFDocumentProxy
@@ -83,7 +48,7 @@ export class PdfThumbnailRenderer {
         if (this.#dead) return
         this.#heights = pages.map((p) => {
           const v = p.getViewport({ scale: 1 })
-          return Math.round((PDF_THUMB_W * v.height) / v.width)
+          return Math.round((PAGE_THUMB_W * v.height) / v.width)
         })
         this.#emit()
       })
@@ -160,7 +125,7 @@ export class PdfThumbnailRenderer {
       const pdfPage = await this.#doc.getPage(page)
       if (this.#dead) return
       const base = pdfPage.getViewport({ scale: 1 })
-      const viewport = pdfPage.getViewport({ scale: PDF_THUMB_W / base.width })
+      const viewport = pdfPage.getViewport({ scale: PAGE_THUMB_W / base.width })
       // 按设备像素比画，2 倍屏清晰（同 PDF.js 自家缩略图的 OutputScale 做法）
       const ratio = window.devicePixelRatio || 1
       const canvas = (this.#canvas ??= document.createElement('canvas'))

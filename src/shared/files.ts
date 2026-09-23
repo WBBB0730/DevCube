@@ -23,9 +23,10 @@ export type FilesReadResult =
   | { kind: 'audio'; path: string; mediaUrl: string; mime: string }
   | { kind: 'video'; path: string; mediaUrl: string; mime: string }
   | { kind: 'pdf'; path: string; mediaUrl: string }
+  | { kind: 'pptx'; path: string; mediaUrl: string }
   | { kind: 'other'; path: string; size: number }
 
-/** Files Tab 媒体预览自定义协议（主进程 stream，渲染层 `<img>` / `<audio>` / `<video>` / 瓦片 / PDF）。 */
+/** Files Tab 媒体预览自定义协议（主进程 stream，渲染层 `<img>` / `<audio>` / `<video>` / 瓦片 / PDF / PPT）。 */
 export const FILES_MEDIA_SCHEME = 'dc-media'
 
 /** 构建仅限本应用渲染层使用的媒体 URL（项目根、文件路径、MIME）；主进程协议只放行登记项目内路径。 */

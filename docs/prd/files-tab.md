@@ -8,7 +8,7 @@
 
 1. **左正文 + 右文件树**：树展示项目根下条目；**不按 `.gitignore` 过滤**（仍可见 `node_modules` 等），但隐藏 WebStorm「Ignored Files and Folders」默认项（如 `.git`、`.DS_Store`）；同一时刻至多打开一个条目。
 2. **树顶过滤**：树顶常驻筛选框，按相对路径包含匹配收窄**同一棵树**（保留结构，不另开结果面板）；基于文件名索引，跳过 IDE 忽略名 + gitignore（见 ADR-0009 / ADR-0027）。
-3. **按类型分流**：文本用编辑器编辑（当前实验分支为 CodeMirror 6；`backup/files-tab-monaco` 为 Monaco 对照——均仅语法高亮与文本编辑，无 lint / 补全 / 跳转；不上外部 LSP）；图片内嵌预览（内容区右上角显示像素宽高；Cmd/Ctrl+滚轮缩放、滚轮或拖拽平移、方向键按可见树序切上一个/下一个媒体（位图 / SVG / PDF / 音视频；PDF ←/→ 直接切，↑/↓ 翻页、到头再按也切）、工具栏四档「1:1 / 适应高度 / 适应宽度 / 适应窗口」、双击或 Cmd/Ctrl+0）；PDF 内嵌预览（页码 / 缩略图侧栏 / 四档适应 / 查找，见 `files-pdf-preview.md`）；Chromium 可播的音视频内嵌预览（原生控件）；其余只读占位，并可「在其他应用中打开」。
+3. **按类型分流**：文本用编辑器编辑（当前实验分支为 CodeMirror 6；`backup/files-tab-monaco` 为 Monaco 对照——均仅语法高亮与文本编辑，无 lint / 补全 / 跳转；不上外部 LSP）；图片内嵌预览（内容区右上角显示像素宽高；Cmd/Ctrl+滚轮缩放、滚轮或拖拽平移、方向键按可见树序切上一个/下一个媒体（位图 / SVG / PDF / PPT / 音视频；PDF 与 PPT ←/→ 直接切，↑/↓ 翻页、到头再按也切）、工具栏四档「1:1 / 适应高度 / 适应宽度 / 适应窗口」、双击或 Cmd/Ctrl+0）；PDF 内嵌预览（页码 / 缩略图侧栏 / 四档适应 / 查找，见 `files-pdf-preview.md`）；PPT 内嵌预览（pptx 及其放映版 / 模板 / 带宏版本，外壳同 PDF，见 `files-pptx-preview.md`）；Chromium 可播的音视频内嵌预览（原生控件）；其余只读占位，并可「在其他应用中打开」。
 4. **事件自动保存**（对齐 WebStorm 体感）：换文件 / 离开 Files Tab / 失焦或短空闲时写入；无显式脏标记弹窗常态。
 5. **与 Git 打通**：Git 里「打开文件」进入该项目 Files Tab 并打开对应路径；Files Tab 保留「在其他应用中打开」。
 6. **左栏不动**：ProjectTree 仍只做项目 / 配置；文件树仅出现在 Files Tab 内。不做文件 CRUD（新建 / 重命名 / 删除 / 复制 / 移动仍走系统文件管理器或 **Terminal**）。
@@ -23,7 +23,7 @@
 6. 作为开发者，我想看到项目根下接近完整的文件树（含 `node_modules` 等 gitignore 条目），以便不被 `.gitignore` 藏掉我要找的文件；同时不想看到 `.git` / `.DS_Store` 等 IDE 默认忽略项，以便和 WebStorm Project 树一致。
 7. 作为开发者，我想展开 / 折叠目录浏览树，以便逐级找到文件。
 8. 作为开发者，我想点击文件就在右侧打开它，以便立刻查看或编辑。
-9. 作为开发者，我想树里的文件图标和文件类型对应（图片、PDF、音频、视频、文本、代码、JSON、表格、脚本、压缩包），一律用物件本身的图标（不用「文件 + 角标」那一系列，未知二进制除外），PDF 用「圆角方框 + Acrobat 风格卷纹」的自绘图标，以便扫一眼就分得清。
+9. 作为开发者，我想树里的文件图标和文件类型对应（图片、PDF、PPT、音频、视频、文本、代码、JSON、表格、脚本、压缩包），一律用物件本身的图标（不用「文件 + 角标」那一系列，未知二进制除外），PDF 用「圆角方框 + Acrobat 风格卷纹」的自绘图标，以便扫一眼就分得清。
 10. 作为开发者，我想同一时刻只打开一个条目，以便界面保持轻量、没有内层文件 Tab。
 11. 作为开发者，我想点另一个文件时自动处理当前缓冲（事件保存），以便换文件不丢已键入内容、也不弹窗打断。
 12. 作为开发者，我想用 Monaco 编辑文本文件，以便有语法高亮和基本编辑体验。
@@ -73,17 +73,18 @@
 56. 作为开发者，我想过滤命中成千上万个文件时树依然流畅滚动，以便宽泛查询下也能翻结果而不是页面卡死。
 57. 作为开发者，我想在编辑器里用 Cmd/Ctrl+F 打开顶部查找栏（大小写 / 全词 / 正则、计数、上下导航、Esc 关闭，形态对齐 WebStorm），以便文件内定位不再面对样式突兀的默认面板。
 58. 作为开发者，我想打开 PDF 时在右侧内嵌预览（翻页、缩略图、缩放、选字、查找），以便看设计稿和文档不用跳出去（细节见 `files-pdf-preview.md`）。
+59. 作为开发者，我想打开 PPT 时在右侧内嵌预览，操作与 PDF 一致，以便看汇报和作品集不用跳出去（细节见 `files-pptx-preview.md`）。
 
 ## Implementation Decisions
 
 - **Tab 模型**：Files Tab 为每项目常驻非会话 Tab，键形态与 Git 并列（如 `files:<projectPath>`），恒排第二、不可关闭；`closeTab` / Cmd+W no-op。顺序与默认激活 / 关闭回落见 ADR-0005（已替换为「Git + Files 常驻」+「运行中优先否则 Tab 序」）。
 - **布局**：Files Tab 内左正文、右文件树；左栏 ProjectTree 不改。空态文案「在右侧选择文件」。标签：`FolderOpen` 图标 +「文件」，内边距对齐 Git Tab。工具栏：可点面包屑（点段 → 树展开并滚到对应行）+「最近打开文件」（最多 10 条，按项目持久化）/「在文件树中显示」/「在文件夹中显示」/「在其他应用中打开」。文件树顶栏：左侧常驻筛选框（占位与 title 同文案，样式对齐左栏项目筛选）+ 右侧「全部展开」/「全部折叠」/「隐藏文件树」。
-- **文件树**：文件行图标按扩展名归大类（共享纯函数 `filesTreeIconKind`，只看名字不读盘）——一律用 lucide 裸物件图标（Image / Music / Film / Type / Code / Braces / Table2 / Terminal / Package2），PDF 为自绘「圆角方框 + Acrobat 风格卷纹」（lucide 无），未知二进制用 `File`；列出项目根下条目；**展示不读 `.gitignore`**。隐藏名对齐 WebStorm「Editor → File Types → Ignored Files and Folders」默认掩码（`.git`、`.DS_Store`、`*.pyc`、`*~` 等；完整表见共享过滤模块）。仅允许访问项目根之内的路径（防目录穿越）。目录懒加载或等价按需读取以控制大树成本；树行虚拟滚动——按展开态拍平成可见行数组、仅渲染视口内行（读取与渲染分别受控，过滤命中再多也不卡）；展开状态按项目持久化。
+- **文件树**：文件行图标按扩展名归大类（共享纯函数 `filesTreeIconKind`，只看名字不读盘）——一律用 lucide 裸物件图标（Image / Presentation / Music / Film / Type / Code / Braces / Table2 / Terminal / Package2），PDF 为自绘「圆角方框 + Acrobat 风格卷纹」（lucide 无），未知二进制用 `File`；列出项目根下条目；**展示不读 `.gitignore`**。隐藏名对齐 WebStorm「Editor → File Types → Ignored Files and Folders」默认掩码（`.git`、`.DS_Store`、`*.pyc`、`*~` 等；完整表见共享过滤模块）。仅允许访问项目根之内的路径（防目录穿越）。目录懒加载或等价按需读取以控制大树成本；树行虚拟滚动——按展开态拍平成可见行数组、仅渲染视口内行（读取与渲染分别受控，过滤命中再多也不卡）；展开状态按项目持久化。
 - **树顶过滤**（ADR-0009 / ADR-0027）：查询非空时主进程从**文件名索引**构建过滤树（保留结构）——ripgrep `--files` 一次枚举全项目、按项目缓存扁平名单，按键只做内存匹配；索引随文件监听的变更推送作废。匹配 = 相对项目根路径大小写不敏感包含；目录自身命中则整支子树纳入（子孙路径天然包含目录名）；过滤态自动展开至命中；无匹配文案「无匹配文件」；名单只含文件，名字命中的空目录不出现。索引跳过：IDE 忽略名 + gitignore（非仓库则仅 IDE）。防抖输入、冷索引首查显示「正在扫描」提示（延迟出现防闪烁）、扫描完成前不显示「无匹配文件」、以最新查询为准作废旧结果。过滤文字不持久化（切 Tab / 换项目 / 重启清空）。焦点在树上时可打印字写入筛选框；Esc 清空并恢复过滤前展开，若有当前打开文件再展开到可见。过滤期间展开/折叠只改过滤视图，不写入持久化展开态；清空后才回到浏览展开态。全局 Alt+CmdOrCtrl+F：有当前项目时激活其 Files Tab、必要时展开文件树、聚焦筛选框并选中已有查询（与左栏项目筛选 Alt+CmdOrCtrl+P 对称；不占用 CmdOrCtrl+F）。title / placeholder 文案走共享 `formatShortcutLabel`（对齐 VS Code UILabel：修饰键 Ctrl→Shift→Alt→Meta；macOS 符号无分隔符，Win/Linux `+` 连接）。不做命中高亮、排除目录 UI、Cmd+P、全文搜。
 - **编辑器内查找**（Cmd/Ctrl+F，焦点在编辑器时）：编辑器顶部整宽查找栏（占位压下正文，对齐 WebStorm）替换 CodeMirror 默认搜索面板；引擎复用 @codemirror/search 的 SearchQuery（官方给自定义查找 UI 的积木），高亮 / 计数 / 回绕导航由自持扩展提供（默认面板的高亮与其面板生命周期绑死，浮层形态无法复用）；大小写 / 全词 / 正则开关、计数封顶 999+、坏正则红字提示；不做替换；默认 searchKeymap 退役（跳行 / 选下一个等默认键随之移除）。
 - **语言高亮覆盖**（编辑器 / 内容搜索结果行 / 搜索预览三处共用同一映射）：官方 Lezer 包优先（js/ts、json、css/scss/sass/less、html、xml、markdown、yaml、python、go、rust、java、c/cpp、php、sql、vue），官方无包的走 `@codemirror/legacy-modes` 词法级高亮（C#、Kotlin、Swift、Dart、Obj-C、Ruby、Lua、Shell、TOML、Dockerfile、shader 等约 40 组长尾）；近似映射兜常见配置（.plist/.csproj→xml、Unity .meta/.unity/.prefab→yaml、.svelte/.ejs→html、.gitignore 族→properties、.gd→python 近似）。legacy-modes 无全量桶导出与官方扩展名映射表，映射表自维护；按需 import 逐文件 tree-shake。无覆盖仍为纯文本（zig / elixir / graphql / terraform 等官方与 legacy 均无语法）。
 - **正文右键菜单**（任何已打开的条目）：复制图片（仅看图 / SVG 预览态）/ 复制文件 / 在文件夹中显示 / 在其他应用中打开；树菜单的「复制信息」组同样加「复制文件 / 复制文件夹」。复制文件由主进程把文件本身放进系统剪贴板，各平台走官方通道——macOS `public.file-url`、Linux `text/uri-list`、Windows 的 CF_HDROP 是预定义格式 writeBuffer 注册不了，交给系统自带 PowerShell 5.1 的 `Set-Clipboard -LiteralPath`（pwsh 7 已去掉该参数，点名 powershell.exe）。复制在渲染层用 canvas 把图栅格化成 PNG 写系统剪贴板（主进程 nativeImage 只认 PNG / JPEG，渲染层能显示的都能复制；`dc-media` 带 CORS 头，anonymous 加载不污染 canvas）；超大位图复制其预览图。
-- **打开分流**：已知文本扩展名走编辑器；其余用 `file-type` + `@file-type/av` 读魔数得 MIME。位图 → `dc-media://` 流式内嵌预览（主进程读文件头得宽高，EXIF 转 90° 的按显示方向报；内容区右上角显示像素尺寸；Cmd/Ctrl+滚轮按光标缩放（鼠标一格约 10%；触控板捏合跟手指距离）、普通滚轮或按住拖拽平移、方向键切上一个/下一个媒体——位图、SVG、PDF、音视频同一序列，按树里当前可见的顺序（跨目录、只进已展开的目录），到头不回绕；工具栏钮组最左四档「1:1 / 适应高度 / 适应宽度 / 适应窗口」、预览区双击或 Cmd/Ctrl+0，与 PDF 同一组；双击在两条轴之间切换，从「适应窗口」进来时先判它实际顶住的是哪条轴（只看图与视口的宽高比，与当前倍率无关）再切到另一条，「1:1」与自由倍率不在轴上则落适应宽度；打开时装得下视口的图落 1:1、装不下的落适应窗口；视口尺寸变化时所处档位按新尺寸重算）。渲染分两档（ADR-0029）：像素数 ≤ 3200 万且单边 ≤ 16384 走浏览器原生 `<img>`——手势只改 CSS transform，缩放停手 100ms 后把倍率烙进 width/height 由 Chromium 重新栅格化，任何倍率清晰，GIF / 动态 WebP 照常播放；超过阈值的位图先向主进程要 sharp 缩小解码的预览图（长边 4096，亚秒），同时后台一次性生成 Deep Zoom 瓦片金字塔（512 瓦片、无透明通道出 JPEG 否则 PNG，缓存在 userData/media-tiles 按路径+mtime+大小键，总量 2GB LRU），就绪后叠 OpenSeadragon 瓦片层，由同一相机驱动、手感不变。换图时新图解码完成再替换，旧图不闪；相邻普通图提前解码、相邻超大图提前备好预览与金字塔；PDF → `dc-media://` + PDF.js 官方 viewer 组件内嵌预览（页码 / 缩略图侧栏 / 四档适应 / 文字层 / 查找，见 `files-pdf-preview.md` / ADR-0030）；Chromium 可播音视频 → `dc-media://` 特权协议 + 显式 Range（206）流式 + 原生 `<audio>`/`<video>`（见 ADR-0010）；不可播音视频（如 mkv/wmv）与其它二进制 → 占位 +「在其他应用中打开」。魔数失败时：位图扩展名仍走图片；否则文本嗅探或占位。svg 仍走文本（可切图形预览，尺寸标注与看图操作与位图同，见 `files-markdown-preview.md`）。
+- **打开分流**：已知文本扩展名走编辑器；其余用 `file-type` + `@file-type/av` 读魔数得 MIME。位图 → `dc-media://` 流式内嵌预览（主进程读文件头得宽高，EXIF 转 90° 的按显示方向报；内容区右上角显示像素尺寸；Cmd/Ctrl+滚轮按光标缩放（鼠标一格约 10%；触控板捏合跟手指距离）、普通滚轮或按住拖拽平移、方向键切上一个/下一个媒体——位图、SVG、PDF、PPT、音视频同一序列，按树里当前可见的顺序（跨目录、只进已展开的目录），到头不回绕；工具栏钮组最左四档「1:1 / 适应高度 / 适应宽度 / 适应窗口」、预览区双击或 Cmd/Ctrl+0，与 PDF 同一组；双击在两条轴之间切换，从「适应窗口」进来时先判它实际顶住的是哪条轴（只看图与视口的宽高比，与当前倍率无关）再切到另一条，「1:1」与自由倍率不在轴上则落适应宽度；打开时装得下视口的图落 1:1、装不下的落适应窗口；视口尺寸变化时所处档位按新尺寸重算）。渲染分两档（ADR-0029）：像素数 ≤ 3200 万且单边 ≤ 16384 走浏览器原生 `<img>`——手势只改 CSS transform，缩放停手 100ms 后把倍率烙进 width/height 由 Chromium 重新栅格化，任何倍率清晰，GIF / 动态 WebP 照常播放；超过阈值的位图先向主进程要 sharp 缩小解码的预览图（长边 4096，亚秒），同时后台一次性生成 Deep Zoom 瓦片金字塔（512 瓦片、无透明通道出 JPEG 否则 PNG，缓存在 userData/media-tiles 按路径+mtime+大小键，总量 2GB LRU），就绪后叠 OpenSeadragon 瓦片层，由同一相机驱动、手感不变。换图时新图解码完成再替换，旧图不闪；相邻普通图提前解码、相邻超大图提前备好预览与金字塔；PDF → `dc-media://` + PDF.js 官方 viewer 组件内嵌预览（页码 / 缩略图侧栏 / 四档适应 / 文字层 / 查找，见 `files-pdf-preview.md` / ADR-0030）；PPT（PresentationML 六种 MIME）→ `dc-media://` + pptx-renderer 单页渲染、DevCube 自排页面列表（外壳与 PDF 共用，见 `files-pptx-preview.md` / ADR-0033）；Chromium 可播音视频 → `dc-media://` 特权协议 + 显式 Range（206）流式 + 原生 `<audio>`/`<video>`（见 ADR-0010）；不可播音视频（如 mkv/wmv）与其它二进制 → 占位 +「在其他应用中打开」。魔数失败时：位图扩展名仍走图片；否则文本嗅探或占位。svg 仍走文本（可切图形预览，尺寸标注与看图操作与位图同，见 `files-markdown-preview.md`）。
 - **编辑器**：实验分支用 CodeMirror 6（`@uiw/react-codemirror` + 语言包高亮，`basicSetup.autocompletion/lint` 关闭）。Monaco 完整实现保留在分支 `backup/files-tab-monaco` 供对照。明确不引入外部 LSP。查找等纯编辑器能力可用。
 - **保存**：事件自动保存——至少覆盖：切换打开条目、离开 Files Tab、窗口/面板失焦、短空闲。无常态「保存/不保存/取消」三按钮；竞态（未落盘 + 磁盘变更）单独弹窗：重载 / 保留编辑器内容。
 - **外部变更**（ADR-0011 / ADR-0021）：主进程用 @parcel/watcher 原生递归监听（与 Git / discovery 共用一条订阅）；有仓库时订阅根为**仓库根**（可宽于登记路径），Files 通道只入队落在该项目路径下的事件。尾沿防抖后推 `files:changed`；事件侧跳过 IDE 默认忽略名路径段，不硬编码 `node_modules` 等生态目录。Git 写动作期间（含余震）整条订阅静音。渲染端重拉**已缓存**目录列表（未展开过的不主动扫）；过滤态重跑当前过滤扫盘；当前打开文本：mtime 未变则不动，无脏则静默重载，有脏则冲突弹窗，路径已删则静默空态并剔除最近打开。不使用定时轮询 mtime。
@@ -124,7 +125,7 @@
 
 ## Further Notes
 
-- 术语见 CONTEXT.md（**Files Tab**）；Tab 破例与默认激活见 ADR-0005；过滤与 gitignore 分见 ADR-0009、过滤索引机制见 ADR-0027；音视频协议见 ADR-0010；看图两档渲染与瓦片金字塔见 ADR-0029；PDF 预览见 `files-pdf-preview.md` / ADR-0030；树/打开文件外部变更监听见 ADR-0011 / ADR-0021；视觉见 DESIGN.md。
+- 术语见 CONTEXT.md（**Files Tab**）；Tab 破例与默认激活见 ADR-0005；过滤与 gitignore 分见 ADR-0009、过滤索引机制见 ADR-0027；音视频协议见 ADR-0010；看图两档渲染与瓦片金字塔见 ADR-0029；PDF 预览见 `files-pdf-preview.md` / ADR-0030；PPT 预览见 `files-pptx-preview.md` / ADR-0033；树/打开文件外部变更监听见 ADR-0011 / ADR-0021；视觉见 DESIGN.md。
 - 「轻量」在此指少写业务胶水、不做文件管理与语言智能——不指捆绑包体积。编辑器壳在 Monaco / CM6 间实验对照后再定稿。
 - 保存触发的具体空闲秒数与失焦边可在实现时按 WebStorm 默认体感微调，不必再开产品讨论，除非要做成用户设置。
 - 过滤防抖毫秒数实现时可按体感微调，不必再开产品讨论。

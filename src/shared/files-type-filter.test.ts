@@ -15,10 +15,13 @@ const entry = (name: string, isDirectory = false): FilesDirEntry => ({
 })
 
 describe('filesTypeCategory', () => {
-  it('按扩展名归类；svg 算图片；音视频按可播容器表', () => {
+  it('按扩展名归类；svg 算图片；PPT 含放映版 / 模板 / 带宏变体；音视频按可播容器表', () => {
     expect(filesTypeCategory('a.png')).toBe('image')
     expect(filesTypeCategory('icon.SVG')).toBe('image')
     expect(filesTypeCategory('spec.pdf')).toBe('pdf')
+    expect(filesTypeCategory('deck.pptx')).toBe('pptx')
+    expect(filesTypeCategory('show.PPSX')).toBe('pptx')
+    expect(filesTypeCategory('macro.pptm')).toBe('pptx')
     expect(filesTypeCategory('clip.mp4')).toBe('av')
     expect(filesTypeCategory('track.flac')).toBe('av')
     expect(filesTypeCategory('app.ts')).toBe('text')
@@ -29,6 +32,7 @@ describe('filesTypeCategory', () => {
     expect(filesTypeCategory('a.wasm')).toBe('other')
     expect(filesTypeCategory('noext')).toBe('other')
     expect(filesTypeCategory('movie.mkv')).toBe('other')
+    expect(filesTypeCategory('old.ppt')).toBe('other')
   })
 })
 

@@ -55,6 +55,7 @@ import {
 import { FilesEntryDialog, type FilesEntryDialogRequest } from './FilesEntryDialog'
 import { FilesTreeMenu, type FilesTreeMenuTarget } from './FilesTreeMenu'
 import { FilesPdfPreview } from './FilesPdfPreview'
+import { FilesPptxPreview } from './FilesPptxPreview'
 import { FilesToolbar, TOOLBAR_BTN } from './FilesToolbar'
 import { FilesContentMenu, type FilesContentMenuTarget } from './FilesContentMenu'
 import { FilesTreeIcon } from './FilesTreeIcon'
@@ -99,6 +100,7 @@ type Loaded =
   | { kind: 'audio'; path: string; mediaUrl: string; mime: string }
   | { kind: 'video'; path: string; mediaUrl: string; mime: string }
   | { kind: 'pdf'; path: string; mediaUrl: string }
+  | { kind: 'pptx'; path: string; mediaUrl: string }
   | { kind: 'other'; path: string; size: number }
   | null
 
@@ -185,8 +187,8 @@ export function FilesPane({
   const [treeVisible, setTreeVisible] = useState(true)
   /** Markdown / SVG 编辑 ↔ 预览两态；会话内保持，不持久化，默认编辑。 */
   const [sourcePreview, setSourcePreview] = useState(false)
-  /** PDF 缩略图侧栏可见性；会话内保持，不持久化，默认显示。 */
-  const [pdfThumbnails, setPdfThumbnails] = useState(true)
+  /** PDF / PPT 缩略图侧栏可见性（两者共用一个开关）；会话内保持，不持久化，默认显示。 */
+  const [pageThumbnails, setPageThumbnails] = useState(true)
   /** 文件树右键菜单目标与条目操作弹窗（新建 / 重命名 / 删除）。 */
   const [treeMenu, setTreeMenu] = useState<FilesTreeMenuTarget | null>(null)
   /** 正文区（看图 / SVG 预览）右键菜单：复制图片 / 在文件夹中显示 / 在其他应用中打开 */
@@ -424,8 +426,8 @@ export function FilesPane({
             height: result.height,
             tiled: result.tiled
           })
-        } else if (result.kind === 'pdf') {
-          setLoaded({ kind: 'pdf', path: result.path, mediaUrl: result.mediaUrl })
+        } else if (result.kind === 'pdf' || result.kind === 'pptx') {
+          setLoaded({ kind: result.kind, path: result.path, mediaUrl: result.mediaUrl })
         } else if (result.kind === 'audio') {
           setLoaded({
             kind: 'audio',
@@ -628,7 +630,7 @@ export function FilesPane({
   /**
    * 上一个 / 下一个媒体（位图 / SVG / PDF / 音视频）按**树里当前可见的顺序**走——跨目录、跨类型，
    * 但只进已展开的目录（折叠的不自动钻），并尊重类型筛选；到头停下。
-   * 当前正文是媒体才响应（看图 / SVG 预览态 / PDF / 音视频）。
+   * 当前正文是媒体才响应（看图 / SVG 预览态 / PDF / PPT / 音视频）。
    */
   const goAdjacentMedia = useCallback(
     async (dir: -1 | 1) => {
@@ -637,6 +639,7 @@ export function FilesPane({
       const isMedia =
         cur.kind === 'image' ||
         cur.kind === 'pdf' ||
+        cur.kind === 'pptx' ||
         cur.kind === 'audio' ||
         cur.kind === 'video' ||
         (cur.kind === 'text' && isSvgPath(cur.path))
@@ -669,6 +672,9 @@ export function FilesPane({
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [visible, avOpen, goAdjacentMedia])
+
+  /** 分页文档预览：PDF 用 PDF.js，PPT 用 pptx-renderer，外壳与参数相同 */
+  const PagedPreview = loaded?.kind === 'pptx' ? FilesPptxPreview : FilesPdfPreview
 
   const viewingImagePath =
     loaded?.kind === 'image'
@@ -1279,13 +1285,14 @@ export function FilesPane({
             </div>
           </div>
         )}
-        {loaded?.kind === 'pdf' && (
-          <FilesPdfPreview
+        {(loaded?.kind === 'pdf' || loaded?.kind === 'pptx') && (
+          // PDF 与 PPT 同一套分页预览外壳，参数一致；换类型时组件随之换掉
+          <PagedPreview
             src={loaded.mediaUrl}
             path={loaded.path}
             active={visible}
-            thumbnails={pdfThumbnails}
-            onToggleThumbnails={() => setPdfThumbnails((v) => !v)}
+            thumbnails={pageThumbnails}
+            onToggleThumbnails={() => setPageThumbnails((v) => !v)}
             onPrev={goPrevImage}
             onNext={goNextImage}
             toolbar={{

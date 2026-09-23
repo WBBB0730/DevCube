@@ -1,4 +1,4 @@
-import { FILES_OPEN_WITH_EXTS, classifyFilesOpenKind } from './files-kind'
+import { FILES_OPEN_WITH_EXTS, classifyFilesOpenKind, isPptxPath } from './files-kind'
 
 /**
  * 文件树里文件行的图标种类（docs/prd/files-tab.md）：按扩展名归到一组「文件 + 角标」的 lucide 图标，
@@ -7,6 +7,7 @@ import { FILES_OPEN_WITH_EXTS, classifyFilesOpenKind } from './files-kind'
 export type FilesTreeIconKind =
   | 'image'
   | 'pdf'
+  | 'slides'
   | 'audio'
   | 'video'
   | 'text'
@@ -42,6 +43,7 @@ export function filesTreeIconKind(fileName: string): FilesTreeIconKind {
   const ext = dot >= 0 ? lower.slice(dot + 1) : ''
   if (ext === 'svg') return 'image'
   if (ext === 'pdf') return 'pdf'
+  if (isPptxPath(lower)) return 'slides'
   if (AUDIO_EXT.has(ext)) return 'audio'
   if (VIDEO_EXT.has(ext)) return 'video'
   if (ARCHIVE_EXT.has(ext)) return 'archive'

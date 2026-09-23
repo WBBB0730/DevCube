@@ -28,7 +28,7 @@ describe('dev-opener-app', () => {
     expect(s).toContain('on run')
   })
 
-  it('Info.plist 补丁声明三类文档、角色 Viewer、优先级 Alternate', () => {
+  it('Info.plist 补丁按类声明文档、角色 Viewer、优先级 Alternate', () => {
     const patch = devOpenerPlistPatch({ image: ['png', 'svg'], pdf: ['pdf'] })
     expect(patch.CFBundleIdentifier).toBe('com.wbbb.devcube.dev')
     expect(patch.CFBundleDocumentTypes).toEqual([

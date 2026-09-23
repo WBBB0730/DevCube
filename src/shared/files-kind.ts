@@ -1,23 +1,43 @@
 /** Files Tab 打开条目时的类型分流（见 docs/prd/files-tab.md）。 */
-export type FilesOpenKind = 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'other'
+export type FilesOpenKind = 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'pptx' | 'other'
 
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico'])
 
 /**
- * 「文件打开方式」三类扩展名（无点、小写）：打包时的文件关联声明、设置里的设为默认、
+ * PPT（OOXML 演示文稿）：.pptx 与同一格式的放映版 / 模板 / 带宏变体（宏不执行）。
+ * 老二进制 .ppt 不在内（没有可靠的纯前端渲染，仍占位）。
+ */
+export const PPTX_EXTS = ['pptx', 'ppsx', 'potx', 'pptm', 'ppsm', 'potm'] as const
+
+/** file-type 对上表六种给出的 MIME（带宏的三种带 `.12` 后缀）。 */
+const PPTX_MIME = new Set([
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+  'application/vnd.openxmlformats-officedocument.presentationml.template',
+  'application/vnd.ms-powerpoint.presentation.macroenabled.12',
+  'application/vnd.ms-powerpoint.slideshow.macroenabled.12',
+  'application/vnd.ms-powerpoint.template.macroenabled.12'
+])
+
+/**
+ * 「文件打开方式」各类扩展名（无点、小写）：打包时的文件关联声明、设置里的设为默认、
  * 树顶类型筛选共用同一张表，保证「设成默认的类型」恒能在 Files 面板内嵌预览。
  * 图片含 svg（打开分流仍为 text，Files 编辑器另给编辑 ↔ 预览）；音视频只列 Chromium 可播的容器。
  */
 export const FILES_OPEN_WITH_EXTS = {
   image: [...IMAGE_EXT].map((e) => e.slice(1)).concat('svg'),
   pdf: ['pdf'],
+  pptx: PPTX_EXTS,
   audio: ['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'oga'],
   video: ['mp4', 'webm', 'ogv']
 } as const satisfies Record<string, readonly string[]>
 
 export type FilesOpenWithCategory = keyof typeof FILES_OPEN_WITH_EXTS
 
-/** 三类对应的 MIME（Linux desktop entry 声明与 xdg-mime 设默认用；与扩展名表同源维护） */
+/**
+ * 各类对应的 MIME（Linux desktop entry 声明与 xdg-mime 设默认用；与扩展名表同源维护）。
+ * 写 freedesktop shared-mime-info 登记的原名（如 PPT 带宏的 `macroEnabled` 大小写），不是 file-type 识别出的写法。
+ */
 export const FILES_OPEN_WITH_MIME: Record<FilesOpenWithCategory, readonly string[]> = {
   image: [
     'image/png',
@@ -30,6 +50,14 @@ export const FILES_OPEN_WITH_MIME: Record<FilesOpenWithCategory, readonly string
     'image/svg+xml'
   ],
   pdf: ['application/pdf'],
+  pptx: [
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'application/vnd.openxmlformats-officedocument.presentationml.slideshow',
+    'application/vnd.openxmlformats-officedocument.presentationml.template',
+    'application/vnd.ms-powerpoint.presentation.macroEnabled.12',
+    'application/vnd.ms-powerpoint.slideshow.macroEnabled.12',
+    'application/vnd.ms-powerpoint.template.macroEnabled.12'
+  ],
   audio: ['audio/mpeg', 'audio/mp4', 'audio/aac', 'audio/x-wav', 'audio/flac', 'audio/ogg'],
   video: ['video/mp4', 'video/webm', 'video/ogg']
 }
@@ -162,6 +190,7 @@ export function primaryMime(mime: string): string {
  * - 不可播音视频（如 mkv/wmv）→ other（直接占位）
  * - 位图 → image；svg → text
  * - PDF → pdf（内嵌 PDF.js 预览）
+ * - PPT（pptx 及其变体）→ pptx（内嵌 pptx-renderer 预览）
  * - 其余 → null（交给扩展名或文本嗅探）
  */
 export function filesOpenKindFromMime(mime: string): FilesOpenKind | null {
@@ -169,6 +198,7 @@ export function filesOpenKindFromMime(mime: string): FilesOpenKind | null {
   if (primary === 'image/svg+xml') return 'text'
   if (IMAGE_MIME.has(primary)) return 'image'
   if (primary === 'application/pdf') return 'pdf'
+  if (PPTX_MIME.has(primary)) return 'pptx'
   if (primary.startsWith('audio/')) {
     return PLAYABLE_AUDIO_MIME.has(primary) ? 'audio' : 'other'
   }
@@ -226,9 +256,18 @@ const AV_EXT: ReadonlySet<string> = new Set([
   ...FILES_OPEN_WITH_EXTS.video
 ])
 
-/** 正文可内嵌预览、可用方向键前后切换的媒体：位图 / SVG / PDF / 可播音视频（按扩展名）。 */
+const PPTX_EXT: ReadonlySet<string> = new Set(PPTX_EXTS)
+
+/** PPT 文件（pptx 及其变体，按扩展名）。 */
+export function isPptxPath(path: string): boolean {
+  const lower = path.toLowerCase()
+  const dot = lower.lastIndexOf('.')
+  return dot >= 0 && PPTX_EXT.has(lower.slice(dot + 1))
+}
+
+/** 正文可内嵌预览、可用方向键前后切换的媒体：位图 / SVG / PDF / PPT / 可播音视频（按扩展名）。 */
 export function isMediaPreviewPath(path: string): boolean {
-  if (isImagePreviewPath(path)) return true
+  if (isImagePreviewPath(path) || isPptxPath(path)) return true
   const lower = path.toLowerCase()
   const dot = lower.lastIndexOf('.')
   const ext = dot >= 0 ? lower.slice(dot + 1) : ''

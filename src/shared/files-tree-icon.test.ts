@@ -6,6 +6,8 @@ describe('filesTreeIconKind', () => {
     expect(filesTreeIconKind('a.png')).toBe('image')
     expect(filesTreeIconKind('icon.SVG')).toBe('image')
     expect(filesTreeIconKind('spec.pdf')).toBe('pdf')
+    expect(filesTreeIconKind('deck.pptx')).toBe('slides')
+    expect(filesTreeIconKind('show.PPSX')).toBe('slides')
     expect(filesTreeIconKind('track.mp3')).toBe('audio')
     expect(filesTreeIconKind('clip.mp4')).toBe('video')
     expect(filesTreeIconKind('README.md')).toBe('text')

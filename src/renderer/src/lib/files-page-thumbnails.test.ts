@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { nextThumbnailPage } from './files-pdf-thumbnails'
+import { nextThumbnailPage } from './files-page-thumbnails'
 
 const doneSet =
   (...pages: number[]): ((page: number) => boolean) =>

@@ -12,9 +12,9 @@
 // ↑/↓ 始终上一页 / 下一页（不看档位，正文与侧栏内都如此，同看图的方向键切图）。
 // 外链由库标 target=_blank，交主进程开窗守卫转系统浏览器（web-contents-guard）；内链（目录跳转）库自处理。
 // 库样式表在 main.css 顶部以级联层引入（.files-pdf 覆盖也在那里）。
+// 键盘、抓手、滚轮缩放、页码与四档、缩略图侧栏是与 PPT 预览共用的外壳（lib/files-paged-preview、FilesPagedControls、FilesPageThumbnails）。
 // 用 legacy 构建：默认构建依赖比当前 Electron 的 Chromium 更新的 JS 特性（如 Map#getOrInsertComputed），legacy 自带垫片。
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { PanelLeft } from 'lucide-react'
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import {
   AnnotationMode,
   getDocument,
@@ -32,25 +32,23 @@ import {
 } from 'pdfjs-dist/legacy/web/pdf_viewer.mjs'
 import pdfWorkerUrl from 'pdfjs-dist/legacy/build/pdf.worker.min.mjs?url'
 import { buildFilesAssetUrl, FILES_ASSET_PDFJS } from '@shared/files'
-import { useApp } from '@renderer/store'
-import { editableTarget, overlayOpen } from '@renderer/lib/files-key-guards'
 import { cn } from '@renderer/lib/utils'
 import {
   mediaFitWindowAxis,
-  zoomFromWheel,
   type MediaFitAxis,
   type MediaFitMode
 } from '@renderer/lib/files-media-zoom'
 import { PdfThumbnailRenderer } from '@renderer/lib/files-pdf-thumbnails'
-import { MEDIA_SETTLE_MS, MediaFitButtons } from './FilesMediaPreview'
-import { toSysPath } from '@renderer/lib/files-paths'
-import { FilesPdfThumbnails } from './FilesPdfThumbnails'
+import type { ThumbnailWindow } from '@renderer/lib/files-page-thumbnails'
 import {
-  FilesToolbar,
-  TOOLBAR_BTN,
-  TOOLBAR_SEPARATOR,
-  type FilesToolbarProps
-} from './FilesToolbar'
+  useCtrlWheelZoom,
+  usePagedPreviewKeys,
+  usePreviewPan
+} from '@renderer/lib/files-paged-preview'
+import { MEDIA_SETTLE_MS } from './FilesMediaPreview'
+import { FilesPageControls, FilesPreviewError, FilesThumbnailsToggle } from './FilesPagedControls'
+import { FilesPageThumbnails } from './FilesPageThumbnails'
+import { FilesToolbar, type FilesToolbarProps } from './FilesToolbar'
 import { FindBar } from './FindBar'
 
 GlobalWorkerOptions.workerSrc = pdfWorkerUrl
@@ -140,6 +138,42 @@ function overTextOrAnnotation(target: EventTarget | null): boolean {
   )
 }
 
+const noSubscribe = (): (() => void) => () => {}
+const zero = (): number => 0
+
+/** 缩略图侧栏的 PDF 一侧：跟着渲染器（尺寸取齐 / 画好一张）重渲染，格子显示缓存的小图 */
+function PdfThumbnails({
+  renderer,
+  page,
+  onSelect
+}: {
+  /** 当前文档的渲染器；null = 文档尚在加载，只出侧栏空壳 */
+  renderer: PdfThumbnailRenderer | null
+  page: number
+  onSelect: (page: number) => void
+}): React.JSX.Element {
+  useSyncExternalStore(
+    renderer ? renderer.subscribe : noSubscribe,
+    renderer ? renderer.getVersion : zero
+  )
+  const onWindowChange = useCallback(
+    (win: ThumbnailWindow | null) => renderer?.setWindow(win),
+    [renderer]
+  )
+  return (
+    <FilesPageThumbnails
+      heights={renderer?.heights ?? null}
+      page={page}
+      onSelect={onSelect}
+      onWindowChange={onWindowChange}
+      renderThumb={(n) => {
+        const url = renderer?.url(n)
+        return url && <img src={url} alt="" draggable={false} className="block size-full" />
+      }}
+    />
+  )
+}
+
 export function FilesPdfPreview({
   src,
   path,
@@ -178,8 +212,6 @@ export function FilesPdfPreview({
   } | null>(null)
   const [loadError, setLoadError] = useState<{ src: string; message: string } | null>(null)
   const [page, setPage] = useState(1)
-  /** 页码输入框正在编辑的草稿；null = 显示当前页 */
-  const [pageDraft, setPageDraft] = useState<string | null>(null)
   /** 当前所处的档；null = 滚轮缩出的自由倍率，四颗钮都不亮 */
   const [fitMode, setFitMode] = useState<MediaFitMode | null>(null)
   const [findOpen, setFindOpen] = useState(false)
@@ -188,11 +220,6 @@ export function FilesPdfPreview({
   const [caseSensitive, setCaseSensitive] = useState(false)
   const [wholeWord, setWholeWord] = useState(false)
   const [findResult, setFindResult] = useState<FindResult | null>(null)
-  const [panning, setPanning] = useState(false)
-  /** 空格按住 = 抓手修饰键；ref 给事件处理读，state 给光标样式 */
-  const spaceRef = useRef(false)
-  const [spaceHeld, setSpaceHeld] = useState(false)
-  const dragCleanup = useRef<(() => void) | null>(null)
 
   const doc = docInfo?.src === src ? docInfo.doc : null
   const thumbs = docInfo?.src === src ? docInfo.thumbs : null
@@ -398,125 +425,42 @@ export function FilesPdfPreview({
     dispatchFind('')
   }, [findOpen, dispatchFind])
 
-  // Cmd/Ctrl+F 打开查找（焦点在本预览内或无焦点时）；焦点在 viewer 上按 Esc 关闭
-  useEffect(() => {
-    if (!active) return
-    const onKey = (e: KeyboardEvent): void => {
-      const root = rootRef.current
-      if (!root) return
-      const target = e.target
-      const inside = target instanceof Node && root.contains(target)
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'f') {
-        if (!inside && (target !== document.body || editableTarget(target))) return
-        const app = useApp.getState()
-        if (overlayOpen() || app.contentSearchOpen || app.dialog.open) return
-        e.preventDefault()
-        e.stopPropagation()
-        openFind()
-        return
-      }
-      // Cmd/Ctrl+0 回适应窗口、Cmd/Ctrl +/- 逐档缩放。这三个键已从应用菜单的视图块里摘掉
-      //（Electron 的 viewMenu 自带整页缩放，菜单加速键优先级更高，留着就压住这里）。
-      if ((e.metaKey || e.ctrlKey) && !e.altKey) {
-        // Cmd+= 与 Cmd+Shift+= 都算放大（后者就是键盘上的 Cmd++）；回基准视图则不许带 Shift
-        const zoomIn = e.code === 'Equal' || e.code === 'NumpadAdd'
-        const zoomOut = e.code === 'Minus' || e.code === 'NumpadSubtract'
-        const reset = e.code === 'Digit0' && !e.shiftKey
-        if (zoomIn || zoomOut || reset) {
-          if (!inside && (target !== document.body || editableTarget(target))) return
-          const app = useApp.getState()
-          if (overlayOpen() || app.contentSearchOpen || app.dialog.open) return
-          e.preventDefault()
-          e.stopPropagation()
-          if (reset) fit('window')
-          else stepZoom(zoomIn ? 1 : -1)
-          return
-        }
-      }
-      // ←/→ 切上一个 / 下一个媒体文件（↑/↓ 留给翻页，所以 PDF 只用左右）；守卫同下
-      if (
-        (e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !e.altKey &&
-        !e.shiftKey &&
-        (onPrev || onNext)
-      ) {
-        if (editableTarget(target) || overlayOpen()) return
-        const app = useApp.getState()
-        if (app.contentSearchOpen || app.dialog.open) return
-        e.preventDefault()
-        e.stopPropagation()
-        if (e.key === 'ArrowLeft') onPrev?.()
-        else onNext?.()
-        return
-      }
-      // ↑/↓ 始终上一页 / 下一页（不看档位；正文与缩略图侧栏内都如此），同看图的方向键切图：
-      // 不抢输入框与弹层，不要求焦点在预览内。已在第一页 / 最后一页时再按，就切上一个 / 下一个媒体
-      if (
-        (e.key === 'ArrowUp' || e.key === 'ArrowDown') &&
-        !e.metaKey &&
-        !e.ctrlKey &&
-        !e.altKey &&
-        !e.shiftKey
-      ) {
-        if (editableTarget(target) || overlayOpen()) return
-        const app = useApp.getState()
-        if (app.contentSearchOpen || app.dialog.open) return
-        const viewer = viewerRef.current
-        if (!viewer?.pdfDocument) return
-        e.preventDefault()
-        e.stopPropagation()
-        if (e.key === 'ArrowUp') {
-          if (viewer.currentPageNumber <= 1) onPrev?.()
-          else viewer.previousPage()
-        } else if (viewer.currentPageNumber >= viewer.pagesCount) onNext?.()
-        else viewer.nextPage()
-        return
-      }
-      if (e.key === 'Escape' && findOpen && inside && !editableTarget(target)) {
-        e.preventDefault()
-        closeFind()
-      }
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [active, findOpen, openFind, closeFind, fit, stepZoom, onPrev, onNext])
+  const getPage = useCallback(() => {
+    const viewer = viewerRef.current
+    return viewer?.pdfDocument ? { page: viewer.currentPageNumber, pages: viewer.pagesCount } : null
+  }, [])
 
-  useEffect(() => () => dragCleanup.current?.(), [])
+  const goToPage = useCallback((n: number): void => {
+    const viewer = viewerRef.current
+    if (!viewer?.pdfDocument || !Number.isFinite(n)) return
+    viewer.currentPageNumber = Math.min(viewer.pagesCount, Math.max(1, Math.round(n)))
+  }, [])
 
-  // 空格按住 = 抓手修饰键（焦点在本预览内且不在输入框）；松开或窗口失焦即恢复
-  useEffect(() => {
-    if (!active) return
-    const setSpace = (held: boolean): void => {
-      if (spaceRef.current === held) return
-      spaceRef.current = held
-      setSpaceHeld(held)
-    }
-    const onDown = (e: KeyboardEvent): void => {
-      if (e.key !== ' ') return
-      const root = rootRef.current
-      const target = e.target
-      if (!root || !(target instanceof Node) || !root.contains(target) || editableTarget(target))
-        return
-      // 连按住的重复事件也要拦，否则原生「空格翻页」会抢走
-      e.preventDefault()
-      if (!e.repeat) setSpace(true)
-    }
-    const onUp = (e: KeyboardEvent): void => {
-      if (e.key === ' ') setSpace(false)
-    }
-    const onBlur = (): void => setSpace(false)
-    window.addEventListener('keydown', onDown, true)
-    window.addEventListener('keyup', onUp, true)
-    window.addEventListener('blur', onBlur)
-    return () => {
-      window.removeEventListener('keydown', onDown, true)
-      window.removeEventListener('keyup', onUp, true)
-      window.removeEventListener('blur', onBlur)
-      setSpace(false)
-    }
-  }, [active])
+  const fitWindow = useCallback(() => fit('window'), [fit])
+
+  usePagedPreviewKeys({
+    active,
+    rootRef,
+    findOpen,
+    openFind,
+    closeFind,
+    fitWindow,
+    stepZoom,
+    getPage,
+    goToPage,
+    onPrevFile: onPrev,
+    onNextFile: onNext
+  })
+
+  // 文字层与注解控件上让给选字与点击；空白处双击在两条轴之间切换，以双击点为锚点
+  const { panning, spaceHeld, onMouseDown } = usePreviewPan({
+    active,
+    rootRef,
+    containerRef,
+    enabled: pages > 0,
+    passThrough: overTextOrAnnotation,
+    onDoubleClick: (anchor) => fit(doubleClickAxis(), anchor)
+  })
 
   // 容器尺寸一变（拖窗口 / 文件树显隐 / 查找栏开合）就按新尺寸重算预设缩放：库自带的
   // ResizeObserver 只更新内部缓存，重算缩放历来是官方 viewer 外壳的活，这里等价补上。
@@ -539,74 +483,16 @@ export function FilesPdfPreview({
   }, [])
 
   // Cmd/Ctrl+滚轮 / 捏合：按光标缩放，手势中只做 CSS 缩放、停手后重绘（drawingDelay）
-  useEffect(() => {
-    const wrap = wrapRef.current
-    if (!wrap) return
-    const onWheel = (e: WheelEvent): void => {
-      if (!(e.metaKey || e.ctrlKey)) return
-      e.preventDefault()
-      const viewer = viewerRef.current
-      if (!viewer?.pdfDocument) return
-      const rect = wrap.getBoundingClientRect()
-      viewer.updateScale({
-        scaleFactor: zoomFromWheel(1, e.deltaY, e),
-        origin: [e.clientX - rect.left, e.clientY - rect.top],
-        drawingDelay: MEDIA_SETTLE_MS
-      })
-    }
-    wrap.addEventListener('wheel', onWheel, { passive: false })
-    return () => wrap.removeEventListener('wheel', onWheel)
-  }, [])
-
-  /** 拖拽平移：文字 / 注解控件上让给选字与点击，其余（或按住空格）抓着滚动容器走，同看图。 */
-  const startPan = (e: React.MouseEvent<HTMLDivElement>): void => {
-    if (e.button !== 0) return
-    const container = containerRef.current
-    if (!container || pages <= 0) return
-    if (!spaceRef.current && overTextOrAnnotation(e.target)) return
-    // 空白处双击换档，从 mousedown 的点击计数判定而非接 dblclick：拖拽期间盖着的全屏遮罩会接走
-    // mouseup，click / dblclick 的 target 退化成两者的共同祖先，永远落不到这里。
-    // 文字 / 注解上已在前一行让路，原生双击选词不受影响。
-    if (e.detail === 2) {
-      const rect = container.getBoundingClientRect()
-      fit(doubleClickAxis(), {
-        x: e.clientX - rect.left,
-        y: e.clientY - rect.top
-      })
-      return
-    }
-    e.preventDefault()
-    container.focus({ preventScroll: true })
-    const origin = {
-      x: e.clientX,
-      y: e.clientY,
-      left: container.scrollLeft,
-      top: container.scrollTop
-    }
-    setPanning(true)
-    const onMove = (ev: MouseEvent): void => {
-      container.scrollLeft = origin.left - (ev.clientX - origin.x)
-      container.scrollTop = origin.top - (ev.clientY - origin.y)
-    }
-    const onUp = (): void => {
-      dragCleanup.current = null
-      setPanning(false)
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-    dragCleanup.current = () => {
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }
-
-  const goToPage = (n: number): void => {
+  const onWheelZoom = useCallback((factor: number, origin: { x: number; y: number }) => {
     const viewer = viewerRef.current
-    if (!viewer || !Number.isFinite(n) || pages <= 0) return
-    viewer.currentPageNumber = Math.min(pages, Math.max(1, Math.round(n)))
-  }
+    if (!viewer?.pdfDocument) return
+    viewer.updateScale({
+      scaleFactor: factor,
+      origin: [origin.x, origin.y],
+      drawingDelay: MEDIA_SETTLE_MS
+    })
+  }, [])
+  useCtrlWheelZoom(wrapRef, onWheelZoom)
 
   /** 点缩略图跳页后把焦点还给正文，PageUp / PageDown 与 ←/→ 继续滚正文（同关查找栏） */
   const selectThumbnail = (n: number): void => {
@@ -623,61 +509,27 @@ export function FilesPdfPreview({
           ? `${findResult.current}/${findResult.total}`
           : null
 
-  const controls = pages > 0 && (
-    <>
-      {/* 页码这组自己撑出与钮一致的左右留白（钮是 size-7 装 size-4 图标，等效 px-1.5），
-          否则它紧贴面包屑与竖线，与右侧钮组的节奏对不上 */}
-      <div className="flex shrink-0 items-center gap-0.5 px-1.5">
-        <input
-          value={pageDraft ?? String(page)}
-          onChange={(e) => setPageDraft(e.target.value)}
-          onFocus={(e) => e.currentTarget.select()}
-          onBlur={() => setPageDraft(null)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault()
-              goToPage(Number(pageDraft))
-              e.currentTarget.blur()
-            } else if (e.key === 'Escape') {
-              e.preventDefault()
-              e.stopPropagation()
-              e.currentTarget.blur()
-            }
-          }}
-          inputMode="numeric"
-          title="页码"
-          className="h-6 w-9 shrink-0 rounded border border-[var(--border-input)] bg-transparent text-center text-[12px] text-foreground tabular-nums transition-colors outline-none focus:bg-[var(--bg-row-hover)]"
-        />
-        <span className="shrink-0 text-[12px] text-muted-foreground tabular-nums">/ {pages}</span>
-      </div>
-      <div className={TOOLBAR_SEPARATOR} role="separator" />
-      <MediaFitButtons active={fitMode} onFit={fit} />
-    </>
-  )
-
-  // 缩略图侧栏开关领在面包屑之前（侧栏在正文左侧，钮也靠左，位置不随路径长短漂移）；开着时点亮，激活态同四档钮 / 查找栏方形开关
-  const thumbsToggle = pages > 0 && (
-    <button
-      type="button"
-      title="缩略图"
-      className={cn(
-        TOOLBAR_BTN,
-        thumbnails &&
-          'bg-[var(--selection-row)] text-foreground hover:bg-[var(--selection-row)] hover:text-foreground'
-      )}
-      onClick={onToggleThumbnails}
-    >
-      <PanelLeft className="size-4" />
-    </button>
-  )
-
   return (
     <div ref={rootRef} className="flex h-full min-h-0 flex-col">
       <FilesToolbar
         path={path}
         error={null}
-        extra={controls || undefined}
-        pathExtra={thumbsToggle || undefined}
+        extra={
+          pages > 0 ? (
+            <FilesPageControls
+              page={page}
+              pages={pages}
+              fitMode={fitMode}
+              onGoToPage={goToPage}
+              onFit={fit}
+            />
+          ) : undefined
+        }
+        pathExtra={
+          pages > 0 ? (
+            <FilesThumbnailsToggle on={thumbnails} onToggle={onToggleThumbnails} />
+          ) : undefined
+        }
         {...toolbar}
       />
       {findOpen && (
@@ -698,7 +550,7 @@ export function FilesPdfPreview({
       <div className="flex min-h-0 flex-1">
         {/* 侧栏按文档重挂（尺寸一次算好）；加载中先出空壳占位，正文宽度不来回跳；打不开则不出 */}
         {thumbnails && !error && (
-          <FilesPdfThumbnails key={src} renderer={thumbs} page={page} onSelect={selectThumbnail} />
+          <PdfThumbnails key={src} renderer={thumbs} page={page} onSelect={selectThumbnail} />
         )}
         <div ref={wrapRef} className="files-pdf relative min-h-0 min-w-0 flex-1 bg-deepest">
           {/* 滚动容器不留内边距：库拿容器高度算 page-height，多一层 padding 就会让「适应高度」溢出、
@@ -710,24 +562,12 @@ export function FilesPdfPreview({
               'absolute inset-0 cursor-grab overflow-auto outline-none',
               spaceHeld && 'pan-mode select-none'
             )}
-            onMouseDown={startPan}
+            onMouseDown={onMouseDown}
           >
             <div className="pdfViewer" />
           </div>
           {panning && <div className="fixed inset-0 z-50 cursor-grabbing" />}
-          {error && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-deepest px-6 text-sm text-muted-foreground">
-              <p>无法预览此 PDF</p>
-              <p className="text-xs">{error}</p>
-              <button
-                type="button"
-                className="rounded-lg px-3 py-1.5 text-[color:var(--fg-primary)] transition-colors hover:bg-[var(--bg-button-hover)]"
-                onClick={() => void window.api.openPath(toSysPath(path))}
-              >
-                在其他应用中打开
-              </button>
-            </div>
-          )}
+          {error && <FilesPreviewError title="无法预览此 PDF" message={error} path={path} />}
         </div>
       </div>
     </div>
