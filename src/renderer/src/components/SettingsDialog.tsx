@@ -53,6 +53,7 @@ const OPEN_WITH_LABEL: Record<OpenWithFeatureId, string> = {
   openWithImage: '图片',
   openWithPdf: 'PDF',
   openWithPptx: 'PPT',
+  openWithXlsx: 'Excel',
   openWithAudio: '音频',
   openWithVideo: '视频'
 }
@@ -82,6 +83,7 @@ function integrationCopy(
     openWithImage: { label: OPEN_WITH_LABEL.openWithImage, info: extList('image'), buttonHint },
     openWithPdf: { label: OPEN_WITH_LABEL.openWithPdf, info: extList('pdf'), buttonHint },
     openWithPptx: { label: OPEN_WITH_LABEL.openWithPptx, info: extList('pptx'), buttonHint },
+    openWithXlsx: { label: OPEN_WITH_LABEL.openWithXlsx, info: extList('xlsx'), buttonHint },
     openWithAudio: { label: OPEN_WITH_LABEL.openWithAudio, info: extList('audio'), buttonHint },
     openWithVideo: { label: OPEN_WITH_LABEL.openWithVideo, info: extList('video'), buttonHint },
     quickAction: {

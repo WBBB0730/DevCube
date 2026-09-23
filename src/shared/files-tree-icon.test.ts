@@ -14,6 +14,8 @@ describe('filesTreeIconKind', () => {
     expect(filesTreeIconKind('notes.txt')).toBe('text')
     expect(filesTreeIconKind('package.json')).toBe('json')
     expect(filesTreeIconKind('data.csv')).toBe('sheet')
+    expect(filesTreeIconKind('book.xlsx')).toBe('sheet')
+    expect(filesTreeIconKind('old.XLS')).toBe('sheet')
     expect(filesTreeIconKind('run.sh')).toBe('shell')
     expect(filesTreeIconKind('dist.tar.gz')).toBe('archive')
   })

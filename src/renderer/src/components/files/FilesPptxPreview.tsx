@@ -483,7 +483,7 @@ export function FilesPptxPreview({
     findOpen,
     openFind,
     closeFind,
-    fitWindow,
+    resetZoom: fitWindow,
     stepZoom,
     getPage,
     goToPage,

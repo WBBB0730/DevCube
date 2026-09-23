@@ -444,7 +444,7 @@ export function FilesPdfPreview({
     findOpen,
     openFind,
     closeFind,
-    fitWindow,
+    resetZoom: fitWindow,
     stepZoom,
     getPage,
     goToPage,

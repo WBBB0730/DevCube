@@ -1,6 +1,6 @@
 /**
- * Files Tab 分页文档预览（PDF / PPT）共用的操作外壳：键盘、拖拽抓手、Cmd/Ctrl+滚轮缩放。
- * 渲染引擎各管各的，这里只把用户操作翻译成回调（docs/prd/files-pdf-preview.md、files-pptx-preview.md）。
+ * Files Tab 分页文档预览（PDF / PPT）共用的操作外壳：键盘、拖拽抓手、Cmd/Ctrl+滚轮缩放；表格预览只借键盘与滚轮缩放。
+ * 渲染引擎各管各的，这里只把用户操作翻译成回调（docs/prd/files-pdf-preview.md、files-pptx-preview.md、files-xlsx-preview.md）。
  */
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useApp } from '@renderer/store'
@@ -16,10 +16,11 @@ function appBusy(): boolean {
 /**
  * 预览的全局键盘：
  * - Cmd/Ctrl+F 打开查找、Esc（焦点在预览内）关闭；
- * - Cmd/Ctrl+0 回适应窗口、Cmd/Ctrl +/- 逐档缩放。这三个键已从应用菜单的视图块里摘掉
+ * - Cmd/Ctrl+0 回基准倍率（分页文档 = 适应窗口，表格 = 工作表自带倍率）、Cmd/Ctrl +/- 逐档缩放。这三个键已从应用菜单的视图块里摘掉
  *  （Electron 的 viewMenu 自带整页缩放，菜单加速键优先级更高，留着就压住这里，见 ADR-0019）；
  * - ←/→ 切上一个 / 下一个媒体文件；↑/↓ 始终上一页 / 下一页（不看档位，正文与缩略图侧栏内都如此），
  *   已在第一页 / 最后一页时再按就切文件——同看图的方向键切图：不抢输入框与弹层，不要求焦点在预览内。
+ *   不给切文件 / 翻页回调的预览（表格：方向键归格子）这几个键一概不接。
  * Cmd+F / 缩放要求焦点在预览内或无焦点。
  */
 export function usePagedPreviewKeys({
@@ -28,7 +29,7 @@ export function usePagedPreviewKeys({
   findOpen,
   openFind,
   closeFind,
-  fitWindow,
+  resetZoom,
   stepZoom,
   getPage,
   goToPage,
@@ -41,11 +42,11 @@ export function usePagedPreviewKeys({
   findOpen: boolean
   openFind: () => void
   closeFind: () => void
-  fitWindow: () => void
+  resetZoom: () => void
   stepZoom: (steps: 1 | -1) => void
-  /** 当前页（1 起）与总页数；文档未就绪为 null，↑/↓ 不接管 */
-  getPage: () => { page: number; pages: number } | null
-  goToPage: (page: number) => void
+  /** 当前页（1 起）与总页数；文档未就绪为 null，↑/↓ 不接管；不分页的预览不给 */
+  getPage?: () => { page: number; pages: number } | null
+  goToPage?: (page: number) => void
   onPrevFile?: () => void
   onNextFile?: () => void
 }): void {
@@ -76,7 +77,7 @@ export function usePagedPreviewKeys({
           if (!focusedHere() || appBusy()) return
           e.preventDefault()
           e.stopPropagation()
-          if (reset) fitWindow()
+          if (reset) resetZoom()
           else stepZoom(zoomIn ? 1 : -1)
           return
         }
@@ -95,7 +96,7 @@ export function usePagedPreviewKeys({
         return
       }
       if (plain && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
-        if (editableTarget(target) || appBusy()) return
+        if (!getPage || !goToPage || editableTarget(target) || appBusy()) return
         const at = getPage()
         if (!at) return
         e.preventDefault()
@@ -120,7 +121,7 @@ export function usePagedPreviewKeys({
     findOpen,
     openFind,
     closeFind,
-    fitWindow,
+    resetZoom,
     stepZoom,
     getPage,
     goToPage,

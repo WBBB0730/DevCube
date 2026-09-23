@@ -178,7 +178,7 @@ export async function readFileEntry(
   const mime = await detectMime(sys)
   let kind: FilesOpenKind = byName
   if (mime) {
-    const fromMime = filesOpenKindFromMime(mime)
+    const fromMime = filesOpenKindFromMime(mime, name)
     if (fromMime !== null) kind = fromMime
   }
 
@@ -200,9 +200,19 @@ export async function readFileEntry(
     }
   }
 
-  // PPT 只由内容 MIME 分流而来（不按扩展名认），这里 mime 恒在
+  // PPT / Excel 只由内容 MIME 分流而来（不单凭扩展名认），这里 mime 恒在
   if (kind === 'pptx' && mime) {
     return { kind: 'pptx', path: logical, mediaUrl: buildFilesMediaUrl(root, logical, mime) }
+  }
+  if (kind === 'xlsx' && mime) {
+    // 老 .xls 探测出来是通用的 CFB 容器，协议头换成它的专名
+    const xlsxMime = mime === 'application/x-cfb' ? 'application/vnd.ms-excel' : mime
+    return {
+      kind: 'xlsx',
+      path: logical,
+      mediaUrl: buildFilesMediaUrl(root, logical, xlsxMime),
+      size: st.size
+    }
   }
 
   if (kind === 'image') {

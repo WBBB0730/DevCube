@@ -24,9 +24,11 @@ export type FilesReadResult =
   | { kind: 'video'; path: string; mediaUrl: string; mime: string }
   | { kind: 'pdf'; path: string; mediaUrl: string }
   | { kind: 'pptx'; path: string; mediaUrl: string }
+  /** `size` 供渲染层判断是否超过预览上限（表格在页面线程解析，太大会卡住界面） */
+  | { kind: 'xlsx'; path: string; mediaUrl: string; size: number }
   | { kind: 'other'; path: string; size: number }
 
-/** Files Tab 媒体预览自定义协议（主进程 stream，渲染层 `<img>` / `<audio>` / `<video>` / 瓦片 / PDF / PPT）。 */
+/** Files Tab 媒体预览自定义协议（主进程 stream，渲染层 `<img>` / `<audio>` / `<video>` / 瓦片 / PDF / PPT / Excel）。 */
 export const FILES_MEDIA_SCHEME = 'dc-media'
 
 /** 构建仅限本应用渲染层使用的媒体 URL（项目根、文件路径、MIME）；主进程协议只放行登记项目内路径。 */
@@ -40,6 +42,10 @@ export function buildFilesMediaUrl(projectPath: string, filePath: string, mime: 
 
 /** 应用自带静态资源包名：PDF.js 的字体映射表 / 标准字体 / wasm（ADR-0030）。 */
 export const FILES_ASSET_PDFJS = 'pdfjs'
+/** 应用自带静态资源包名：表格预览解析用的 WebAssembly（ADR-0034）。 */
+export const FILES_ASSET_XLSX = 'xlsx'
+/** 表格资源包里唯一放行的文件（@dukelib/sheets-wasm 的 WebAssembly） */
+export const FILES_XLSX_WASM = 'duke_sheets_wasm_bg.wasm'
 
 /**
  * 构建应用自带静态资源的 URL（`a=资源包&f=相对路径`）。`f` 必须是最后一个参数，且 `/` 不编码：

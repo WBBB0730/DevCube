@@ -1,5 +1,5 @@
 /** Files Tab 打开条目时的类型分流（见 docs/prd/files-tab.md）。 */
-export type FilesOpenKind = 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'pptx' | 'other'
+export type FilesOpenKind = 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'pptx' | 'xlsx' | 'other'
 
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico'])
 
@@ -20,6 +20,20 @@ const PPTX_MIME = new Set([
 ])
 
 /**
+ * Excel：OOXML 工作簿 .xlsx 与同一格式的带宏 / 模板变体（宏不执行），外加老二进制 .xls。
+ * .xls 与老 Word / PPT 同是 CFB 容器，魔数分不出来，要内容是 CFB 且扩展名为 .xls 才认。
+ */
+export const XLSX_EXTS = ['xlsx', 'xlsm', 'xltx', 'xltm', 'xls'] as const
+
+/** file-type 对 OOXML 四种给出的 MIME（带宏的两种带 `.12` 后缀，全小写）。 */
+const XLSX_MIME = new Set([
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.template',
+  'application/vnd.ms-excel.sheet.macroenabled.12',
+  'application/vnd.ms-excel.template.macroenabled.12'
+])
+
+/**
  * 「文件打开方式」各类扩展名（无点、小写）：打包时的文件关联声明、设置里的设为默认、
  * 树顶类型筛选共用同一张表，保证「设成默认的类型」恒能在 Files 面板内嵌预览。
  * 图片含 svg（打开分流仍为 text，Files 编辑器另给编辑 ↔ 预览）；音视频只列 Chromium 可播的容器。
@@ -28,6 +42,7 @@ export const FILES_OPEN_WITH_EXTS = {
   image: [...IMAGE_EXT].map((e) => e.slice(1)).concat('svg'),
   pdf: ['pdf'],
   pptx: PPTX_EXTS,
+  xlsx: XLSX_EXTS,
   audio: ['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'oga'],
   video: ['mp4', 'webm', 'ogv']
 } as const satisfies Record<string, readonly string[]>
@@ -57,6 +72,13 @@ export const FILES_OPEN_WITH_MIME: Record<FilesOpenWithCategory, readonly string
     'application/vnd.ms-powerpoint.presentation.macroEnabled.12',
     'application/vnd.ms-powerpoint.slideshow.macroEnabled.12',
     'application/vnd.ms-powerpoint.template.macroEnabled.12'
+  ],
+  xlsx: [
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.template',
+    'application/vnd.ms-excel.sheet.macroEnabled.12',
+    'application/vnd.ms-excel.template.macroEnabled.12',
+    'application/vnd.ms-excel'
   ],
   audio: ['audio/mpeg', 'audio/mp4', 'audio/aac', 'audio/x-wav', 'audio/flac', 'audio/ogg'],
   video: ['video/mp4', 'video/webm', 'video/ogg']
@@ -191,14 +213,17 @@ export function primaryMime(mime: string): string {
  * - 位图 → image；svg → text
  * - PDF → pdf（内嵌 PDF.js 预览）
  * - PPT（pptx 及其变体）→ pptx（内嵌 pptx-renderer 预览）
+ * - Excel（xlsx 及其变体）→ xlsx（内嵌 react-xlsx 预览）；CFB 容器且文件名是 .xls → xlsx
  * - 其余 → null（交给扩展名或文本嗅探）
  */
-export function filesOpenKindFromMime(mime: string): FilesOpenKind | null {
+export function filesOpenKindFromMime(mime: string, fileName = ''): FilesOpenKind | null {
   const primary = primaryMime(mime)
   if (primary === 'image/svg+xml') return 'text'
   if (IMAGE_MIME.has(primary)) return 'image'
   if (primary === 'application/pdf') return 'pdf'
   if (PPTX_MIME.has(primary)) return 'pptx'
+  if (XLSX_MIME.has(primary)) return 'xlsx'
+  if (primary === 'application/x-cfb') return /\.xls$/i.test(fileName) ? 'xlsx' : null
   if (primary.startsWith('audio/')) {
     return PLAYABLE_AUDIO_MIME.has(primary) ? 'audio' : 'other'
   }
@@ -219,9 +244,15 @@ export function isSvgPath(path: string): boolean {
   return path.toLowerCase().endsWith('.svg')
 }
 
-/** Markdown / SVG：工具栏出现编辑 ↔ 预览切换。 */
+/** CSV / TSV 表格文本（打开分流仍为 text；Files 编辑器另提供编辑 ↔ 表格预览）。 */
+export function isCsvPath(path: string): boolean {
+  const lower = path.toLowerCase()
+  return lower.endsWith('.csv') || lower.endsWith('.tsv')
+}
+
+/** Markdown / SVG / CSV：工具栏出现编辑 ↔ 预览切换。 */
 export function isPreviewableSourcePath(path: string): boolean {
-  return isMarkdownPath(path) || isSvgPath(path)
+  return isMarkdownPath(path) || isSvgPath(path) || isCsvPath(path)
 }
 
 /**
@@ -257,6 +288,15 @@ const AV_EXT: ReadonlySet<string> = new Set([
 ])
 
 const PPTX_EXT: ReadonlySet<string> = new Set(PPTX_EXTS)
+
+const XLSX_EXT: ReadonlySet<string> = new Set(XLSX_EXTS)
+
+/** Excel 文件（xlsx 及其变体与老 .xls，按扩展名）。 */
+export function isXlsxPath(path: string): boolean {
+  const lower = path.toLowerCase()
+  const dot = lower.lastIndexOf('.')
+  return dot >= 0 && XLSX_EXT.has(lower.slice(dot + 1))
+}
 
 /** PPT 文件（pptx 及其变体，按扩展名）。 */
 export function isPptxPath(path: string): boolean {

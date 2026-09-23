@@ -19,7 +19,7 @@ import {
 } from './default-opener-windows'
 
 /**
- * 「文件打开方式」：把 DevCube 设为图片 / PDF / PPT / 音视频的默认打开程序（docs/prd/file-preview-window.md）。
+ * 「文件打开方式」：把 DevCube 设为图片 / PDF / PPT / Excel / 音视频的默认打开程序（docs/prd/file-preview-window.md）。
  * - macOS：随包的 Swift 小助手调 NSWorkspace 官方接口，一键生效、不弹确认框。
  * - Windows：系统不允许程序改默认——注册为候选（HKCU Capabilities）后打开系统「默认应用」页由用户点选。
  * - Linux：xdg-mime default。
@@ -34,6 +34,7 @@ export const OPEN_WITH_CATEGORY: Record<OpenWithFeatureId, FilesOpenWithCategory
   openWithImage: 'image',
   openWithPdf: 'pdf',
   openWithPptx: 'pptx',
+  openWithXlsx: 'xlsx',
   openWithAudio: 'audio',
   openWithVideo: 'video'
 }

@@ -58,11 +58,15 @@ const config: Configuration = {
     '**/@vscode/ripgrep-*/**',
     '**/{sharp,@img}/**'
   ],
-  // PDF.js 运行期资源（字体映射表 / 标准字体 / wasm）：渲染层经 dc-media 协议读取（ADR-0030）
+  // 应用自带运行期资源：PDF.js 字体映射表 / 标准字体 / wasm（ADR-0030）与表格解析 WebAssembly（ADR-0034），渲染层经 dc-media 协议读取
   extraResources: [
     { from: 'node_modules/pdfjs-dist/cmaps', to: 'pdfjs/cmaps' },
     { from: 'node_modules/pdfjs-dist/standard_fonts', to: 'pdfjs/standard_fonts' },
     { from: 'node_modules/pdfjs-dist/wasm', to: 'pdfjs/wasm' },
+    {
+      from: 'node_modules/@dukelib/sheets-wasm/duke_sheets_wasm_bg.wasm',
+      to: 'xlsx/duke_sheets_wasm_bg.wasm'
+    },
     ...macHelperResources
   ],
   // External Open deep link：scheme 按 Edition 分线（devcube / devcube-beta，ADR-0025）。
@@ -77,6 +81,12 @@ const config: Configuration = {
     {
       ext: [...FILES_OPEN_WITH_EXTS.pptx],
       name: 'Presentation',
+      role: 'Viewer',
+      rank: 'Alternate'
+    },
+    {
+      ext: [...FILES_OPEN_WITH_EXTS.xlsx],
+      name: 'Spreadsheet',
       role: 'Viewer',
       rank: 'Alternate'
     },
@@ -132,7 +142,7 @@ const config: Configuration = {
     target: ['AppImage', 'snap', 'deb'],
     maintainer: 'WBBB',
     category: 'Utility',
-    // 文件管理器「用其他应用打开」对目录可见（External Open 的 Linux 投影）；图片 / PDF / PPT / 音视频同列
+    // 文件管理器「用其他应用打开」对目录可见（External Open 的 Linux 投影）；图片 / PDF / PPT / Excel / 音视频同列
     mimeTypes: ['inode/directory', ...Object.values(FILES_OPEN_WITH_MIME).flat()]
   },
   appImage: {

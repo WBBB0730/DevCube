@@ -8,6 +8,7 @@ export const SYSTEM_INTEGRATION_FEATURE_IDS = [
   'openWithImage',
   'openWithPdf',
   'openWithPptx',
+  'openWithXlsx',
   'openWithAudio',
   'openWithVideo'
 ] as const
@@ -17,6 +18,7 @@ export const OPEN_WITH_FEATURE_IDS = [
   'openWithImage',
   'openWithPdf',
   'openWithPptx',
+  'openWithXlsx',
   'openWithAudio',
   'openWithVideo'
 ] as const

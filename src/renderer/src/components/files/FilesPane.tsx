@@ -39,6 +39,7 @@ import { gitDiffGutter, type GitGutterHunkClickPayload } from '@renderer/lib/cm6
 import { FilesFindWidget } from './FilesFindWidget'
 import {
   adjacentMediaPath,
+  isCsvPath,
   isMarkdownPath,
   isPreviewableSourcePath,
   isSvgPath
@@ -56,6 +57,7 @@ import { FilesEntryDialog, type FilesEntryDialogRequest } from './FilesEntryDial
 import { FilesTreeMenu, type FilesTreeMenuTarget } from './FilesTreeMenu'
 import { FilesPdfPreview } from './FilesPdfPreview'
 import { FilesPptxPreview } from './FilesPptxPreview'
+import { FilesSheetPreview } from './FilesSheetPreview'
 import { FilesToolbar, TOOLBAR_BTN } from './FilesToolbar'
 import { FilesContentMenu, type FilesContentMenuTarget } from './FilesContentMenu'
 import { FilesTreeIcon } from './FilesTreeIcon'
@@ -101,6 +103,7 @@ type Loaded =
   | { kind: 'video'; path: string; mediaUrl: string; mime: string }
   | { kind: 'pdf'; path: string; mediaUrl: string }
   | { kind: 'pptx'; path: string; mediaUrl: string }
+  | { kind: 'xlsx'; path: string; mediaUrl: string; size: number }
   | { kind: 'other'; path: string; size: number }
   | null
 
@@ -185,8 +188,8 @@ export function FilesPane({
   const [revealTick, setRevealTick] = useState(0)
   /** 右侧文件树可见性；不持久化，重挂载默认展开。 */
   const [treeVisible, setTreeVisible] = useState(true)
-  /** Markdown / SVG 编辑 ↔ 预览两态；会话内保持，不持久化，默认编辑。 */
-  const [sourcePreview, setSourcePreview] = useState(false)
+  /** Markdown / SVG / CSV 编辑 ↔ 预览两态；会话内保持，不持久化，默认预览（新建文件时切回编辑）。 */
+  const [sourcePreview, setSourcePreview] = useState(true)
   /** PDF / PPT 缩略图侧栏可见性（两者共用一个开关）；会话内保持，不持久化，默认显示。 */
   const [pageThumbnails, setPageThumbnails] = useState(true)
   /** 文件树右键菜单目标与条目操作弹窗（新建 / 重命名 / 删除）。 */
@@ -428,6 +431,13 @@ export function FilesPane({
           })
         } else if (result.kind === 'pdf' || result.kind === 'pptx') {
           setLoaded({ kind: result.kind, path: result.path, mediaUrl: result.mediaUrl })
+        } else if (result.kind === 'xlsx') {
+          setLoaded({
+            kind: 'xlsx',
+            path: result.path,
+            mediaUrl: result.mediaUrl,
+            size: result.size
+          })
         } else if (result.kind === 'audio') {
           setLoaded({
             kind: 'audio',
@@ -795,7 +805,7 @@ export function FilesPane({
   }, [filterQuery, rootPath, rootLogical, visible])
 
   // 首次变为可见时：项目宿主恢复树展开与上次打开（pending 由下一 effect 统一消费，避免竞态）；
-  // 预览宿主不读落盘态，展开到初始文件并打开（SVG 起手即图：被当图打开的就先看图）。
+  // 预览宿主不读落盘态，展开到初始文件并打开（可预览的源文件按默认的预览态打开，SVG 起手即图）。
   const previewInitialFile = host.kind === 'preview' ? host.initialFile : null
   useEffect(() => {
     if (!visible || ready) return
@@ -805,7 +815,6 @@ export function FilesPane({
       if (cancelled) return
       if (!persist) {
         if (previewInitialFile) {
-          if (isSvgPath(previewInitialFile)) setSourcePreview(true)
           await expandToFile(previewInitialFile)
           if (cancelled) return
           await openFile(previewInitialFile, { force: true })
@@ -1048,6 +1057,8 @@ export function FilesPane({
         if (entry.isDirectory) {
           await revealInTree(entry.path, true)
         } else {
+          // 新建的是空文件，可预览的类型也先落在编辑态
+          setSourcePreview(false)
           await expandToFile(entry.path)
           await openFile(entry.path)
         }
@@ -1194,7 +1205,7 @@ export function FilesPane({
             onHunkClick={setHunkPopup}
             onImagePrev={goPrevImage}
             onImageNext={goNextImage}
-            imageNavActive={visible}
+            active={visible}
             imagePrefetch={prefetch}
             onChange={(v) => {
               // 文档一变，gutter 弹窗的 hunk 即过期，统一在此关闭（含弹窗内回滚）
@@ -1306,6 +1317,28 @@ export function FilesPane({
               onOpenRecent: openFromRecent
             }}
           />
+        )}
+        {loaded?.kind === 'xlsx' && (
+          <div className="flex h-full min-h-0 flex-col">
+            <FilesToolbar
+              path={loaded.path}
+              projectRoot={rootLogical}
+              error={null}
+              recentPaths={recentPaths}
+              fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
+              treeVisible={treeVisible}
+              onShowTree={() => setTreeVisible(true)}
+              onToggleTree={() => setTreeVisible((v) => !v)}
+              onRevealInTree={revealInTree}
+              onOpenRecent={openFromRecent}
+            />
+            <FilesSheetPreview
+              key={loaded.path}
+              source={{ kind: 'xlsx', src: loaded.mediaUrl, size: loaded.size }}
+              path={loaded.path}
+              active={visible}
+            />
+          </div>
         )}
         {loaded?.kind === 'other' && (
           <div className="flex h-full min-h-0 flex-col">
@@ -1593,7 +1626,7 @@ function FilesTextEditor({
   onChange,
   onImagePrev,
   onImageNext,
-  imageNavActive,
+  active,
   imagePrefetch
 }: {
   path: string
@@ -1605,7 +1638,7 @@ function FilesTextEditor({
   recentPaths: string[]
   fileStatus: GitFileStatus | undefined
   treeVisible: boolean
-  /** Markdown / SVG 两态：true = 预览正文；其它文件忽略 */
+  /** Markdown / SVG / CSV 两态：true = 预览正文；其它文件忽略 */
   sourcePreview: boolean
   onToggleSourcePreview: () => void
   onShowTree: () => void
@@ -1620,12 +1653,14 @@ function FilesTextEditor({
   onChange: (value: string) => void
   onImagePrev: () => void
   onImageNext: () => void
-  imageNavActive: boolean
+  /** Files Tab 可见：预览态（SVG 看图 / CSV 表格）的键盘只在可见时响应 */
+  active: boolean
   imagePrefetch?: readonly string[]
 }): React.JSX.Element {
   const canPreview = isPreviewableSourcePath(path)
   const markdown = isMarkdownPath(path)
   const svg = isSvgPath(path)
+  const csv = isCsvPath(path)
   const theme = useApp((s) => s.theme)
   const viewRef = useRef<EditorView | null>(null)
   /** SVG 预览态的看图相机：工具栏「适应」钮组驱动 */
@@ -1727,9 +1762,16 @@ function FilesTextEditor({
           path={path}
           content={content}
           prefetch={imagePrefetch}
-          active={imageNavActive}
+          active={active}
           onPrev={onImagePrev}
           onNext={onImageNext}
+        />
+      ) : csv && sourcePreview ? (
+        <FilesSheetPreview
+          key={path}
+          source={{ kind: 'csv', content }}
+          path={path}
+          active={active}
         />
       ) : (
         <>

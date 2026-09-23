@@ -1,0 +1,176 @@
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 2460566fac236307fd2954bd4004b7cc2e9a7280..02ba19325e2d0101ece30158d7e33c1b97d767e4 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -1146,6 +1146,8 @@ interface XlsxViewerController {
+     setZoomScale: (zoomScale: number) => void;
+     selectCell: (cell: XlsxCellAddress, options?: {
+         extend?: boolean;
++        /** 选中后滚入视口（同方向键移动选中格）。 */
++        reveal?: boolean;
+     }) => void;
+     selectChart: (id: string | null) => void;
+     selectChartElement: (selection: XlsxChartElementSelection | null) => void;
+@@ -1204,6 +1206,8 @@ interface XlsxViewerSelection {
+     selectedRangeAddress: string | null;
+     selectCell: (cell: XlsxCellAddress, options?: {
+         extend?: boolean;
++        /** 选中后滚入视口（同方向键移动选中格）。 */
++        reveal?: boolean;
+     }) => void;
+     selectRange: (range: XlsxCellRange) => void;
+     selection: XlsxCellRange | null;
+diff --git a/dist/index.js b/dist/index.js
+index 5650ca8512b5b8073af7176e3818fcd414c9b628..ae7d00962bd0e8f59604e563516ed46bb1eb090f 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -4597,7 +4597,7 @@ function parseStandardConditionalFormatRule(cfRuleNode, ranges, differentialStyl
+     if (!iconSetNode) {
+       return null;
+     }
+-    const iconSetName = iconSetNode.getAttribute("iconSet");
++    const iconSetName = iconSetNode.getAttribute("iconSet") ?? "3TrafficLights1";
+     const cfvos = getChildElements(iconSetNode, "cfvo").map((node) => parseConditionalFormatValueObject(node)).filter((value) => Boolean(value));
+     if (!iconSetName || cfvos.length === 0) {
+       return null;
+@@ -10299,11 +10299,16 @@ function useXlsxViewerController(options) {
+     }
+     return true;
+   }, [getChartById, readOnly, updateChart, workbook]);
++  // selectCell 带 reveal 时记下要滚入视口的格子，由表格按方向键移动选中格的同一套规则去滚（每次新对象，同一格再要求也会再滚）
++  const [cellRevealRequest, setCellRevealRequest] = React.useState(null);
+   const selectCell = React.useCallback((cell, options2) => {
+     setSelectedChartId(null);
+     setSelectedChartElement(null);
+     setSelectedImageId(null);
+     setActiveCell(cell);
++    if (options2?.reveal) {
++      setCellRevealRequest({ cell });
++    }
+     if (options2?.extend && selectionAnchorRef.current) {
+       setSelection(normalizeRange({ start: selectionAnchorRef.current, end: cell }));
+       return;
+@@ -10932,6 +10937,7 @@ function useXlsxViewerController(options) {
+       addFormControl,
+       addSheet,
+       canRedo,
++      cellRevealRequest,
+       canDownload: Boolean(file ?? src),
+       canExport: Boolean(workbook),
+       canLoadDeferred,
+@@ -11055,6 +11061,7 @@ function useXlsxViewerController(options) {
+       addSheet,
+       canLoadDeferred,
+       canRedo,
++      cellRevealRequest,
+       canUndo,
+       canZoomIn,
+       canZoomOut,
+@@ -18597,6 +18604,8 @@ var IMAGE_MIN_SIZE_PX = 16;
+ var IMAGE_HANDLE_SIZE_PX = 10;
+ var CANVAS_RESIZE_HIT_SLOP_PX = 8;
+ var CANVAS_VIEWPORT_OVERSCAN_PX = 480;
++// 同步取数（不开后台线程）的行块大小：取数范围对齐到块边界，视口在块内滚动时沿用已取回的行
++var SYNC_ROW_BATCH_BLOCK = 128;
+ var CANVAS_SCROLL_BUFFER_PX = 480;
+ var CANVAS_DEFERRED_VIEWPORT_SYNC_THRESHOLD_PX = CANVAS_SCROLL_BUFFER_PX - 96;
+ var CANVAS_IMMEDIATE_VIEWPORT_SYNC_THRESHOLD_PX = CANVAS_SCROLL_BUFFER_PX * 1.5;
+@@ -21175,13 +21184,15 @@ function buildSpreadsheetFontFamily(font, themePalette) {
+       "sans-serif"
+     ].join(", ");
+   }
+-  return [
+-    ...candidates.map(escapeCssFontFamily),
+-    '"Segoe UI"',
+-    "Tahoma",
+-    "Arial",
+-    "sans-serif"
+-  ].join(", ");
++  return [...candidates.map(escapeCssFontFamily), ...spreadsheetFontFallbacks(candidates[0])].join(", ");
++}
++// 缺字体时按原字体的风格补备选（原先一律补无衬线，宋体等衬线字体会画成黑体）：等宽 / 衬线（中文宋体类在前）/ 无衬线
++function spreadsheetFontFallbacks(name) {
++  const e = name.trim().replace(/^['"]|['"]$/g, "").toLowerCase();
++  if (/\bmono\b|code|courier|consolas|menlo|monaco/.test(e)) return ["Menlo", "Consolas", '"Courier New"', "monospace"];
++  if (!/sans|黑|hei|gothic/.test(e) && /serif|times|cambria|georgia|garamond|antiqua|palatino|constantia|bookman|century schoolbook|sitka|baskerville|bodoni|rockwell|didot|宋|明|楷|仿宋|song|ming|mincho|kai|simsun|batang|myungjo/.test(e))
++    return ['"Songti SC"', "STSong", "SimSun", '"Noto Serif CJK SC"', '"Source Han Serif SC"', "serif"];
++  return ['"Segoe UI"', "Tahoma", "Arial", "sans-serif"];
+ }
+ function resolveSpreadsheetLineHeight(fontSizePt) {
+   const sizePt = typeof fontSizePt === "number" && Number.isFinite(fontSizePt) ? fontSizePt : 11;
+@@ -24090,6 +24101,7 @@ function XlsxGrid({
+     activeSheetIndex,
+     activeTab,
+     activeTabIndex,
++    cellRevealRequest,
+     canLoadDeferred,
+     charts,
+     clearSelectedChart,
+@@ -25000,6 +25012,17 @@ function XlsxGrid({
+     ) : displayRowHeaderWidth,
+     [displayActualColWidths, displayDefaultColWidth, displayRowHeaderWidth, frozenCols, stickyLeftByCol]
+   );
++  // 调用方选中格子并要求滚入视口时（selectCell 的 reveal，如查找定位）：同方向键移动选中格，滚到刚好完整可见、不被冻结窗格挡住
++  React4.useLayoutEffect(() => {
++    if (!cellRevealRequest) {
++      return;
++    }
++    const rowIndex = rowIndexByActual.get(cellRevealRequest.cell.row);
++    const colIndex = colIndexByActual.get(cellRevealRequest.cell.col);
++    if (rowIndex !== void 0 && colIndex !== void 0) {
++      ensureCellVisible(rowIndex, colIndex);
++    }
++  }, [cellRevealRequest]);
+   canvasLayoutMetricsRef.current = {
+     displayHeaderHeight,
+     displayRowHeaderWidth,
+@@ -26129,8 +26152,13 @@ function XlsxGrid({
+     const overscan = 48;
+     const startRow = Math.max(0, firstVisibleRow2 - overscan);
+     const endRow = lastVisibleRow2 + overscan;
++    // 冻结行恒在视口里，算进范围会让它总从表头连到视口、越往下取得越多；同步取数只按滚动区算（冻结行走逐格读取）
++    const frozenIndexSet = new Set(frozenRowVirtualIndices);
++    const firstScrolledIndex = rowIndices.find((index) => !frozenIndexSet.has(index));
++    const firstScrolledRow = firstScrolledIndex === void 0 ? void 0 : visibleRows[firstScrolledIndex];
+     return {
+       endRow,
++      scrolledStartRow: firstScrolledRow === void 0 ? startRow : Math.max(0, firstScrolledRow - overscan),
+       startRow
+     };
+   }, [
+@@ -26143,8 +26171,12 @@ function XlsxGrid({
+     rowPrefixSums,
+     visibleRows
+   ]);
++  // 同步取数按行块对齐：起止各自落到块边界，视口在块内滚动时范围不变、下面的 useMemo 沿用上次取回的行，
++  // 不再每滚一步整批重取（后台线程那条路径同样会复用已取的范围）
++  const syncBatchStartRow = viewportRequest ? Math.floor(viewportRequest.scrolledStartRow / SYNC_ROW_BATCH_BLOCK) * SYNC_ROW_BATCH_BLOCK : -1;
++  const syncBatchEndRow = viewportRequest ? (Math.floor(viewportRequest.endRow / SYNC_ROW_BATCH_BLOCK) + 1) * SYNC_ROW_BATCH_BLOCK - 1 : -1;
+   const syncViewportRowBatch = React4.useMemo(() => {
+-    if (!shouldVirtualizeRows || !worksheet || getRowsBatchAsync || !viewportRequest) {
++    if (!shouldVirtualizeRows || !worksheet || getRowsBatchAsync || syncBatchStartRow < 0) {
+       return null;
+     }
+     const worksheetWithRowsBatch = worksheet;
+@@ -26152,18 +26184,18 @@ function XlsxGrid({
+       return null;
+     }
+     try {
+-      const rows = worksheetWithRowsBatch.getRowsBatch(viewportRequest.startRow, viewportRequest.endRow - viewportRequest.startRow + 1, {
++      const rows = worksheetWithRowsBatch.getRowsBatch(syncBatchStartRow, syncBatchEndRow - syncBatchStartRow + 1, {
+         includeFormulas: true,
+         includeHyperlinks: true,
+         includeMergeInfo: true,
+         includeStyles: true,
+         useFormattedValues: true
+       });
+-      return buildWorksheetBatchWindow(rows, activeSheet ?? null, viewportRequest.startRow, viewportRequest.endRow);
++      return buildWorksheetBatchWindow(rows, activeSheet ?? null, syncBatchStartRow, syncBatchEndRow);
+     } catch {
+       return null;
+     }
+-  }, [activeSheet, getRowsBatchAsync, shouldVirtualizeRows, viewportRequest, worksheet]);
++  }, [activeSheet, getRowsBatchAsync, shouldVirtualizeRows, syncBatchEndRow, syncBatchStartRow, worksheet]);
+   React4.useEffect(() => {
+     if (!shouldVirtualizeRows || !getRowsBatchAsync || !activeSheet || !viewportRequest) {
+       setAsyncViewportRowBatch(null);

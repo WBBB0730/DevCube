@@ -3,12 +3,14 @@ import {
   classifyFilesOpenKind,
   filesOpenKindFromMime,
   adjacentMediaPath,
+  isCsvPath,
   isImagePreviewPath,
   isMediaPreviewPath,
   isMarkdownPath,
   isPptxPath,
   isPreviewableSourcePath,
   isSvgPath,
+  isXlsxPath,
   primaryMime,
   resolveFilesOpenKind,
   sniffTextBuffer
@@ -82,6 +84,20 @@ describe('filesOpenKindFromMime / primaryMime', () => {
     expect(filesOpenKindFromMime('application/x-cfb')).toBeNull()
   })
 
+  it('Excel（xlsx 及模板 / 带宏变体）→ xlsx；CFB 容器只有文件名是 .xls 才认', () => {
+    for (const mime of [
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'application/vnd.openxmlformats-officedocument.spreadsheetml.template',
+      'application/vnd.ms-excel.sheet.macroenabled.12',
+      'application/vnd.ms-excel.template.macroenabled.12'
+    ]) {
+      expect(filesOpenKindFromMime(mime)).toBe('xlsx')
+    }
+    expect(filesOpenKindFromMime('application/x-cfb', 'Budget.XLS')).toBe('xlsx')
+    expect(filesOpenKindFromMime('application/x-cfb', 'old.doc')).toBeNull()
+    expect(filesOpenKindFromMime('application/x-cfb', 'old.ppt')).toBeNull()
+  })
+
   it('非媒体 MIME → null', () => {
     expect(filesOpenKindFromMime('application/wasm')).toBeNull()
     expect(filesOpenKindFromMime('application/zip')).toBeNull()
@@ -101,11 +117,20 @@ describe('isMarkdownPath / isSvgPath / isPreviewableSourcePath', () => {
     expect(isSvgPath('a.svgx')).toBe(false)
   })
 
-  it('仅 Markdown / SVG 可切预览', () => {
+  it('CSV / TSV 扩展名', () => {
+    expect(isCsvPath('data.csv')).toBe(true)
+    expect(isCsvPath('DATA.TSV')).toBe(true)
+    expect(isCsvPath('a.csvx')).toBe(false)
+  })
+
+  it('仅 Markdown / SVG / CSV 可切预览', () => {
     expect(isPreviewableSourcePath('a.md')).toBe(true)
     expect(isPreviewableSourcePath('a.svg')).toBe(true)
+    expect(isPreviewableSourcePath('a.csv')).toBe(true)
+    expect(isPreviewableSourcePath('a.tsv')).toBe(true)
     expect(isPreviewableSourcePath('a.ts')).toBe(false)
     expect(isPreviewableSourcePath('a.png')).toBe(false)
+    expect(isPreviewableSourcePath('a.xlsx')).toBe(false)
   })
 })
 
@@ -117,11 +142,11 @@ describe('isImagePreviewPath / isMediaPreviewPath / adjacentMediaPath', () => {
     expect(isImagePreviewPath('clip.mp4')).toBe(false)
   })
 
-  it('媒体序列含位图 / SVG / PDF / PPT / 可播音视频，不含文本、不可播容器与老 ppt', () => {
+  it('媒体序列含位图 / SVG / PDF / PPT / 可播音视频，不含文本、表格、不可播容器与老 ppt', () => {
     for (const p of ['a.png', 'b.svg', 'c.pdf', 'd.mp4', 'e.mp3', 'F.WEBM', 'g.pptx', 'H.PPSX']) {
       expect(isMediaPreviewPath(p)).toBe(true)
     }
-    for (const p of ['a.ts', 'README.md', 'movie.mkv', 'noext', 'old.ppt']) {
+    for (const p of ['a.ts', 'README.md', 'movie.mkv', 'noext', 'old.ppt', 'b.xlsx', 'c.csv']) {
       expect(isMediaPreviewPath(p)).toBe(false)
     }
   })
@@ -132,6 +157,15 @@ describe('isImagePreviewPath / isMediaPreviewPath / adjacentMediaPath', () => {
     }
     for (const p of ['old.ppt', 'a.pps', 'a.pptx.bak', '/dir.pptx/noext']) {
       expect(isPptxPath(p)).toBe(false)
+    }
+  })
+
+  it('Excel 按扩展名：xlsx 与模板 / 带宏变体，外加老 .xls', () => {
+    for (const p of ['a.xlsx', 'b.xlsm', 'c.xltx', 'd.xltm', 'old.xls', 'E.XLSX']) {
+      expect(isXlsxPath(p)).toBe(true)
+    }
+    for (const p of ['a.xlsb', 'a.csv', 'a.xlsx.bak', '/dir.xlsx/noext']) {
+      expect(isXlsxPath(p)).toBe(false)
     }
   })
 

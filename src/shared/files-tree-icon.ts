@@ -1,4 +1,4 @@
-import { FILES_OPEN_WITH_EXTS, classifyFilesOpenKind, isPptxPath } from './files-kind'
+import { FILES_OPEN_WITH_EXTS, classifyFilesOpenKind, isPptxPath, isXlsxPath } from './files-kind'
 
 /**
  * 文件树里文件行的图标种类（docs/prd/files-tab.md）：按扩展名归到一组「文件 + 角标」的 lucide 图标，
@@ -49,7 +49,7 @@ export function filesTreeIconKind(fileName: string): FilesTreeIconKind {
   if (ARCHIVE_EXT.has(ext)) return 'archive'
   if (PROSE_EXT.has(ext)) return 'text'
   if (JSON_EXT.has(ext)) return 'json'
-  if (SHEET_EXT.has(ext)) return 'sheet'
+  if (SHEET_EXT.has(ext) || isXlsxPath(lower)) return 'sheet'
   if (SHELL_EXT.has(ext)) return 'shell'
   const kind = classifyFilesOpenKind(base)
   if (kind === 'image') return 'image'

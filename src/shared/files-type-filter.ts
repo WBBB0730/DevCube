@@ -1,11 +1,19 @@
 import type { FilesDirEntry } from './files'
-import { FILES_OPEN_WITH_EXTS, classifyFilesOpenKind, isPptxPath } from './files-kind'
+import { FILES_OPEN_WITH_EXTS, classifyFilesOpenKind, isPptxPath, isXlsxPath } from './files-kind'
 
 /**
  * 树顶类型筛选（docs/prd/file-preview-window.md）：只按扩展名归类，不读魔数；
  * 图片含 svg（与「文件打开方式」分组一致）；无扩展名 / 未知扩展名归「其他」。
  */
-export const FILES_TYPE_CATEGORIES = ['image', 'pdf', 'pptx', 'av', 'text', 'other'] as const
+export const FILES_TYPE_CATEGORIES = [
+  'image',
+  'pdf',
+  'pptx',
+  'xlsx',
+  'av',
+  'text',
+  'other'
+] as const
 
 export type FilesTypeCategory = (typeof FILES_TYPE_CATEGORIES)[number]
 
@@ -13,6 +21,7 @@ export const FILES_TYPE_CATEGORY_LABELS: Record<FilesTypeCategory, string> = {
   image: '图片',
   pdf: 'PDF',
   pptx: 'PPT',
+  xlsx: 'Excel',
   av: '音视频',
   text: '文本',
   other: '其他'
@@ -32,6 +41,7 @@ export function filesTypeCategory(fileName: string): FilesTypeCategory {
   if (ext === 'svg') return 'image'
   if (ext === 'pdf') return 'pdf'
   if (isPptxPath(lower)) return 'pptx'
+  if (isXlsxPath(lower)) return 'xlsx'
   if (AV_EXT.has(ext)) return 'av'
   const kind = classifyFilesOpenKind(base)
   if (kind === 'image' || kind === 'text') return kind

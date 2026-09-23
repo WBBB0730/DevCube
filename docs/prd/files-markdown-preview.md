@@ -6,7 +6,7 @@
 
 ## Solution
 
-Markdown 与 SVG 文件的工具栏出现「编辑 ↔ 预览」两态切换：编辑态还是原来的 CodeMirror。Markdown 预览态把正文换成排版后的富文本（GFM 语法、代码块、表格、相对路径图片）；SVG 预览态把源码画成图形，并在内容区右上角显示像素宽高（与位图预览同一套角标）。默认进编辑态，切换状态会话内保持。
+Markdown 与 SVG 文件的工具栏出现「编辑 ↔ 预览」两态切换：编辑态还是原来的 CodeMirror。Markdown 预览态把正文换成排版后的富文本（GFM 语法、代码块、表格、相对路径图片）；SVG 预览态把源码画成图形，并在内容区右上角显示像素宽高（与位图预览同一套角标）。默认进预览态（新建的空文件进编辑态），切换状态会话内保持。CSV / TSV 后来也加入同一两态，预览是表格（见 `files-xlsx-preview.md`）。
 
 ## User Stories
 
@@ -29,7 +29,7 @@ Markdown 与 SVG 文件的工具栏出现「编辑 ↔ 预览」两态切换：�
 - Markdown 渲染用 `react-markdown` + `remark-gfm`：库默认不渲染原始 HTML，天然防注入，不额外接 rehype-raw。
 - 排版用 `@tailwindcss/typography` 的 prose 类，色板通过官方 `--tw-prose-*` 变量对齐工作区 token（Dark 主题），代码块用 `--font-mono`。
 - SVG 预览用 `<img>` + `data:image/svg+xml`（CSP 已放行 `data:`），不当 inline XML，脚本不执行；放大时按新尺寸重新栅格化矢量，任何倍率清晰。打开分流仍为 text。
-- 两态（编辑 / 预览）而非 WebStorm 三态分屏；状态挂在 FilesPane（同 `treeVisible` 生命周期：会话内保持、不落盘），默认编辑。Markdown 与 SVG 共用同一开关。
+- 两态（编辑 / 预览）而非 WebStorm 三态分屏；状态挂在 FilesPane（同 `treeVisible` 生命周期：会话内保持、不落盘），默认预览、新建文件时切回编辑。Markdown、SVG 与 CSV 共用同一开关。
 - 切换钮在 Files 工具栏右侧钮区最左，与「最近打开 / 在文件树中显示 / …」以既有 1×12px `--border-input` 竖线隔成单独一组（同「显示文件树」）。
 - 相对路径图片：按当前文件目录解析、限制在项目根内，经既有 dc-media 协议流式读取（`buildFilesMediaUrl` 移入 shared 供渲染端复用；CSP `img-src` 放行 `dc-media:`）。越界或非图片扩展名不渲染。
 - 链接一律拦截默认跳转：http/https/mailto 交 `shell.openExternal`（复用既有 IPC），锚点与相对链接不动作。
