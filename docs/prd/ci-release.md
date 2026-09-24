@@ -22,8 +22,8 @@ DevCube 目前只能在本机手动打包，没有可重复的 Win / Mac 发布�
 12. 作为用户，我想 Mac 有 dmg（安装）与 zip（便携），以便按习惯选择安装或解压即用。
 13. 作为用户，我想 Windows 有 nsis 安装包与 portable 便携版，以便按习惯选择。
 14. 作为用户，我想在 GitHub Releases 找到对应 tag 的全部双端制品，以便一处下载。
-15. 作为用户，我想正式版 Release 为普通 latest 发布、说明为空，以便页面干净、不拿版本号当 changelog。
-16. 作为用户，我想 beta Release 标记为 Pre-release、说明为空，以便不覆盖 latest，且与正式版区分。
+15. 作为用户，我想正式版 Release 为普通 latest 发布、正文是这一版的更新日志（没写则为空），以便页面干净、不拿版本号当 changelog。
+16. 作为用户，我想 beta Release 标记为 Pre-release、正文与同号正式版相同，以便不覆盖 latest，且与正式版区分。
 17. 作为维护者，我想 Win / Mac 矩阵构建先上传 artifact，全部成功后再挂到同一 Release，以便避免半成品 Release 或并发抢建。
 18. 作为维护者，我想某一端构建失败时不发布不完整的 Release（或等价地不留下误导性的可下载集合），以便用户不会下到残缺版本。
 19. 作为 Mac 用户，我想下载的包已经 Developer ID 签名并完成 Apple 公证，以便少被 Gatekeeper 阻拦。
@@ -51,7 +51,7 @@ DevCube 目前只能在本机手动打包，没有可重复的 Win / Mac 发布�
 - **安装与数据身份（ADR-0012）**：正式：`appId` `com.wbbb.devcube`，`productName` DevCube，Windows 可执行名 `devcube`，数据目录 `DevCube`。beta：`appId` `com.wbbb.devcube.beta`，`productName` DevCube Beta，可执行名 `devcube-beta`，数据目录 `DevCube Beta`。打包元数据、Windows 运行时 AppUserModelID 与启动期 `userData` / `sessionData` 配置消费同一份身份解析结果；目录名保持既有默认值，数据身份不再依赖显示名，也不跨身份共享。
 - **构建配置模块**：使用 electron-builder 自动发现的 TypeScript 配置，由 version 派生身份字段、图标目录与 `extraMetadata`。默认/正式字段与现网一致；beta 覆盖上述差异。避免维护两份易漂移的静态 YAML，也不依赖命令行额外传入配置路径。
 - **制品矩阵**：`macos` runner → arm64 的 `dmg` + `zip`；`windows` runner → x64 的 `nsis` + `portable`。不打 Linux；不打 Mac universal / Win arm64。文件名用 `${name}`（无空格），见 ADR-0015。
-- **发布编排**：矩阵 job 只构建并 `upload-artifact`；全部成功后，收尾 job 用官方 GitHub CLI 创建 Release、上传全部 artifact，再发布——正式非 prerelease、beta 为 Pre-release，**body 留空**。不在各矩阵 job 里竞态 `electron-builder --publish`，也不暴露半成品 Release。
+- **发布编排**：矩阵 job 只构建并 `upload-artifact`；全部成功后，收尾 job 用官方 GitHub CLI 创建 Release、上传全部 artifact，再发布——正式非 prerelease、beta 为 Pre-release，**正文取手写更新日志里这一版那段**（beta 取同号正式版；没写为空，见 `docs/prd/changelog.md`）。不在各矩阵 job 里竞态 `electron-builder --publish`，也不暴露半成品 Release。
 - **Mac 签名与公证**：发布 Mac job 强制 Developer ID 签名与公证；凭证为证书（及密码）+ App Store Connect API Key（Key ID / Issuer ID / `.p8` 的 Base64 内容），全部来自 GitHub Secrets。workflow 将 Base64 内容解码到 runner 临时文件，验证其为有效的 PKCS#8 私钥，并把该文件的绝对路径交给 electron-builder。缺少任一凭证或私钥格式无效时在打包前失败；打包后显式校验应用签名与公证票据。非 tag 的本地构建不强制签名或公证。
 - **Windows 签名**：本轮不配置；确保未提供证书时构建仍成功（勿传入空证书路径导致误解析）。
 - **自动更新**：应用内更新见 `docs/prd/in-app-update.md`；本流水线须把 `latest.yml` / `latest-mac.yml` 与安装包一并挂到 GitHub Release（`publish.provider = github`，构建仍 `--publish never`，由收尾 `gh release` 上传）。
@@ -89,7 +89,7 @@ DevCube 目前只能在本机手动打包，没有可重复的 Win / Mac 发布�
 - `alpha` / `rc` 等非 beta 预发布通道
 - 正式版与 beta 共享用户数据或导入/导出配置
 - CI 内运行 gen-icon
-- Release 自动生成 changelog / 非空 body
+- 从 git 提交自动生成 Release 正文（更新日志手写，见 `docs/prd/changelog.md`）
 - 草稿 Release 人工点 Publish
 - App Store / Microsoft Store 上架
 - 变更日志网站或独立下载站
@@ -99,7 +99,7 @@ DevCube 目前只能在本机手动打包，没有可重复的 Win / Mac 发布�
 - 双安装身份决策见 ADR-0012。
 - 应用内更新与 Release 上补传 `latest.yml` / `latest-mac.yml` 见 `docs/prd/in-app-update.md`、ADR-0014。
 - Apple 签名与公证 Secrets 由维护者在首次发布前提供；它们只影响 tag 发布，缺失时发布会在 Mac 打包前明确失败，不阻断 `main` CI。
-- bumpp 提交信息通常就是版本号，故 Release 说明刻意留空，避免无信息噪音。
+- bumpp 提交信息只是版本号，不作 Release 说明来源；正文来自手写的 `CHANGELOG.md`（`docs/prd/changelog.md`、ADR-0035）。
 - pnpm 官方当前的 GitHub Actions 示例用 `pnpm/setup`（自带缓存，要求 pnpm 11+）；本仓库仍是 pnpm 10，故沿用 `actions/cache` + `pnpm store path`。GitHub 会在仓库 60 天无活动后自动停用定时 workflow，届时需手动重新启用。
 - 缓存的生产方只有 `main` 的 CI，而失败或被取消的 job 不保存缓存：Windows 门禁一挂，Windows 侧缓存就停更；bumpp 一次推 beta 与正式两个 tag，两次 `main` push 的前一个 CI 会被 `cancel-in-progress` 取消，同样不写。lockfile 没变时精确键照样命中、问题不显形，一旦 lockfile 变就只能前缀回退到旧缓存。
 - 每周定时保活截至 2026-09-22 一次都没触发过（仓库运行记录里 `schedule` 事件为 0，加 cron 后的第一个时间点 2026-09-21 03:00 UTC 无记录）。发版时的只读恢复也会刷新缓存的最后访问时间，所以定时空跑只在「发版间隔超过一周」时才兜底，该场景尚未验证。

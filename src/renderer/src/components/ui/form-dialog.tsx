@@ -1,5 +1,5 @@
 // 通用小对话框外壳（“Git 对话框族”样式的单一定义源，抽取自 GitDialogs）：
-// Mask 遮罩 + 440px 面板 +「提示语 + 内容 + 底部按钮条（border-t 分隔、右对齐）」。
+// Mask 遮罩 + 440px 面板 +「提示语 + 内容 + 底部按钮条（右对齐）」。弹窗内不画分割线，靠留白分区。
 // 无标题栏——13px 提示语即说明；Enter = 主按钮（防输入法合成回车）、Esc = 取消。
 // GitDialogs 与 Files 的弹窗（新建 / 重命名 / 删除 / 磁盘冲突）共用。
 import { useEffect } from 'react'
@@ -46,6 +46,11 @@ export function DialogPanel({
       {children}
     </div>
   )
+}
+
+/** 底部按钮条：右对齐，不画分割线——与正文之间只靠正文的下内边距隔开。 */
+export function DialogFooter({ children }: { children: React.ReactNode }): React.JSX.Element {
+  return <div className="flex justify-end gap-2 px-4 pb-4">{children}</div>
 }
 
 /** 字段旁的说明图标（hover 出 title）。 */
@@ -101,7 +106,8 @@ export function FormDialogShell({
   onCancel,
   cancelLabel = '取消',
   cancelDisabled = false,
-  dismissible = true
+  dismissible = true,
+  className
 }: {
   message: React.ReactNode
   children?: React.ReactNode
@@ -110,6 +116,8 @@ export function FormDialogShell({
   cancelLabel?: string
   cancelDisabled?: boolean
   dismissible?: boolean
+  /** 面板尺寸覆盖（默认 440px 宽） */
+  className?: string
 }): React.JSX.Element {
   // Escape 兜底：焦点在对话框输入控件里时外层 capture 监听会让位，这里补一份
   useEffect(() => {
@@ -133,12 +141,12 @@ export function FormDialogShell({
 
   return (
     <DialogMask onClick={cancelDisabled || !dismissible ? undefined : onCancel}>
-      <DialogPanel onKeyDown={onKeyDown}>
+      <DialogPanel className={className} onKeyDown={onKeyDown}>
         <div className="space-y-3 px-4 py-4">
           <div className="select-text text-[13px] leading-relaxed text-foreground">{message}</div>
           {children}
         </div>
-        <div className="flex justify-end gap-2 border-t px-4 py-2.5">
+        <DialogFooter>
           <Button variant="ghost" disabled={cancelDisabled} onClick={onCancel}>
             {cancelLabel}
           </Button>
@@ -153,7 +161,7 @@ export function FormDialogShell({
               {btn.label}
             </Button>
           ))}
-        </div>
+        </DialogFooter>
       </DialogPanel>
     </DialogMask>
   )

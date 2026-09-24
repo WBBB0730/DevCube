@@ -3,7 +3,7 @@
 // Git 图谱（Git Tab）的域模型与 API 在 ./git.ts，经 GitAPI 并入 RunAPI。
 
 import type { AppShortcut } from './app-shortcut'
-import type { AppUpdateState } from './app-update-state'
+import type { AppUpdateState, DevUpdatePreview } from './app-update-state'
 import type { ContentSearchEvent, ContentSearchOptions } from './content-search'
 import type { DiscoverSource } from './discover-source'
 import type { FilesDirEntry, FilesReadResult, FilesUiState } from './files'
@@ -390,4 +390,6 @@ export interface RunAPI extends GitAPI {
   performAppUpdateAction(): Promise<{ startedInstall: boolean }>
   openAppReleasePage(): Promise<void>
   onAppUpdateState(cb: (state: AppUpdateState) => void): () => void
+  /** 仅未包装开发（顶栏绿色按钮）：读工作区 CHANGELOG.md 生成更新弹窗的本地预览 */
+  getDevChangelogPreview(): Promise<DevUpdatePreview>
 }

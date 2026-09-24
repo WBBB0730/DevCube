@@ -1,4 +1,4 @@
-import { ipcMain, BrowserWindow, clipboard, shell } from 'electron'
+import { app, ipcMain, BrowserWindow, clipboard, shell } from 'electron'
 import { IPC } from '../shared/ipc'
 import { configKey } from '../shared/runnable'
 import { isOpenInAppId } from '../shared/open-in-app'
@@ -123,6 +123,7 @@ import {
 import {
   checkAppUpdates,
   getAppUpdateState,
+  getDevChangelogPreview,
   openAppReleasePage,
   performUpdateButtonAction,
   startAppUpdater
@@ -623,4 +624,6 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     }
     return performUpdateButtonAction()
   })
+  // 本地预览只在未包装开发里有意义（打包产物不带 CHANGELOG.md），打包后不注册
+  if (!app.isPackaged) ipcMain.handle(IPC.appUpdateDevPreview, () => getDevChangelogPreview())
 }

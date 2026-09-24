@@ -149,6 +149,12 @@ const config: Configuration = {
     artifactName: '${name}-${version}.${ext}'
   },
   npmRebuild: false,
+  // 更新日志：整份 CHANGELOG.md 写进更新说明单（latest*.yml）的 releaseNotes，随检查结果一起到应用里，
+  // 由应用挑出当前版本之后的各段（ADR-0035）。官方本意是只放这一版的说明，这里放整份；
+  // 若改成 electron-builder 自己 --publish，它也会拿这段当 Release 正文。
+  releaseInfo: {
+    releaseNotesFile: 'CHANGELOG.md'
+  },
   publish: {
     provider: 'github',
     owner: 'WBBB0730',

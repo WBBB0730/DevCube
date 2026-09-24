@@ -137,7 +137,8 @@ const api: RunAPI = {
   checkAppUpdates: (force) => ipcRenderer.invoke(IPC.appUpdateCheck, force === true),
   performAppUpdateAction: () => ipcRenderer.invoke(IPC.appUpdatePerform),
   openAppReleasePage: () => ipcRenderer.invoke(IPC.appUpdateOpenRelease),
-  onAppUpdateState: (cb) => subscribe(IPC.appUpdateState, cb)
+  onAppUpdateState: (cb) => subscribe(IPC.appUpdateState, cb),
+  getDevChangelogPreview: () => ipcRenderer.invoke(IPC.appUpdateDevPreview)
 }
 
 // Use `contextBridge` APIs to expose Electron APIs to renderer

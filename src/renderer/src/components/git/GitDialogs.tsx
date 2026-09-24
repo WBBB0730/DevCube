@@ -34,6 +34,7 @@ import { gitState, useGit } from '@renderer/git-store'
 import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui/button'
 import {
+  DialogFooter,
   DialogMask as Mask,
   DialogPanel,
   FieldRow,
@@ -1688,9 +1689,9 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
               {actionErrors.filter((e) => e !== '').join('\n\n')}
             </pre>
           </div>
-          <div className="flex justify-end gap-2 border-t px-4 py-2.5">
+          <DialogFooter>
             <Button onClick={env.clearActionErrors}>知道了</Button>
-          </div>
+          </DialogFooter>
         </DialogPanel>
       </Mask>
     )
@@ -1842,7 +1843,7 @@ function DialogForm({
             />
           ))}
         </div>
-        <div className="flex justify-end gap-2 border-t px-4 py-2.5">
+        <DialogFooter>
           {spec.hideCancel !== true && (
             <Button variant="ghost" onClick={onCancel}>
               {spec.cancelLabel ?? (spec.messageOnly === true ? '关闭' : '取消')}
@@ -1859,7 +1860,7 @@ function DialogForm({
               {btn.label}
             </Button>
           ))}
-        </div>
+        </DialogFooter>
       </DialogPanel>
     </Mask>
   )
@@ -2501,11 +2502,11 @@ function TagDetailsDialog({
             </div>
           )}
         </div>
-        <div className="flex justify-end gap-2 border-t px-4 py-2.5">
+        <DialogFooter>
           <Button variant="ghost" onClick={onClose}>
             关闭
           </Button>
-        </div>
+        </DialogFooter>
       </DialogPanel>
     </Mask>
   )

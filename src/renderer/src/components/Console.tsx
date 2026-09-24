@@ -269,7 +269,6 @@ function TabBar({
 }): React.JSX.Element {
   const newTerminal = useApp((s) => s.newTerminal)
   const reorderTerminals = useApp((s) => s.reorderTerminals)
-  const tabBarFrameRef = useRef<HTMLDivElement>(null)
   const tabBarRef = useRef<HTMLDivElement>(null)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
@@ -307,39 +306,6 @@ function TabBar({
     return () => scroller.removeEventListener('wheel', handleWheel)
   }, [])
 
-  useEffect(() => {
-    const frame = tabBarFrameRef.current
-    const scroller = tabBarRef.current
-    if (!frame || !scroller) return
-
-    const edgeTolerance = 1
-    const updateFadeOpacity = (): void => {
-      const maxScrollLeft = Math.max(scroller.scrollWidth - scroller.clientWidth, 0)
-      const scrollLeft = Math.min(Math.max(scroller.scrollLeft, 0), maxScrollLeft)
-      const remaining = maxScrollLeft - scrollLeft
-
-      frame.style.setProperty('--tab-fade-left-opacity', scrollLeft > edgeTolerance ? '1' : '0')
-      frame.style.setProperty('--tab-fade-right-opacity', remaining > edgeTolerance ? '1' : '0')
-    }
-
-    const observeChildren = (): void => {
-      for (const child of scroller.children) resizeObserver.observe(child)
-      updateFadeOpacity()
-    }
-    const resizeObserver = new ResizeObserver(updateFadeOpacity)
-    const mutationObserver = new MutationObserver(observeChildren)
-    resizeObserver.observe(scroller)
-    observeChildren()
-    mutationObserver.observe(scroller, { childList: true })
-    scroller.addEventListener('scroll', updateFadeOpacity, { passive: true })
-
-    return () => {
-      mutationObserver.disconnect()
-      resizeObserver.disconnect()
-      scroller.removeEventListener('scroll', updateFadeOpacity)
-    }
-  }, [])
-
   const handleDragEnd = (e: DragEndEvent): void => {
     const { active, over } = e
     if (!over || active.id === over.id) return
@@ -351,13 +317,11 @@ function TabBar({
   }
 
   return (
-    <div
-      ref={tabBarFrameRef}
-      className="tab-bar-frame relative h-10 shrink-0 border-b border-[var(--separator)] bg-panel"
-    >
+    // 左右溢出渐变用通用滚动渐隐遮罩（main.css）；底边沿用留 1px 不盖
+    <div className="scroll-fade-x relative h-10 shrink-0 border-b border-[var(--separator)] bg-panel [--scroll-fade-color:var(--bg-panel)] [--scroll-fade-gutter:1px]">
       <div
         ref={tabBarRef}
-        className="tab-bar-scroll flex h-full flex-nowrap items-center overflow-x-auto overflow-y-hidden scroll-px-4"
+        className="tab-bar-scroll scroll-fade-scroller flex h-full flex-nowrap items-center overflow-x-auto overflow-y-hidden scroll-px-4"
         title={`切换 Tab (${shortcutLabel(SHORTCUT.prevTab)} / ${shortcutLabel(SHORTCUT.nextTab)}，或 ${shortcutLabel(SHORTCUT.cycleTabNext)})`}
       >
         {/* Git Tab：每项目常驻第一个、不可关闭（ADR-0005）。⌘1 */}

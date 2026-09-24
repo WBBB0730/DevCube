@@ -100,7 +100,7 @@ export function PreviewWindow({ launch }: { launch: PreviewLaunch }): React.JSX.
         ]}
         update={update}
         onOpenSettings={() => setSettingsOpen(true)}
-        onUpdateClick={() => void window.api.performAppUpdateAction()}
+        onPerformUpdate={() => void window.api.performAppUpdateAction()}
       />
       <div className="min-h-0 flex-1">
         <FilesPane key={root} rootPath={root} visible host={host} />
@@ -113,7 +113,7 @@ export function PreviewWindow({ launch }: { launch: PreviewLaunch }): React.JSX.
             // 状态只经 IPC 推送，避免 invoke 返回值与 push 竞态盖掉更新结果。
             await window.api.checkAppUpdates(force)
           }}
-          onInstallUpdate={() => void window.api.performAppUpdateAction()}
+          onPerformUpdate={() => void window.api.performAppUpdateAction()}
           onOpenRepo={() => {
             if (update) void window.api.openExternal(update.repoUrl)
           }}

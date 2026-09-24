@@ -16,19 +16,19 @@ DevCube 已能打 tag 发到 GitHub Releases，但用户仍须自己去网页下
 6. 作为用户，我想在设置 → 关于里手动「检查更新」，以便刚发版时立刻查。
 7. 作为可自动更新形态的用户，我想发现新版本后后台静默下载，以便不打断当前工作。
 8. 作为可自动更新形态的用户，我想只有下载完成、可以安装时，顶栏才出现更新按钮，以便按钮含义单一。
-9. 作为可自动更新形态的用户，我想点击顶栏更新按钮后重启并安装，以便马上用上新版本。
+9. 作为可自动更新形态的用户，我想点击顶栏更新按钮后先在更新弹窗里看到更新日志，确认「重启并更新」后重启并安装，以便马上用上新版本（日志见 `docs/prd/changelog.md`）。
 10. 作为可自动更新形态的用户，我想更新已下好后正常退出应用时也自动装上，以便不必非点顶栏按钮。
 11. 作为用户，我不想关掉或「跳过」顶栏更新按钮，以便待处理更新一直可见直到装完。
-12. 作为 Windows Portable 用户，我想在已知有新版本时看到同款顶栏按钮，点击后打开对应 GitHub Release，以便自行下载便携包。
+12. 作为 Windows Portable 用户，我想在已知有新版本时看到同款顶栏按钮，点击后先看同一个更新弹窗，确认「前往下载」后打开对应 GitHub Release，以便自行下载便携包。
 13. 作为 Windows Portable 用户，我不想应用尝试对我做 NSIS 式静默安装，以便不出现失败或错包。
 14. 作为 macOS 用户，我想无论当初用 dmg 还是 zip 装上的 `.app` 都能完整应用内更新，以便行为一致。
-15. 作为开发者，我想未包装开发模式与便携版一样能检查更新、用「立即更新」打开 GitHub Release，以便本地验证更新 UI（官方 `forceDevUpdateConfig`）；不在开发态静默下载安装。
+15. 作为开发者，我想未包装开发模式与便携版一样能检查更新、经更新弹窗「前往下载」打开 GitHub Release，以便本地验证更新 UI（官方 `forceDevUpdateConfig`）；不在开发态静默下载安装。
 16. 作为用户，我想看到自定义窗口顶栏（隐藏系统标题栏），以便外观靠近 WebStorm。
 17. 作为用户，我想顶栏中间标题与现在窗口标题一致——有当前 **Project** 时为「项目名 — DevCube」，否则「DevCube」——以便不学两套文案。
 18. 作为用户，我想顶栏右侧有设置齿轮，以便进入应用设置。
 19. 作为用户，我想点设置后出现盖在主窗口上的大弹层（不是第二个窗口），布局像 WebStorm 设置：左分类树、右内容、底「确定」关闭，以便手感熟悉。
 20. 作为用户，我想设置里有「关于」：应用名与 **Release Edition**、当前版本、更新状态、「检查更新」、仓库链接；便携版另有打开 Release 的入口，以便更新与版本信息一处看清。
-21. 作为用户，我不想关于里展示 Release 正文当 changelog（当前发版说明为空），以免空白或误导。
+21. 作为用户，我想在关于里点「立即更新」时也先弹出更新弹窗、看到中间各版的更新日志再确认，以便两个入口一致（日志来自手写的 `CHANGELOG.md`，见 `docs/prd/changelog.md`）。
 22. 作为用户，我想设置里有「快捷键」只读列表（按现有绑定展示平台文案），以便查阅、本轮不必改键。
 23. 作为用户，当还有运行中的 **Run Session** 时，我想 Cmd+Q、Windows/Linux 关窗退出、以及「重启以更新」等会退出整个应用的操作都先二次确认，以便不误杀正在跑的配置。
 24. 作为用户，当只有 **Terminal** 在跑、没有运行中的 **Run Session** 时，我不想被退出确认拦住，以便终端不挡退出。
@@ -45,11 +45,11 @@ DevCube 已能打 tag 发到 GitHub Releases，但用户仍须自己去网页下
 - **身份封闭（ADR-0014）**：检查结果在采纳前按当前 **Release Edition** 过滤——正式只接受非 Pre-release；Beta 只接受 Pre-release；可辅以制品名 / 身份字段校验。明确不用官方 `channel=beta`「beta ∪ latest」漏斗作主方案。
 - **可自动更新形态**：macOS 上的 `.app`（更新载体仍依赖 Release 上的 zip + `latest-mac.yml`）；Windows NSIS 安装版（`latest.yml` + setup）。**仅打开 Release 形态**：Windows Portable，以及未包装开发（`forceDevUpdateConfig` + 根目录 `dev-app-update.yml` 指向同一 GitHub 仓库）——只检查与提示，点击顶栏/「立即更新」打开对应 Release，不走下载/`quitAndInstall`（ADR-0017）。包装后仍解析为 `dev` 的平台（如 Linux）本轮不启用检查。
 - **检查节奏**：启用检查的形态——启动后短 jitter 再查；运行中约每 4 小时；进入设置→关于自动检查（与最近一次检查间隔不足 5 分钟则跳过）；手动「检查更新」可 force 绕过冷却。无独立 `idle` 阶段。检查失败（含发版窗口期 Atom 指向无资产 tag）：对外记为 `upToDate`、不推 `lastError`、约 15 分钟后静默重试；已有可用更新结果时复检不降级、不把 UI 打回 checking；下载中不打断。下载失败仍可在关于页提示。
-- **下载与安装**：可自动更新形态由编排层在检查通过后显式 `downloadUpdate`（`autoDownload = false`，与身份过滤同一处控制）。顶栏更新按钮仅在「已下载可安装」时显示（便携：已知有新版本时显示同款按钮）。按钮不可关闭、不可跳过版本。`autoInstallOnAppQuit = false`：已下好则在正常退出清理完成后显式安装；顶栏按钮同样走 `app.quit` → 清理 → 安装（若有运行中 Run Session 先走退出确认）。macOS 安装前卸掉会拦截退出的监听并挂 `before-quit-for-update` + `app.exit`，保证 Squirrel.Mac 装完能重开（ADR-0016）。
+- **下载与安装**：可自动更新形态由编排层在检查通过后显式 `downloadUpdate`（`autoDownload = false`，与身份过滤同一处控制）。顶栏更新按钮仅在「已下载可安装」时显示（便携：已知有新版本时显示同款按钮）。按钮不可关闭、不可跳过版本。点按钮先开更新弹窗（更新日志 + 「取消」/ 主按钮），确认后才执行下述动作；弹窗「取消」只关弹窗。`autoInstallOnAppQuit = false`：已下好则在正常退出清理完成后显式安装；顶栏按钮同样走 `app.quit` → 清理 → 安装（若有运行中 Run Session 先走退出确认）。macOS 安装前卸掉会拦截退出的监听并挂 `before-quit-for-update` + `app.exit`，保证 Squirrel.Mac 装完能重开（ADR-0016）。
 - **发布产物**：CI artifact / `gh release` 上传集增加 updater 元数据（至少每端的 `latest.yml` / `latest-mac.yml`），与现有 dmg/zip/exe/blockmap 一并挂到同一 Release；接受 Release 资产列表中可见 yml。
 - **制品文件名（ADR-0015）**：进 Release / 写入更新清单的文件名一律用无空格的 `${name}`（`devcube` / `devcube-beta`），不用带空格的 `productName`。mac zip 形如 `${name}-${version}-${arch}-mac.zip`，与 `latest-mac.yml` 的 url 及 GitHub 资产名一致。显示名「DevCube Beta」只用于 UI。
 - **窗口顶栏**：`titleBarStyle` 隐藏系统标题栏；macOS 保留原生红绿灯；Windows/Linux 用系统窗口按钮叠层（如 `titleBarOverlay`）。中间标题与现 `document.title` 逻辑一致（本轮仍写「DevCube」字面，不强制改成 Beta 显示名）。右侧：条件显示的更新按钮 + 设置齿轮。拖拽区与控件 `no-drag` 分区按平台留出安全区。
-- **设置弹层**：主窗口内全屏级模态（非第二 BrowserWindow）。结构对齐 WebStorm：左分类树、右内容，底仅「确定」关闭（主色；无取消/应用——改动即时生效）。本轮栏目：关于（做实）、快捷键（只读）；有真实偏好项之前不挂「偏好」栏、不写占位文案。应用设置与 Git 仓库设置共用同一外壳。关于页状态与主按钮：进入关于即检查（`checksEnabled` 时），状态「正在检查更新」→结果；主按钮文案只有「检查更新」/「立即更新」两档（检查中、下载中仅禁用、不换 loading 文案）；可自动更新已下完，或便携/未包装开发有新版本时为「立即更新」。
+- **设置弹层**：主窗口内全屏级模态（非第二 BrowserWindow）。结构对齐 WebStorm：左分类树、右内容，底仅「确定」关闭（主色；无取消/应用——改动即时生效）。本轮栏目：关于（做实）、快捷键（只读）；有真实偏好项之前不挂「偏好」栏、不写占位文案。应用设置与 Git 仓库设置共用同一外壳。关于页状态与主按钮：进入关于即检查（`checksEnabled` 时），状态「正在检查更新」→结果；主按钮文案只有「检查更新」/「立即更新」两档（检查中、下载中仅禁用、不换 loading 文案）；可自动更新已下完，或便携/未包装开发有新版本时为「立即更新」，点击开与顶栏同一个更新弹窗。
 - **退出确认**：任一会结束整个应用进程的路径，若存在状态为运行中的 **Run Session**，先确认；**Terminal** 不参与条件。macOS 仅关窗不退出不触发。确认文案含运行中 **Run Session** 数量提示（用「运行会话」表述）。更新重启安装走同一确认闸。
 - **模块划分（深模块优先）**：
   - **更新策略纯函数**：输入当前版本 / **Release Edition** / 包装形态 / 候选更新信息 → 输出是否采纳、顶栏是否显示、点击动作（安装 vs 打开 Release）等；供单测。
@@ -78,7 +78,7 @@ DevCube 已能打 tag 发到 GitHub Releases，但用户仍须自己去网页下
 - 私有仓库更新 / 用户侧 GitHub Token
 - 开发模式下的更新检查
 - 跳过某版本 / 暂时隐藏更新按钮
-- 从 Release body 生成 changelog UI
+- 从 Release body 生成 changelog UI（更新日志改为手写 `CHANGELOG.md` 随更新清单下发，见 `docs/prd/changelog.md`）
 - Windows 代码签名（仍可未签名发版；SmartScreen 体验另案）
 - Linux 打包与更新
 - 单独 BrowserWindow 设置窗

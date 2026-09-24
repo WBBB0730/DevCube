@@ -1,6 +1,7 @@
 /** 主进程 → 渲染层的更新状态快照（IPC 载荷）。 */
 
 import type { AppUpdatePhase, UpdateButtonAction, UpdatePackaging } from './app-update'
+import type { ChangelogEntry, ChangelogPreview } from './changelog'
 
 export type AppUpdateState = {
   phase: AppUpdatePhase
@@ -13,6 +14,8 @@ export type AppUpdateState = {
   channel: 'stable' | 'beta'
   /** 候选 / 已下载版本；无则为 null */
   availableVersion: string | null
+  /** 当前版本之后、到候选版本为止的更新日志段落（新→旧）；无候选或都没写为空 */
+  changelog: ChangelogEntry[]
   /** 顶栏是否显示更新按钮 */
   showButton: boolean
   /** 顶栏按钮点击语义；无按钮时仍给出默认，便于关于页分支 */
@@ -25,4 +28,10 @@ export type AppUpdateState = {
   repoUrl: string
   /** 关于页 / 便携按钮用的 Release URL；无候选则为仓库 releases 页 */
   releaseUrl: string
+}
+
+/** 开发版顶栏绿色按钮：读工作区 CHANGELOG.md 生成的本地预览（更新弹窗所需的全部内容）。 */
+export type DevUpdatePreview = ChangelogPreview & {
+  productName: string
+  currentVersion: string
 }

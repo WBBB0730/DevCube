@@ -17,6 +17,7 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       prerelease: ${{ steps.meta.outputs.prerelease }}
+      notes: ${{ steps.meta.outputs.notes }}
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
         with:
@@ -38,6 +39,7 @@ jobs:
           git fetch origin main
           git merge-base --is-ancestor "$GITHUB_SHA" origin/main
 
+      # 含 Release 正文：CHANGELOG.md 里这一版那段（Beta 取同号正式版），没写为空
       - name: Resolve release metadata
         id: meta
         run: pnpm exec tsx scripts/release-meta.ts "$GITHUB_REF_NAME" >> "$GITHUB_OUTPUT"
@@ -169,7 +171,7 @@ jobs:
       - name: Publish GitHub Release
         shell: bash
         run: |
-          options=(--verify-tag --title "$GITHUB_REF_NAME" --notes '')
+          options=(--verify-tag --title "$GITHUB_REF_NAME" --notes "$NOTES")
           if [[ "$PRERELEASE" == 'true' ]]; then
             options+=(--prerelease --latest=false)
           else
@@ -180,3 +182,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           GH_REPO: ${{ github.repository }}
           PRERELEASE: ${{ needs.verify.outputs.prerelease }}
+          # 正文经环境变量传入，不直接拼进脚本
+          NOTES: ${{ needs.verify.outputs.notes }}

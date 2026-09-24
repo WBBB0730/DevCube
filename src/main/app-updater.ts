@@ -3,6 +3,8 @@
  * 策略纯函数见 shared/app-update；产品范围见 docs/prd/in-app-update.md。
  */
 
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
 import { app, autoUpdater as nativeAutoUpdater, BrowserWindow, shell } from 'electron'
 import { autoUpdater, type UpdateInfo } from 'electron-updater'
 import {
@@ -17,7 +19,13 @@ import {
   type AppUpdatePhase,
   type UpdatePackaging
 } from '../shared/app-update'
-import type { AppUpdateState } from '../shared/app-update-state'
+import type { AppUpdateState, DevUpdatePreview } from '../shared/app-update-state'
+import {
+  parseChangelog,
+  pickChangelogEntries,
+  previewChangelog,
+  type ChangelogEntry
+} from '../shared/changelog'
 import { IPC } from '../shared/ipc'
 import { resolveReleaseEdition } from '../shared/release-edition'
 
@@ -31,6 +39,7 @@ const CHECK_COOLDOWN_MS = 5 * 60 * 1000
 let packaging: UpdatePackaging = 'dev'
 let phase: AppUpdatePhase = 'upToDate'
 let availableVersion: string | null = null
+let changelog: ChangelogEntry[] = []
 let lastError: string | null = null
 let started = false
 /** 是否接线并跑检查（未包装开发与可更新包装形态为 true）。 */
@@ -58,6 +67,7 @@ function buildState(): AppUpdateState {
     productName: ed.productName,
     channel: ed.channel,
     availableVersion,
+    changelog,
     showButton,
     buttonAction,
     checksEnabled,
@@ -80,6 +90,19 @@ function emit(): void {
 function setPhase(next: AppUpdatePhase): void {
   phase = next
   emit()
+}
+
+/**
+ * 采纳 / 清空候选，版本号与更新日志一起换。日志来自说明单：打包时整份 CHANGELOG.md 写进
+ * releaseNotes（ADR-0035），这里挑出当前版本之后、到候选为止的段落。说明单里没有这一项的旧版本，
+ * electron-updater 会退回读 Release 正文（HTML），里面没有版本标题，挑出来为空。
+ */
+function setCandidate(info: UpdateInfo | null): void {
+  availableVersion = info?.version ?? null
+  changelog =
+    info !== null && typeof info.releaseNotes === 'string'
+      ? pickChangelogEntries(parseChangelog(info.releaseNotes), app.getVersion(), info.version)
+      : []
 }
 
 function candidateFromInfo(info: UpdateInfo): { version: string; prerelease: boolean } | null {
@@ -113,7 +136,7 @@ function treatCheckFailureAsUpToDate(err: unknown): void {
     scheduleCheckRetry()
     return
   }
-  availableVersion = null
+  setCandidate(null)
   setPhase('upToDate')
   scheduleCheckRetry()
 }
@@ -176,12 +199,12 @@ function wireUpdater(): void {
   autoUpdater.on('update-available', (info) => {
     const candidate = candidateFromInfo(info)
     if (!candidate || !isUpdateAllowedForEdition(edition(), candidate)) {
-      availableVersion = null
+      setCandidate(null)
       // 跨线 / 非法候选：当作没有适用更新，避免误下正式包到 Beta。
       setPhase('upToDate')
       return
     }
-    availableVersion = candidate.version
+    setCandidate(info)
     lastError = null
     if (!canAutoDownload(packaging)) {
       setPhase('available')
@@ -196,7 +219,7 @@ function wireUpdater(): void {
 
   autoUpdater.on('update-not-available', () => {
     if (shouldPreserveUpdateOffer()) return
-    availableVersion = null
+    setCandidate(null)
     lastError = null
     setPhase('upToDate')
   })
@@ -204,11 +227,11 @@ function wireUpdater(): void {
   autoUpdater.on('update-downloaded', (info) => {
     const candidate = candidateFromInfo(info)
     if (!candidate || !isUpdateAllowedForEdition(edition(), candidate)) {
-      availableVersion = null
+      setCandidate(null)
       setPhase('upToDate')
       return
     }
-    availableVersion = candidate.version
+    setCandidate(info)
     lastError = null
     setPhase('ready')
   })
@@ -309,6 +332,16 @@ export function performUpdateButtonAction(): { startedInstall: boolean } {
   if (phase !== 'ready') return { startedInstall: false }
   app.quit()
   return { startedInstall: true }
+}
+
+/** 开发版顶栏绿色按钮：读工作区 CHANGELOG.md 做本地预览，不联网（docs/prd/changelog.md）。 */
+export async function getDevChangelogPreview(): Promise<DevUpdatePreview> {
+  const markdown = await readFile(join(app.getAppPath(), 'CHANGELOG.md'), 'utf8')
+  return {
+    productName: edition().productName,
+    currentVersion: app.getVersion(),
+    ...previewChangelog(parseChangelog(markdown), app.getVersion())
+  }
 }
 
 export function openAppReleasePage(): void {

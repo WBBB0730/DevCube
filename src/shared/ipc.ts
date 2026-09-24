@@ -106,5 +106,7 @@ export const IPC = {
   appUpdateCheck: 'app-update:check',
   appUpdatePerform: 'app-update:perform',
   appUpdateOpenRelease: 'app-update:open-release',
-  appUpdateState: 'app-update:state'
+  appUpdateState: 'app-update:state',
+  /** 仅未包装开发：顶栏绿色按钮读工作区 CHANGELOG.md 做本地预览 */
+  appUpdateDevPreview: 'app-update:dev-preview'
 } as const

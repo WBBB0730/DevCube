@@ -15,9 +15,10 @@ import { THEME_MODES, type ThemeMode } from '@shared/theme'
 import { GIT_DEFAULTS } from '@shared/git'
 import { Check, Info, LoaderCircle, TriangleAlert } from 'lucide-react'
 import { SettingsModal } from '@renderer/components/SettingsModal'
+import { UpdateDialog } from '@renderer/components/UpdateDialog'
 import { Button } from '@renderer/components/ui/button'
 import { Checkbox } from '@renderer/components/ui/checkbox'
-import { DialogMask, DialogPanel } from '@renderer/components/ui/form-dialog'
+import { DialogFooter, DialogMask, DialogPanel } from '@renderer/components/ui/form-dialog'
 import {
   Select,
   SelectContent,
@@ -112,7 +113,8 @@ type Props = {
   onClose: () => void
   /** @param force 手动按钮传 true，绕过进入关于的冷却 */
   onCheckUpdate: (force?: boolean) => Promise<void>
-  onInstallUpdate: () => void
+  /** 更新弹窗里确认后执行（安装或打开 Release）；「立即更新」本身只开弹窗 */
+  onPerformUpdate: () => void
   onOpenRepo: () => void
 }
 
@@ -138,7 +140,7 @@ export function SettingsDialog({
   update,
   onClose,
   onCheckUpdate,
-  onInstallUpdate,
+  onPerformUpdate,
   onOpenRepo
 }: Props): React.JSX.Element {
   const [section, setSection] = useState<SectionId>('about')
@@ -147,6 +149,7 @@ export function SettingsDialog({
   const [integration, setIntegration] = useState<SystemIntegrationState | null>(null)
   const [integrationBusy, setIntegrationBusy] = useState<SystemIntegrationFeatureId | null>(null)
   const [integrationError, setIntegrationError] = useState<string | null>(null)
+  const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
   const setTheme = useApp((s) => s.setTheme)
   const gitAutoFetch = useApp((s) => s.gitAutoFetch)
   const setGitAutoFetch = useApp((s) => s.setGitAutoFetch)
@@ -155,16 +158,17 @@ export function SettingsDialog({
   // 偏好全平台可见（主题）；其中「默认终端」仅 Windows。系统集成全平台可见（Linux 只有「文件打开方式」）。
   const sections = SECTIONS
 
-  // Esc 分层关闭：先收错误框，再关设置。
+  // Esc 分层关闭：先收更新弹窗 / 错误框，再关设置。
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return
-      if (integrationError !== null) setIntegrationError(null)
+      if (updateDialogOpen) setUpdateDialogOpen(false)
+      else if (integrationError !== null) setIntegrationError(null)
       else onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, integrationError])
+  }, [onClose, integrationError, updateDialogOpen])
 
   // 进入关于自动检查（受主进程 5 分钟冷却；后台 jitter / 周期仍独立）。
   useEffect(() => {
@@ -349,7 +353,7 @@ export function SettingsDialog({
               <div>{phaseLabel(update)}</div>
               <div className="flex flex-wrap gap-2">
                 {showInstallAction ? (
-                  <Button type="button" size="sm" onClick={onInstallUpdate}>
+                  <Button type="button" size="sm" onClick={() => setUpdateDialogOpen(true)}>
                     立即更新
                   </Button>
                 ) : (
@@ -502,6 +506,21 @@ export function SettingsDialog({
         </main>
       </div>
 
+      {updateDialogOpen && update && (
+        <UpdateDialog
+          productName={update.productName}
+          currentVersion={update.currentVersion}
+          targetVersion={update.availableVersion ?? ''}
+          changelog={update.changelog}
+          action={update.buttonAction}
+          onConfirm={() => {
+            setUpdateDialogOpen(false)
+            onPerformUpdate()
+          }}
+          onCancel={() => setUpdateDialogOpen(false)}
+        />
+      )}
+
       {/* 提示类信息不内联进界面：失败走「操作失败」错误框（Git 同款样式） */}
       {integrationError !== null && (
         <DialogMask onClick={() => setIntegrationError(null)}>
@@ -515,9 +534,9 @@ export function SettingsDialog({
                 {integrationError}
               </pre>
             </div>
-            <div className="flex justify-end gap-2 border-t px-4 py-2.5">
+            <DialogFooter>
               <Button onClick={() => setIntegrationError(null)}>知道了</Button>
-            </div>
+            </DialogFooter>
           </DialogPanel>
         </DialogMask>
       )}

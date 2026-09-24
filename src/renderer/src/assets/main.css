@@ -347,26 +347,109 @@
   .tab-bar-scroll::-webkit-scrollbar {
     display: none;
   }
-  .tab-bar-frame::before,
-  .tab-bar-frame::after {
+
+  /* 滚动渐隐遮罩（通用）：外框 .scroll-fade-x / .scroll-fade-y 包住滚动区 .scroll-fade-scroller，两端各一条
+     渐变盖在内容上。透明度用滚动驱动动画随滚动位置走：离两端 --scroll-fade-size 内渐隐；内容不需滚动时时间线
+     不生效、两端都不显示；首帧即就位，不经 JS。外框另需 position: relative。可调：
+     --scroll-fade-color 遮罩底色（取所在面板底色，默认 --bg-panel）· --scroll-fade-size 渐变长度（默认 16px）·
+     --scroll-fade-gutter 滚动条一侧让出的宽度（常驻滚动条填其宽度，默认 0）。
+     z-index 20 以盖过内容里的 z-10（如拖拽中的 Tab）。 */
+  .scroll-fade-x,
+  .scroll-fade-y {
+    timeline-scope: --scroll-fade;
+  }
+  .scroll-fade-x {
+    --scroll-fade-axis: inline;
+  }
+  .scroll-fade-y {
+    --scroll-fade-axis: block;
+  }
+  .scroll-fade-scroller {
+    scroll-timeline: --scroll-fade var(--scroll-fade-axis, block);
+  }
+  .scroll-fade-x::before,
+  .scroll-fade-x::after,
+  .scroll-fade-y::before,
+  .scroll-fade-y::after {
     position: absolute;
     z-index: 20;
-    top: 0;
-    bottom: 1px;
-    width: 16px;
     pointer-events: none;
     content: '';
-    @apply transition-opacity;
+    opacity: 0;
+    animation-duration: auto;
+    animation-timing-function: linear;
+    animation-fill-mode: both;
+    animation-timeline: --scroll-fade;
   }
-  .tab-bar-frame::before {
+  .scroll-fade-x::before,
+  .scroll-fade-y::before {
+    animation-name: scroll-fade-in;
+    animation-range: 0 var(--scroll-fade-size, 16px);
+  }
+  .scroll-fade-x::after,
+  .scroll-fade-y::after {
+    animation-name: scroll-fade-out;
+    animation-range: calc(100% - var(--scroll-fade-size, 16px)) 100%;
+  }
+  .scroll-fade-x::before,
+  .scroll-fade-x::after {
+    top: 0;
+    bottom: var(--scroll-fade-gutter, 0);
+    width: var(--scroll-fade-size, 16px);
+  }
+  .scroll-fade-x::before {
     left: 0;
-    background: linear-gradient(to right, var(--bg-panel), rgb(from var(--bg-panel) r g b / 0));
-    opacity: var(--tab-fade-left-opacity, 0);
+    background: linear-gradient(
+      to right,
+      var(--scroll-fade-color, var(--bg-panel)),
+      rgb(from var(--scroll-fade-color, var(--bg-panel)) r g b / 0)
+    );
   }
-  .tab-bar-frame::after {
+  .scroll-fade-x::after {
     right: 0;
-    background: linear-gradient(to left, var(--bg-panel), rgb(from var(--bg-panel) r g b / 0));
-    opacity: var(--tab-fade-right-opacity, 0);
+    background: linear-gradient(
+      to left,
+      var(--scroll-fade-color, var(--bg-panel)),
+      rgb(from var(--scroll-fade-color, var(--bg-panel)) r g b / 0)
+    );
+  }
+  .scroll-fade-y::before,
+  .scroll-fade-y::after {
+    left: 0;
+    right: var(--scroll-fade-gutter, 0);
+    height: var(--scroll-fade-size, 16px);
+  }
+  .scroll-fade-y::before {
+    top: 0;
+    background: linear-gradient(
+      to bottom,
+      var(--scroll-fade-color, var(--bg-panel)),
+      rgb(from var(--scroll-fade-color, var(--bg-panel)) r g b / 0)
+    );
+  }
+  .scroll-fade-y::after {
+    bottom: 0;
+    background: linear-gradient(
+      to top,
+      var(--scroll-fade-color, var(--bg-panel)),
+      rgb(from var(--scroll-fade-color, var(--bg-panel)) r g b / 0)
+    );
+  }
+  @keyframes scroll-fade-in {
+    from {
+      opacity: 0;
+    }
+    to {
+      opacity: 1;
+    }
+  }
+  @keyframes scroll-fade-out {
+    from {
+      opacity: 1;
+    }
+    to {
+      opacity: 0;
+    }
   }
 
   /* 左树拖拽中：其它元素不响应 :hover（dnd 仍靠指针坐标做碰撞，不依赖元素 pointer-events） */
