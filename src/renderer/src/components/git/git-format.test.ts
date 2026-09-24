@@ -1,11 +1,6 @@
 // git-format 纯函数测试：hash 缩写、相对时间阈值（graph-table §4.1）、完整日期时间格式。
 import { describe, expect, it } from 'vitest'
-import {
-  abbrevHash,
-  formatDateTime,
-  formatRelativeDuration,
-  formatRelativeTime
-} from './git-format'
+import { abbrevHash, formatDateTime, formatRelativeDuration } from './git-format'
 
 describe('abbrevHash', () => {
   it('完整 40 位 hash 缩写为前 8 位', () => {
@@ -55,13 +50,6 @@ describe('formatRelativeDuration', () => {
   it('31557600 秒（365.25 天）起按年显示', () => {
     expect(formatRelativeDuration(31557600)).toBe('1 年前')
     expect(formatRelativeDuration(63115200)).toBe('2 年前')
-  })
-})
-
-describe('formatRelativeTime', () => {
-  it('给定过去的 Unix 秒返回相对当前时刻的中文文案', () => {
-    const fiveMinAgo = Math.floor(Date.now() / 1000) - 300
-    expect(formatRelativeTime(fiveMinAgo)).toBe('5 分钟前')
   })
 })
 

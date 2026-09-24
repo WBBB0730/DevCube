@@ -17,7 +17,7 @@ export function abbrevHash(hash: string): string {
   return hash.substring(0, 8)
 }
 
-// —— 纯核心（供测试）：相对时间按「秒差」计算，与当前时钟解耦 ——
+// —— 相对时间按「秒差」计算，与当前时钟解耦：「现在」由调用方的共享时钟给出 ——
 
 /**
  * 秒差 → 中文相对时间文案。阈值与参考实现一致（60/3600/86400/604800/2629800/31557600，
@@ -32,11 +32,6 @@ export function formatRelativeDuration(diffSec: number): string {
   if (diff < 2629800) return `${Math.round(diff / 604800)} 周前`
   if (diff < 31557600) return `${Math.round(diff / 2629800)} 个月前`
   return `${Math.round(diff / 31557600)} 年前`
-}
-
-/** Unix 秒 → 相对当前时刻的中文相对时间（「N 秒/分钟/小时/天/周/个月/年前」）。 */
-export function formatRelativeTime(unixSec: number): string {
-  return formatRelativeDuration(Date.now() / 1000 - unixSec)
 }
 
 /** Unix 秒 → 本地时区完整时间「2026年7月3日 09:05:07」（24 小时制、时分秒补零，悬浮 title 恒用完整精度）。 */

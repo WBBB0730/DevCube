@@ -4,7 +4,16 @@
 // 渲染后用实测行高回填 grid（graph-table §1.5，坑 1），避免字体/缩放误差让线与行错位。
 // 已知取舍（v1）：只做自动布局（无列宽拖拽与列显隐持久化）、refs 标签固定 Normal 对齐、
 // 消息列不做 emoji / issue 链接 / 行内 markdown（TextFormatter 后续补）、无 vertex refs tooltip。
-import { memo, useEffect, useId, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import {
+  memo,
+  useEffect,
+  useId,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore
+} from 'react'
 import { Archive, FolderGit2, GitBranch, Tag } from 'lucide-react'
 import {
   UNCOMMITTED,
@@ -24,7 +33,7 @@ import {
 } from '@renderer/lib/git-graph'
 import { gitState, useGit } from '@renderer/git-store'
 import { cn } from '@renderer/lib/utils'
-import { abbrevHash, formatDateTime, formatRelativeTime } from './git-format'
+import { abbrevHash, formatDateTime, formatRelativeDuration } from './git-format'
 import type { GitMenuTarget } from './git-view-types'
 
 /** 调色板 CSS 变量引用（下标即 --git-graph-colorN，共 12 色循环）。 */
@@ -46,6 +55,20 @@ const REF =
   'mr-[5px] inline-flex h-[18px] shrink-0 cursor-default items-center overflow-hidden rounded border border-[color:var(--border-input)] bg-panel text-[12px] leading-[18px]'
 const REF_ICON = 'flex h-full w-[18px] shrink-0 items-center justify-center'
 const REF_NAME = 'px-[5px]'
+
+// 相对时间的共享时钟（整秒）：所有日期格读同一个「现在」，每秒走一格。常驻不停——
+// React 先渲染后订阅，按订阅启停会让首帧拿到停摆时的旧时刻、下一帧才纠正（闪一下）。
+let clockNowSec = Math.floor(Date.now() / 1000)
+const clockListeners = new Set<() => void>()
+setInterval(() => {
+  clockNowSec = Math.floor(Date.now() / 1000)
+  clockListeners.forEach((notify) => notify())
+}, 1000)
+
+function subscribeClock(notify: () => void): () => void {
+  clockListeners.add(notify)
+  return () => clockListeners.delete(notify)
+}
 
 /** 合并型分支标签：本地分支名 + 并入的远程名徽标。 */
 interface BranchLabel {
@@ -646,7 +669,7 @@ const CommitRow = memo(function CommitRow({
         title={isUncommitted ? undefined : formatDateTime(commit.date)}
       >
         {/* 未提交行没有真实提交时间：显示 * 而非合成的「最后刷新时刻」相对时间 */}
-        {isUncommitted ? UNCOMMITTED : formatRelativeTime(commit.date)}
+        {isUncommitted ? UNCOMMITTED : <RelativeTime date={commit.date} />}
       </td>
       <td className={cn(TD, dimmed && 'opacity-50')} title={`${commit.author} <${commit.email}>`}>
         {commit.author}
@@ -657,6 +680,17 @@ const CommitRow = memo(function CommitRow({
     </tr>
   )
 })
+
+/**
+ * 日期列的相对时间：订阅共享时钟，快照即文案字符串 —— 每秒重算，但只有文案变了才重渲染，
+ * 且只重渲染本格、不牵动整行（行是 memo 的）。
+ */
+function RelativeTime({ date }: { date: number }): React.JSX.Element {
+  const label = useSyncExternalStore(subscribeClock, () =>
+    formatRelativeDuration(clockNowSec - date)
+  )
+  return <>{label}</>
+}
 
 /** tag / stash 标签（无双击行为，单击关菜单、右键出对应菜单）。 */
 function RefLabel({
