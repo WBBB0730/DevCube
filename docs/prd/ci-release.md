@@ -56,6 +56,7 @@ DevCube 目前只能在本机手动打包，没有可重复的 Win / Mac 发布�
 - **Windows 签名**：本轮不配置；确保未提供证书时构建仍成功（勿传入空证书路径导致误解析）。
 - **自动更新**：应用内更新见 `docs/prd/in-app-update.md`；本流水线须把 `latest.yml` / `latest-mac.yml` 与安装包一并挂到 GitHub Release（`publish.provider = github`，构建仍 `--publish never`，由收尾 `gh release` 上传）。
 - **质量门禁与缓存**：`push` 到 `main` 与每周定时时，Win + Mac 矩阵执行 lint、test、typecheck 与应用构建，并把 pnpm store（`pnpm store path`）与 Electron 下载目录（Electron 官方文档所列的默认缓存目录，electron 包的 postinstall 与 electron-builder 下载到同一路径）存到 `main` 名下——GitHub 缓存按 ref 隔离，tag 上的运行只能读到默认分支的缓存，所以生产方只能是 `main`。缓存键含 lockfile 哈希并带前缀回退，lockfile 变了也能复用未变部分（setup-node 自带的 pnpm 缓存只认精确键，故不用）。每周定时是为了顶住「7 天未被访问即清除」，发版间隔常超过一周。不运行 electron-builder、不上传 Release。tag workflow 在同一提交执行相同门禁，与打包 job 并行——打包不用门禁的任何输出，由发布 job 要求两者都通过才发布，门禁不必挡在最长的 Mac 打包前面（代价：门禁失败或 tag 不在 main 上时，打包与公证照跑一遍但不发布）；打包 job 对这两份缓存只读恢复、不写入（写在 tag 名下别的 tag 看不到，只占配额）；electron-builder 自身的工具缓存不做（只有打包会产出，跨 tag 无法复用）。
+- **安装包依赖**：`dependencies` 只放主进程与预加载在运行时引用的包，界面层专用的依赖放 `devDependencies`；electron-builder 只打前者及其依赖闭包，界面层的库已由 electron-vite 编进产物（ADR-0036）。
 - **图标**：改造 gen-icon——去掉全部 CLI 参数；一次运行写出正式 / beta 目标路径，并额外写出裁掉透明安全边距的 Windows 图标（`icon-win.png`）。共用 WebStorm 底 + 黑块 + `DEV` + 横线；仅 beta 再叠斜向 beta 标（几何/颜色允许后续改脚本微调）。生成物提交入库；动态配置按身份指向对应图标，`win.icon` 用裁切版。
 - **深模块（可单测）**：抽出「version → 发行身份」纯函数：输入版本字符串，输出正式/beta 判别及身份字段集合（appId、productName、userDataDirectory、executableName、是否 Pre-release、图标侧标识等）。动态配置、Windows 运行时身份、数据路径与 CI 元数据脚本都消费同一语义，避免多处复制字符串规则。
 - **Actions 安全**：第三方与官方 Actions 均固定到审核过的完整 commit SHA。workflow 默认 `contents: read`，只有最终发布 job 获取 `contents: write`。
@@ -104,4 +105,6 @@ DevCube 目前只能在本机手动打包，没有可重复的 Win / Mac 发布�
 - 缓存的生产方只有 `main` 的 CI，而失败或被取消的 job 不保存缓存：Windows 门禁一挂，Windows 侧缓存就停更；bumpp 一次推 beta 与正式两个 tag，两次 `main` push 的前一个 CI 会被 `cancel-in-progress` 取消，同样不写。lockfile 没变时精确键照样命中、问题不显形，一旦 lockfile 变就只能前缀回退到旧缓存。
 - 每周定时保活截至 2026-09-22 一次都没触发过（仓库运行记录里 `schedule` 事件为 0，加 cron 后的第一个时间点 2026-09-21 03:00 UTC 无记录）。发版时的只读恢复也会刷新缓存的最后访问时间，所以定时空跑只在「发版间隔超过一周」时才兜底，该场景尚未验证。
 - 缓存收益实测（v1.6.1 冷启动 vs v1.7.0 / v1.8.0 命中）：macOS 的 Install 从 1:21 降到 0:42，省的是 electron 包 postinstall 那次约 100MB 下载；打包阶段那行 `downloaded label=electron` 冷热都不到 1 秒，因为它复用的是同一 job 内 postinstall 刚下好的 zip——这份缓存的收益只有一份，全在 Install。Windows 的 Install 反而由 1:51 变成 2:33，与缓存无关（取包只用 6 秒、`downloaded 0`，慢的是 `electron-builder install-app-deps` 的重建）。
+- 发版提速实测（2026-09-24，临时分支按发版流程真签名、真公证，只演练不发布）：从触发到可发布由 v1.10.0 的 10:43 降到 6:05。门禁与打包并行省约 2 分钟；依赖挪栏（ADR-0036）让 macOS 安装包由约 176 MB 降到 124 MB，公证后的压缩由约 110 秒降到约 47 秒。签名加公证在苹果侧，历次 153–259 秒，是剩下时间里最大的一块，没有正规手段压缩。
+- DMG 的差分校验块（`.dmg.blockmap`）没人用：macOS 应用内更新只取 zip。electron-builder 可用 `dmg.writeUpdateInfo: false` 不生成它，但该选项在类型定义里标为 `@private`、不在公开文档，收益也不确定（它与 zip 压缩同时进行），故不采用。
 - 本仓库只维护 PRD，不另开 issue / 不跑 triage，除非另行要求。
