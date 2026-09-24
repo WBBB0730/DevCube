@@ -7,6 +7,7 @@ Files Tab 要内嵌看 PDF。Electron 自带 Chromium 的 PDFium 阅读器，`<i
 - **Chromium 自带阅读器（iframe）**：零胶水，但外观和交互是一块飞地，且全窗口开 plugins。
 - **react-pdf 等封装**：只包单页渲染，滚动、缩放、查找仍要自己写；官方 `PDFViewer` 已带。
 - **主进程 PDFium 渲染成图片再走看图组件**：丢文字选择与查找，且每次缩放都要重渲。
+- **EmbedPDF（PDFium 编译成 WebAssembly）**：引擎快约 3 倍，但体感差别不大；插件化、可调项多。读不到系统字体，未内嵌字形的中文会显示空白；v3 正在换代。满足任一条件再评估切换：v3 正式发布、需要 PDF.js 做不到的深度定制、接受自带一套中文回退字体。
 
 ## Consequences
 

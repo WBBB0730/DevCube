@@ -91,3 +91,4 @@ CSV / TSV 仍在编辑器里打开，工具栏多一个与 Markdown 相同的「
 
 - 选型的实测对比（react-xlsx / FortuneSheet + FortuneExcel / File Viewer 的表格模块）与各项取舍见 ADR-0034；补丁内容见仓库的 pnpm 补丁文件，升级库版本时须重做或随上游修复删除。
 - react-xlsx 与其解析核心都还年轻（0.x、主要一人维护），出问题可能只能靠补丁；这是在「效果最好」与「最稳」不是同一个库时做的选择。
+- 解析核心 sheets-wasm 的坑：`iterateRows` 类型声明里有、实际代码里没有；`getRowsBatch` 类型里没有，且首次调用固定十几秒；`fromCsvString` 会转类型、不认 TSV。
