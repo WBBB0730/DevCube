@@ -47,8 +47,9 @@ jobs:
       - name: Check
         run: pnpm check
 
+  # 与 verify 并行：打包不用它的任何输出，门禁由 release job 把关（两者都通过才发布），
+  # 不必挡在最长的 Mac 打包前面。代价是门禁失败或 tag 不在 main 上时，打包与公证照跑一遍但不会发布
   build:
-    needs: verify
     strategy:
       fail-fast: false
       matrix:
