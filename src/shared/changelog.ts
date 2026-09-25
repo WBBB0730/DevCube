@@ -26,7 +26,7 @@ export type ChangelogPreview = {
 const VERSION_HEADING = /^\[?(\d+\.\d+\.\d+)\]?(?:\s+-\s+(\d{4}-\d{2}-\d{2}))?$/
 
 /**
- * 按二级标题切段：标题是正式版号的才算版本段，其余（「未发布」、带 -beta 的标题等）忽略；
+ * 按二级标题切段：标题是正式版号的才算版本段，其余（非版本号、带 -beta 的标题等）忽略；
  * 正文取到下一个一 / 二级标题为止。同一版本写了多段只取第一段。
  */
 export function parseChangelog(markdown: string): ChangelogEntry[] {
