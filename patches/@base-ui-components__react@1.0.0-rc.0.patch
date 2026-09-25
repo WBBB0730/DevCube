@@ -1,0 +1,46 @@
+diff --git a/esm/floating-ui-react/hooks/useHoverFloatingInteraction.js b/esm/floating-ui-react/hooks/useHoverFloatingInteraction.js
+index ca1986c255891b6655dc38969bde8d5dc4577930..7151380e01860eb130afc9fc0b3dd9d02f615cb9 100644
+--- a/esm/floating-ui-react/hooks/useHoverFloatingInteraction.js
++++ b/esm/floating-ui-react/hooks/useHoverFloatingInteraction.js
+@@ -127,7 +127,8 @@ export function useHoverFloatingInteraction(context, parameters = {}) {
+     // did not move.
+     // https://github.com/floating-ui/floating-ui/discussions/1692
+     function onScrollMouseLeave(event) {
+-      if (isClickLikeOpenEvent()) {
++      // 只有悬停打开的弹层才随鼠标离开而关（对齐上游 @base-ui/react）：受控 / 键盘打开没有悬停打开事件，原先会被误当成悬停打开，移入再移出即关
++      if (!isHoverOpen() || isClickLikeOpenEvent()) {
+         return;
+       }
+       if (!dataRef.current.floatingContext) {
+@@ -152,7 +153,7 @@ export function useHoverFloatingInteraction(context, parameters = {}) {
+       cleanupMouseMoveHandler();
+     }
+     function onFloatingMouseLeave(event) {
+-      if (!isClickLikeOpenEvent()) {
++      if (isHoverOpen() && !isClickLikeOpenEvent()) {
+         closeWithDelay(event, false);
+       }
+     }
+diff --git a/floating-ui-react/hooks/useHoverFloatingInteraction.js b/floating-ui-react/hooks/useHoverFloatingInteraction.js
+index 7cc237be3b13dbf94d21331ed69817337b138c3c..45be9e0a3710d81d7976918123c5ca518be43e6d 100644
+--- a/floating-ui-react/hooks/useHoverFloatingInteraction.js
++++ b/floating-ui-react/hooks/useHoverFloatingInteraction.js
+@@ -135,7 +135,8 @@ function useHoverFloatingInteraction(context, parameters = {}) {
+     // did not move.
+     // https://github.com/floating-ui/floating-ui/discussions/1692
+     function onScrollMouseLeave(event) {
+-      if (isClickLikeOpenEvent()) {
++      // 只有悬停打开的弹层才随鼠标离开而关（对齐上游 @base-ui/react）：受控 / 键盘打开没有悬停打开事件，原先会被误当成悬停打开，移入再移出即关
++      if (!isHoverOpen() || isClickLikeOpenEvent()) {
+         return;
+       }
+       if (!dataRef.current.floatingContext) {
+@@ -160,7 +161,7 @@ function useHoverFloatingInteraction(context, parameters = {}) {
+       cleanupMouseMoveHandler();
+     }
+     function onFloatingMouseLeave(event) {
+-      if (!isClickLikeOpenEvent()) {
++      if (isHoverOpen() && !isClickLikeOpenEvent()) {
+         closeWithDelay(event, false);
+       }
+     }

@@ -20,6 +20,8 @@ interface FilesStore {
   pendingOpenByProject: Record<string, PendingFilesOpen | null>
   /** +1 驱动 FilesPane 聚焦文件树筛选框（⌥⌘F / Ctrl+Alt+F） */
   filterFocusNonceByProject: Record<string, number>
+  /** +1 驱动 FilesPane 弹出「最近打开文件」下拉（⌘E / Ctrl+E） */
+  recentMenuNonceByProject: Record<string, number>
   /** 打开项目内文件：聚焦 Files Tab，并排队打开路径（可带定位） */
   openInFiles: (projectPath: string, filePath: string, at?: FilesOpenPosition) => void
   consumePendingOpen: (projectPath: string) => PendingFilesOpen | null
@@ -27,11 +29,16 @@ interface FilesStore {
   focusFilesFilter: (projectPath: string) => void
   /** 只递增聚焦 nonce、不碰 Tab（Preview Window 用：根路径即键） */
   bumpFilesFilterFocus: (rootPath: string) => void
+  /** 切到 Files Tab 并弹出「最近打开文件」下拉 */
+  openRecentMenu: (projectPath: string) => void
+  /** 只递增下拉 nonce、不碰 Tab（Preview Window 用：根路径即键） */
+  bumpRecentMenu: (rootPath: string) => void
 }
 
 export const useFiles = create<FilesStore>((set, get) => ({
   pendingOpenByProject: {},
   filterFocusNonceByProject: {},
+  recentMenuNonceByProject: {},
   openInFiles: (projectPath, filePath, at) => {
     const logical = normalizePath(
       filePath.startsWith('/') || /^[a-zA-Z]:/.test(filePath)
@@ -61,6 +68,18 @@ export const useFiles = create<FilesStore>((set, get) => ({
       filterFocusNonceByProject: {
         ...s.filterFocusNonceByProject,
         [rootPath]: (s.filterFocusNonceByProject[rootPath] ?? 0) + 1
+      }
+    }))
+  },
+  openRecentMenu: (projectPath) => {
+    get().bumpRecentMenu(projectPath)
+    useApp.getState().activateTab(projectPath, filesTabKey(projectPath))
+  },
+  bumpRecentMenu: (rootPath) => {
+    set((s) => ({
+      recentMenuNonceByProject: {
+        ...s.recentMenuNonceByProject,
+        [rootPath]: (s.recentMenuNonceByProject[rootPath] ?? 0) + 1
       }
     }))
   }

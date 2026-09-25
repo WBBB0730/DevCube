@@ -21,7 +21,7 @@ import { GalleryHorizontal, GalleryVertical, Scan } from 'lucide-react'
 import { useApp } from '@renderer/store'
 import { editableTarget, overlayOpen } from '@renderer/lib/files-key-guards'
 import { cn } from '@renderer/lib/utils'
-import { shortcutTitle } from '@renderer/lib/shortcut-label'
+import { isPrimaryModifierEvent, shortcutTitle } from '@renderer/lib/shortcut-label'
 import type { FilesImagePyramid } from '@shared/files-image-tiles'
 import { SHORTCUT } from '@shared/shortcut-label'
 import {
@@ -506,7 +506,7 @@ export function FilesMediaPreview({
   useEffect(() => {
     if (!active) return
     const onKey = (e: KeyboardEvent): void => {
-      if (!(e.metaKey || e.ctrlKey) || e.altKey) return
+      if (!isPrimaryModifierEvent(e) || e.altKey) return
       // Cmd+= 与 Cmd+Shift+= 都算放大（后者就是键盘上的 Cmd++）；回基准视图则不许带 Shift
       const zoomIn = e.code === 'Equal' || e.code === 'NumpadAdd'
       const zoomOut = e.code === 'Minus' || e.code === 'NumpadSubtract'

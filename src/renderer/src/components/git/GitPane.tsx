@@ -7,6 +7,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 import { LoaderCircle } from 'lucide-react'
 import { gitState, useGit } from '@renderer/git-store'
 import { useApp } from '@renderer/store'
+import { isPrimaryModifierEvent } from '@renderer/lib/shortcut-label'
 import { GitToolbar } from './GitToolbar'
 import { GitOpStatusBar } from './GitOpStatusBar'
 import { GitCommitTable } from './GitCommitTable'
@@ -73,7 +74,7 @@ export function GitPane({
       if (editable) return
       const store = useGit.getState()
       const st = gitState(store, projectPath)
-      const mod = e.metaKey || e.ctrlKey
+      const mod = isPrimaryModifierEvent(e)
       if (e.key === 'Escape') {
         // 分层关闭：一次 Esc 只关最上层（diff → 详情 → 菜单 → 对话框 → 查找）
         if (st.diffView) store.closeDiff(projectPath)

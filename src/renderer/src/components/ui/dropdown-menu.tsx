@@ -11,13 +11,16 @@ function DropdownMenuContent({
   children,
   side = 'bottom',
   align = 'end',
-  sideOffset = 4
+  sideOffset = 4,
+  finalFocus
 }: {
   className?: string
   children?: React.ReactNode
   side?: 'top' | 'right' | 'bottom' | 'left'
   align?: 'start' | 'center' | 'end'
   sideOffset?: number
+  /** 关闭后焦点去向（缺省还给触发钮），见 Base UI `Menu.Popup` */
+  finalFocus?: Menu.Popup.Props['finalFocus']
 }): React.JSX.Element {
   return (
     <Menu.Portal>
@@ -25,6 +28,7 @@ function DropdownMenuContent({
       <Menu.Backdrop className="fixed inset-0 z-50" />
       <Menu.Positioner className="z-50" side={side} align={align} sideOffset={sideOffset}>
         <Menu.Popup
+          finalFocus={finalFocus}
           className={cn(
             'min-w-32 rounded-lg border border-[color:var(--border-input)] bg-elevated p-1.5 shadow-xl outline-none',
             className
@@ -46,12 +50,14 @@ const MENU_ITEM =
   'flex h-8 cursor-pointer select-none items-center gap-2 rounded px-2 text-[13px] text-foreground outline-none transition-colors data-[highlighted]:bg-[var(--bg-row-hover)] data-[disabled]:cursor-default data-[disabled]:opacity-50'
 
 function DropdownMenuItem({
+  ref,
   className,
   children,
   onClick,
   disabled,
   title
 }: {
+  ref?: React.Ref<HTMLDivElement>
   className?: string
   children?: React.ReactNode
   onClick?: () => void
@@ -60,6 +66,7 @@ function DropdownMenuItem({
 }): React.JSX.Element {
   return (
     <Menu.Item
+      ref={ref}
       className={cn(MENU_ITEM, className)}
       onClick={onClick}
       disabled={disabled}

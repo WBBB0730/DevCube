@@ -73,6 +73,9 @@ function handleAppShortcut(shortcut: AppShortcut): void {
     case 'contentSearch':
       if (proj) st.setContentSearchOpen(true)
       return
+    case 'recentFiles':
+      if (proj) useFiles.getState().openRecentMenu(proj)
+      return
     case 'prevProject':
       cycleProject(-1)
       return

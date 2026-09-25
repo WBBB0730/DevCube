@@ -145,6 +145,7 @@ export const SHORTCUT = {
   projectFilter: { mod: true, alt: true, key: 'P' } satisfies ShortcutChord,
   filesFilter: { mod: true, alt: true, key: 'F' } satisfies ShortcutChord,
   contentSearch: { mod: true, shift: true, key: 'F' } satisfies ShortcutChord,
+  recentFiles: { mod: true, key: 'E' } satisfies ShortcutChord,
   prevProject: { mod: true, alt: true, key: 'ArrowUp' } satisfies ShortcutChord,
   nextProject: { mod: true, alt: true, key: 'ArrowDown' } satisfies ShortcutChord,
   prevTab: { mod: true, alt: true, key: 'ArrowLeft' } satisfies ShortcutChord,

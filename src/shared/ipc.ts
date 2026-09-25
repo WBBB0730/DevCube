@@ -99,6 +99,8 @@ export const IPC = {
   gitDefaultBranch: 'git:default-branch',
   /** 主进程 before-input-event 命中后下发的应用快捷键 */
   appShortcut: 'app:shortcut',
+  /** 渲染端上报焦点进出终端（xterm），主进程据此把与 shell 冲突的快捷键让出去 */
+  terminalFocus: 'app:terminal-focus',
   /** preload 同步拉取首屏快照（须在 loadURL 前注册） */
   bootstrapSync: 'bootstrap:sync',
   /** 应用内更新 */

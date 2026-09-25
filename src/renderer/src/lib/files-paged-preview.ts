@@ -6,6 +6,7 @@ import { useEffect, useRef, useState, type RefObject } from 'react'
 import { useApp } from '@renderer/store'
 import { editableTarget, overlayOpen } from './files-key-guards'
 import { zoomFromWheel } from './files-media-zoom'
+import { isPrimaryModifierEvent } from './shortcut-label'
 
 /** 应用级弹层 / 内容搜索 / 对话框开着时，预览的全局快捷键一律让路 */
 function appBusy(): boolean {
@@ -60,7 +61,7 @@ export function usePagedPreviewKeys({
       /** 预览内或无焦点（焦点在 body），且不在输入框 */
       const focusedHere = (): boolean =>
         inside || (target === document.body && !editableTarget(target))
-      const mod = e.metaKey || e.ctrlKey
+      const mod = isPrimaryModifierEvent(e)
       if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'f') {
         if (!focusedHere() || appBusy()) return
         e.preventDefault()

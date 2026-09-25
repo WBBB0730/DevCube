@@ -42,7 +42,7 @@ import { configKey, filesTabKey, gitTabKey } from '@shared/runnable'
 import { SHORTCUT, tabAtShortcut } from '@shared/shortcut-label'
 import { useApp, resolveTabs, type RunTabInfo, type TerminalTab } from '@renderer/store'
 import { gitState, useGit } from '@renderer/git-store'
-import { shortcutLabel, shortcutTitle } from '@renderer/lib/shortcut-label'
+import { isPrimaryModifierEvent, shortcutLabel, shortcutTitle } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
 import { xtermThemes } from '@renderer/lib/xterm-theme'
 import { GitPane } from '@renderer/components/git/GitPane'
@@ -64,12 +64,39 @@ function Placeholder(): React.JSX.Element {
   )
 }
 
+// 焦点进出终端（任一 xterm，含运行会话）时上报主进程：Win / Linux 上据此把 Ctrl+E 让给 shell（ADR-0013）。
+// 终端 Tab 被切走隐藏时 Chromium 同样派发 focusout（relatedTarget 为 null），状态不会卡在「在终端」。
+function useReportTerminalFocus(): void {
+  useEffect(() => {
+    const inTerminal = (target: EventTarget | null): boolean =>
+      target instanceof Element && target.closest('.xterm') !== null
+    // 挂载时先同步一次：渲染端重载后主进程可能还留着上一页的值
+    let focused = inTerminal(document.activeElement)
+    window.api.setTerminalFocused(focused)
+    const report = (target: EventTarget | null): void => {
+      const next = inTerminal(target)
+      if (next === focused) return
+      focused = next
+      window.api.setTerminalFocused(next)
+    }
+    const onFocusIn = (e: FocusEvent): void => report(e.target)
+    const onFocusOut = (e: FocusEvent): void => report(e.relatedTarget)
+    document.addEventListener('focusin', onFocusIn)
+    document.addEventListener('focusout', onFocusOut)
+    return () => {
+      document.removeEventListener('focusin', onFocusIn)
+      document.removeEventListener('focusout', onFocusOut)
+    }
+  }, [])
+}
+
 export function Console(): React.JSX.Element {
   const currentProjectPath = useApp((s) => s.currentProjectPath)
   const tree = useApp((s) => s.tree)
   const sessions = useApp((s) => s.sessions)
   const terminals = useApp((s) => s.terminals)
   const activeTabByProject = useApp((s) => s.activeTabByProject)
+  useReportTerminalFocus()
 
   if (!currentProjectPath) {
     return (
@@ -700,7 +727,8 @@ function TerminalPane({
     term.loadAddon(new Unicode11Addon())
     term.unicode.activeVersion = '11'
     term.attachCustomKeyEventHandler((e) => {
-      if (e.type === 'keydown' && (e.metaKey || e.ctrlKey) && !e.altKey && e.key === 'f') {
+      // macOS 只认 ⌘F：⌃F 是 shell 的「光标右移」，须交给终端
+      if (e.type === 'keydown' && isPrimaryModifierEvent(e) && !e.altKey && e.key === 'f') {
         setSearchOpen(true)
         return false
       }

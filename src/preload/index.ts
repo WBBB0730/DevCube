@@ -42,6 +42,7 @@ const api: RunAPI = {
   stop: (key) => ipcRenderer.invoke(IPC.stop, key),
   writeStdin: (key, data) => ipcRenderer.send(IPC.stdin, key, data),
   resize: (key, cols, rows) => ipcRenderer.send(IPC.resize, key, cols, rows),
+  setTerminalFocused: (focused) => ipcRenderer.send(IPC.terminalFocus, focused),
   getSessionBuffer: (key) => ipcRenderer.invoke(IPC.sessionBuffer, key),
   clearSessionOutput: (key) => ipcRenderer.invoke(IPC.sessionClear, key),
   getSessions: () => ipcRenderer.invoke(IPC.sessions),

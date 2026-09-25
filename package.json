@@ -140,7 +140,8 @@
     ],
     "patchedDependencies": {
       "@aiden0z/pptx-renderer@1.3.0": "patches/@aiden0z__pptx-renderer@1.3.0.patch",
-      "@extend-ai/react-xlsx@0.16.5": "patches/@extend-ai__react-xlsx@0.16.5.patch"
+      "@extend-ai/react-xlsx@0.16.5": "patches/@extend-ai__react-xlsx@0.16.5.patch",
+      "@base-ui-components/react@1.0.0-rc.0": "patches/@base-ui-components__react@1.0.0-rc.0.patch"
     }
   }
 }

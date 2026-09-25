@@ -3,11 +3,11 @@
  * 不抢输入框与弹层，不要求焦点落在预览内。
  */
 
-/** 有居中弹层（设置 / 表单对话框等）正开着 */
+/** 有弹层正开着：居中对话框（设置 / 表单等），或下拉 / 右键菜单（方向键、回车归菜单自己导航） */
 export function overlayOpen(): boolean {
-  return [...document.querySelectorAll('.fixed.inset-0.z-50.flex.items-center')].some(
-    (el) => el.getClientRects().length > 0
-  )
+  return [
+    ...document.querySelectorAll('.fixed.inset-0.z-50.flex.items-center, [role="menu"]')
+  ].some((el) => el.getClientRects().length > 0)
 }
 
 /** 事件目标是可输入控件 */

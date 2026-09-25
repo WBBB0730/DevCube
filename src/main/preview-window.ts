@@ -54,20 +54,24 @@ function attachWatcher(entry: PreviewEntry): void {
 /** 预览窗口只响应 Cmd/Ctrl+W（关窗）与筛选框聚焦；项目 / Tab 类快捷键在此无意义，放行给页面。 */
 function wirePreviewShortcuts(win: BrowserWindow): void {
   win.webContents.on('before-input-event', (event, input) => {
-    const hit = matchAppShortcut({
-      type: input.type,
-      code: input.code,
-      key: input.key,
-      meta: input.meta,
-      control: input.control,
-      alt: input.alt,
-      shift: input.shift
-    })
+    const hit = matchAppShortcut(
+      {
+        type: input.type,
+        code: input.code,
+        key: input.key,
+        meta: input.meta,
+        control: input.control,
+        alt: input.alt,
+        shift: input.shift
+      },
+      // 预览窗口没有终端
+      { platform: process.platform, terminalFocused: false }
+    )
     if (!hit) return
     if (hit.id === 'closeTab') {
       event.preventDefault()
       win.close()
-    } else if (hit.id === 'focusFilesFilter') {
+    } else if (hit.id === 'focusFilesFilter' || hit.id === 'recentFiles') {
       event.preventDefault()
       win.webContents.send(IPC.appShortcut, hit)
     }

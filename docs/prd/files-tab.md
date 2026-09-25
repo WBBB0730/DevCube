@@ -75,6 +75,7 @@
 58. 作为开发者，我想打开 PDF 时在右侧内嵌预览（翻页、缩略图、缩放、选字、查找），以便看设计稿和文档不用跳出去（细节见 `files-pdf-preview.md`）。
 59. 作为开发者，我想打开 PPT 时在右侧内嵌预览，操作与 PDF 一致，以便看汇报和作品集不用跳出去（细节见 `files-pptx-preview.md`）。
 60. 作为开发者，我想打开 Excel 时在右侧看到只读表格、CSV / TSV 能切成表格预览，缩放与查找的操作与 PDF / PPT 一致，以便看数据不用跳出去（细节见 `files-xlsx-preview.md`）。
+61. 作为开发者，我想在焦点在别处时用 CmdOrCtrl+E 切到 Files Tab 并弹出「最近打开文件」下拉、打开时已选中上一个文件、用 ↑ / ↓ 选择并以回车或空格确认、选中后直接接着键入，以便不碰鼠标回到刚改过的文件（对齐 JetBrains Recent Files）；在 Windows / Linux 的终端里 Ctrl+E 仍是 shell 的「跳到行尾」。
 
 ## Implementation Decisions
 
@@ -82,6 +83,7 @@
 - **布局**：Files Tab 内左正文、右文件树；左栏 ProjectTree 不改。空态文案「在右侧选择文件」。标签：`FolderOpen` 图标 +「文件」，内边距对齐 Git Tab。工具栏：可点面包屑（点段 → 树展开并滚到对应行）+「最近打开文件」（最多 10 条，按项目持久化）/「在文件树中显示」/「在文件夹中显示」/「在其他应用中打开」。文件树顶栏：左侧常驻筛选框（占位与 title 同文案，样式对齐左栏项目筛选）+ 右侧「全部展开」/「全部折叠」/「隐藏文件树」。
 - **文件树**：文件行图标按扩展名归大类（共享纯函数 `filesTreeIconKind`，只看名字不读盘）——一律用 lucide 裸物件图标（Image / Presentation / Music / Film / Type / Code / Braces / Table2 / Terminal / Package2），PDF 为自绘「圆角方框 + Acrobat 风格卷纹」（lucide 无），未知二进制用 `File`；列出项目根下条目；**展示不读 `.gitignore`**。隐藏名对齐 WebStorm「Editor → File Types → Ignored Files and Folders」默认掩码（`.git`、`.DS_Store`、`*.pyc`、`*~` 等；完整表见共享过滤模块）。仅允许访问项目根之内的路径（防目录穿越）。目录懒加载或等价按需读取以控制大树成本；树行虚拟滚动——按展开态拍平成可见行数组、仅渲染视口内行（读取与渲染分别受控，过滤命中再多也不卡）；展开状态按项目持久化。
 - **树顶过滤**（ADR-0009 / ADR-0027）：查询非空时主进程从**文件名索引**构建过滤树（保留结构）——ripgrep `--files` 一次枚举全项目、按项目缓存扁平名单，按键只做内存匹配；索引随文件监听的变更推送作废。匹配 = 相对项目根路径大小写不敏感包含；目录自身命中则整支子树纳入（子孙路径天然包含目录名）；过滤态自动展开至命中；无匹配文案「无匹配文件」；名单只含文件，名字命中的空目录不出现。索引跳过：IDE 忽略名 + gitignore（非仓库则仅 IDE）。防抖输入、冷索引首查显示「正在扫描」提示（延迟出现防闪烁）、扫描完成前不显示「无匹配文件」、以最新查询为准作废旧结果。过滤文字不持久化（切 Tab / 换项目 / 重启清空）。焦点在树上时可打印字写入筛选框；Esc 清空并恢复过滤前展开，若有当前打开文件再展开到可见。过滤期间展开/折叠只改过滤视图，不写入持久化展开态；清空后才回到浏览展开态。全局 Alt+CmdOrCtrl+F：有当前项目时激活其 Files Tab、必要时展开文件树、聚焦筛选框并选中已有查询（与左栏项目筛选 Alt+CmdOrCtrl+P 对称；不占用 CmdOrCtrl+F）。title / placeholder 文案走共享 `formatShortcutLabel`（对齐 VS Code UILabel：修饰键 Ctrl→Shift→Alt→Meta；macOS 符号无分隔符，Win/Linux `+` 连接）。不做命中高亮、排除目录 UI、Cmd+P、全文搜。
+- **最近打开文件快捷键**：全局 CmdOrCtrl+E（主进程拦截，见 ADR-0013）。有当前项目时激活其 Files Tab，待面板首次恢复完成后打开工具栏「最近打开文件」下拉（受控开合，Files Tab 被切走即收起；打开时预选第一个不是当前文件的条目（回车即回到上一个文件；点按钮打开不预选，高亮由菜单自管），↑ / ↓ 选择、回车或空格确认、Esc 关闭；选中条目、或 Esc 关掉 ⌘E 打开的下拉后，焦点进正文而不回工具栏按钮（点按钮打开后 Esc 仍按常规还给按钮）——文本进编辑器，预览类正文的键盘本就是全局监听；菜单开着时正文的全局方向键（切媒体 / 翻页）让位，右键菜单同理）；Preview Window 同样可用。Windows / Linux 上焦点在终端（xterm）时 Ctrl+E 让给 shell。按钮 title 带快捷键。Base UI 1.0.0-rc.0 把非点击打开的菜单一律当悬停打开处理，受控打开后鼠标移入再移出即关：用 pnpm 补丁对齐上游 `@base-ui/react`——只有悬停打开的弹层才随鼠标离开关闭（全部 Base UI 菜单同此）；升级 Base UI 时补丁对不上安装即失败，须重做或在新版已修复时删除。
 - **编辑器内查找**（Cmd/Ctrl+F，焦点在编辑器时）：编辑器顶部整宽查找栏（占位压下正文，对齐 WebStorm）替换 CodeMirror 默认搜索面板；引擎复用 @codemirror/search 的 SearchQuery（官方给自定义查找 UI 的积木），高亮 / 计数 / 回绕导航由自持扩展提供（默认面板的高亮与其面板生命周期绑死，浮层形态无法复用）；大小写 / 全词 / 正则开关、计数封顶 999+、坏正则红字提示；不做替换；默认 searchKeymap 退役（跳行 / 选下一个等默认键随之移除）。
 - **语言高亮覆盖**（编辑器 / 内容搜索结果行 / 搜索预览三处共用同一映射）：官方 Lezer 包优先（js/ts、json、css/scss/sass/less、html、xml、markdown、yaml、python、go、rust、java、c/cpp、php、sql、vue），官方无包的走 `@codemirror/legacy-modes` 词法级高亮（C#、Kotlin、Swift、Dart、Obj-C、Ruby、Lua、Shell、TOML、Dockerfile、shader 等约 40 组长尾）；近似映射兜常见配置（.plist/.csproj→xml、Unity .meta/.unity/.prefab→yaml、.svelte/.ejs→html、.gitignore 族→properties、.gd→python 近似）。legacy-modes 无全量桶导出与官方扩展名映射表，映射表自维护；按需 import 逐文件 tree-shake。无覆盖仍为纯文本（zig / elixir / graphql / terraform 等官方与 legacy 均无语法）。
 - **正文右键菜单**（任何已打开的条目）：复制图片（仅看图 / SVG 预览态）/ 复制文件 / 在文件夹中显示 / 在其他应用中打开；树菜单的「复制信息」组同样加「复制文件 / 复制文件夹」。复制文件由主进程把文件本身放进系统剪贴板，各平台走官方通道——macOS `public.file-url`、Linux `text/uri-list`、Windows 的 CF_HDROP 是预定义格式 writeBuffer 注册不了，交给系统自带 PowerShell 5.1 的 `Set-Clipboard -LiteralPath`（pwsh 7 已去掉该参数，点名 powershell.exe）。复制在渲染层用 canvas 把图栅格化成 PNG 写系统剪贴板（主进程 nativeImage 只认 PNG / JPEG，渲染层能显示的都能复制；`dc-media` 带 CORS 头，anonymous 加载不污染 canvas）；超大位图复制其预览图。
@@ -108,6 +110,7 @@
 - **默认激活解析**：给定 Tab 列表 + 各会话是否 running → 期望激活键；关闭邻接用例与默认激活分离。
 - **持久化形状**：缺省字段、无效路径清空当前打开、展开集读写（与现有 store 补齐路径一致的风格）。不测过滤文字持久化（明确不持久）。
 - **外部变更纯函数**：目录列表是否等价（避免无变化重渲染）；打开文本相对磁盘读结果 → noop / reload / conflict / gone（表驱动）。
+- **应用快捷键匹配**（`matchAppShortcut` / `isPrimaryModifier`）：按平台与终端焦点表驱动——⌘E / Ctrl+E 命中、⌃ 不冒充 ⌘、Win / Super 不冒充 Ctrl、Windows / Linux 焦点在终端时 Ctrl+E 让位而 Ctrl+W / Ctrl+T 照常。
 - **监听路径分类**（`project-watch-classify`）：项目内路径 → files；IDE 忽略名段不进 files；嵌套仓库下项目外路径不进 files；不测 `@parcel/watcher` 真实订阅。
 
 不写 Monaco/e2e UI 测试。先例：`runnable` / `project-sort` / git 解析类 vitest「构造输入 → 断言输出」。

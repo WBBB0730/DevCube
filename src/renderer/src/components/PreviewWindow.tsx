@@ -41,11 +41,12 @@ export function PreviewWindow({ launch }: { launch: PreviewLaunch }): React.JSX.
     return off
   }, [])
 
-  // 主进程只转发 ⌥⌘F（筛选框聚焦）；Cmd/Ctrl+W 在主进程直接关窗
+  // 主进程只转发 ⌥⌘F（筛选框聚焦）与 ⌘E（最近打开文件）；Cmd/Ctrl+W 在主进程直接关窗
   useEffect(
     () =>
       window.api.onAppShortcut((s) => {
         if (s.id === 'focusFilesFilter') useFiles.getState().bumpFilesFilterFocus(root)
+        else if (s.id === 'recentFiles') useFiles.getState().bumpRecentMenu(root)
       }),
     [root]
   )

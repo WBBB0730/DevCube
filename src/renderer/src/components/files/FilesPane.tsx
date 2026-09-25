@@ -70,10 +70,10 @@ import { useApp } from '@renderer/store'
 import { FormDialogShell } from '@renderer/components/ui/form-dialog'
 import { FILE_STATUS_COLOR, workingTreeStatusByPath } from '@renderer/components/git/git-details'
 
-/** 内容搜索跳转请求（FilesPane → FilesTextEditor）：定位行与选中区间。 */
+/** 编辑器跳转请求（FilesPane → FilesTextEditor）：内容搜索带行与选中区间；不带行只聚焦（最近打开选取后）。 */
 interface EditorJumpRequest {
   path: string
-  line: number
+  line?: number
   col?: number
   endCol?: number
   nonce: number
@@ -170,6 +170,8 @@ export function FilesPane({
   /** 当前打开文本文件在 HEAD 的基线（gutter diff 条纹）；无基线为 null */
   const [headText, setHeadText] = useState<{ path: string; content: string } | null>(null)
   const [recentPaths, setRecentPaths] = useState<string[]>([])
+  /** 工具栏「最近打开文件」下拉开合（受控，供 ⌘E 打开） */
+  const [recentMenuOpen, setRecentMenuOpen] = useState(false)
 
   const loadedRef = useRef(loaded)
   const recentPathsRef = useRef(recentPaths)
@@ -199,7 +201,7 @@ export function FilesPane({
   const [entryDialog, setEntryDialog] = useState<FilesEntryDialogRequest | null>(null)
   /** gutter diff 弹窗（点击标记行号格子；文档一变即关，见 onChange / openFile）。 */
   const [hunkPopup, setHunkPopup] = useState<GitGutterHunkClickPayload | null>(null)
-  /** 内容搜索跳转：打开文件后选中命中区间并滚到行（nonce 支持同位置重跳）。 */
+  /** 编辑器跳转：内容搜索选中命中区间并滚到行、最近打开只聚焦（nonce 支持同位置重跳）。 */
   const [editorJump, setEditorJump] = useState<EditorJumpRequest | null>(null)
   const editorJumpNonce = useRef(0)
   const [ready, setReady] = useState(false)
@@ -222,6 +224,8 @@ export function FilesPane({
   const filterInputRef = useRef<HTMLInputElement>(null)
   const consumedFilterFocusNonce = useRef(0)
   const filterFocusNonce = useFiles((s) => s.filterFocusNonceByProject[rootPath] ?? 0)
+  const consumedRecentMenuNonce = useRef(0)
+  const recentMenuNonce = useFiles((s) => s.recentMenuNonceByProject[rootPath] ?? 0)
   const filterViewRef = useRef(filterView)
 
   useLayoutEffect(() => {
@@ -232,7 +236,7 @@ export function FilesPane({
     filterViewRef.current = filterView
   }, [loaded, recentPaths, expanded, childrenByDir, filterView])
 
-  // 隐藏时丢弃临时过滤与 gutter 弹窗；其它 Files 状态继续常驻。
+  // 隐藏时丢弃临时过滤、gutter 弹窗与最近打开下拉；其它 Files 状态继续常驻。
   const [filterVisible, setFilterVisible] = useState(visible)
   if (filterVisible !== visible) {
     setFilterVisible(visible)
@@ -241,6 +245,7 @@ export function FilesPane({
       setFilterScanning(false)
       setFilterView(null)
       setHunkPopup(null)
+      setRecentMenuOpen(false)
     }
   }
 
@@ -748,6 +753,8 @@ export function FilesPane({
       // 已是当前文件时 selectedPath 不变，须强制挂起滚动（同「在文件树中显示」）
       pendingScrollPath.current = logical
       setRevealTick((n) => n + 1)
+      // 焦点进正文：文本进编辑器直接可键入（非文本不渲染编辑器，请求自然落空）
+      setEditorJump({ path: logical, nonce: ++editorJumpNonce.current })
     },
     [expandToFile, openFile]
   )
@@ -894,6 +901,14 @@ export function FilesPane({
     input.focus()
     input.select()
   }, [filterFocusNonce, visible, treeVisible])
+
+  // ⌘E：切到本 Tab 后弹出「最近打开文件」下拉；等首次恢复完成再弹，免得先出空列表。
+  useEffect(() => {
+    if (!recentMenuNonce || recentMenuNonce === consumedRecentMenuNonce.current) return
+    if (!visible || !ready) return
+    consumedRecentMenuNonce.current = recentMenuNonce
+    setRecentMenuOpen(true)
+  }, [recentMenuNonce, visible, ready])
 
   // 离开 Files Tab / 失焦 → 保存
   useEffect(() => {
@@ -1166,6 +1181,8 @@ export function FilesPane({
               projectRoot={rootLogical}
               error={null}
               recentPaths={recentPaths}
+              recentMenuOpen={recentMenuOpen}
+              onRecentMenuOpenChange={setRecentMenuOpen}
               fileStatus={undefined}
               treeVisible={treeVisible}
               onShowTree={() => setTreeVisible(true)}
@@ -1186,6 +1203,8 @@ export function FilesPane({
             projectRoot={rootLogical}
             error={saveError}
             recentPaths={recentPaths}
+            recentMenuOpen={recentMenuOpen}
+            onRecentMenuOpenChange={setRecentMenuOpen}
             fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
             treeVisible={treeVisible}
             sourcePreview={sourcePreview}
@@ -1224,6 +1243,8 @@ export function FilesPane({
               projectRoot={rootLogical}
               error={null}
               recentPaths={recentPaths}
+              recentMenuOpen={recentMenuOpen}
+              onRecentMenuOpenChange={setRecentMenuOpen}
               fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
               treeVisible={treeVisible}
               onShowTree={() => setTreeVisible(true)}
@@ -1256,6 +1277,8 @@ export function FilesPane({
               projectRoot={rootLogical}
               error={null}
               recentPaths={recentPaths}
+              recentMenuOpen={recentMenuOpen}
+              onRecentMenuOpenChange={setRecentMenuOpen}
               fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
               treeVisible={treeVisible}
               onShowTree={() => setTreeVisible(true)}
@@ -1282,6 +1305,8 @@ export function FilesPane({
               projectRoot={rootLogical}
               error={null}
               recentPaths={recentPaths}
+              recentMenuOpen={recentMenuOpen}
+              onRecentMenuOpenChange={setRecentMenuOpen}
               fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
               treeVisible={treeVisible}
               onShowTree={() => setTreeVisible(true)}
@@ -1309,6 +1334,8 @@ export function FilesPane({
             toolbar={{
               projectRoot: rootLogical,
               recentPaths,
+              recentMenuOpen,
+              onRecentMenuOpenChange: setRecentMenuOpen,
               fileStatus: statusByRel.get(relPathUnderRoot(rootLogical, loaded.path)),
               treeVisible,
               onShowTree: () => setTreeVisible(true),
@@ -1325,6 +1352,8 @@ export function FilesPane({
               projectRoot={rootLogical}
               error={null}
               recentPaths={recentPaths}
+              recentMenuOpen={recentMenuOpen}
+              onRecentMenuOpenChange={setRecentMenuOpen}
               fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
               treeVisible={treeVisible}
               onShowTree={() => setTreeVisible(true)}
@@ -1347,6 +1376,8 @@ export function FilesPane({
               projectRoot={rootLogical}
               error={null}
               recentPaths={recentPaths}
+              recentMenuOpen={recentMenuOpen}
+              onRecentMenuOpenChange={setRecentMenuOpen}
               fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
               treeVisible={treeVisible}
               onShowTree={() => setTreeVisible(true)}
@@ -1612,6 +1643,8 @@ function FilesTextEditor({
   projectRoot,
   error,
   recentPaths,
+  recentMenuOpen,
+  onRecentMenuOpenChange,
   fileStatus,
   treeVisible,
   sourcePreview,
@@ -1636,6 +1669,8 @@ function FilesTextEditor({
   projectRoot: string
   error: string | null
   recentPaths: string[]
+  recentMenuOpen: boolean
+  onRecentMenuOpenChange: (open: boolean) => void
   fileStatus: GitFileStatus | undefined
   treeVisible: boolean
   /** Markdown / SVG / CSV 两态：true = 预览正文；其它文件忽略 */
@@ -1667,6 +1702,11 @@ function FilesTextEditor({
   const svgRef = useRef<MediaPreviewHandle>(null)
   const [svgFit, setSvgFit] = useState<MediaFitMode | null>(null)
   const [viewNonce, setViewNonce] = useState(0)
+  // 工具栏下拉关掉后焦点回编辑器；预览态编辑器未挂载（viewRef 可能是旧实例）则不动
+  const focusEditor = useCallback(() => {
+    const view = viewRef.current
+    if (view?.dom.isConnected) view.focus()
+  }, [])
 
   // 编辑器内查找栏（Cmd+F）：keymap 闭包直接引用 findOpen，开关时 extensions 走一次
   // reconfigure（不重建编辑器状态，成本可忽略），换取无 ref 的直白数据流
@@ -1684,19 +1724,22 @@ function FilesTextEditor({
     if (view && view.dom.isConnected) view.dispatch({ effects: setFindQuery.of(null) })
   }, [findOpen])
 
-  // 跳转须等 CodeMirror 挂载（key=path 换文件重建）；viewNonce 驱动重试
+  // 跳转须等 CodeMirror 挂载（key=path 换文件重建）；viewNonce 驱动重试。
+  // 预览态（Markdown / SVG / CSV）编辑器未挂载，viewRef 可能仍是上个文件的旧实例：留待切回编辑再应用。
   useEffect(() => {
     if (!jump || jump.path !== path) return
     const view = viewRef.current
-    if (!view) return
-    const doc = view.state.doc
-    const line = doc.line(Math.min(Math.max(jump.line, 1), doc.lines))
-    const anchor = Math.min(line.from + (jump.col ?? 0), line.to)
-    const head = Math.min(line.from + (jump.endCol ?? jump.col ?? 0), line.to)
-    view.dispatch({
-      selection: { anchor, head },
-      effects: EditorView.scrollIntoView(anchor, { y: 'center' })
-    })
+    if (!view || !view.dom.isConnected) return
+    if (jump.line !== undefined) {
+      const doc = view.state.doc
+      const line = doc.line(Math.min(Math.max(jump.line, 1), doc.lines))
+      const anchor = Math.min(line.from + (jump.col ?? 0), line.to)
+      const head = Math.min(line.from + (jump.endCol ?? jump.col ?? 0), line.to)
+      view.dispatch({
+        selection: { anchor, head },
+        effects: EditorView.scrollIntoView(anchor, { y: 'center' })
+      })
+    }
     view.focus()
     onJumpDone()
   }, [jump, path, viewNonce, onJumpDone])
@@ -1739,6 +1782,8 @@ function FilesTextEditor({
         projectRoot={projectRoot}
         error={error}
         recentPaths={recentPaths}
+        recentMenuOpen={recentMenuOpen}
+        onRecentMenuOpenChange={onRecentMenuOpenChange}
         fileStatus={fileStatus}
         treeVisible={treeVisible}
         sourcePreview={canPreview ? sourcePreview : null}
@@ -1752,6 +1797,7 @@ function FilesTextEditor({
         onToggleTree={onToggleTree}
         onRevealInTree={onRevealInTree}
         onOpenRecent={onOpenRecent}
+        onFocusContent={focusEditor}
       />
       {markdown && sourcePreview ? (
         <FilesMarkdownPreview path={path} content={content} projectRoot={projectRoot} />

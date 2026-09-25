@@ -259,6 +259,8 @@ export interface RunAPI extends GitAPI {
   stop(key: string): Promise<void>
   writeStdin(key: string, data: string): void
   resize(key: string, cols: number, rows: number): void
+  /** 焦点进出终端（xterm）时上报：主进程据此把与 shell 冲突的快捷键让出去（见 ADR-0013） */
+  setTerminalFocused(focused: boolean): void
   /** 拉取某会话的屏幕快照（切换选择/刷新时回填控制台；含累计流长度用于去重） */
   getSessionBuffer(key: string): Promise<SessionBufferSnapshot>
   /** 清空某会话的控制台输出（进程继续跑；换代 sid，bytes 归零） */

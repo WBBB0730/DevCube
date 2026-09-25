@@ -133,6 +133,7 @@ import { markQuitAllowed } from './app-shutdown'
 import { isPathUnderGrantedRoot } from './files-roots'
 import { openPreviewWindowForRoot, setPreviewWindowRoot } from './preview-window'
 import { copyFileToClipboard } from './clipboard-file'
+import { setTerminalFocused } from './app-shortcuts'
 
 let mainWindow: BrowserWindow | null = null
 /** 没有主窗口时（只开着预览窗口 / macOS 全关）由 index 提供建窗；工作台已预置当前项目 */
@@ -384,6 +385,8 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   // 用户关闭 Tab（Run Session / Terminal 通用）：温和停止 + 弃会话 + 通知渲染端移除 Tab。
   ipcMain.handle(IPC.sessionClose, (_e, key: string) => closeSession(key))
   ipcMain.handle(IPC.terminals, () => getTerminals())
+  // 焦点进出终端：应用快捷键据此让出与 shell 冲突的键（见 app-shortcuts / ADR-0013）。
+  ipcMain.on(IPC.terminalFocus, (e, focused: boolean) => setTerminalFocused(e.sender, focused))
 
   // —— 工作台 UI（ADR-0008） ——
   ipcMain.handle(IPC.workspaceUiGet, () => getWorkspaceUi())
