@@ -1468,25 +1468,23 @@ export function FilesPane({
               </button>
             </div>
           </div>
-          {host.kind === 'preview' && (
-            // 当前根文件夹行：告诉你树的根在哪（上翻下钻后不迷路），右键即空白区那份根菜单——
-            // 文件铺满时也永远点得到。固定在列表之上不随滚动走；它是全树的根，图标顶格（不占层级缩进位）。
-            <div
-              title={rootLogical}
-              className={cn(
-                'mx-1.5 mt-1 flex h-8 shrink-0 cursor-default items-center gap-1 rounded px-1.5 text-[13px] text-foreground transition-colors',
-                treeMenu !== null && treeMenu.path === rootLogical
-                  ? 'bg-[var(--bg-row-hover)]'
-                  : 'hover:bg-[var(--bg-row-hover)]'
-              )}
-              onContextMenu={(e) => openTreeMenu(rootLogical, true, e)}
-            >
-              <FolderOpen className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
-              <span className="min-w-0 flex-1 truncate font-medium">
-                {rootLogical.slice(rootLogical.lastIndexOf('/') + 1) || rootLogical}
-              </span>
-            </div>
-          )}
+          {/* 当前根文件夹行：告诉你树的根在哪（预览窗口上翻下钻后不迷路），右键即空白区那份根菜单——
+              文件铺满时也永远点得到。固定在列表之上不随滚动走；它是全树的根，图标顶格（不占层级缩进位）。 */}
+          <div
+            title={rootLogical}
+            className={cn(
+              'mx-1.5 mt-1 flex h-8 shrink-0 cursor-default items-center gap-1 rounded px-1.5 text-[13px] text-foreground transition-colors',
+              treeMenu !== null && treeMenu.path === rootLogical
+                ? 'bg-[var(--bg-row-hover)]'
+                : 'hover:bg-[var(--bg-row-hover)]'
+            )}
+            onContextMenu={(e) => openTreeMenu(rootLogical, true, e)}
+          >
+            <FolderOpen className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
+            <span className="min-w-0 flex-1 truncate font-medium">
+              {rootLogical.slice(rootLogical.lastIndexOf('/') + 1) || rootLogical}
+            </span>
+          </div>
           <div
             ref={treeScrollRef}
             tabIndex={0}
