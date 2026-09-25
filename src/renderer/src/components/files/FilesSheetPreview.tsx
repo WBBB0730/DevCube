@@ -33,7 +33,7 @@ import {
   XLSX_PREVIEW_MAX_BYTES,
   type SheetCellText
 } from '@renderer/lib/files-sheet'
-import { FilesPreviewError } from './FilesPagedControls'
+import { FilesPreviewError } from './FilesPreviewError'
 import { FindBar } from './FindBar'
 
 setWasmSource(buildFilesAssetUrl(FILES_ASSET_XLSX, FILES_XLSX_WASM))

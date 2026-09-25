@@ -13,3 +13,4 @@ Files Tab 看图曾用 canvas 自绘：整图 `createImageBitmap` 后每帧从�
 - 新增原生依赖 sharp（预编译 N-API，addon 与 libvips 动态库须 asarUnpack；输入要显式关掉 2.68 亿像素上限）与 OpenSeadragon（自带类型声明）。
 - `dc-media` 协议额外放行瓦片缓存目录（`t=键&f=相对路径`），并带 `Access-Control-Allow-Origin`——OpenSeadragon 的 WebGL 绘制器要把 `<img crossorigin>` 传进 WebGL。
 - 超大图首次打开约 0.3–0.5 秒出预览，金字塔秒级后台就绪；之后命中缓存即开。缓存目录随 userData 按 Stable / Beta / Dev 分线。
+- 普通档的 `<img>` 解不了时回退到超大位图那条主进程出图的路（预览图 + 金字塔）：Electron 39（Chromium 142）遇 Photoshop 写入超大 XMP 元数据块的 PNG（实测一张 1920×6061 的图带 40 MB 元数据）稳定报解码失败、且要数秒才报，sharp（libvips）照常能读，Chromium 148 也能解。回退过的图按 URL 在本会话记住，再看直接走主进程，不再白等一次失败。

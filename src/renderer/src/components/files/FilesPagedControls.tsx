@@ -1,9 +1,8 @@
-// Files Tab 分页文档预览（PDF / PPT）共用的界面件：工具栏的页码与四档、缩略图开关、打不开时的占位。
+// Files Tab 分页文档预览（PDF / PPT）共用的界面件：工具栏的页码与四档、缩略图开关（打不开时的占位见 FilesPreviewError）。
 // 键盘 / 抓手 / 滚轮缩放在 lib/files-paged-preview，缩略图侧栏在 FilesPageThumbnails。
 import { useState } from 'react'
 import { PanelLeft } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
-import { toSysPath } from '@renderer/lib/files-paths'
 import type { MediaFitMode } from '@renderer/lib/files-media-zoom'
 import { MediaFitButtons } from './FilesMediaPreview'
 import { TOOLBAR_BTN, TOOLBAR_SEPARATOR } from './FilesToolbar'
@@ -85,30 +84,5 @@ export function FilesThumbnailsToggle({
     >
       <PanelLeft className="size-4" />
     </button>
-  )
-}
-
-/** 打不开（加密、损坏、超出限额）：盖满正文区的占位 +「在其他应用中打开」 */
-export function FilesPreviewError({
-  title,
-  message,
-  path
-}: {
-  title: string
-  message: string
-  path: string
-}): React.JSX.Element {
-  return (
-    <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 bg-deepest px-6 text-sm text-muted-foreground">
-      <p>{title}</p>
-      <p className="text-xs">{message}</p>
-      <button
-        type="button"
-        className="rounded-lg px-3 py-1.5 text-[color:var(--fg-primary)] transition-colors hover:bg-[var(--bg-button-hover)]"
-        onClick={() => void window.api.openPath(toSysPath(path))}
-      >
-        在其他应用中打开
-      </button>
-    </div>
   )
 }

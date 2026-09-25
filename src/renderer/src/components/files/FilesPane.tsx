@@ -1163,10 +1163,10 @@ export function FilesPane({
           e.preventDefault()
           let imageSrc: (() => Promise<string>) | null = null
           if (cur.kind === 'image') {
-            // 超大位图复制其预览图（长边 4096，缓存命中即返），整图塞剪贴板不现实
-            imageSrc = cur.tiled
-              ? () => window.api.filesImagePreview(rootPath, cur.path).then((p) => p.url)
-              : () => Promise.resolve(cur.mediaUrl)
+            // 复制屏上正显示的那张：超大位图与浏览器解不了、改由主进程出图的都是预览图（长边 4096），
+            // 整图塞剪贴板不现实；加载中 / 打不开时不给复制
+            const shown = imageRef.current?.displayedSrc() ?? null
+            if (shown) imageSrc = () => Promise.resolve(shown)
           } else if (cur.kind === 'text' && isSvgPath(cur.path) && sourcePreview) {
             const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(cur.content)}`
             imageSrc = () => Promise.resolve(src)
@@ -1259,10 +1259,11 @@ export function FilesPane({
               ref={imageRef}
               onFitChange={setImageFit}
               src={loaded.mediaUrl}
-              alt={loaded.path}
+              path={loaded.path}
+              projectPath={rootPath}
               width={loaded.width}
               height={loaded.height}
-              tiled={loaded.tiled ? { projectPath: rootPath, path: loaded.path } : null}
+              tiled={loaded.tiled === true}
               prefetch={prefetch}
               active={visible}
               onPrev={goPrevImage}

@@ -46,7 +46,8 @@ import {
   usePreviewPan
 } from '@renderer/lib/files-paged-preview'
 import { MEDIA_SETTLE_MS } from './FilesMediaPreview'
-import { FilesPageControls, FilesPreviewError, FilesThumbnailsToggle } from './FilesPagedControls'
+import { FilesPageControls, FilesThumbnailsToggle } from './FilesPagedControls'
+import { FilesPreviewError } from './FilesPreviewError'
 import { FilesPageThumbnails } from './FilesPageThumbnails'
 import { FilesToolbar, type FilesToolbarProps } from './FilesToolbar'
 import { FindBar } from './FindBar'

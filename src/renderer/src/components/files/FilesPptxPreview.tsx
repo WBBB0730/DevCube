@@ -50,7 +50,8 @@ import {
   pptxWheelScale,
   type PptxSize
 } from '@renderer/lib/files-pptx'
-import { FilesPageControls, FilesPreviewError, FilesThumbnailsToggle } from './FilesPagedControls'
+import { FilesPageControls, FilesThumbnailsToggle } from './FilesPagedControls'
+import { FilesPreviewError } from './FilesPreviewError'
 import { FilesPageThumbnails } from './FilesPageThumbnails'
 import { FilesToolbar, type FilesToolbarProps } from './FilesToolbar'
 import { FindBar } from './FindBar'

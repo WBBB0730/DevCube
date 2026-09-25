@@ -2,7 +2,8 @@
 // 手势期间只改 transform（合成器，不重排、不重解码）；缩放停手后把倍率烙进 width/height，
 // Chromium 按新尺寸重新栅格化，任何倍率都清晰（PhotoSwipe / macOS 预览同法）。
 // 超大位图（tiled）先显示主进程出的预览图，金字塔就绪后在其上叠 OpenSeadragon 瓦片层（预览图留在底下垫着），同一相机驱动。
-// 换图先屏外解码再换 src、`<img>` 同步解码，切图与提交尺寸都不会画出空白帧。
+// 换图先屏外解码再换 src、`<img>` 同步解码，切图与提交尺寸都不会画出空白帧；新图 120ms 内没就绪就撤下旧图显示加载中，
+// 切走即取消过期的加载与解码。浏览器解不了的图改由主进程出图（同超大位图），仍失败显示可重试的占位。
 // SVG 走 data URL（CSP 已放行 data:），不当 inline XML，脚本不执行。
 // Cmd/Ctrl+滚轮按光标缩放（触控板捏合是 Chromium 合成的 ctrl+wheel）；滚轮或按住拖拽平移；
 // 方向键按树里可见顺序切上一张 / 下一张（跨目录）；工具栏四档（1:1 / 适应高度 / 适应宽度 / 适应窗口）、双击在两条轴间切、
@@ -17,7 +18,7 @@ import {
   useRef,
   useState
 } from 'react'
-import { GalleryHorizontal, GalleryVertical, Scan } from 'lucide-react'
+import { GalleryHorizontal, GalleryVertical, LoaderCircle, Scan } from 'lucide-react'
 import { useApp } from '@renderer/store'
 import { editableTarget, overlayOpen } from '@renderer/lib/files-key-guards'
 import { cn } from '@renderer/lib/utils'
@@ -40,17 +41,27 @@ import {
   type MediaFitMode
 } from '@renderer/lib/files-media-zoom'
 import { FilesMediaTiles, type MediaTilesHandle } from './FilesMediaTiles'
+import { FilesPreviewError } from './FilesPreviewError'
 import { TOOLBAR_BTN } from './FilesToolbar'
 
 /** 缩放停手多久后提交尺寸（重新栅格化）。短于 FlowVision 的 400ms。 */
 export const MEDIA_SETTLE_MS = 100
 /** SVG 无内在尺寸时 `<img>` 报 0，按 CSS 替换元素默认尺寸兜底。 */
 const FALLBACK_SIZE = { w: 300, h: 150 }
+/** 换图时新图超过这么久还没就绪，才撤下旧图显示加载中：预取命中与小图直接换上、不闪（同项目内延迟出现防闪烁的取值） */
+const MEDIA_LOADING_DELAY_MS = 120
 
-/** 超大位图：预览图与金字塔要经主进程按项目内路径生成。 */
-export type MediaTiledSource = { projectPath: string; path: string }
+/**
+ * 浏览器解不了、已改由主进程出图的图（按 `<img>` URL 记，本会话有效），再看直接走主进程，
+ * 不再白等一次失败——如 Chromium 142 遇 Photoshop 写入超大 XMP 元数据块的 PNG，要数秒才报解码失败。
+ */
+const nativeUndecodable = new Set<string>()
 
-export type MediaPreviewHandle = { fit: (mode: MediaFitMode) => void }
+export type MediaPreviewHandle = {
+  fit: (mode: MediaFitMode) => void
+  /** 正显示的这张图的 URL（浏览器已解好，「复制图片」用）；加载中、打不开或屏上还是上一张时为 null */
+  displayedSrc: () => string | null
+}
 
 /**
  * 「1:1」图标：lucide 没有这个字形（`Ratio` / `SquareSlash` 都不是这个意思），按其规范自画——
@@ -137,7 +148,8 @@ export function MediaFitButtons({
 }
 
 /** key：超大位图用路径、其余用 src，用来匹配已就绪的金字塔。 */
-type Shown = { key: string; src: string; w: number; h: number }
+/** `from` = 解析出它的那个 `src` 入参；`src` = 实际上屏的 URL（超大位图与回退时是主进程出的预览图） */
+type Shown = { key: string; from: string; src: string; w: number; h: number }
 
 const NO_PREFETCH: readonly string[] = []
 
@@ -147,25 +159,28 @@ function wheelPx(delta: number, deltaMode: number): number {
   return delta
 }
 
-/** 先在屏外解码；返回的 Image 要被持有到 `<img>` 接手之后，否则解码结果可能被回收、上屏时先空白一帧。 */
-async function decodeImage(src: string): Promise<HTMLImageElement> {
-  const im = new Image()
+/**
+ * 在屏外把图加载并解码进传入的 Image：调用方持有它到 `<img>` 接手之后（否则解码结果可能被回收、上屏时先空白一帧），
+ * 切走时置空其 src 即取消。decode 被拒但已加载出像素仍算成功（交给 `<img>` 同步解码），加载不出来才算失败。
+ */
+async function loadImage(im: HTMLImageElement, src: string): Promise<boolean> {
   im.decoding = 'async'
   im.src = src
   try {
     await im.decode()
+    return true
   } catch {
-    /* 解码失败也换上去，让 <img> 自己呈现失败态 */
+    return im.complete && im.naturalWidth > 0
   }
-  return im
 }
 
 export function FilesMediaPreview({
   src,
-  alt,
+  path,
+  projectPath = null,
   width,
   height,
-  tiled = null,
+  tiled = false,
   prefetch = NO_PREFETCH,
   active = true,
   onPrev,
@@ -174,10 +189,14 @@ export function FilesMediaPreview({
   ref
 }: {
   src: string
-  alt: string
+  /** 图的逻辑路径（`<img>` alt、打不开时「在其他应用中打开」） */
+  path: string
+  /** 所在授权根：有它才能经主进程出图（超大位图 / 浏览器解不了时）；SVG 预览（编辑缓冲）不给 */
+  projectPath?: string | null
   width?: number
   height?: number
-  tiled?: MediaTiledSource | null
+  /** 超大位图：一开始就走主进程的预览图 + 金字塔 */
+  tiled?: boolean
   /** 相邻图的 `<img>` URL，提前解码好，切图零等待 */
   prefetch?: readonly string[]
   /** Files Tab 可见且无挡操作的弹层时才响应方向键 */
@@ -189,8 +208,14 @@ export function FilesMediaPreview({
   /** 交工具栏「适应」钮组驱动 */
   ref?: React.Ref<MediaPreviewHandle>
 }): React.JSX.Element {
-  /** 当前显示的图：新图解码完成前旧图留在屏幕上 */
+  /** 当前显示的图：新图解码完成前旧图留在屏幕上（至多 MEDIA_LOADING_DELAY_MS，之后盖上加载中） */
   const [shown, setShown] = useState<Shown | null>(null)
+  /** 新图的加载状态：ready = 照常显示 shown；loading / failed 时盖上加载中 / 打不开的占位 */
+  const [status, setStatus] = useState<'ready' | 'loading' | 'failed'>('ready')
+  /** 浏览器解不了、改由主进程出图的那张（`<img>` URL） */
+  const [fallbackSrc, setFallbackSrc] = useState<string | null>(null)
+  /** 占位上「重试」：+1 重跑加载 */
+  const [attempt, setAttempt] = useState(0)
   /** 已就绪的金字塔按路径记：新图换上之前旧图的瓦片层不拆，两张超大图之间切换不会先退回预览图 */
   const [pyramids, setPyramids] = useState<Record<string, FilesImagePyramid>>({})
   const [panning, setPanning] = useState(false)
@@ -205,7 +230,7 @@ export function FilesMediaPreview({
   const dragCleanup = useRef<(() => void) | null>(null)
   /** 持有屏外解码用的 Image：当前图与相邻图的解码结果留在内存缓存里，换 src 不重解 */
   const shownImageRef = useRef<HTMLImageElement | null>(null)
-  const prefetchedRef = useRef<HTMLImageElement[]>([])
+  const prefetchedRef = useRef<Map<string, HTMLImageElement>>(new Map())
   /** 当前所处的档；非 null 时视口尺寸一变就按新尺寸重算 */
   const fitModeRef = useRef<MediaFitMode | null>(null)
   const onFitChangeRef = useRef(onFitChange)
@@ -213,8 +238,10 @@ export function FilesMediaPreview({
     onFitChangeRef.current = onFitChange
   })
 
-  const tiledPath = tiled?.path ?? null
-  const tiledProject = tiled?.projectPath ?? null
+  // 走主进程出图：超大位图，或浏览器解不了的这一张
+  const viaMain = projectPath !== null && (tiled || fallbackSrc === src)
+  const tiledPath = viaMain ? path : null
+  const tiledProject = viaMain ? projectPath : null
   const activePyramid = shown ? (pyramids[shown.key] ?? null) : null
 
   /** 相机 → DOM：move 只动 transform；settle 把倍率烙进尺寸让浏览器重新栅格化。 */
@@ -295,7 +322,12 @@ export function FilesMediaPreview({
     [setFitMode]
   )
 
-  useImperativeHandle(ref, () => ({ fit }), [fit])
+  const displayedSrc = useCallback(
+    (): string | null => (status === 'ready' && shown?.from === src ? shown.src : null),
+    [status, shown, src]
+  )
+
+  useImperativeHandle(ref, () => ({ fit, displayedSrc }), [fit, displayedSrc])
 
   useEffect(
     () => () => {
@@ -305,37 +337,62 @@ export function FilesMediaPreview({
     []
   )
 
-  // 解析要显示的图：超大位图先向主进程要预览图；解码完成再换上，旧图不闪
+  // 解析要显示的图：超大位图先向主进程要预览图；屏外解码完成再换上。120ms 内就绪直接换（不闪），超时盖上加载中。
+  // 浏览器解不了就改由主进程出图，仍不行显示占位。切走即置空过期 Image 的 src，中止请求与挂起的解码，不和新图争抢。
   useEffect(() => {
     let dead = false
+    const im = new Image()
+    const slow = window.setTimeout(() => setStatus('loading'), MEDIA_LOADING_DELAY_MS)
+    const fail = (): void => {
+      window.clearTimeout(slow)
+      setStatus('failed')
+    }
     void (async () => {
+      if (tiledProject === null && projectPath !== null && nativeUndecodable.has(src)) {
+        setFallbackSrc(src)
+        return
+      }
       let displaySrc = src
       let w = width ?? 0
       let h = height ?? 0
-      try {
-        if (tiledProject !== null && tiledPath !== null) {
+      if (tiledProject !== null && tiledPath !== null) {
+        try {
           const preview = await window.api.filesImagePreview(tiledProject, tiledPath)
           if (dead) return
           displaySrc = preview.url
           w = preview.width
           h = preview.height
+        } catch {
+          if (!dead) fail()
+          return
         }
-        const decoded = await decodeImage(displaySrc)
-        if (dead) return
-        if (!(w > 0 && h > 0)) {
-          w = decoded.naturalWidth > 0 ? decoded.naturalWidth : FALLBACK_SIZE.w
-          h = decoded.naturalHeight > 0 ? decoded.naturalHeight : FALLBACK_SIZE.h
-        }
-        shownImageRef.current = decoded
-        setShown({ key: tiledPath ?? src, src: displaySrc, w, h })
-      } catch {
-        /* 预览图失败：保持旧图 */
       }
+      const ok = await loadImage(im, displaySrc)
+      if (dead) return
+      if (!ok) {
+        if (tiledProject === null && projectPath !== null) {
+          nativeUndecodable.add(src)
+          setFallbackSrc(src)
+        } else {
+          fail()
+        }
+        return
+      }
+      window.clearTimeout(slow)
+      if (!(w > 0 && h > 0)) {
+        w = im.naturalWidth > 0 ? im.naturalWidth : FALLBACK_SIZE.w
+        h = im.naturalHeight > 0 ? im.naturalHeight : FALLBACK_SIZE.h
+      }
+      shownImageRef.current = im
+      setShown({ key: tiledPath ?? src, from: src, src: displaySrc, w, h })
+      setStatus('ready')
     })()
     return () => {
       dead = true
+      window.clearTimeout(slow)
+      if (shownImageRef.current !== im) im.src = ''
     }
-  }, [src, width, height, tiledProject, tiledPath])
+  }, [src, width, height, tiledProject, tiledPath, projectPath, attempt])
 
   // 金字塔：命中缓存即返，否则主进程后台生成（秒级）
   useEffect(() => {
@@ -442,16 +499,27 @@ export function FilesMediaPreview({
   }, [setFitMode])
 
   useEffect(() => {
-    const list = prefetch.map((url) => {
+    const prev = prefetchedRef.current
+    const next = new Map<string, HTMLImageElement>()
+    for (const url of prefetch) {
+      const kept = prev.get(url)
+      if (kept) {
+        next.set(url, kept)
+        continue
+      }
       const im = new Image()
       im.decoding = 'async'
       im.src = url
       void im.decode().catch(() => {})
-      return im
-    })
+      next.set(url, im)
+    }
+    // 不再相邻、还没加载完的预取就取消，免得和当前图争抢（刚切到的那张正被当前图共用，不动）
+    for (const [url, im] of prev) {
+      if (!next.has(url) && url !== src && !im.complete) im.src = ''
+    }
     // 持有引用，解码结果才留在内存缓存里
-    prefetchedRef.current = list
-  }, [prefetch])
+    prefetchedRef.current = next
+  }, [prefetch, src])
 
   useEffect(() => {
     if (!active || (!onPrev && !onNext)) return
@@ -587,7 +655,7 @@ export function FilesMediaPreview({
           <img
             ref={imgRef}
             src={shown.src}
-            alt={alt}
+            alt={path}
             draggable={false}
             decoding="sync"
             className="absolute top-0 left-0 max-w-none origin-top-left will-change-transform"
@@ -600,6 +668,24 @@ export function FilesMediaPreview({
         <div className="pointer-events-none absolute top-2 right-2 text-[12px] text-[color:var(--fg-info)]">
           {shown.w} × {shown.h}
         </div>
+      )}
+      {/* 盖住旧图与尺寸标注：错位的旧图比空着更让人困惑 */}
+      {status === 'loading' && (
+        <div className="absolute inset-0 flex items-center justify-center gap-1.5 bg-deepest text-sm text-muted-foreground">
+          <LoaderCircle className="size-3.5 animate-spin" />
+          正在加载…
+        </div>
+      )}
+      {status === 'failed' && (
+        <FilesPreviewError
+          title="无法预览此图片"
+          message="读取或解码失败"
+          path={path}
+          onRetry={() => {
+            setStatus('loading')
+            setAttempt((n) => n + 1)
+          }}
+        />
       )}
       {panning && <div className="fixed inset-0 z-50 cursor-grabbing" />}
     </div>
@@ -633,7 +719,7 @@ export function FilesSvgPreview({
     <FilesMediaPreview
       key={path}
       src={src}
-      alt={path}
+      path={path}
       prefetch={prefetch}
       active={active}
       onPrev={onPrev}
