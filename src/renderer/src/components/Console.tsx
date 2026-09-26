@@ -42,6 +42,7 @@ import { configKey, filesTabKey, gitTabKey } from '@shared/runnable'
 import { SHORTCUT, tabAtShortcut } from '@shared/shortcut-label'
 import { useApp, resolveTabs, type RunTabInfo, type TerminalTab } from '@renderer/store'
 import { gitState, useGit } from '@renderer/git-store'
+import { createKeyedSubscription } from '@renderer/lib/keyed-subscription'
 import { isPrimaryModifierEvent, shortcutLabel, shortcutTitle } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
 import { xtermThemes } from '@renderer/lib/xterm-theme'
@@ -53,6 +54,12 @@ import { abbrevHash } from '@renderer/components/git/git-format'
 // 给全局加载数封顶，超出的终端回退默认渲染，避免挤掉后台终端的上下文造成静默降级。
 const MAX_WEBGL = 12
 let webglCount = 0
+
+// 全部会话面板常驻，共用一个会话输出监听、按会话 key 分发（面板数没有上限）。
+const subscribeSessionOutput = createKeyedSubscription(
+  (cb: (e: SessionOutput) => void) => window.api.onSessionOutput(cb),
+  (e) => e.key
+)
 
 function Placeholder(): React.JSX.Element {
   return (
@@ -752,8 +759,8 @@ function TerminalPane({
     termRef.current = term
     fitRef.current = fit
 
-    const offOutput = window.api.onSessionOutput((e) => {
-      if (e.key !== keyRef.current) return
+    // paneKey 即本面板的 React key，实例内不变，挂载时订阅一次即可。
+    const offOutput = subscribeSessionOutput(keyRef.current, (e) => {
       if (!readyRef.current) {
         // 回填尚未完成：先入队，待快照写入后按代际过滤、按偏移去重补齐（避免丢字/重复）。
         pendingRef.current.push(e)

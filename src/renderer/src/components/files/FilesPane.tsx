@@ -23,6 +23,7 @@ import type { GitFileStatus } from '@shared/git'
 import { normalizePath, remapPathPrefix } from '@shared/files-path'
 import { mergeReloadedDirs, resolveOpenTextDiskSync } from '@shared/files-watch'
 import { SHORTCUT } from '@shared/shortcut-label'
+import { createKeyedSubscription } from '@renderer/lib/keyed-subscription'
 import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
 import {
@@ -78,6 +79,12 @@ interface EditorJumpRequest {
   endCol?: number
   nonce: number
 }
+
+// 每个项目的 Files 面板常驻，共用一个工作区变化监听、按项目路径分发（项目数没有上限）。
+const subscribeFilesChanged = createKeyedSubscription(
+  (cb: (projectPath: string) => void) => window.api.onFilesChanged(cb),
+  (projectPath) => projectPath
+)
 
 const IDLE_SAVE_MS = 2000
 const FILTER_DEBOUNCE_MS = 200
@@ -1041,10 +1048,7 @@ export function FilesPane({
 
   useEffect(() => {
     if (!ready) return
-    return window.api.onFilesChanged((p) => {
-      if (p !== rootPath) return
-      void refreshFromDisk()
-    })
+    return subscribeFilesChanged(rootPath, () => void refreshFromDisk())
   }, [ready, rootPath, refreshFromDisk])
 
   /** 树行 / 空白区右键 → 打开条目菜单。 */
