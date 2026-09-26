@@ -214,3 +214,18 @@ export function buildShellSession(
   }
   return { file: options.posixShell || '/bin/zsh', args: ['-l', '-i'] }
 }
+
+/** 缺省语言环境跟界面语言走（界面只有简体中文，见 ADR-0037），同 VS Code 终端的做法。 */
+const TERMINAL_DEFAULT_LANG = 'zh_CN.UTF-8'
+
+/**
+ * Terminal / Run Session 的 pty 环境：LANG 缺失或不是 UTF-8 时补 `zh_CN.UTF-8`，已是 UTF-8 则原样。
+ * 从 Finder / 程序坞启动的 GUI 应用环境里没有 LANG，shell 落到 C 语言环境：提示符里的中文路径乱码、
+ * `ls` 把中文文件名打成问号、less（git log 的分页器）把中文当二进制。
+ * 判定规则照 VS Code `terminal.integrated.detectLocale` 的缺省（auto）。
+ */
+export function withTerminalLocale(env: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
+  const lang = env.LANG
+  const utf8 = !!lang && (/\.UTF-8$/.test(lang) || /\.utf8$/.test(lang) || /\.euc.+/.test(lang))
+  return utf8 ? { ...env } : { ...env, LANG: TERMINAL_DEFAULT_LANG }
+}

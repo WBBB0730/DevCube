@@ -11,6 +11,7 @@ import {
   resolveDiscoveredCommand,
   resolveWindowsShell,
   runHeaderShellFor,
+  withTerminalLocale,
   wrapWithRunHeader
 } from './command'
 import type { ProjectFingerprints } from './discovery'
@@ -220,5 +221,32 @@ describe('buildShellSession', () => {
       file: 'cmd.exe',
       args: []
     })
+  })
+})
+
+describe('withTerminalLocale', () => {
+  it('没有 LANG（程序坞启动的 GUI 应用）→ 补 zh_CN.UTF-8', () => {
+    expect(withTerminalLocale({ PATH: '/usr/bin' })).toEqual({
+      PATH: '/usr/bin',
+      LANG: 'zh_CN.UTF-8'
+    })
+  })
+
+  it('LANG 不是 UTF-8 → 补 zh_CN.UTF-8', () => {
+    expect(withTerminalLocale({ LANG: 'C' }).LANG).toBe('zh_CN.UTF-8')
+    expect(withTerminalLocale({ LANG: 'en_US.ISO8859-1' }).LANG).toBe('zh_CN.UTF-8')
+    expect(withTerminalLocale({ LANG: '' }).LANG).toBe('zh_CN.UTF-8')
+  })
+
+  it('LANG 已是 UTF-8 → 原样保留', () => {
+    expect(withTerminalLocale({ LANG: 'en_US.UTF-8' }).LANG).toBe('en_US.UTF-8')
+    expect(withTerminalLocale({ LANG: 'de_DE.utf8' }).LANG).toBe('de_DE.utf8')
+    expect(withTerminalLocale({ LANG: 'ja_JP.eucJP' }).LANG).toBe('ja_JP.eucJP')
+  })
+
+  it('不改传入的环境对象', () => {
+    const env = { PATH: '/usr/bin' }
+    withTerminalLocale(env)
+    expect(env).toEqual({ PATH: '/usr/bin' })
   })
 })

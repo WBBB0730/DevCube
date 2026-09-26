@@ -21,6 +21,7 @@ import {
   resolveCwd,
   resolveDiscoveredCommand,
   runHeaderShellFor,
+  withTerminalLocale,
   wrapWithRunHeader
 } from './command'
 import { detectPackageManager, readFingerprints } from './discovery'
@@ -207,7 +208,8 @@ export function run(target: RunTarget): void {
     cols,
     rows,
     cwd: resolved.cwd,
-    env: { ...process.env, ...resolved.env } as Record<string, string>
+    // 配置里写的 env（含 LANG）优先于缺省语言环境
+    env: { ...withTerminalLocale(process.env), ...resolved.env } as Record<string, string>
   })
 
   const { screen, serializer } = createScreen(cols, rows)
@@ -275,7 +277,7 @@ export function openTerminal(projectPath: string, key?: string, cwd?: string): s
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
     cwd: terminalCwd(projectPath, cwd),
-    env: { ...process.env } as Record<string, string>
+    env: withTerminalLocale(process.env) as Record<string, string>
   })
 
   const { screen, serializer } = createScreen(DEFAULT_COLS, DEFAULT_ROWS)
