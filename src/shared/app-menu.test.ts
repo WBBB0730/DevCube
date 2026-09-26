@@ -82,6 +82,19 @@ describe('resolveAppMenuTemplate', () => {
     expect(rolesOf(win(true), '窗口')).toEqual(['minimize', 'zoom', 'close'])
   })
 
+  it('编辑菜单不含「替换」：编辑器与终端里不生效，开关的勾也不显示', () => {
+    const roles = rolesOf(mac(false), '编辑')
+    expect(roles).not.toContain('showSubstitutions')
+    expect(roles).not.toContain('toggleSmartQuotes')
+    expect(roles).not.toContain('toggleSmartDashes')
+    expect(roles).not.toContain('toggleTextReplacement')
+  })
+
+  it('窗口块本身带 window role：macOS 据此认作 Window 菜单，系统才往里加项', () => {
+    const windowTop = (mac(false) ?? []).find((i) => 'submenu' in i && i.label === '窗口')
+    expect(windowTop).toMatchObject({ role: 'window' })
+  })
+
   it('视图菜单不含整页缩放项：那三个键留给 Files 预览', () => {
     const roles = rolesOf(mac(true), '视图')
     expect(roles).toEqual(['reload', 'forceReload', 'toggleDevTools', 'togglefullscreen'])

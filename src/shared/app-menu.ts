@@ -30,7 +30,8 @@ export type AppMenuRole =
 export type AppMenuItem =
   | { role: AppMenuRole; label: string }
   | { type: 'separator' }
-  | { label: string; submenu: AppMenuItem[] }
+  /** 子菜单本身的 role 只用 `window`：macOS 据此把它登记为 Window 菜单，系统才往里加移到显示器、平铺与窗口列表。 */
+  | { role?: 'window'; label: string; submenu: AppMenuItem[] }
 
 export type AppMenuInstallInput = {
   isDev: boolean
@@ -61,7 +62,12 @@ function appMenu(appName: string): AppMenuItem {
   }
 }
 
-/** 编辑菜单。macOS 比 Win/Linux 多「粘贴并匹配样式」与「语音」，顺序也不同（对齐 Electron 的 editMenu）。 */
+/**
+ * 编辑菜单。macOS 比 Win/Linux 多「粘贴并匹配样式」与「语音」，顺序也不同（对齐 Electron 的 editMenu）。
+ * 刻意不放 Electron editMenu 里的「替换」（智能引号 / 智能破折号 / 文本替换）：编辑器与终端的输入区
+ * 自带 autocorrect="off"、spellcheck="false"，开关在那里不生效；能生效的只剩提交说明、文件名这类输入，
+ * 改成弯引号反而添乱；而 Electron 自管菜单状态（autoenablesItems = NO），开关的勾永远不显示。
+ */
 function editMenu(isMac: boolean): AppMenuItem {
   return {
     label: '编辑',
@@ -112,9 +118,13 @@ const VIEW_MENU: AppMenuItem = {
   ]
 }
 
-/** 窗口菜单。macOS 用「前置全部窗口」，Win/Linux 用「关闭」（对齐 Electron 的 windowMenu）。 */
+/**
+ * 窗口菜单。macOS 用「前置全部窗口」，Win/Linux 用「关闭」（对齐 Electron 的 windowMenu）。
+ * 整块 `windowMenu` 自带 `window` role，拆开自列时须在这一层补上，否则系统加的项全丢。
+ */
 function windowMenu(isMac: boolean): AppMenuItem {
   return {
+    role: 'window',
     label: '窗口',
     submenu: [
       { role: 'minimize', label: '最小化' },

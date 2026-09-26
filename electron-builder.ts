@@ -126,7 +126,10 @@ const config: Configuration = {
       { target: 'dmg', arch: ['arm64'] },
       { target: 'zip', arch: ['arm64'] }
     ],
+    // 只声明简体中文：系统自带的菜单项、对话框等随之固定中文，不跟系统语言（ADR-0037）
+    electronLanguages: ['zh_CN'],
     extendInfo: {
+      CFBundleDevelopmentRegion: 'zh_CN',
       NSCameraUsageDescription: "Application requests access to the device's camera.",
       NSMicrophoneUsageDescription: "Application requests access to the device's microphone.",
       NSDocumentsFolderUsageDescription:
