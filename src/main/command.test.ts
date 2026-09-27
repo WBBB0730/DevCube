@@ -2,11 +2,13 @@ import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import { SCRIPT_SOURCE } from '../shared/discover-source'
 import {
+  buildRemoteRunCommand,
   buildScriptCommand,
   buildShellInvocation,
   buildShellSession,
   cwdFromPickedDir,
   findGitBash,
+  findOnPath,
   resolveCwd,
   resolveDiscoveredCommand,
   resolveWindowsShell,
@@ -100,6 +102,48 @@ describe('findGitBash', () => {
   })
   it('找不到时返回 null', () => {
     expect(findGitBash({}, () => false)).toBeNull()
+  })
+})
+
+describe('buildRemoteRunCommand', () => {
+  it('无工作目录：头里显示 ~，直接执行命令', () => {
+    expect(buildRemoteRunCommand('tail -f app.log', undefined, undefined)).toBe(
+      "printf '\\033[90m%s $\\033[0m \\033[1m%s\\033[0m\\n' '~' 'tail -f app.log'; tail -f app.log"
+    )
+  })
+
+  it('工作目录与环境变量在命令前依次执行，任一步失败即停', () => {
+    expect(buildRemoteRunCommand('npm start', '/srv/app', { NODE_ENV: 'production' })).toBe(
+      "printf '\\033[90m%s $\\033[0m \\033[1m%s\\033[0m\\n' '/srv/app' 'npm start'; " +
+        "cd '/srv/app' && export NODE_ENV='production' && npm start"
+    )
+  })
+
+  it('~ 开头的目录保留波浪线展开，其余部分加引号；单引号转义', () => {
+    expect(buildRemoteRunCommand('ls', '~/my app', { MSG: "it's" })).toContain(
+      "cd ~/'my app' && export MSG='it'\\''s' && ls"
+    )
+    expect(buildRemoteRunCommand('ls', '~', undefined)).toContain('; cd ~ && ls')
+  })
+})
+
+describe('findOnPath', () => {
+  it('按 PATH 顺序取第一个命中', () => {
+    const brew = join('/opt/homebrew/bin', 'ssh')
+    const system = join('/usr/bin', 'ssh')
+    const present = new Set([brew, system])
+    expect(
+      findOnPath('ssh', { PATH: '/opt/homebrew/bin:/usr/bin' }, (p) => present.has(p), 'darwin')
+    ).toBe(brew)
+  })
+  it('Windows 补 .exe 且按分号切 PATH', () => {
+    const ssh = join('C:\\Windows\\System32\\OpenSSH', 'ssh.exe')
+    expect(
+      findOnPath('ssh', { Path: 'C:\\Windows\\System32\\OpenSSH;D:\\x' }, (p) => p === ssh, 'win32')
+    ).toBe(ssh)
+  })
+  it('找不到时返回 null', () => {
+    expect(findOnPath('ssh', { PATH: '/usr/bin' }, () => false, 'linux')).toBeNull()
   })
 })
 

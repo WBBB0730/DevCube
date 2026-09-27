@@ -215,3 +215,21 @@ function getSystemShellUnixLike(env: NodeJS.ProcessEnv): string {
   }
   return _TERMINAL_DEFAULT_SHELL_UNIX_LIKE
 }
+
+// —— 应用层包装（对应 VS Code src/vs/code/electron-main/app.ts 的 resolveShellEnvironment） ——
+
+let resolvedShellEnvPromise: Promise<NodeJS.ProcessEnv> | null = null
+
+/**
+ * 登录 shell 环境（模块级缓存）；解析失败（超时、shell 报错）记日志并退回空对象，
+ * 调用方照常以精简环境运行（VS Code app.ts 同款，只是此处无通知通道）。git、ssh 共用。
+ */
+export function resolveShellEnvironment(): Promise<NodeJS.ProcessEnv> {
+  if (!resolvedShellEnvPromise) {
+    resolvedShellEnvPromise = getResolvedShellEnv().catch((error: Error) => {
+      console.error(error.message)
+      return {}
+    })
+  }
+  return resolvedShellEnvPromise
+}

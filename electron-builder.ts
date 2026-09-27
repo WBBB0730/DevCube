@@ -52,8 +52,10 @@ const config: Configuration = {
   ],
   // @vscode/ripgrep-*：rg 平台二进制须在 asar 外才能 spawn（运行时映射见 files-index.ts）
   // sharp / @img/*：原生 addon 与 libvips 动态库须在 asar 外才能 dlopen（ADR-0029）
+  // out/main/askpass.js：ssh 以 Node 身份直接执行的 askpass 小助手（ADR-0038，映射见 askpass.ts）
   asarUnpack: [
     'resources/**',
+    'out/main/askpass.js',
     '**/{@parcel/watcher,@parcel/watcher-*}/**',
     '**/@vscode/ripgrep-*/**',
     '**/{sharp,@img}/**'

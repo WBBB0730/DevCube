@@ -3,6 +3,15 @@
 // 失败不 throw，一律以 GitActionResult 判别联合返回。不做 askpass 与 GPG 签名（signCommits/signTags 恒关）。
 
 import type { GitAction, GitActionResult, GitMergeOn } from '../shared/git'
+import {
+  execGit,
+  findGit,
+  getErrorMessage,
+  isVersionAtLeast,
+  repoKeyOf,
+  resolveGitDirs,
+  resolveRepoRoot
+} from './git-exec'
 
 /** 按 kind 收窄的动作类型别名，让各构造函数的入参精确到自己的变体。 */
 type ActionOf<K extends GitAction['kind']> = Extract<GitAction, { kind: K }>
@@ -503,16 +512,6 @@ export function toActionResult(errors: (string | null)[]): GitActionResult {
 
 // —— IO 编排 ——
 
-// git-exec 由并行同事实现（签名已在 foundation.md 冻结）。此处用惰性动态 import 而非
-// 静态 import：纯参数构造的单测不触发任何 IO，无需在测试期解析该模块；运行期首次调用
-// 后缓存，行为与静态 import 等价。集成后可无损改回静态 import。
-type GitExecModule = typeof import('./git-exec')
-let gitExecCache: GitExecModule | null = null
-async function gitExec(): Promise<GitExecModule> {
-  if (gitExecCache === null) gitExecCache = await import('./git-exec')
-  return gitExecCache
-}
-
 /** 动作结束后的余震窗口：动作自身引发的文件事件可能晚到，这段时间内仓库仍视为「忙」。 */
 const ACTION_AFTERSHOCK_MS = 1500
 
@@ -580,7 +579,6 @@ const NOT_A_REPO_ERROR = '该项目不是 Git 仓库，或未找到 git（请安
 
 /** 执行一条 git 命令并归为 ErrorInfo：null = 成功，string = 给用户看的错误消息。 */
 async function run(cwd: string, args: string[]): Promise<string | null> {
-  const { execGit, getErrorMessage } = await gitExec()
   const result = await execGit(cwd, args)
   return result.code === 0 ? null : getErrorMessage(result)
 }
@@ -598,7 +596,6 @@ async function runSequence(cwd: string, commands: string[][]): Promise<(string |
 
 /** 是否有已暂存差异（diff-index HEAD 的 stdout 非空）；命令失败按「无差异」处理。 */
 async function hasStagedChanges(cwd: string): Promise<boolean> {
-  const { execGit } = await gitExec()
   const result = await execGit(cwd, ['diff-index', 'HEAD'])
   return result.code === 0 && result.stdout.toString('utf8') !== ''
 }
@@ -615,7 +612,6 @@ async function commitSquashIfStagedChangesExist(
 
 /** fetch 是否可用 --atomic（git ≥ 2.31）；取不到版本按不可用处理（静默降级为普通 fetch）。 */
 async function supportsAtomicFetch(): Promise<boolean> {
-  const { findGit, isVersionAtLeast } = await gitExec()
   const git = await findGit()
   return git !== null && isVersionAtLeast(git.version, '2.31.0')
 }
@@ -629,7 +625,6 @@ async function checkGitVersion(
   required: string,
   feature: string
 ): Promise<string | null> {
-  const { execGit, isVersionAtLeast } = await gitExec()
   const result = await execGit(cwd, ['--version'])
   if (result.code !== 0) return null
   const version = parseGitVersion(result.stdout.toString('utf8'))
@@ -713,7 +708,6 @@ async function runFetch(cwd: string, action: ActionOf<'fetch'>): Promise<GitActi
   // 全量抓取且 atomic 时才需要枚举远程（--atomic 与 --all 互斥，见 buildFetchArgs）；枚举失败原样报错
   let remotes: string[] = []
   if (action.remote === null && atomic) {
-    const { execGit, getErrorMessage } = await gitExec()
     const result = await execGit(cwd, ['remote'])
     if (result.code !== 0) return { status: 'error', errors: [getErrorMessage(result)] }
     remotes = parseNameList(result.stdout.toString('utf8'))
@@ -734,7 +728,6 @@ async function runPushBranch(
     // tag --merged 是 git 2.7.0 才有的选项，先 gate 出中文提示（低版本原始报错是英文 unknown option）
     const gateError = await checkGitVersion(cwd, '2.7.0', 'tag --merged')
     if (gateError !== null) return { status: 'error', errors: [gateError] }
-    const { execGit, getErrorMessage } = await gitExec()
     const result = await execGit(cwd, buildMergedTagsArgs(action.localBranch))
     if (result.code !== 0) return { status: 'error', errors: [getErrorMessage(result)] }
     tagRefs = parseNameList(result.stdout.toString('utf8')).map((name) => `refs/tags/${name}`)
@@ -758,7 +751,6 @@ async function runPushTag(
     return { status: 'error', errors: [`未指定要推送标签 ${name} 的远程。`] }
   }
   if (!skipRemoteCheck) {
-    const { execGit } = await gitExec()
     const check = await execGit(cwd, buildPushTagCheckArgs(commitHash))
     if (check.code === 0) {
       const missing = findRemotesMissingCommit(check.stdout.toString('utf8'), remotes)
@@ -952,7 +944,6 @@ export async function runGitAction(
   projectPath: string,
   action: GitAction
 ): Promise<GitActionResult> {
-  const { resolveRepoRoot, resolveGitDirs, repoKeyOf } = await gitExec()
   // init 是唯一合法作用于非仓库的动作：不解析仓库根，cwd 与仓库键都用项目路径本身
   if (action.kind === 'init') {
     return runInRepoQueue(repoKeyOf(projectPath, null, null), () => runInit(projectPath, action))

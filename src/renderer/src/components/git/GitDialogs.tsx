@@ -37,6 +37,7 @@ import {
   DialogFooter,
   DialogMask as Mask,
   DialogPanel,
+  ErrorDialog,
   FieldRow,
   FormDialogShell,
   InfoIcon
@@ -1654,7 +1655,7 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
         const node = app.tree.find((n) => n.project.path === path)
         if (node === undefined) return null
         const running = node.configs.some((c) => app.sessions[configKey(c)]?.status === 'running')
-        const hasTerminal = app.terminals.some((t) => t.projectPath === path)
+        const hasTerminal = app.terminals.some((t) => t.ownerKey === path)
         return running || hasTerminal ? 'busy' : 'idle'
       },
       removeProject: (path) => void useApp.getState().removeProject(path)
@@ -1675,25 +1676,13 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
     ]
   )
 
-  // 1. 错误框（动作失败 / 复制失败）：正文等宽多行，「知道了」清除
+  // 1. 错误框（动作失败 / 复制失败）：多条错误空一行隔开，「确定」清除
   if (actionErrors !== null) {
     return (
-      <Mask onClick={env.clearActionErrors}>
-        <DialogPanel>
-          <div className="space-y-3 px-4 py-4">
-            <div className="flex items-center gap-1.5 text-[13px] font-semibold text-foreground">
-              <TriangleAlert className="size-4 shrink-0 text-[color:var(--status-failed)]" />
-              操作失败
-            </div>
-            <pre className="max-h-64 select-text overflow-auto whitespace-pre-wrap break-all rounded border border-[color:var(--border-input)] bg-[var(--bg-deepest)] p-2.5 font-mono text-[12px] leading-relaxed text-muted-foreground">
-              {actionErrors.filter((e) => e !== '').join('\n\n')}
-            </pre>
-          </div>
-          <DialogFooter>
-            <Button onClick={env.clearActionErrors}>知道了</Button>
-          </DialogFooter>
-        </DialogPanel>
-      </Mask>
+      <ErrorDialog
+        message={actionErrors.filter((e) => e !== '').join('\n\n')}
+        onClose={env.clearActionErrors}
+      />
     )
   }
 
@@ -2468,6 +2457,18 @@ function TagDetailsDialog({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
+  // 取不到详情：改用统一的错误框（Esc 仍由上面的监听关闭）
+  if (info !== null && info.details === null) {
+    return (
+      <ErrorDialog
+        title="无法获取标签详情"
+        message={info.error ?? '无法获取标签详情'}
+        onClose={onClose}
+      />
+    )
+  }
+  // 走到这里 details 为 null 只剩加载中
+  const details = info?.details ?? null
   return (
     <Mask onClick={onClose}>
       <DialogPanel>
@@ -2475,28 +2476,24 @@ function TagDetailsDialog({
           <div className="text-[13px] font-semibold text-foreground">
             标签 <Em>{name}</Em>
           </div>
-          {info === null ? (
+          {details === null ? (
             <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
               <LoaderCircle className="size-4 animate-spin" />
               正在获取标签详情 …
             </div>
-          ) : info.error !== null || info.details === null ? (
-            <pre className="select-text whitespace-pre-wrap break-all rounded border border-[color:var(--border-input)] bg-[var(--bg-deepest)] p-2.5 font-mono text-[12px] text-muted-foreground">
-              {info.error ?? '无法获取标签详情'}
-            </pre>
           ) : (
             <div className="space-y-1 text-[13px]">
               <TagDetailRow label="对象">
-                <span className="font-mono">{info.details.hash}</span>
+                <span className="font-mono">{details.hash}</span>
               </TagDetailRow>
               <TagDetailRow label="打标签者">
-                {info.details.taggerName} &lt;{info.details.taggerEmail}&gt;
-                {info.details.signed && '（已签名）'}
+                {details.taggerName} &lt;{details.taggerEmail}&gt;
+                {details.signed && '（已签名）'}
               </TagDetailRow>
-              <TagDetailRow label="日期">{formatDateTime(info.details.taggerDate)}</TagDetailRow>
-              {info.details.message !== '' && (
+              <TagDetailRow label="日期">{formatDateTime(details.taggerDate)}</TagDetailRow>
+              {details.message !== '' && (
                 <pre className="mt-2 select-text whitespace-pre-wrap break-all rounded border border-[color:var(--border-input)] bg-[var(--bg-deepest)] p-2.5 text-[12px] leading-relaxed text-foreground">
-                  {info.details.message}
+                  {details.message}
                 </pre>
               )}
             </div>

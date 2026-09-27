@@ -8,6 +8,7 @@ import { initStore } from './store'
 import { bindMainWindow, registerIpcHandlers } from './ipc'
 import { isAppQuitting, isQuitAllowed, markAppQuitting, markQuitAllowed } from './app-shutdown'
 import { killAllSessions } from './runner'
+import { disposeAskpass } from './askpass'
 import { closeAllProjectWatchers } from './project-watchers'
 import { resolveReleaseEdition } from '../shared/release-edition'
 import { confirmQuitIfNeeded } from './quit-confirm'
@@ -179,7 +180,7 @@ app.whenReady().then(async () => {
   const files = targets.filter((t) => t.kind === 'file')
   for (const { path } of dirs) {
     if (addProjectByPath(path) !== null) {
-      setWorkspaceUi({ ...getWorkspaceUi(), currentProjectPath: path, selectedKey: null })
+      setWorkspaceUi({ ...getWorkspaceUi(), currentEntryKey: path, selectedKey: null })
     }
   }
 
@@ -215,6 +216,7 @@ async function runQuitCleanup(): Promise<void> {
   markAppQuitting()
   disposeTray()
   killAllSessions()
+  disposeAskpass()
   await Promise.all([closeAllProjectWatchers(), closeAllPreviewWatchers()])
   // 给原生 watcher stop 一点时间收尾，再拆 Node Environment。
   await new Promise<void>((resolve) => setTimeout(resolve, 50))

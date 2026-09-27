@@ -12,13 +12,12 @@ import { FILES_OPEN_WITH_EXTS } from '@shared/files-kind'
 import type { AppPrefs, WindowsShell, WindowsShellOption } from '@shared/types'
 import { DEFAULT_APP_PREFS } from '@shared/types'
 import { THEME_MODES, type ThemeMode } from '@shared/theme'
-import { GIT_DEFAULTS } from '@shared/git'
-import { Check, Info, LoaderCircle, TriangleAlert } from 'lucide-react'
+import { Check, Info, LoaderCircle } from 'lucide-react'
 import { SettingsModal } from '@renderer/components/SettingsModal'
 import { UpdateDialog } from '@renderer/components/UpdateDialog'
 import { Button } from '@renderer/components/ui/button'
 import { Checkbox } from '@renderer/components/ui/checkbox'
-import { DialogFooter, DialogMask, DialogPanel } from '@renderer/components/ui/form-dialog'
+import { ErrorDialog } from '@renderer/components/ui/form-dialog'
 import {
   Select,
   SelectContent,
@@ -405,10 +404,6 @@ export function SettingsDialog({
                   />
                   自动获取远程更新
                 </label>
-                <div className="text-[12px] text-[color:var(--fg-muted)]">
-                  Git 标签页切到前台时，以及每 {GIT_DEFAULTS.autoFetchIntervalMs / 60_000}{' '}
-                  分钟，对当前项目执行一次刷新（fetch）
-                </div>
               </div>
 
               {isWin && (
@@ -523,22 +518,7 @@ export function SettingsDialog({
 
       {/* 提示类信息不内联进界面：失败走「操作失败」错误框（Git 同款样式） */}
       {integrationError !== null && (
-        <DialogMask onClick={() => setIntegrationError(null)}>
-          <DialogPanel>
-            <div className="space-y-3 px-4 py-4">
-              <div className="flex items-center gap-1.5 text-[13px] font-semibold text-foreground">
-                <TriangleAlert className="size-4 shrink-0 text-[color:var(--status-failed)]" />
-                操作失败
-              </div>
-              <pre className="max-h-64 select-text overflow-auto whitespace-pre-wrap break-all rounded border border-[color:var(--border-input)] bg-[var(--bg-deepest)] p-2.5 font-mono text-[12px] leading-relaxed text-muted-foreground">
-                {integrationError}
-              </pre>
-            </div>
-            <DialogFooter>
-              <Button onClick={() => setIntegrationError(null)}>知道了</Button>
-            </DialogFooter>
-          </DialogPanel>
-        </DialogMask>
+        <ErrorDialog message={integrationError} onClose={() => setIntegrationError(null)} />
       )}
     </SettingsModal>
   )

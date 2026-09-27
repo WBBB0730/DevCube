@@ -3,7 +3,7 @@
 // 无标题栏——13px 提示语即说明；Enter = 主按钮（防输入法合成回车）、Esc = 取消。
 // GitDialogs 与 Files 的弹窗（新建 / 重命名 / 删除 / 磁盘冲突）共用。
 import { useEffect } from 'react'
-import { Info } from 'lucide-react'
+import { CircleAlert, Info } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
 import { cn } from '@renderer/lib/utils'
 
@@ -53,6 +53,40 @@ export function DialogFooter({ children }: { children: React.ReactNode }): React
   return <div className="flex justify-end gap-2 px-4 pb-4">{children}</div>
 }
 
+/**
+ * 错误框（仿 WebStorm 的错误提示）：左侧 32px 红色错误图标；右侧加粗标题（默认「操作失败」）+
+ * 普通字体正文（可选中、保留换行、限高滚动）；右下只有「确定」，点遮罩同「确定」。
+ * Esc 由调用方按自己的弹层层级处理。
+ */
+export function ErrorDialog({
+  title = '操作失败',
+  message,
+  onClose
+}: {
+  title?: string
+  message: string
+  onClose: () => void
+}): React.JSX.Element {
+  return (
+    <DialogMask onClick={onClose}>
+      <DialogPanel>
+        <div className="flex items-start gap-3 px-4 py-4">
+          <CircleAlert className="size-8 shrink-0 text-[color:var(--status-failed)]" />
+          <div className="min-w-0 flex-1 space-y-1.5">
+            <div className="text-[13px] font-semibold text-foreground">{title}</div>
+            <div className="max-h-64 select-text overflow-auto whitespace-pre-wrap break-words text-[13px] leading-relaxed text-muted-foreground">
+              {message}
+            </div>
+          </div>
+        </div>
+        <DialogFooter>
+          <Button onClick={onClose}>确定</Button>
+        </DialogFooter>
+      </DialogPanel>
+    </DialogMask>
+  )
+}
+
 /** 字段旁的说明图标（hover 出 title）。 */
 export function InfoIcon({ text }: { text: string }): React.JSX.Element {
   return (
@@ -98,6 +132,7 @@ export interface FormDialogButton {
  * buttons[0] 为主按钮（Enter 触发）；取消钮文案与禁用可定制（忙碌中锁死弹窗）。
  * dismissible=false：遮罩点击与 Esc 都不收口（长任务进行中，只认明确点按钮），
  * 与 cancelDisabled 正交——取消钮仍可用。
+ * footerStart：底栏左侧的辅助动作（如「测试连接」），与右侧的取消 / 主按钮分开。
  */
 export function FormDialogShell({
   message,
@@ -107,6 +142,7 @@ export function FormDialogShell({
   cancelLabel = '取消',
   cancelDisabled = false,
   dismissible = true,
+  footerStart,
   className
 }: {
   message: React.ReactNode
@@ -116,6 +152,7 @@ export function FormDialogShell({
   cancelLabel?: string
   cancelDisabled?: boolean
   dismissible?: boolean
+  footerStart?: React.ReactNode
   /** 面板尺寸覆盖（默认 440px 宽） */
   className?: string
 }): React.JSX.Element {
@@ -147,6 +184,9 @@ export function FormDialogShell({
           {children}
         </div>
         <DialogFooter>
+          {footerStart !== undefined && (
+            <div className="mr-auto flex items-center gap-2">{footerStart}</div>
+          )}
           <Button variant="ghost" disabled={cancelDisabled} onClick={onCancel}>
             {cancelLabel}
           </Button>

@@ -4,6 +4,7 @@ import { SettingsModal } from '@renderer/components/SettingsModal'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
 import { useApp } from '@renderer/store'
+import { serverIdOfEntryKey } from '@shared/tree-entry'
 
 type EnvRow = [string, string]
 
@@ -16,6 +17,9 @@ export function ConfigDialog(): React.JSX.Element {
   const close = useApp((s) => s.closeDialog)
   const save = useApp((s) => s.saveCommandConfig)
   const config = dialog.config
+  const ownerKey = dialog.ownerKey
+  // 服务器上的命令型：经 ssh 在服务器上执行，工作目录是服务器上的目录（不能用本机的目录选择器）
+  const serverId = ownerKey === undefined ? null : serverIdOfEntryKey(ownerKey)
 
   const [name, setName] = useState(config?.name ?? '')
   const [command, setCommand] = useState(config?.command ?? '')
@@ -39,18 +43,20 @@ export function ConfigDialog(): React.JSX.Element {
   }
 
   const submit = (): void => {
-    if (!valid || !dialog.projectPath) return
+    if (!valid || ownerKey === undefined) return
     const env = Object.fromEntries(
       envRows.filter(([k]) => k.trim() !== '').map(([k, v]) => [k.trim(), v])
     )
+    const fields = {
+      name: name.trim(),
+      command: command.trim(),
+      cwd: cwd.trim() || undefined,
+      env: Object.keys(env).length ? env : undefined
+    }
     save(
-      {
-        projectPath: dialog.projectPath,
-        name: name.trim(),
-        command: command.trim(),
-        cwd: cwd.trim() || undefined,
-        env: Object.keys(env).length ? env : undefined
-      },
+      serverId === null
+        ? { kind: 'command', projectPath: ownerKey, ...fields }
+        : { kind: 'remote', serverId, ...fields },
       config?.id
     )
   }
@@ -89,29 +95,38 @@ export function ConfigDialog(): React.JSX.Element {
           />
         </Field>
         <Field label="工作目录">
-          <div className="flex items-center gap-1.5">
+          {serverId === null ? (
+            <div className="flex items-center gap-1.5">
+              <Input
+                value={cwd}
+                onChange={(e) => setCwd(e.target.value)}
+                placeholder="相对项目根，留空即项目根"
+                className="min-w-0 flex-1 font-mono"
+              />
+              <button
+                type="button"
+                title="选择目录"
+                className={INPUT_ICON_BTN}
+                onClick={() => {
+                  if (ownerKey === undefined) return
+                  void window.api
+                    .pickConfigCwd(ownerKey, cwd.trim() || undefined)
+                    .then((picked) => {
+                      if (picked !== null) setCwd(picked)
+                    })
+                }}
+              >
+                <FolderOpen className="size-4" />
+              </button>
+            </div>
+          ) : (
             <Input
               value={cwd}
               onChange={(e) => setCwd(e.target.value)}
-              placeholder="相对项目根，留空即项目根"
-              className="min-w-0 flex-1 font-mono"
+              placeholder="服务器上的目录，留空即登录后的目录"
+              className="font-mono"
             />
-            <button
-              type="button"
-              title="选择目录"
-              className={INPUT_ICON_BTN}
-              onClick={() => {
-                if (!dialog.projectPath) return
-                void window.api
-                  .pickConfigCwd(dialog.projectPath, cwd.trim() || undefined)
-                  .then((picked) => {
-                    if (picked !== null) setCwd(picked)
-                  })
-              }}
-            >
-              <FolderOpen className="size-4" />
-            </button>
-          </div>
+          )}
         </Field>
         <Field label="环境变量">
           <div className="space-y-1.5">

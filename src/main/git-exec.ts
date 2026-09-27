@@ -7,7 +7,7 @@ import * as cp from 'child_process'
 import { promises as fs } from 'fs'
 import { isAbsolute, join, normalize, posix, resolve } from 'path'
 import { StringDecoder } from 'string_decoder'
-import { getResolvedShellEnv } from './shell-env'
+import { resolveShellEnvironment } from './shell-env'
 
 /** 行分割：兼容 \r\n / \r / \n（与 git-parse 中的常量同义，为避免层间依赖各自持有）。 */
 const EOL_REGEX = /\r\n|\r|\n/g
@@ -28,22 +28,6 @@ export interface GitExecResult {
   stderr: string
   /** spawn 层错误（可执行文件不存在等）；进程正常退出时为 null */
   error: Error | null
-}
-
-// —— 登录 shell 环境（模块级缓存） ——
-
-let shellEnvPromise: Promise<NodeJS.ProcessEnv> | null = null
-
-/** 登录 shell 环境；解析失败（超时、shell 报错）记日志并退回空对象，git 照常以精简环境运行
- * （VS Code app.ts resolveShellEnvironment 同款，只是此处无通知通道）。 */
-function resolveShellEnvironment(): Promise<NodeJS.ProcessEnv> {
-  if (!shellEnvPromise) {
-    shellEnvPromise = getResolvedShellEnv().catch((error: Error) => {
-      console.error(error.message)
-      return {}
-    })
-  }
-  return shellEnvPromise
 }
 
 /**

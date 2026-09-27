@@ -7,7 +7,7 @@
 **Project（项目）**：被登记进运行器的一个本地文件夹，是聚合面板里的一个顶层条目，拥有属于自己的 Discovered Script 与 Run Configuration。
 _Avoid_: Workspace, Repo, Folder
 
-**Pin（置顶）**：附着在 **Project** 上的持久布尔标记。已置顶的 Project 在左树中整段排在未置顶的 Project 之上（组内仍服从当前排序）；滚动左树时，所有已置顶的**项目行**依次叠在列表顶部保持可见（行间留 1px 间隙），配置行照常滚走。未置顶项目滚过时，其**项目行**作为当前段贴在置顶堆下方，被下一段顶走。
+**Pin（置顶）**：附着在 **Project** 或 **Server** 上的持久布尔标记，二者规则相同（下文以 Project 为例）。已置顶的 Project 在左树中整段排在未置顶的 Project 之上（组内仍服从当前排序）；滚动左树时，所有已置顶的**项目行**依次叠在列表顶部保持可见（行间留 1px 间隙），配置行照常滚走。未置顶项目滚过时，其**项目行**作为当前段贴在置顶堆下方，被下一段顶走。
 _Avoid_: Favorite, Star, 收藏, Bookmark
 
 **Discovered Script（探测脚本）**：从 Project 实时派生的只读候补——尚未被选中或运行过；被选中或运行一次即"晋升"为 Run Configuration，并从候补区消失。来源有两类：**清单脚本**（如顶层 `package.json` 的 `scripts`，随清单增删）与**约定命令**（按项目指纹给出的常用命令，随指纹有无出现/消失）。候补菜单里两类用小标题隔开，仍是同一种 Discovered Script。
@@ -16,7 +16,7 @@ _Avoid_: Task, NPM task, Script（裸用）, 可运行项, Convention Runnable, 
 **Run Configuration（运行配置）**：用户"拥有"的、已保存的可运行配置，分两种：
 
 - **引用型（Referenced）**：由 Discovered Script 首次选中或运行"晋升"而来，纯粹引用其来源（清单脚本名或约定项），运行时按来源解析命令、随来源同步。**完全不可自定义**——没有自定义命令 / cwd / 环境变量，只能运行、停止、重跑、删除。来源消失时**直接删除**（不存在用户手工内容会丢失）。
-- **命令型（Command）**：用户拥有的一条独立命令（命令行 + 工作目录 + 环境变量），完全可自定义、独立持久化、不随任何 script 变化、也不会被自动删除。要给某个 script 加环境变量 / 改 cwd / 改命令，就新建一条命令型配置——它不引用、也不同步任何 script。
+- **命令型（Command）**：用户拥有的一条独立命令（命令行 + 工作目录 + 环境变量），完全可自定义、独立持久化、不随任何 script 变化、也不会被自动删除。要给某个 script 加环境变量 / 改 cwd / 改命令，就新建一条命令型配置——它不引用、也不同步任何 script。命令型可以属于 **Project**（在本机执行），也可以属于 **Server**（在服务器上执行，工作目录是服务器上的目录）。
 
 _Avoid_: Task, Profile, Preset
 
@@ -25,6 +25,12 @@ _Avoid_: Run, Process, Instance, Job
 
 **Terminal（终端）**：项目下的一个自由交互 shell 会话——起用户配置的 shell（posix 为 `$SHELL`；Windows 默认 Git Bash，可改 PowerShell / cmd，与 **Run Session** 共用同一偏好），cwd 默认项目根，也可从 **Files Tab** 的「在终端中打开」在项目内某目录起；cwd 不随壳持久化（重启回项目根）。可随意敲命令，**不绑定任何 Run Configuration / Discovered Script**。壳（稳定身份、显示名、在项目 Tab 栏中的顺序）可按项目持久化；**进程与输出不持久化**——重启后需再次拉起空 shell，历史输出不恢复。shell 进程结束即销毁其活会话并关闭对应 Tab。与 **Run Session** 并列但语义不同：Run Session 是"某条配置的一次执行"，Terminal 是"项目下的一个自由 shell"。一个项目可同时拥有任意多个 Terminal。
 _Avoid_: Shell（裸用）, 控制台
+
+**Server（服务器）**：被登记进 DevCube 的一台远程主机，是左树里与 **Project** 并列的顶层条目；它要么引用 `~/.ssh/config` 里的一个主机，要么是手填的地址、用户与端口。它拥有 0..N 个 **SSH Terminal** 与 0..N 条命令型 **Run Configuration**（在服务器上执行），没有 **Git Tab**，也没有 **Discovered Script**。
+_Avoid_: Host, 主机, 远程, Site, 站点, 会话
+
+**SSH Terminal（SSH 终端）**：连到某台 **Server** 的交互终端，可以开在该 Server 下，也可以开在某个 **Project** 下。与 **Terminal** 不同：连接断开后 Tab 保留、可原地重连；跨重启只恢复壳，不自动连接。
+_Avoid_: 远程终端, SSH 会话, Shell（裸用）
 
 **Git Tab（Git 标签页）**：项目的 Git 图谱视图——展示该项目仓库的提交历史图、引用与详情，并可从中执行 git 操作。每项目**恒有一个**、常驻 Tab 栏最前、不可关闭；它不是会话（无进程、无输出流），是 Tab 模型中的非会话 Tab 之一。项目不是 git 仓库时显示兜底提示与初始化仓库入口；仓库状态（是否仓库 / 仓库根）随文件系统变化自动跟进，不需要重新添加项目。
 _Avoid_: Git 面板, 图谱 Tab, 仓库视图
@@ -57,6 +63,8 @@ _Avoid_: Release Notes, 发版说明, 更新说明, 提交记录（指日志内�
 
 - **「置顶」一词两义**：口语/ DESIGN 里曾用「置顶」形容「新项目在某种排序下落到列表最前」——那是排序结果，不是 **Pin**。域语言里 **Pin / 置顶** 专指上述持久布尔标记。
 
+- **「终端」裸用**：「终端」裸用专指本机的 **Terminal**；连到 **Server** 的一律称 **SSH Terminal**，即使它开在某个 **Project** 下。
+
 - **「工作区」与「工作树」两义**：「工作区」在本文与实现里恒指**一份检出内**的文件状态（未提交更改相对 HEAD 的改动；监听通道 `git-worktree` 也是此意，指 working tree 文件）；「工作树」专指 `git worktree` 的一份检出（**Worktree**）。两词不可互换。
 
 ### 关系
@@ -69,6 +77,9 @@ _Avoid_: Release Notes, 发版说明, 更新说明, 提交记录（指日志内�
 - 一条 **Run Configuration** 至多对应一个活跃的 **Run Session**；不同配置的 Run Session 可并发存在。
 - 一个 **Project** 拥有 0..N 个 **Terminal**（cwd 默认项目根、可指定项目内目录但不持久化；不绑定任何 Run Configuration；活 shell 随退出而销毁；壳可跨重启按项目恢复）。
 - **Terminal** 与 **Run Session** 都是"活的会话"，但 Terminal 不由任何配置派生、彼此独立——不做单实例去重，同一项目可并存任意多个。
+- 一台 **Server** 拥有 0..N 条命令型 **Run Configuration**，运行时在服务器上执行，其 **Run Session** 出现在该 Server 的 Tab 栏里；引用型只属于 **Project**。移除 Server 连同它的配置一起删除。
+- 一台 **Server** 拥有 0..N 个 **SSH Terminal**；一个 **Project** 也可以拥有 0..N 个连到某台 Server 的 **SSH Terminal**，与它的 **Terminal** 并列在 Tab 栏里。移除一台 Server 会关闭所有连到它的 SSH Terminal，无论开在哪里。
+- **Server** 与 **Project** 同在左树，共用 **Pin**、排序、拖拽与名称筛选；左树可以按类型只显示其中一类。
 - 一个 **Project** 恒有一个 **Git Tab**（非会话、不可关闭、常驻其 Tab 栏最前）；它与 **Files Tab** / Run Session / Terminal 的 Tab 共用激活与循环规则。
 - 一个 **Project** 恒有一个 **Files Tab**（非会话、不可关闭、常驻其 Tab 栏第二位，紧接 Git Tab）；它与 Git Tab / Run Session / Terminal 的 Tab 共用激活与循环规则。一个 Files Tab 同一时刻至多打开一个条目。
 - 从 **Git Tab**「打开文件」进入该项目的 **Files Tab** 并打开对应路径；Files Tab 另提供「在其他应用中打开」（系统默认应用）。
@@ -93,6 +104,10 @@ _Avoid_: Release Notes, 发版说明, 更新说明, 提交记录（指日志内�
 > **领域专家**：那是第二种 **Run Configuration**——一条不依赖任何探测来源的独立命令。Compose 若已被约定探测出来，晋升用的是引用型；要定制就另建命令型。
 > **开发者**：我想在这个项目里随手跑几条 `git`、`ls`，不想每次都建配置。
 > **领域专家**：那就在它下面开个 **Terminal**——项目根目录里的一个自由 shell，跟任何配置都无关，想开几个开几个。关掉或 shell 自己退出，Tab 就没了；重启后仍会按你留下的名字和顺序把壳找回来，但里面是新的空 shell，上次输出不保留。它不是 **Run Session**，别混为一谈。
+> **开发者**：我还想在 DevCube 里连公司那台测试服务器。
+> **领域专家**：把它添加成一台 **Server**——可以从你的 `~/.ssh/config` 里勾选，也可以手填地址。它和 **Project** 并排在左树里，点开就是它的 **SSH Terminal**，想开几个开几个。
+> **开发者**：它和项目里的 **Terminal** 有什么不一样？
+> **领域专家**：**Terminal** 是本机的 shell，进程一结束 Tab 就没了；**SSH Terminal** 断线后 Tab 还在，报错留着给你看，按回车就重连。在项目里新建终端时也能直接选「连接到服务器」，开出来的同样是 **SSH Terminal**，不是 **Terminal**。
 > **开发者**：`web` 我天天用，想让它永远在列表最上面，哪怕按名称排序。
 > **领域专家**：给它打上 **Pin**——已置顶的项目整段浮在未置顶之上；组内仍按你选的排序排。往下滚时，置顶项目的名字行会叠在列表顶上不走（中间留一条细缝），配置行照常滚；滚到未置顶项目时，它的名字行会贴在置顶堆下面，直到被下一个项目顶走。这和「新加的项目碰巧排到最前」不是一回事。
 > **开发者**：我在 Finder 里双击一张 png，DevCube 弹了个窗口出来，但左边项目列表里没多出「下载」。

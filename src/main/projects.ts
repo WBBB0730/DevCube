@@ -1,9 +1,8 @@
 import { dialog } from 'electron'
 import { mkdirSync, statSync } from 'fs'
 import { basename, dirname } from 'path'
-import { applyProjectPinned } from '../shared/project-sort'
-import { getAppPrefs, getConfigs, getProjects, setAppPrefs, setConfigs, setProjects } from './store'
-import type { Project } from '../shared/types'
+import { getAppPrefs, getProjects, setAppPrefs, setProjects } from './store'
+import { headOrder } from './tree-order'
 
 /** 记住所选项目文件夹的父目录，作为下次新建 / 添加 / 克隆项目对话框的默认位置。 */
 export function rememberProjectParentDir(projectPath: string): void {
@@ -20,14 +19,15 @@ export function addProjectByPath(dir: string): string | null {
   const projects = getProjects()
   if (!projects.some((p) => p.path === dir)) {
     const now = Date.now()
-    // 插到数组头：自定义序下新项目在顶；同时写入 lastOpenedAt，打开时间序下也在顶。
-    // 名称 / 添加时间升序仍由 sortProjectNodes 决定，不强制置顶。
+    // order 取全部左树条目之前：自定义序下新项目在顶；同时写入 lastOpenedAt，打开时间序下也在顶。
+    // 名称 / 添加时间升序仍由 sortTreeEntries 决定，不强制置顶。
     projects.unshift({
       path: dir,
       name: basename(dir),
       addedAt: now,
       lastOpenedAt: now,
-      pinned: false
+      pinned: false,
+      order: headOrder()
     })
     setProjects(projects)
   }
@@ -70,27 +70,9 @@ export async function createAndAddProject(): Promise<string | null> {
   return addProjectByPath(result.filePath)
 }
 
-/** 移除项目，并连带删除其名下的所有 Run Configuration。 */
+/** 移除项目登记（其名下配置由调用方经 deleteConfigsOf 一并删除）。 */
 export function removeProject(path: string): void {
   setProjects(getProjects().filter((p) => p.path !== path))
-  setConfigs(getConfigs().filter((c) => c.projectPath !== path))
-}
-
-/** 重排项目列表顺序。严格按 orderedPaths；未知路径丢弃，未列出的追加末尾。 */
-export function reorderProjects(orderedPaths: string[]): void {
-  const byPath = new Map(getProjects().map((p) => [p.path, p]))
-  const seen = new Set<string>()
-  const reordered: Project[] = []
-  for (const path of orderedPaths) {
-    const p = byPath.get(path)
-    if (!p || seen.has(path)) continue
-    seen.add(path)
-    reordered.push(p)
-  }
-  for (const p of byPath.values()) {
-    if (!seen.has(p.path)) reordered.push(p)
-  }
-  setProjects(reordered)
 }
 
 /** 记录「打开」某项目：更新 lastOpenedAt。 */
@@ -100,9 +82,4 @@ export function touchProject(path: string): void {
   if (i < 0) return
   projects[i] = { ...projects[i], lastOpenedAt: Date.now() }
   setProjects(projects)
-}
-
-/** 设置 Project 的 Pin，并移到目标区块开头。 */
-export function setProjectPinned(path: string, pinned: boolean): void {
-  setProjects(applyProjectPinned(getProjects(), path, pinned))
 }

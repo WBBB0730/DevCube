@@ -11,8 +11,9 @@ import type {
 } from '../shared/types'
 import { DEFAULT_APP_PREFS, DEFAULT_PROJECT_SORT_PREFS, WINDOWS_SHELLS } from '../shared/types'
 import { THEME_MODES, type ThemeMode } from '../shared/theme'
-import type { WorkspaceUiState } from '../shared/workspace'
-import { DEFAULT_WORKSPACE_UI } from '../shared/workspace'
+import type { Server } from '../shared/server'
+import type { TerminalShell, WorkspaceUiState } from '../shared/workspace'
+import { DEFAULT_WORKSPACE_UI, migrateLegacyWorkspaceUi } from '../shared/workspace'
 import {
   DEFAULT_GIT_REPO_SETTINGS,
   DEFAULT_GIT_VIEW_PREFS,
@@ -29,6 +30,8 @@ export async function initStore(): Promise<void> {
     name: 'devcube',
     defaults: {
       projects: [],
+      servers: [],
+      serverSecrets: {},
       configs: [],
       gitSettings: {},
       gitViewPrefs: DEFAULT_GIT_VIEW_PREFS,
@@ -40,19 +43,28 @@ export async function initStore(): Promise<void> {
   })
 }
 
-/** 老档案缺 addedAt / lastOpenedAt / pinned 时补齐；首次读到脏数据即回写，避免每次 Date.now() 抖动。 */
+/**
+ * 老档案缺 addedAt / lastOpenedAt / pinned / order 时补齐；首次读到脏数据即回写，避免每次 Date.now() 抖动。
+ * order 缺省取数组下标——条目化之前自定义序就是数组序，原样保住。
+ */
 export function getProjects(): Project[] {
   const raw = store.get('projects')
   const now = Date.now()
   let dirty = false
-  const projects = raw.map((p) => {
+  const projects = raw.map((p, index) => {
     const addedAt = typeof p.addedAt === 'number' ? p.addedAt : now
     const lastOpenedAt = typeof p.lastOpenedAt === 'number' ? p.lastOpenedAt : null
     const pinned = p.pinned === true
-    if (addedAt !== p.addedAt || lastOpenedAt !== (p.lastOpenedAt ?? null) || p.pinned !== pinned) {
+    const order = typeof p.order === 'number' ? p.order : index
+    if (
+      addedAt !== p.addedAt ||
+      lastOpenedAt !== (p.lastOpenedAt ?? null) ||
+      p.pinned !== pinned ||
+      p.order !== order
+    ) {
       dirty = true
     }
-    return { path: p.path, name: p.name, addedAt, lastOpenedAt, pinned }
+    return { path: p.path, name: p.name, addedAt, lastOpenedAt, pinned, order }
   })
   if (dirty) store.set('projects', projects)
   return projects
@@ -60,6 +72,27 @@ export function getProjects(): Project[] {
 
 export function setProjects(projects: Project[]): void {
   store.set('projects', projects)
+}
+
+/** 老档案里的 Server 没有 direct（绕开代理直连）：按未打开补齐。 */
+export function getServers(): Server[] {
+  return store.get('servers').map((s) => ({ ...s, direct: s.direct === true }))
+}
+
+export function setServers(servers: Server[]): void {
+  store.set('servers', servers)
+}
+
+/** 记住的密码密文（safeStorage 输出的 base64）；没有返回 null。 */
+export function getServerSecret(serverId: string): string | null {
+  return store.get('serverSecrets')[serverId] ?? null
+}
+
+export function setServerSecret(serverId: string, secret: string | null): void {
+  const all = { ...store.get('serverSecrets') }
+  if (secret === null) delete all[serverId]
+  else all[serverId] = secret
+  store.set('serverSecrets', all)
 }
 
 export function getConfigs(): RunConfig[] {
@@ -191,18 +224,19 @@ export function deleteFilesUi(projectPath: string): void {
 }
 
 function normalizeWorkspaceUi(raw: Partial<WorkspaceUiState> | undefined): WorkspaceUiState {
-  const base = { ...DEFAULT_WORKSPACE_UI, ...pickKnownKeys(DEFAULT_WORKSPACE_UI, raw) }
+  const migrated = migrateLegacyWorkspaceUi(raw as Record<string, unknown> | undefined) as
+    Partial<WorkspaceUiState> | undefined
+  const base = { ...DEFAULT_WORKSPACE_UI, ...pickKnownKeys(DEFAULT_WORKSPACE_UI, migrated) }
   return {
-    currentProjectPath:
-      typeof base.currentProjectPath === 'string' ? base.currentProjectPath : null,
+    currentEntryKey: typeof base.currentEntryKey === 'string' ? base.currentEntryKey : null,
     selectedKey: typeof base.selectedKey === 'string' ? base.selectedKey : null,
-    activeTabByProject:
-      base.activeTabByProject && typeof base.activeTabByProject === 'object'
-        ? { ...base.activeTabByProject }
+    activeTabByEntry:
+      base.activeTabByEntry && typeof base.activeTabByEntry === 'object'
+        ? { ...base.activeTabByEntry }
         : {},
-    terminalsByProject:
-      base.terminalsByProject && typeof base.terminalsByProject === 'object'
-        ? { ...base.terminalsByProject }
+    terminalsByEntry:
+      base.terminalsByEntry && typeof base.terminalsByEntry === 'object'
+        ? { ...base.terminalsByEntry }
         : {}
   }
 }
@@ -217,18 +251,28 @@ export function setWorkspaceUi(state: WorkspaceUiState): WorkspaceUiState {
   return normalized
 }
 
-/** 项目移除时清掉该路径下的激活 Tab / Terminal 壳；若当前项目或选中落在该项目则清空。 */
-export function deleteWorkspaceUiForProject(projectPath: string): void {
+/** 条目（Project / Server）移除时清掉它的激活 Tab / 终端壳；若当前条目或选中落在它上面则清空。 */
+export function deleteWorkspaceUiForEntry(entryKey: string): void {
   const cur = getWorkspaceUi()
-  const activeTabByProject = { ...cur.activeTabByProject }
-  delete activeTabByProject[projectPath]
-  const terminalsByProject = { ...cur.terminalsByProject }
-  delete terminalsByProject[projectPath]
-  const clearCurrent = cur.currentProjectPath === projectPath
+  const activeTabByEntry = { ...cur.activeTabByEntry }
+  delete activeTabByEntry[entryKey]
+  const terminalsByEntry = { ...cur.terminalsByEntry }
+  delete terminalsByEntry[entryKey]
+  const clearCurrent = cur.currentEntryKey === entryKey
   setWorkspaceUi({
-    currentProjectPath: clearCurrent ? null : cur.currentProjectPath,
+    currentEntryKey: clearCurrent ? null : cur.currentEntryKey,
     selectedKey: clearCurrent ? null : cur.selectedKey,
-    activeTabByProject,
-    terminalsByProject
+    activeTabByEntry,
+    terminalsByEntry
   })
+}
+
+/** 服务器移除时清掉各条目（含 Project）下连到它的 SSH Terminal 壳。 */
+export function deleteSshShellsForServer(serverId: string): void {
+  const cur = getWorkspaceUi()
+  const terminalsByEntry: Record<string, TerminalShell[]> = {}
+  for (const [entryKey, shells] of Object.entries(cur.terminalsByEntry)) {
+    terminalsByEntry[entryKey] = shells.filter((s) => s.serverId !== serverId)
+  }
+  setWorkspaceUi({ ...cur, terminalsByEntry })
 }

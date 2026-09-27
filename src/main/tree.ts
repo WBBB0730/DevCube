@@ -31,7 +31,7 @@ export function buildTree(): ProjectNode[] {
       readFingerprints(project.path),
       configs
     ),
-    configs: configs.filter((c) => c.projectPath === project.path),
+    configs: configs.filter((c) => c.kind !== 'remote' && c.projectPath === project.path),
     worktreeOf: worktreeOfByProject.get(project.path) ?? null
   }))
 }

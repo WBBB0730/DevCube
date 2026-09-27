@@ -31,6 +31,7 @@ import {
   Play,
   RotateCw,
   Search,
+  Server as ServerIcon,
   Square,
   Terminal,
   Trash2,
@@ -56,19 +57,27 @@ import {
 import { CSS as DndCSS } from '@dnd-kit/utilities'
 import type {
   DiscoveredScript,
-  ProjectNode,
   ProjectSortMode,
+  ProjectSortPrefs,
   RunConfig,
   RunTarget,
   SessionStatus
 } from '@shared/types'
+import { serverTargetLabel, type ServerNode } from '@shared/server'
+import {
+  buildTreeEntries,
+  configOwnerKey,
+  entryItem,
+  serverEntryKey,
+  type TreeEntry
+} from '@shared/tree-entry'
 import {
   DISCOVER_SOURCE_LABELS,
   DISCOVER_SOURCE_ORDER,
   type DiscoverSource
 } from '@shared/discover-source'
 import { configKey, scriptKey } from '@shared/runnable'
-import { filterProjectNodes, sortProjectNodes } from '@shared/project-sort'
+import { filterTreeEntries, sortTreeEntries } from '@shared/project-sort'
 import { SHORTCUT } from '@shared/shortcut-label'
 import { useDoubleClick } from '@renderer/lib/double-click'
 import { shortcutLabel, shortcutTitle } from '@renderer/lib/shortcut-label'
@@ -92,13 +101,14 @@ import {
 import { OPEN_IN_APP_ICONS } from '@renderer/assets/open-in'
 import { OPEN_IN_APP_IDS, OPEN_IN_APP_LABELS, type OpenInAppStatus } from '@shared/open-in-app'
 import { useApp } from '@renderer/store'
+import { ConnectServerItems } from '@renderer/components/ConnectServerItems'
 
 // 所有行统一固定高 + 圆角。四周内边距 6px：px-1.5 各 6px，
 // h-10(40px) 让 size-7(28px) 按钮上下各留 6px；固定高避免 hover 出按钮时整行跳动。
 const ROW =
   'group flex h-10 cursor-pointer items-center gap-1.5 rounded px-1.5 text-[14px] transition-colors'
 const BTN = 'flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors'
-/** 项目行高（与 ROW 的 h-10 一致），供 Pin 吸顶叠放 top / scroll-margin。 */
+/** 条目行高（与 ROW 的 h-10 一致），供 Pin 吸顶叠放 top / scroll-margin。 */
 const PROJECT_ROW_H = 40
 /** 置顶叠放行之间的间隙；须用不透明底填满，避免配置文字从缝里透出。 */
 const PIN_STICKY_GAP = 1
@@ -120,10 +130,10 @@ const CURRENT_STICKY_Z = 19
  * 已滚过段起点：滚非 sticky 段锚 + start（scroll-margin-top 预留吸顶高度；对齐 Git 段头）。
  * 否则：对标题行 nearest（已在视口不动，裁切才微滚）。
  */
-function scrollProjectIntoView(list: HTMLElement, path: string): void {
-  const esc = globalThis.CSS.escape(path)
-  const anchor = list.querySelector(`[data-project-scroll-anchor="${esc}"]`) as HTMLElement | null
-  const row = list.querySelector(`[data-project-path="${esc}"]`) as HTMLElement | null
+function scrollEntryIntoView(list: HTMLElement, key: string): void {
+  const esc = globalThis.CSS.escape(key)
+  const anchor = list.querySelector(`[data-entry-scroll-anchor="${esc}"]`) as HTMLElement | null
+  const row = list.querySelector(`[data-entry-key="${esc}"]`) as HTMLElement | null
   if (!anchor || !row) return
 
   const listRect = list.getBoundingClientRect()
@@ -162,18 +172,20 @@ const SORT_OPTIONS: { mode: ProjectSortMode; label: string }[] = [
 
 export function ProjectTree(): React.JSX.Element {
   const tree = useApp((s) => s.tree)
+  const servers = useApp((s) => s.servers)
   const projectSortPrefs = useApp((s) => s.projectSortPrefs)
   const projectFilter = useApp((s) => s.projectFilter)
   const setProjectFilter = useApp((s) => s.setProjectFilter)
   const projectFilterFocusNonce = useApp((s) => s.projectFilterFocusNonce)
   const cycleSortMode = useApp((s) => s.cycleSortMode)
-  const setPinSticky = useApp((s) => s.setPinSticky)
+  const setSortPrefs = useApp((s) => s.setSortPrefs)
   const pinSticky = projectSortPrefs.pinSticky
-  const reorderProjects = useApp((s) => s.reorderProjects)
+  const reorderEntries = useApp((s) => s.reorderEntries)
   const addProject = useApp((s) => s.addProject)
   const addProjectByPath = useApp((s) => s.addProjectByPath)
   const createProject = useApp((s) => s.createProject)
   const setCloneDialogOpen = useApp((s) => s.setCloneDialogOpen)
+  const openServerDialog = useApp((s) => s.openServerDialog)
 
   // 拖项目时强制全部收起；松手后恢复各行原展开态（由 forceCollapsed 驱动，不改各行本地 open）。
   // 锚点用「所见视口 Y」（getBoundingClientRect，含吸顶卡住）；收起后关掉 sticky。
@@ -190,58 +202,60 @@ export function ProjectTree(): React.JSX.Element {
   const collapseAnchorRef = useRef<number | null>(null)
   const collapsePadRef = useRef(0)
   const lastScrollTopRef = useRef(0)
-  const restoreRef = useRef<{ path: string; clientTop: number } | null>(null)
-  /** 项目拖拽中：当前项 path，及同 Pin 组在列表内容坐标系下的 [top,bottom]（随收起/滚动重测）。 */
-  const draggingPathRef = useRef<string | null>(null)
+  const restoreRef = useRef<{ key: string; clientTop: number } | null>(null)
+  /** 条目拖拽中：当前项键，及同 Pin 组在列表内容坐标系下的 [top,bottom]（随收起/滚动重测）。 */
+  const draggingKeyRef = useRef<string | null>(null)
   const dragGroupClampRef = useRef<{ top: number; bottom: number } | null>(null)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
-  const filtered = filterProjectNodes(sortProjectNodes(tree, projectSortPrefs), projectFilter)
-  const pinnedNodes = useMemo(() => filtered.filter((n) => n.project.pinned), [filtered])
-  const unpinnedNodes = useMemo(() => filtered.filter((n) => !n.project.pinned), [filtered])
-  const pinnedPathSet = useMemo(
-    () => new Set(pinnedNodes.map((n) => n.project.path)),
-    [pinnedNodes]
+  // 全部条目按当前规则排好（拖拽落盘用：按类型筛掉的条目也要保住相对位置）；可见的再按类型 / 名称筛。
+  const sorted = useMemo(
+    () => sortTreeEntries(buildTreeEntries(tree, servers), projectSortPrefs),
+    [tree, servers, projectSortPrefs]
   )
+  const filtered = filterTreeEntries(sorted, projectFilter, projectSortPrefs)
+  const pinnedEntries = useMemo(() => filtered.filter((e) => entryItem(e).pinned), [filtered])
+  const unpinnedEntries = useMemo(() => filtered.filter((e) => !entryItem(e).pinned), [filtered])
+  const pinnedKeySet = useMemo(() => new Set(pinnedEntries.map((e) => e.key)), [pinnedEntries])
   // 碰撞只认同 Pin 组，拖拽过程中就不能跨界让位。
   const pinSealedCollision: CollisionDetection = useCallback(
     (args) => {
-      const activePinned = pinnedPathSet.has(String(args.active.id))
+      const activePinned = pinnedKeySet.has(String(args.active.id))
       return closestCenter({
         ...args,
         droppableContainers: args.droppableContainers.filter(
-          (c) => pinnedPathSet.has(String(c.id)) === activePinned
+          (c) => pinnedKeySet.has(String(c.id)) === activePinned
         )
       })
     },
-    [pinnedPathSet]
+    [pinnedKeySet]
   )
 
   /** 量同 Pin 组在列表内容坐标系中的纵向范围，供拖拽限位（与列表边缘限位同理）。 */
   const measurePinGroupClamp = useCallback(
-    (activePath: string): void => {
+    (activeKey: string): void => {
       const list = listRef.current
       if (!list) {
         dragGroupClampRef.current = null
         return
       }
-      const activePinned = pinnedPathSet.has(activePath)
+      const activePinned = pinnedKeySet.has(activeKey)
       const scrollTop = list.scrollTop
       const listR = list.getBoundingClientRect()
       let top = Infinity
       let bottom = -Infinity
       const seen = new Set<string>()
-      for (const node of list.querySelectorAll('[data-project-path]')) {
-        const path = node.getAttribute('data-project-path')
-        if (!path || seen.has(path) || pinnedPathSet.has(path) !== activePinned) continue
-        seen.add(path)
+      for (const node of list.querySelectorAll('[data-entry-key]')) {
+        const key = node.getAttribute('data-entry-key')
+        if (!key || seen.has(key) || pinnedKeySet.has(key) !== activePinned) continue
+        seen.add(key)
         const r = (node as HTMLElement).getBoundingClientRect()
         top = Math.min(top, r.top - listR.top + scrollTop)
         bottom = Math.max(bottom, r.bottom - listR.top + scrollTop)
       }
       dragGroupClampRef.current = Number.isFinite(top) ? { top, bottom } : null
     },
-    [pinnedPathSet]
+    [pinnedKeySet]
   )
 
   // 项目拖拽：垂直 + 钳制在当前 Pin 组边缘（并与列表可视区取交）。
@@ -269,61 +283,59 @@ export function ProjectTree(): React.JSX.Element {
   )
   // 有筛选时禁用拖拽；非自定义也可拖，松手且顺序实质变化后才切到自定义并落盘。
   const canDrag = projectFilter.trim() === '' && filtered.length > 1
-  const currentProjectPath = useApp((s) => s.currentProjectPath)
-  const scrollToProjectPath = useApp((s) => s.scrollToProjectPath)
-  const clearScrollToProjectPath = useApp((s) => s.clearScrollToProjectPath)
+  const currentEntryKey = useApp((s) => s.currentEntryKey)
+  const scrollToEntryKey = useApp((s) => s.scrollToEntryKey)
+  const clearScrollToEntryKey = useApp((s) => s.clearScrollToEntryKey)
   // 展开态提到父级：置顶供标题/配置区共用；未置顶避免「当前」结构切换时丢折叠。
   const [pinnedOpen, setPinnedOpen] = useState<Record<string, boolean>>({})
   const [unpinnedOpen, setUnpinnedOpen] = useState<Record<string, boolean>>({})
-  const isPinnedExpanded = (path: string): boolean => !forceCollapsed && pinnedOpen[path] !== false
-  const togglePinnedOpen = (path: string): void => {
-    setPinnedOpen((prev) => ({ ...prev, [path]: !(prev[path] !== false) }))
+  const isPinnedExpanded = (key: string): boolean => !forceCollapsed && pinnedOpen[key] !== false
+  const togglePinnedOpen = (key: string): void => {
+    setPinnedOpen((prev) => ({ ...prev, [key]: !(prev[key] !== false) }))
   }
-  const isUnpinnedOpen = (path: string): boolean => unpinnedOpen[path] !== false
-  const toggleUnpinnedOpen = (path: string): void => {
-    setUnpinnedOpen((prev) => ({ ...prev, [path]: !(prev[path] !== false) }))
+  const isUnpinnedOpen = (key: string): boolean => unpinnedOpen[key] !== false
+  const toggleUnpinnedOpen = (key: string): void => {
+    setUnpinnedOpen((prev) => ({ ...prev, [key]: !(prev[key] !== false) }))
   }
 
   // 打开时间排序：等 touch 回写、当前项已排到本组最前之后，再滚入视口（有 Pin 时不滚到列表顶）。
   useLayoutEffect(() => {
-    if (projectSortPrefs.mode !== 'lastOpenedAt' || !currentProjectPath) return
-    const idx = filtered.findIndex((n) => n.project.path === currentProjectPath)
+    if (projectSortPrefs.mode !== 'lastOpenedAt' || !currentEntryKey) return
+    const idx = filtered.findIndex((e) => e.key === currentEntryKey)
     if (idx < 0) return
-    const pinned = filtered[idx].project.pinned
-    const firstInGroup = filtered.findIndex((n) => n.project.pinned === pinned)
+    const pinned = entryItem(filtered[idx]).pinned
+    const firstInGroup = filtered.findIndex((e) => entryItem(e).pinned === pinned)
     if (idx !== firstInGroup) return
     const list = listRef.current
     if (!list) return
     if (
-      list.querySelector(
-        `[data-project-scroll-anchor="${globalThis.CSS.escape(currentProjectPath)}"]`
-      )
+      list.querySelector(`[data-entry-scroll-anchor="${globalThis.CSS.escape(currentEntryKey)}"]`)
     ) {
-      scrollProjectIntoView(list, currentProjectPath)
+      scrollEntryIntoView(list, currentEntryKey)
     } else {
       list
-        .querySelector(`[data-project-path="${globalThis.CSS.escape(currentProjectPath)}"]`)
+        .querySelector(`[data-entry-key="${globalThis.CSS.escape(currentEntryKey)}"]`)
         ?.scrollIntoView({ block: 'nearest' })
     }
-  }, [projectSortPrefs.mode, currentProjectPath, filtered])
+  }, [projectSortPrefs.mode, currentEntryKey, filtered])
 
-  // 添加项目后：把目标行滚进视口（已可见则不动；吸顶项走非 sticky 锚 + scrollIntoView）。
+  // 添加条目后：把目标行滚进视口（已可见则不动；吸顶项走非 sticky 锚 + scrollIntoView）。
   useLayoutEffect(() => {
-    if (!scrollToProjectPath) return
+    if (!scrollToEntryKey) return
     const list = listRef.current
     if (list) {
       const el = list.querySelector(
-        `[data-project-scroll-anchor="${globalThis.CSS.escape(scrollToProjectPath)}"]`
+        `[data-entry-scroll-anchor="${globalThis.CSS.escape(scrollToEntryKey)}"]`
       )
-      if (el) scrollProjectIntoView(list, scrollToProjectPath)
+      if (el) scrollEntryIntoView(list, scrollToEntryKey)
       else {
         list
-          .querySelector(`[data-project-path="${globalThis.CSS.escape(scrollToProjectPath)}"]`)
+          .querySelector(`[data-entry-key="${globalThis.CSS.escape(scrollToEntryKey)}"]`)
           ?.scrollIntoView({ block: 'nearest' })
       }
     }
-    clearScrollToProjectPath()
-  }, [scrollToProjectPath, filtered, pinnedPathSet, clearScrollToProjectPath])
+    clearScrollToEntryKey()
+  }, [scrollToEntryKey, filtered, pinnedKeySet, clearScrollToEntryKey])
 
   // ⌥⌘P：聚焦项目筛选框并选中已有查询，方便直接覆盖输入。
   useEffect(() => {
@@ -345,7 +357,7 @@ export function ProjectTree(): React.JSX.Element {
       if (content === null) return
       const anchor = collapseAnchorRef.current
       if (anchor === null) return
-      const item = list.querySelector('[data-dragging-project]') as HTMLElement | null
+      const item = list.querySelector('[data-dragging-entry]') as HTMLElement | null
       if (!item) return
 
       content.style.paddingTop = ''
@@ -371,7 +383,7 @@ export function ProjectTree(): React.JSX.Element {
         list.scrollTop = Math.min(needScrollTop, maxScroll)
       }
       lastScrollTopRef.current = list.scrollTop
-      if (draggingPathRef.current) measurePinGroupClamp(draggingPathRef.current)
+      if (draggingKeyRef.current) measurePinGroupClamp(draggingKeyRef.current)
       return
     }
 
@@ -380,7 +392,7 @@ export function ProjectTree(): React.JSX.Element {
     if (!restore) return
     restoreRef.current = null
     const item = list.querySelector(
-      `[data-project-path="${globalThis.CSS.escape(restore.path)}"]`
+      `[data-entry-key="${globalThis.CSS.escape(restore.key)}"]`
     ) as HTMLElement | null
     if (!item) return
     list.scrollTop += item.getBoundingClientRect().top - restore.clientTop
@@ -391,7 +403,7 @@ export function ProjectTree(): React.JSX.Element {
     collapseAnchorRef.current = null
     collapsePadRef.current = 0
     lastScrollTopRef.current = 0
-    draggingPathRef.current = null
+    draggingKeyRef.current = null
     dragGroupClampRef.current = null
     const content = listContentRef.current
     if (content) {
@@ -415,17 +427,17 @@ export function ProjectTree(): React.JSX.Element {
       content.style.paddingTop = next > 0 ? `${next}px` : ''
       list.scrollTop -= consume
       // padding 变化后组边界需重测。
-      if (draggingPathRef.current) measurePinGroupClamp(draggingPathRef.current)
+      if (draggingKeyRef.current) measurePinGroupClamp(draggingKeyRef.current)
     }
     lastScrollTopRef.current = list.scrollTop
   }
 
-  const handleProjectDragStart = (e: DragStartEvent): void => {
+  const handleEntryDragStart = (e: DragStartEvent): void => {
     const list = listRef.current
-    const path = e.active.id as string
-    draggingPathRef.current = path
+    const key = e.active.id as string
+    draggingKeyRef.current = key
     const item = list?.querySelector(
-      `[data-project-path="${globalThis.CSS.escape(path)}"]`
+      `[data-entry-key="${globalThis.CSS.escape(key)}"]`
     ) as HTMLElement | null
     // 用视口 Y（非 offsetTop）：吸顶卡住时布局位置≠所见位置；收起后 sticky 会关掉，再靠 pad 对齐所见。
     collapseAnchorRef.current =
@@ -434,64 +446,61 @@ export function ProjectTree(): React.JSX.Element {
   }
 
   /** 松手前记下被拖项视口 top（含 transform），展开后用 scrollTop 尽量还原。 */
-  const captureRestoreAnchor = (path: string): void => {
+  const captureRestoreAnchor = (key: string): void => {
     const list = listRef.current
     const item = list?.querySelector(
-      `[data-project-path="${globalThis.CSS.escape(path)}"]`
+      `[data-entry-key="${globalThis.CSS.escape(key)}"]`
     ) as HTMLElement | null
-    if (item) restoreRef.current = { path, clientTop: item.getBoundingClientRect().top }
+    if (item) restoreRef.current = { key, clientTop: item.getBoundingClientRect().top }
   }
 
-  const handleProjectDragEnd = (e: DragEndEvent): void => {
-    const path = e.active.id as string
-    captureRestoreAnchor(path)
+  const handleEntryDragEnd = (e: DragEndEvent): void => {
+    const key = e.active.id as string
+    captureRestoreAnchor(key)
     clearCollapsePad()
     const { active, over } = e
     if (!over || active.id === over.id) return
-    const activePinned = pinnedPathSet.has(String(active.id))
-    const overPinned = pinnedPathSet.has(String(over.id))
+    const activePinned = pinnedKeySet.has(String(active.id))
+    const overPinned = pinnedKeySet.has(String(over.id))
     // Pin 边界密封：跨区不落盘（碰撞层已限制，这里再兜底）。
     if (activePinned !== overPinned) return
-    const group = activePinned ? pinnedNodes : unpinnedNodes
-    const other = activePinned ? unpinnedNodes : pinnedNodes
-    const paths = group.map((n) => n.project.path)
-    const from = paths.indexOf(active.id as string)
-    const to = paths.indexOf(over.id as string)
-    if (from < 0 || to < 0 || from === to) return
-    const reorderedGroup = arrayMove(paths, from, to)
-    const otherPaths = other.map((n) => n.project.path)
-    const next = activePinned
-      ? [...reorderedGroup, ...otherPaths]
-      : [...otherPaths, ...reorderedGroup]
+    // 在全部条目的当前视觉序里挪位：按类型筛掉的条目保留各自相对位置。
+    const keys = sorted.map((entry) => entry.key)
+    const from = keys.indexOf(String(active.id))
+    const to = keys.indexOf(String(over.id))
+    if (from < 0 || to < 0) return
+    const next = arrayMove(keys, from, to)
     // 非自定义下拖成新序：先切到自定义，再按当前视觉序落盘。
     if (projectSortPrefs.mode !== 'custom') void cycleSortMode('custom')
-    reorderProjects(next)
+    void reorderEntries(next)
   }
 
-  const handleProjectDragCancel = (): void => {
+  const handleEntryDragCancel = (): void => {
     const list = listRef.current
-    const item = list?.querySelector('[data-dragging-project]') as HTMLElement | null
-    const path = item?.getAttribute('data-project-path')
-    if (path) captureRestoreAnchor(path)
+    const item = list?.querySelector('[data-dragging-entry]') as HTMLElement | null
+    const key = item?.getAttribute('data-entry-key')
+    if (key) captureRestoreAnchor(key)
     clearCollapsePad()
   }
 
   const emptyMessage =
-    tree.length === 0 ? '拖入文件夹，或点上方 + 新建 / 添加 / 克隆项目' : '无匹配项目'
+    tree.length === 0 && servers.length === 0
+      ? '拖入文件夹，或点上方 + 新建 / 添加项目或服务器'
+      : '无匹配项'
 
-  // 当前项目常驻吸顶（滚过自身后钉住，再往下也不走）：
+  // 当前条目常驻吸顶（滚过自身后钉住，再往下也不走）：
   // - 未置顶：摊平钉在置顶堆下；仅「排在其后」的未置顶段顶 +1 行（其前仍用原 top，避免空一截）
   // - 已置顶 + 固定置顶开：已在叠放堆里，不再叠
   // - 已置顶 + 固定置顶关：摊平钉在 top:0；其后置顶段 / 全部未置顶再让一行
-  const currentPinnedIdx = currentProjectPath
-    ? pinnedNodes.findIndex((n) => n.project.path === currentProjectPath)
+  const currentPinnedIdx = currentEntryKey
+    ? pinnedEntries.findIndex((e) => e.key === currentEntryKey)
     : -1
-  const currentUnpinnedIdx = currentProjectPath
-    ? unpinnedNodes.findIndex((n) => n.project.path === currentProjectPath)
+  const currentUnpinnedIdx = currentEntryKey
+    ? unpinnedEntries.findIndex((e) => e.key === currentEntryKey)
     : -1
   const currentPinnedPersist = !pinSticky && currentPinnedIdx >= 0
   const currentUnpinnedPersist = currentUnpinnedIdx >= 0
-  const pinStackCount = pinSticky ? pinnedNodes.length : 0
+  const pinStackCount = pinSticky ? pinnedEntries.length : 0
   const unpinnedBaseTop = currentPinnedPersist
     ? belowStickyRow(0)
     : unpinnedStickyTop(pinStackCount)
@@ -499,10 +508,10 @@ export function ProjectTree(): React.JSX.Element {
   // 固定置顶开：标题摊平为列表直接子节点，才能跨整表叠放吸顶。
   // 关：每项包进段容器，sticky 只在本段内有效，下一段会把上一段顶走（而不是盖住）。
   // 当前置顶且需常驻时：即使关叠放也摊平。
-  const pinnedRows = pinnedNodes.map((node, pinStackIndex) => {
-    const expanded = isPinnedExpanded(node.project.path)
-    const bodyVisible = expanded && (node.configs.length > 0 || node.discovered.length > 0)
-    const path = node.project.path
+  const pinnedRows = pinnedEntries.map((entry, pinStackIndex) => {
+    const path = entry.key
+    const expanded = isPinnedExpanded(path)
+    const bodyVisible = expanded && entryHasBody(entry)
     const isCurrentPersist = currentPinnedPersist && pinStackIndex === currentPinnedIdx
     const flatten = pinSticky || isCurrentPersist
     const headerStickTop = pinSticky
@@ -515,7 +524,7 @@ export function ProjectTree(): React.JSX.Element {
     const gapClass = bodyVisible ? undefined : 'mb-3'
     const scrollIntoPlace = (): void => {
       const list = listRef.current
-      if (list) scrollProjectIntoView(list, path)
+      if (list) scrollEntryIntoView(list, path)
     }
     const headerStick =
       !pinSticky || isCurrentPersist
@@ -529,13 +538,13 @@ export function ProjectTree(): React.JSX.Element {
       <>
         {/* 段起点锚（0 高、非 sticky）：点吸顶标题经它 scrollIntoView——标题已在视口时直接滚它不动。 */}
         <div
-          data-project-scroll-anchor={path}
+          data-entry-scroll-anchor={path}
           aria-hidden
           style={{ scrollMarginTop: headerStickTop }}
         />
         {canDrag ? (
-          <SortableProjectHeader
-            node={node}
+          <SortableEntryHeader
+            entry={entry}
             expanded={expanded}
             pinStackIndex={pinStackIndex}
             forceCollapsed={forceCollapsed}
@@ -546,8 +555,8 @@ export function ProjectTree(): React.JSX.Element {
             onToggleExpand={() => togglePinnedOpen(path)}
           />
         ) : (
-          <ProjectHeader
-            node={node}
+          <EntryHeader
+            entry={entry}
             expanded={expanded}
             pinStackIndex={pinStackIndex}
             pinSticky={pinSticky}
@@ -572,8 +581,8 @@ export function ProjectTree(): React.JSX.Element {
             onToggleExpand={() => togglePinnedOpen(path)}
           />
         )}
-        <PinnedProjectBody
-          node={node}
+        <PinnedEntryBody
+          entry={entry}
           expanded={expanded}
           className={flatten ? 'mb-3' : undefined}
         />
@@ -589,19 +598,19 @@ export function ProjectTree(): React.JSX.Element {
     )
   })
 
-  const unpinnedRows = unpinnedNodes.map((node, index) => {
-    const path = node.project.path
+  const unpinnedRows = unpinnedEntries.map((entry, index) => {
+    const path = entry.key
     const scrollIntoPlace = (): void => {
       const list = listRef.current
-      if (list) scrollProjectIntoView(list, path)
+      if (list) scrollEntryIntoView(list, path)
     }
     const open = isUnpinnedOpen(path)
     const onToggleOpen = (): void => toggleUnpinnedOpen(path)
     if (currentUnpinnedPersist && index === currentUnpinnedIdx) {
       return (
-        <CurrentUnpinnedProject
+        <CurrentUnpinnedEntry
           key={path}
-          node={node}
+          entry={entry}
           forceCollapsed={forceCollapsed}
           stickTop={unpinnedBaseTop}
           canDrag={canDrag}
@@ -617,9 +626,9 @@ export function ProjectTree(): React.JSX.Element {
         ? belowStickyRow(unpinnedBaseTop)
         : unpinnedBaseTop
     return canDrag ? (
-      <SortableProjectRow
+      <SortableEntryRow
         key={path}
-        node={node}
+        entry={entry}
         forceCollapsed={forceCollapsed}
         stickyTop={stickyTop}
         open={open}
@@ -628,9 +637,9 @@ export function ProjectTree(): React.JSX.Element {
         onScrollIntoPlace={scrollIntoPlace}
       />
     ) : (
-      <ProjectRow
+      <EntryRow
         key={path}
-        node={node}
+        entry={entry}
         forceCollapsed={forceCollapsed}
         stickyTop={forceCollapsed ? null : stickyTop}
         open={open}
@@ -641,7 +650,7 @@ export function ProjectTree(): React.JSX.Element {
     )
   })
 
-  const filterHint = shortcutTitle('筛选项目', SHORTCUT.projectFilter)
+  const filterHint = shortcutTitle('筛选项目和服务器', SHORTCUT.projectFilter)
 
   return (
     <div
@@ -687,15 +696,13 @@ export function ProjectTree(): React.JSX.Element {
         </div>
         <div className="flex shrink-0 items-center gap-0.5">
           <SortMenu
-            mode={projectSortPrefs.mode}
-            direction={projectSortPrefs.direction}
-            pinSticky={pinSticky}
+            prefs={projectSortPrefs}
             onSelect={cycleSortMode}
-            onPinStickyChange={setPinSticky}
+            onPrefsChange={setSortPrefs}
           />
           <DropdownMenu>
             <DropdownMenuTrigger
-              title="新建 / 添加 / 克隆项目"
+              title="新建 / 添加项目或服务器"
               className={cn(
                 BTN,
                 'text-muted-foreground hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
@@ -709,6 +716,8 @@ export function ProjectTree(): React.JSX.Element {
               <DropdownMenuItem onClick={() => setCloneDialogOpen(true)}>
                 从 Git 仓库克隆…
               </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => openServerDialog()}>添加服务器…</DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -717,7 +726,7 @@ export function ProjectTree(): React.JSX.Element {
       <div
         ref={listRef}
         tabIndex={0}
-        title={`切换项目 (${shortcutLabel(SHORTCUT.prevProject)} / ${shortcutLabel(SHORTCUT.nextProject)})`}
+        title={`切换项目或服务器 (${shortcutLabel(SHORTCUT.prevProject)} / ${shortcutLabel(SHORTCUT.nextProject)})`}
         className="min-h-0 flex-1 overflow-auto px-1.5 pb-1.5 outline-none"
         onScroll={forceCollapsed ? handleListScroll : undefined}
         onKeyDown={(e) => {
@@ -751,19 +760,19 @@ export function ProjectTree(): React.JSX.Element {
             sensors={sensors}
             collisionDetection={pinSealedCollision}
             modifiers={[restrictToVerticalWithinPinGroup]}
-            onDragStart={handleProjectDragStart}
-            onDragEnd={handleProjectDragEnd}
-            onDragCancel={handleProjectDragCancel}
+            onDragStart={handleEntryDragStart}
+            onDragEnd={handleEntryDragEnd}
+            onDragCancel={handleEntryDragCancel}
           >
             <div ref={listContentRef} className="relative [&>*:last-child]:mb-0">
               <SortableContext
-                items={pinnedNodes.map((n) => n.project.path)}
+                items={pinnedEntries.map((e) => e.key)}
                 strategy={verticalListSortingStrategy}
               >
                 {pinnedRows}
               </SortableContext>
               <SortableContext
-                items={unpinnedNodes.map((n) => n.project.path)}
+                items={unpinnedEntries.map((e) => e.key)}
                 strategy={verticalListSortingStrategy}
               >
                 {unpinnedRows}
@@ -782,18 +791,30 @@ export function ProjectTree(): React.JSX.Element {
 }
 
 function SortMenu({
-  mode,
-  direction,
-  pinSticky,
+  prefs,
   onSelect,
-  onPinStickyChange
+  onPrefsChange
 }: {
-  mode: ProjectSortMode
-  direction: 'asc' | 'desc'
-  pinSticky: boolean
+  prefs: ProjectSortPrefs
   onSelect: (mode: ProjectSortMode) => void
-  onPinStickyChange: (pinSticky: boolean) => void
+  onPrefsChange: (
+    patch: Partial<Pick<ProjectSortPrefs, 'pinSticky' | 'showProjects' | 'showServers'>>
+  ) => void
 }): React.JSX.Element {
+  const { mode, direction, pinSticky, showProjects, showServers } = prefs
+  // 按类型显示：至少保留一类，剩下的那项不能再取消
+  const kinds = [
+    {
+      label: '项目',
+      checked: showProjects,
+      toggle: () => onPrefsChange({ showProjects: !showProjects })
+    },
+    {
+      label: '服务器',
+      checked: showServers,
+      toggle: () => onPrefsChange({ showServers: !showServers })
+    }
+  ]
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -818,12 +839,29 @@ function SortMenu({
           )
         })}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => onPinStickyChange(!pinSticky)}>
+        <DropdownMenuItem onClick={() => onPrefsChange({ pinSticky: !pinSticky })}>
           <span className="flex size-4 shrink-0 items-center justify-center">
             {pinSticky && <Check className="size-3.5" />}
           </span>
           <span className="flex-1">固定置顶</span>
         </DropdownMenuItem>
+        <DropdownMenuSeparator />
+        {kinds.map((kind) => {
+          const last = kind.checked && kinds.filter((k) => k.checked).length === 1
+          return (
+            <DropdownMenuItem
+              key={kind.label}
+              disabled={last}
+              title={last ? '至少显示一类' : undefined}
+              onClick={kind.toggle}
+            >
+              <span className="flex size-4 shrink-0 items-center justify-center">
+                {kind.checked && <Check className="size-3.5" />}
+              </span>
+              <span className="flex-1">{kind.label}</span>
+            </DropdownMenuItem>
+          )
+        })}
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -854,8 +892,15 @@ function SortActiveIcon({
   )
 }
 
-function SortableProjectHeader({
-  node,
+/** 条目是否有可展开的配置区：Project 有配置或检测到的配置，Server 有配置。 */
+function entryHasBody(entry: TreeEntry): boolean {
+  return (
+    entry.node.configs.length > 0 || (entry.kind === 'project' && entry.node.discovered.length > 0)
+  )
+}
+
+function SortableEntryHeader({
+  entry,
   expanded,
   pinStackIndex,
   forceCollapsed,
@@ -867,13 +912,13 @@ function SortableProjectHeader({
   onScrollIntoPlace,
   onToggleExpand
 }: {
-  node: ProjectNode
+  entry: TreeEntry
   expanded: boolean
   pinStackIndex: number
   /** 拖拽收起补偿期间关掉 sticky，避免与 padding 补偿抢位置 */
   forceCollapsed: boolean
   pinSticky: boolean
-  /** 覆盖默认 top（段吸顶 / 当前项目常驻）。 */
+  /** 覆盖默认 top（段吸顶 / 当前条目常驻）。 */
   stickTop?: number
   stickSeam?: boolean
   stickZIndex?: number
@@ -882,7 +927,7 @@ function SortableProjectHeader({
   onToggleExpand: () => void
 }): React.JSX.Element {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: node.project.path
+    id: entry.key
   })
   // 拖拽中所有项都要吃 transform（让位动画）。
   // 收起补偿期间关掉 sticky。偏好开：叠放吸顶；关：段内吸顶（下一段顶走上一段，不覆盖）。
@@ -908,15 +953,15 @@ function SortableProjectHeader({
       : { position: 'relative' })
   }
   return (
-    <ProjectHeader
+    <EntryHeader
       ref={setNodeRef}
-      node={node}
+      entry={entry}
       expanded={expanded}
       pinStackIndex={pinStackIndex}
       pinSticky={pinSticky}
       className={className}
       style={style}
-      dataProjectPath={node.project.path}
+      dataEntryKey={entry.key}
       isDragging={isDragging}
       onScrollIntoPlace={onScrollIntoPlace}
       onToggleExpand={onToggleExpand}
@@ -926,11 +971,11 @@ function SortableProjectHeader({
 }
 
 /**
- * 当前未置顶项目：标题摊平为列表直接子节点，钉在置顶堆下，滚过其它项目仍保持可见。
+ * 当前未置顶条目：标题摊平为列表直接子节点，钉在置顶堆下，滚过其它条目仍保持可见。
  * 写法对齐固定置顶（Header + Body 兄弟，勿包进段容器）。展开态由父级托管。
  */
-function CurrentUnpinnedProject({
-  node,
+function CurrentUnpinnedEntry({
+  entry,
   forceCollapsed,
   stickTop,
   canDrag,
@@ -938,7 +983,7 @@ function CurrentUnpinnedProject({
   onToggleOpen,
   onScrollIntoPlace
 }: {
-  node: ProjectNode
+  entry: TreeEntry
   forceCollapsed: boolean
   stickTop: number
   canDrag: boolean
@@ -947,9 +992,8 @@ function CurrentUnpinnedProject({
   onScrollIntoPlace: () => void
 }): React.JSX.Element {
   const expanded = open && !forceCollapsed
-  const bodyVisible = expanded && (node.configs.length > 0 || node.discovered.length > 0)
+  const bodyVisible = expanded && entryHasBody(entry)
   const gapClass = bodyVisible ? undefined : 'mb-3'
-  const path = node.project.path
   const headerStyle: CSSProperties = {
     position: 'sticky',
     top: stickTop,
@@ -959,10 +1003,10 @@ function CurrentUnpinnedProject({
 
   return (
     <>
-      <div data-project-scroll-anchor={path} aria-hidden style={{ scrollMarginTop: stickTop }} />
+      <div data-entry-scroll-anchor={entry.key} aria-hidden style={{ scrollMarginTop: stickTop }} />
       {canDrag ? (
-        <SortableProjectHeader
-          node={node}
+        <SortableEntryHeader
+          entry={entry}
           expanded={expanded}
           pinStackIndex={0}
           forceCollapsed={forceCollapsed}
@@ -975,8 +1019,8 @@ function CurrentUnpinnedProject({
           onToggleExpand={onToggleOpen}
         />
       ) : (
-        <ProjectHeader
-          node={node}
+        <EntryHeader
+          entry={entry}
           expanded={expanded}
           pinStackIndex={0}
           pinSticky={false}
@@ -986,51 +1030,116 @@ function CurrentUnpinnedProject({
           onToggleExpand={onToggleOpen}
         />
       )}
-      <PinnedProjectBody node={node} expanded={expanded} className="mb-3" />
+      <PinnedEntryBody entry={entry} expanded={expanded} className="mb-3" />
     </>
   )
 }
 
-/** 置顶区项目行标题；sticky 叠放，须为列表容器的直接子节点。 */
-function ProjectHeader({
+/** 条目行内容（折叠箭头 / 图标 / 名称 / 角标 / 更多），Project 与 Server 共用。 */
+function EntryRowContent({
+  entry,
+  expanded,
+  isCurrent,
+  selected,
+  rowHoverLike,
+  forceMoreVisible,
+  onToggleExpand,
+  onMoreOpenChange
+}: {
+  entry: TreeEntry
+  expanded: boolean
+  isCurrent: boolean
+  selected: boolean
+  rowHoverLike: boolean
+  forceMoreVisible: boolean
+  onToggleExpand: () => void
+  onMoreOpenChange: (open: boolean) => void
+}): React.JSX.Element {
+  const item = entryItem(entry)
+  return (
+    <>
+      <button
+        type="button"
+        title={expanded ? '折叠' : '展开'}
+        onClick={(e) => {
+          e.stopPropagation()
+          onToggleExpand()
+        }}
+        className="-m-1 flex size-6 shrink-0 items-center justify-center text-muted-foreground"
+      >
+        <ChevronRight className={cn('size-3.5 transition-transform', expanded && 'rotate-90')} />
+      </button>
+      {entry.kind === 'project' ? (
+        <ProjectFolderIcon worktreeOf={entry.node.worktreeOf} />
+      ) : (
+        <ServerIcon className="size-4 shrink-0 text-muted-foreground" />
+      )}
+      <span
+        className={cn('min-w-0 flex-1 truncate', isCurrent && 'font-semibold')}
+        title={entry.kind === 'server' ? serverTargetLabel(entry.node.server.target) : undefined}
+      >
+        {item.name}
+      </span>
+      {entry.kind === 'project' &&
+        entry.node.packageManager &&
+        entry.node.packageManager !== 'pnpm' && (
+          <span
+            className={cn(
+              'text-[12px] text-muted-foreground group-hover:hidden',
+              rowHoverLike && 'hidden'
+            )}
+          >
+            {entry.node.packageManager}
+          </span>
+        )}
+      <EntryMoreMenu
+        entry={entry}
+        pinned={item.pinned}
+        selected={selected}
+        forceVisible={forceMoreVisible}
+        onOpenChange={onMoreOpenChange}
+      />
+    </>
+  )
+}
+
+/** 置顶区条目行标题；sticky 叠放，须为列表容器的直接子节点。 */
+function EntryHeader({
   ref,
-  node,
+  entry,
   expanded,
   pinStackIndex,
   pinSticky,
   className,
   style,
-  dataProjectPath,
+  dataEntryKey,
   isDragging,
   onScrollIntoPlace,
   onToggleExpand,
   dragHandleProps
 }: {
   ref?: React.Ref<HTMLDivElement>
-  node: ProjectNode
+  entry: TreeEntry
   expanded: boolean
   pinStackIndex: number
   pinSticky: boolean
   className?: string
   style?: CSSProperties
-  dataProjectPath?: string
+  dataEntryKey?: string
   isDragging?: boolean
   onScrollIntoPlace: () => void
   onToggleExpand: () => void
   dragHandleProps?: HTMLAttributes<HTMLDivElement>
 }): React.JSX.Element {
-  const selectProject = useApp((s) => s.selectProject)
-  const isCurrent = useApp((s) => s.currentProjectPath === node.project.path)
-  // 蓝底仅当「项目本身」被选中（无配置选中）；当前项目另用浅底 + 加粗名标示。
-  const selected = useApp(
-    (s) => s.currentProjectPath === node.project.path && s.selectedKey === null
-  )
+  const selectEntry = useApp((s) => s.selectEntry)
+  const isCurrent = useApp((s) => s.currentEntryKey === entry.key)
+  // 蓝底仅当「条目本身」被选中（无配置选中）；当前条目另用浅底 + 加粗名标示。
+  const selected = useApp((s) => s.currentEntryKey === entry.key && s.selectedKey === null)
   const [contextMenuOpen, setContextMenuOpen] = useState(false)
   const [moreMenuOpen, setMoreMenuOpen] = useState(false)
   // 菜单开着时指针已离行，`:hover` 会丢；保持与 hover 相同的行底 / ⋮ 可见性。
   const rowHoverLike = !!isDragging || contextMenuOpen || moreMenuOpen
   const isDoubleClick = useDoubleClick()
-  const pinned = node.project.pinned
   const stickyStyle: CSSProperties = style ?? {
     position: 'sticky',
     top: pinSticky ? pinStickyTop(pinStackIndex) : 0,
@@ -1044,8 +1153,8 @@ function ProjectHeader({
       <ContextMenuTrigger
         ref={ref}
         style={stickyStyle}
-        data-project-path={dataProjectPath ?? node.project.path}
-        {...(isDragging ? { 'data-dragging-project': '' } : {})}
+        data-entry-key={dataEntryKey ?? entry.key}
+        {...(isDragging ? { 'data-dragging-entry': '' } : {})}
         className={cn(
           ROW,
           'select-none bg-panel text-foreground',
@@ -1059,73 +1168,50 @@ function ProjectHeader({
         {...dragHandleProps}
         onClick={(e) => {
           dragHandleProps?.onClick?.(e)
-          selectProject(node.project.path)
+          selectEntry(entry.key)
           onScrollIntoPlace()
           if (isDoubleClick(e)) onToggleExpand()
         }}
       >
-        <button
-          type="button"
-          title={expanded ? '折叠' : '展开'}
-          onClick={(e) => {
-            e.stopPropagation()
-            onToggleExpand()
-          }}
-          className="-m-1 flex size-6 shrink-0 items-center justify-center text-muted-foreground"
-        >
-          <ChevronRight className={cn('size-3.5 transition-transform', expanded && 'rotate-90')} />
-        </button>
-        <ProjectFolderIcon worktreeOf={node.worktreeOf} />
-        <span className={cn('min-w-0 flex-1 truncate', isCurrent && 'font-semibold')}>
-          {node.project.name}
-        </span>
-        {node.packageManager && node.packageManager !== 'pnpm' && (
-          <span
-            className={cn(
-              'text-[12px] text-muted-foreground group-hover:hidden',
-              rowHoverLike && 'hidden'
-            )}
-          >
-            {node.packageManager}
-          </span>
-        )}
-        <ProjectMoreMenu
-          projectPath={node.project.path}
-          pinned={pinned}
+        <EntryRowContent
+          entry={entry}
+          expanded={expanded}
+          isCurrent={isCurrent}
           selected={selected}
-          forceVisible={!!isDragging || contextMenuOpen}
-          onOpenChange={setMoreMenuOpen}
+          rowHoverLike={rowHoverLike}
+          forceMoreVisible={!!isDragging || contextMenuOpen}
+          onToggleExpand={onToggleExpand}
+          onMoreOpenChange={setMoreMenuOpen}
         />
       </ContextMenuTrigger>
       <ContextMenuContent>
-        <ProjectMenuItems projectPath={node.project.path} pinned={pinned} />
+        <EntryMenuItems entry={entry} />
       </ContextMenuContent>
     </ContextMenu>
   )
 }
 
-/** 置顶项目的配置区（标题 sticky，此处为兄弟节点）。 */
-function PinnedProjectBody({
-  node,
+/** 置顶条目的配置区（标题 sticky，此处为兄弟节点）。 */
+function PinnedEntryBody({
+  entry,
   expanded,
   className
 }: {
-  node: ProjectNode
+  entry: TreeEntry
   expanded: boolean
   className?: string
 }): React.JSX.Element | null {
-  if (!expanded) return null
-  if (node.configs.length === 0 && node.discovered.length === 0) return null
+  if (!expanded || !entryHasBody(entry)) return null
 
   return (
     <div className={cn('mt-0.5', className)}>
-      <ProjectConfigList node={node} />
+      <EntryConfigList entry={entry} />
     </div>
   )
 }
 
-function SortableProjectRow({
-  node,
+function SortableEntryRow({
+  entry,
   forceCollapsed,
   stickyTop,
   open,
@@ -1133,7 +1219,7 @@ function SortableProjectRow({
   className,
   onScrollIntoPlace
 }: {
-  node: ProjectNode
+  entry: TreeEntry
   forceCollapsed: boolean
   /** 未置顶当前段吸顶 top（置顶堆下方）；拖拽/收起补偿期间关掉。 */
   stickyTop: number
@@ -1143,7 +1229,7 @@ function SortableProjectRow({
   onScrollIntoPlace: () => void
 }): React.JSX.Element {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
-    id: node.project.path
+    id: entry.key
   })
   // 拖拽中所有项都要吃 transform，否则其它行不会让位；transform 会打断子孙 sticky。
   const sorting = transform !== null
@@ -1160,11 +1246,11 @@ function SortableProjectRow({
       ref={setNodeRef}
       style={style}
       className={className}
-      data-project-path={node.project.path}
-      {...(isDragging ? { 'data-dragging-project': '' } : {})}
+      data-entry-key={entry.key}
+      {...(isDragging ? { 'data-dragging-entry': '' } : {})}
     >
-      <ProjectRow
-        node={node}
+      <EntryRow
+        entry={entry}
         forceCollapsed={forceCollapsed}
         stickyTop={stick ? stickyTop : null}
         open={open}
@@ -1177,8 +1263,8 @@ function SortableProjectRow({
   )
 }
 
-function ProjectRow({
-  node,
+function EntryRow({
+  entry,
   forceCollapsed,
   stickyTop,
   open,
@@ -1188,25 +1274,23 @@ function ProjectRow({
   onScrollIntoPlace,
   dragHandleProps
 }: {
-  node: ProjectNode
+  entry: TreeEntry
   forceCollapsed: boolean
-  /** 非 null 时项目行在本块内吸顶（贴在置顶堆下）。 */
+  /** 非 null 时条目行在本块内吸顶（贴在置顶堆下）。 */
   stickyTop?: number | null
-  /** 由父级托管，避免与当前项目摊平结构切换时丢折叠。 */
+  /** 由父级托管，避免与当前条目摊平结构切换时丢折叠。 */
   open: boolean
   onToggleOpen: () => void
   className?: string
   isDragging?: boolean
   onScrollIntoPlace: () => void
-  /** 项目拖拽句柄（仅挂在行头） */
+  /** 条目拖拽句柄（仅挂在行头） */
   dragHandleProps?: HTMLAttributes<HTMLDivElement>
 }): React.JSX.Element {
-  const selectProject = useApp((s) => s.selectProject)
-  const isCurrent = useApp((s) => s.currentProjectPath === node.project.path)
-  // 蓝底仅当「项目本身」被选中（无配置选中）；当前项目另用浅底 + 加粗名标示。
-  const selected = useApp(
-    (s) => s.currentProjectPath === node.project.path && s.selectedKey === null
-  )
+  const selectEntry = useApp((s) => s.selectEntry)
+  const isCurrent = useApp((s) => s.currentEntryKey === entry.key)
+  // 蓝底仅当「条目本身」被选中（无配置选中）；当前条目另用浅底 + 加粗名标示。
+  const selected = useApp((s) => s.currentEntryKey === entry.key && s.selectedKey === null)
   const [contextMenuOpen, setContextMenuOpen] = useState(false)
   const [moreMenuOpen, setMoreMenuOpen] = useState(false)
   // 菜单开着时指针已离行，`:hover` 会丢；保持与 hover 相同的行底 / ⋮ 可见性。
@@ -1214,7 +1298,6 @@ function ProjectRow({
   const isDoubleClick = useDoubleClick()
 
   const expanded = open && !forceCollapsed
-  const pinned = node.project.pinned
   const headerSticky =
     stickyTop != null
       ? ({
@@ -1225,10 +1308,10 @@ function ProjectRow({
       : undefined
 
   return (
-    <div data-project-path={node.project.path} className={className}>
+    <div data-entry-key={entry.key} className={className}>
       {/* 段起点锚：吸顶标题已在视口时须靠它 scrollIntoView。 */}
       <div
-        data-project-scroll-anchor={node.project.path}
+        data-entry-scroll-anchor={entry.key}
         aria-hidden
         style={{ scrollMarginTop: stickyTop ?? 0 }}
       />
@@ -1247,53 +1330,29 @@ function ProjectRow({
           {...dragHandleProps}
           onClick={(e) => {
             dragHandleProps?.onClick?.(e)
-            selectProject(node.project.path)
+            selectEntry(entry.key)
             onScrollIntoPlace()
             if (isDoubleClick(e)) onToggleOpen()
           }}
         >
-          <button
-            type="button"
-            title={expanded ? '折叠' : '展开'}
-            onClick={(e) => {
-              e.stopPropagation()
-              onToggleOpen()
-            }}
-            className="-m-1 flex size-6 shrink-0 items-center justify-center text-muted-foreground"
-          >
-            <ChevronRight
-              className={cn('size-3.5 transition-transform', expanded && 'rotate-90')}
-            />
-          </button>
-          <ProjectFolderIcon worktreeOf={node.worktreeOf} />
-          <span className={cn('min-w-0 flex-1 truncate', isCurrent && 'font-semibold')}>
-            {node.project.name}
-          </span>
-          {node.packageManager && node.packageManager !== 'pnpm' && (
-            <span
-              className={cn(
-                'text-[12px] text-muted-foreground group-hover:hidden',
-                rowHoverLike && 'hidden'
-              )}
-            >
-              {node.packageManager}
-            </span>
-          )}
-          <ProjectMoreMenu
-            projectPath={node.project.path}
-            pinned={pinned}
+          <EntryRowContent
+            entry={entry}
+            expanded={expanded}
+            isCurrent={isCurrent}
             selected={selected}
-            forceVisible={!!isDragging || contextMenuOpen}
-            onOpenChange={setMoreMenuOpen}
+            rowHoverLike={rowHoverLike}
+            forceMoreVisible={!!isDragging || contextMenuOpen}
+            onToggleExpand={onToggleOpen}
+            onMoreOpenChange={setMoreMenuOpen}
           />
         </ContextMenuTrigger>
         <ContextMenuContent>
-          <ProjectMenuItems projectPath={node.project.path} pinned={pinned} />
+          <EntryMenuItems entry={entry} />
         </ContextMenuContent>
       </ContextMenu>
       {expanded && (
         <div className="mt-0.5">
-          <ProjectConfigList node={node} />
+          <EntryConfigList entry={entry} />
         </div>
       )}
     </div>
@@ -1318,24 +1377,29 @@ function ProjectFolderIcon({ worktreeOf }: { worktreeOf: string | null }): React
   )
 }
 
-/** 项目下的配置列表 +「检测到的配置」；配置拖拽父容器不含探测行，限位到配置区边缘。 */
-function ProjectConfigList({ node }: { node: ProjectNode }): React.JSX.Element {
+/**
+ * 条目下的配置列表（Project 另有「检测到的配置」；Server 只有命令型）；
+ * 配置拖拽父容器不含探测行，限位到配置区边缘。
+ */
+function EntryConfigList({ entry }: { entry: TreeEntry }): React.JSX.Element {
   const reorderConfigs = useApp((s) => s.reorderConfigs)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
+  const configs: RunConfig[] = entry.node.configs
+  const discovered = entry.kind === 'project' ? entry.node.discovered : []
 
   const handleDragEnd = (e: DragEndEvent): void => {
     const { active, over } = e
     if (!over || active.id === over.id) return
-    const ids = node.configs.map((c) => c.id)
+    const ids = configs.map((c) => c.id)
     const from = ids.indexOf(active.id as string)
     const to = ids.indexOf(over.id as string)
     if (from < 0 || to < 0) return
-    reorderConfigs(node.project.path, arrayMove(ids, from, to))
+    reorderConfigs(entry.key, arrayMove(ids, from, to))
   }
 
   return (
     <>
-      {node.configs.length > 0 && (
+      {configs.length > 0 && (
         <DndContext
           sensors={sensors}
           collisionDetection={closestCenter}
@@ -1345,17 +1409,17 @@ function ProjectConfigList({ node }: { node: ProjectNode }): React.JSX.Element {
           {/* 单独包裹：restrictToParent 的父级不含「检测到的配置」 */}
           <div>
             <SortableContext
-              items={node.configs.map((c) => c.id)}
+              items={configs.map((c) => c.id)}
               strategy={verticalListSortingStrategy}
             >
-              {node.configs.map((c) => (
+              {configs.map((c) => (
                 <SortableConfigRow key={c.id} config={c} />
               ))}
             </SortableContext>
           </div>
         </DndContext>
       )}
-      {node.discovered.length > 0 && <DiscoveredMenu discovered={node.discovered} />}
+      {discovered.length > 0 && <DiscoveredMenu discovered={discovered} />}
     </>
   )
 }
@@ -1414,7 +1478,7 @@ function DiscoveredMenu({ discovered }: { discovered: DiscoveredScript[] }): Rea
                     source: s.source,
                     name: s.name
                   }}
-                  projectPath={s.projectPath}
+                  entryKey={s.projectPath}
                   onAction={() => setOpen(false)}
                 />
               ))}
@@ -1450,7 +1514,7 @@ function SortableConfigRow({ config }: { config: RunConfig }): React.JSX.Element
         label={config.kind === 'referenced' ? config.scriptName : config.name}
         rkey={configKey(config)}
         target={{ type: 'config', id: config.id }}
-        projectPath={config.projectPath}
+        entryKey={configOwnerKey(config)}
         config={config}
         indent
         isDragging={isDragging}
@@ -1463,7 +1527,7 @@ function RunnableRow({
   label,
   rkey,
   target,
-  projectPath,
+  entryKey,
   config,
   indent,
   isDragging,
@@ -1472,7 +1536,8 @@ function RunnableRow({
   label: string
   rkey: string
   target: RunTarget
-  projectPath: string
+  /** 所属左树条目（Project 路径或 `server:<id>`） */
+  entryKey: string
   config?: RunConfig
   indent?: boolean
   isDragging?: boolean
@@ -1520,7 +1585,7 @@ function RunnableRow({
         onClick={(e) => {
           e.stopPropagation()
           onAction?.()
-          run(target, rkey, projectPath)
+          run(target, rkey, entryKey)
         }}
       >
         {running ? <RotateCw className="size-4" /> : <Play className="size-4" />}
@@ -1567,7 +1632,7 @@ function RunnableRow({
     onAction?.()
     // 探测脚本选中即晋升进「我的配置」，不必等运行。
     if (target.type === 'script') selectScript(target.projectPath, target.source, target.name, rkey)
-    else select(rkey, projectPath)
+    else select(rkey, entryKey)
   }
 
   if (!config) {
@@ -1590,13 +1655,13 @@ function RunnableRow({
   )
 }
 
-/** 配置菜单项：⋮ 与右键共用（编辑仅命令型 / 删除）。 */
+/** 配置菜单项：⋮ 与右键共用（编辑仅命令型，本机或服务器上 / 删除）。 */
 function ConfigMenuItems({ config }: { config: RunConfig }): React.JSX.Element {
   const openEditDialog = useApp((s) => s.openEditDialog)
   const deleteConfig = useApp((s) => s.deleteConfig)
   return (
     <>
-      {config.kind === 'command' && (
+      {config.kind !== 'referenced' && (
         <DropdownMenuItem onClick={() => openEditDialog(config)}>
           <Pencil className="size-4" /> 编辑
         </DropdownMenuItem>
@@ -1657,8 +1722,9 @@ function ProjectMenuItems({
 }): React.JSX.Element {
   const openCreateDialog = useApp((s) => s.openCreateDialog)
   const newTerminal = useApp((s) => s.newTerminal)
+  const hasServers = useApp((s) => s.servers.length > 0)
   const removeProject = useApp((s) => s.removeProject)
-  const setProjectPinned = useApp((s) => s.setProjectPinned)
+  const setEntryPinned = useApp((s) => s.setEntryPinned)
   const [openInApps, setOpenInApps] = useState<OpenInAppStatus[] | null>(null)
 
   useEffect(() => {
@@ -1715,10 +1781,21 @@ function ProjectMenuItems({
       <DropdownMenuItem onClick={() => void newTerminal(projectPath)}>
         <Terminal className="size-4" /> 新建终端
       </DropdownMenuItem>
+      {/* 在项目里开一个连到某台服务器的 SSH Terminal（见 docs/prd/ssh-server.md） */}
+      {hasServers && (
+        <DropdownMenuSub>
+          <DropdownMenuSubTrigger>
+            <ServerIcon className="size-4" /> 连接到服务器
+          </DropdownMenuSubTrigger>
+          <DropdownMenuSubContent>
+            <ConnectServerItems ownerKey={projectPath} />
+          </DropdownMenuSubContent>
+        </DropdownMenuSub>
+      )}
       <DropdownMenuItem onClick={() => openCreateDialog(projectPath)}>
         <FilePlusCorner className="size-4" /> 新建配置
       </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => void setProjectPinned(projectPath, !pinned)}>
+      <DropdownMenuItem onClick={() => void setEntryPinned(projectPath, !pinned)}>
         {pinned ? (
           <>
             <PinOff className="size-4" /> 取消置顶
@@ -1736,14 +1813,61 @@ function ProjectMenuItems({
   )
 }
 
-function ProjectMoreMenu({
-  projectPath,
+/** 服务器菜单项：⋮ 与右键共用（新建终端 / 新建配置 / 编辑 / 置顶 / 移除服务器）。 */
+function ServerMenuItems({ node }: { node: ServerNode }): React.JSX.Element {
+  const newSshTerminal = useApp((s) => s.newSshTerminal)
+  const openCreateDialog = useApp((s) => s.openCreateDialog)
+  const openServerDialog = useApp((s) => s.openServerDialog)
+  const setEntryPinned = useApp((s) => s.setEntryPinned)
+  const removeServer = useApp((s) => s.removeServer)
+  const key = serverEntryKey(node.server.id)
+  const pinned = node.server.pinned
+  return (
+    <>
+      <DropdownMenuItem onClick={() => void newSshTerminal(key, node.server.id)}>
+        <Terminal className="size-4" /> 新建终端
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => openCreateDialog(key)}>
+        <FilePlusCorner className="size-4" /> 新建配置
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => openServerDialog(node)}>
+        <Pencil className="size-4" /> 编辑
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => void setEntryPinned(key, !pinned)}>
+        {pinned ? (
+          <>
+            <PinOff className="size-4" /> 取消置顶
+          </>
+        ) : (
+          <>
+            <Pin className="size-4" /> 置顶
+          </>
+        )}
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => void removeServer(node.server.id)}>
+        <Trash2 className="size-4" /> 移除服务器
+      </DropdownMenuItem>
+    </>
+  )
+}
+
+/** 条目菜单项：按条目类型分派到项目菜单或服务器菜单。 */
+function EntryMenuItems({ entry }: { entry: TreeEntry }): React.JSX.Element {
+  return entry.kind === 'project' ? (
+    <ProjectMenuItems projectPath={entry.key} pinned={entry.node.project.pinned} />
+  ) : (
+    <ServerMenuItems node={entry.node} />
+  )
+}
+
+function EntryMoreMenu({
+  entry,
   pinned,
   selected,
   forceVisible,
   onOpenChange
 }: {
-  projectPath: string
+  entry: TreeEntry
   pinned: boolean
   selected?: boolean
   /** 拖拽 / 菜单打开等：等同 hover，恒显 ⋮ */
@@ -1796,7 +1920,7 @@ function ProjectMoreMenu({
           <MoreVertical className="size-4" />
         </DropdownMenuTrigger>
         <DropdownMenuContent>
-          <ProjectMenuItems projectPath={projectPath} pinned={pinned} />
+          <EntryMenuItems entry={entry} />
         </DropdownMenuContent>
       </DropdownMenu>
     </div>

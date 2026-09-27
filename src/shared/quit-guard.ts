@@ -1,9 +1,9 @@
-/** 退出整个应用前的确认条件（仅运行中的 Run Session；Terminal 不计）。 */
+/** 退出整个应用前的确认条件（仅运行中的 Run Session；Terminal 与 SSH Terminal 不计）。 */
 
 import type { SessionStatus } from './types'
 
 export type QuitGuardSession = {
-  kind: 'run' | 'terminal'
+  kind: 'run' | 'terminal' | 'ssh'
   status: SessionStatus
 }
 

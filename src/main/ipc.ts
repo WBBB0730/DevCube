@@ -1,4 +1,6 @@
 import { app, ipcMain, BrowserWindow, clipboard, shell } from 'electron'
+import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { IPC } from '../shared/ipc'
 import { configKey } from '../shared/runnable'
 import { isOpenInAppId } from '../shared/open-in-app'
@@ -8,12 +10,17 @@ import { applySystemIntegration, getSystemIntegrationState } from './system-inte
 import type { DiscoverSource } from '../shared/discover-source'
 import type {
   AppPrefs,
-  CommandRunConfig,
+  EditableRunConfig,
+  EditableRunConfigInput,
   ProjectCloneResult,
   ProjectSortPrefs,
   RunTarget,
+  ServerAddResult,
+  TreeSnapshot,
   WindowsShellOption
 } from '../shared/types'
+import type { AskpassResponse, ServerInput, ServerTestInput } from '../shared/server'
+import { serverEntryKey } from '../shared/tree-entry'
 import { resolveClonePath, type GitCloneInput } from '../shared/git-clone'
 import { listOpenInApps, openInApp } from './open-in-app'
 import {
@@ -29,12 +36,26 @@ import { cwdFromPickedDir, findGitBash, resolveCwd } from './command'
 import {
   createCommandConfig,
   deleteConfig,
+  deleteConfigsOf,
   promoteScript,
   reconcileConfigs,
   reorderConfigs,
   updateCommandConfig
 } from './configs'
-import { pickDirectory } from './dialogs'
+import { pickDirectory, pickFile } from './dialogs'
+import { respondAskpass, setAskpassSink } from './askpass'
+import { passwordUnavailableReason } from './server-secrets'
+import {
+  addServers,
+  cancelServerTest,
+  listServerNodes,
+  listSshConfigHosts,
+  removeServer,
+  testServerConnection,
+  touchServer,
+  updateServer
+} from './servers'
+import { reorderEntries, setEntryPinned } from './tree-order'
 import { cancelClone, checkCloneTarget, runClone } from './git-clone'
 import {
   addProjectByPath,
@@ -42,18 +63,18 @@ import {
   pickAndAddProject,
   rememberProjectParentDir,
   removeProject,
-  reorderProjects,
-  setProjectPinned,
   touchProject
 } from './projects'
 import {
   closeSession,
   disposeSession,
-  disposeTerminalsForProject,
+  disposeSshTerminalsForServer,
+  disposeTerminalsForEntry,
   clearSessionOutput,
   getSessionBuffer,
   getSessions,
   getTerminals,
+  openSshTerminal,
   openTerminal,
   resize,
   run,
@@ -64,7 +85,8 @@ import {
 import {
   deleteFilesUi,
   deleteGitSettings,
-  deleteWorkspaceUiForProject,
+  deleteSshShellsForServer,
+  deleteWorkspaceUiForEntry,
   getConfigs,
   getFilesUi,
   getGitSettings,
@@ -150,6 +172,11 @@ export function emitTree(): void {
   }
 }
 
+/** 左树两类条目的全量快照（跨两类的改动一并返回）。 */
+function treeSnapshot(): TreeSnapshot {
+  return { tree: buildTree(), servers: listServerNodes() }
+}
+
 /** 某项目的仓库内容变化（.git 变动 / git 动作完成）：通知渲染端软刷新其图谱。 */
 function emitGitChanged(projectPath: string): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -182,7 +209,7 @@ export function openProjectFromExternal(path: string): { registered: boolean } {
     win.focus()
     win.webContents.send(IPC.projectExternalOpen, focusPath)
   } else if (mainWindowFactory) {
-    setWorkspaceUi({ ...getWorkspaceUi(), currentProjectPath: focusPath, selectedKey: null })
+    setWorkspaceUi({ ...getWorkspaceUi(), currentEntryKey: focusPath, selectedKey: null })
     mainWindowFactory()
   }
   return { registered }
@@ -306,23 +333,16 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   )
 
   ipcMain.handle(IPC.projectRemove, (_e, path: string) => {
-    // 先销毁该项目名下所有会话（杀进程树 + 清状态），再移除项目。
-    for (const config of getConfigs().filter((c) => c.projectPath === path)) {
-      disposeSession(configKey(config))
-    }
-    disposeTerminalsForProject(path) // 一并杀掉并清除它名下的全部 Terminal
+    // 先删掉该项目名下的配置并销毁其会话（杀进程树 + 清状态），再移除项目。
+    for (const config of deleteConfigsOf(path)) disposeSession(configKey(config))
+    disposeTerminalsForEntry(path) // 一并杀掉并清除它名下的全部 Terminal / SSH Terminal
     removeProject(path)
     deleteGitSettings(path) // 连同它的 git 设置与仓库根缓存
     deleteFilesUi(path)
-    deleteWorkspaceUiForProject(path)
+    deleteWorkspaceUiForEntry(path)
     clearRepoRootCache(path)
     clearProjectWorktreeOf(path)
     refreshWatchers()
-    return buildTree()
-  })
-
-  ipcMain.handle(IPC.projectReorder, (_e, orderedPaths: string[]) => {
-    reorderProjects(orderedPaths)
     return buildTree()
   })
 
@@ -331,9 +351,56 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     return buildTree()
   })
 
-  ipcMain.handle(IPC.projectSetPinned, (_e, path: string, pinned: boolean) => {
-    setProjectPinned(path, pinned)
-    return buildTree()
+  // —— 左树条目（Project 与 Server 混排） ——
+  ipcMain.handle(IPC.entryReorder, (_e, orderedKeys: string[]): TreeSnapshot => {
+    reorderEntries(orderedKeys)
+    return treeSnapshot()
+  })
+
+  ipcMain.handle(IPC.entrySetPinned, (_e, key: string, pinned: boolean): TreeSnapshot => {
+    setEntryPinned(key, pinned)
+    return treeSnapshot()
+  })
+
+  // —— 服务器（Server，ADR-0038） ——
+  ipcMain.handle(IPC.serversGet, () => listServerNodes())
+  ipcMain.handle(IPC.serverSshConfigHosts, () => listSshConfigHosts())
+  ipcMain.handle(IPC.serverAdd, (_e, inputs: ServerInput[]): ServerAddResult => {
+    const focusIds = addServers(inputs)
+    return { servers: listServerNodes(), focusIds }
+  })
+  ipcMain.handle(IPC.serverUpdate, (_e, id: string, input: ServerInput) => {
+    updateServer(id, input)
+    return listServerNodes()
+  })
+  ipcMain.handle(IPC.serverRemove, (_e, id: string) => {
+    // 先删掉它名下的配置并销毁其运行会话、关掉连到它的 SSH Terminal（含开在项目里的），
+    // 再清工作台现场、删登记与记住的密码
+    for (const config of deleteConfigsOf(serverEntryKey(id))) disposeSession(configKey(config))
+    disposeSshTerminalsForServer(id)
+    deleteWorkspaceUiForEntry(serverEntryKey(id))
+    deleteSshShellsForServer(id)
+    removeServer(id)
+    return listServerNodes()
+  })
+  ipcMain.handle(IPC.serverTouch, (_e, id: string) => {
+    touchServer(id)
+    return listServerNodes()
+  })
+  ipcMain.handle(IPC.serverPasswordUnavailableReason, () => passwordUnavailableReason())
+  ipcMain.handle(IPC.serverPickIdentityFile, () => pickFile(join(homedir(), '.ssh'), mainWindow))
+  ipcMain.handle(IPC.serverTest, (_e, input: ServerTestInput) => testServerConnection(input))
+  ipcMain.handle(IPC.serverTestCancel, () => cancelServerTest())
+  ipcMain.on(IPC.askpassRespond, (_e, response: AskpassResponse) => respondAskpass(response))
+  setAskpassSink({
+    request: (request) => {
+      const win = liveMainWindow()
+      // 没有主窗口就没人能回答：直接取消，ssh 随即按放弃处理
+      if (win) win.webContents.send(IPC.askpassRequest, request)
+      else respondAskpass({ id: request.id, answer: null, remember: false })
+    },
+    dismiss: (id) => liveMainWindow()?.webContents.send(IPC.askpassDismiss, id),
+    passwordSaved: () => liveMainWindow()?.webContents.send(IPC.serversChanged, listServerNodes())
   })
 
   ipcMain.handle(IPC.projectSortPrefsGet, () => getProjectSortPrefs())
@@ -369,7 +436,7 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
       promoteScript(target.projectPath, target.source, target.name)
       emitTree()
     }
-    run(target)
+    return run(target)
   })
   ipcMain.handle(IPC.stop, (_e, key: string) => stop(key))
   ipcMain.on(IPC.stdin, (_e, key: string, data: string) => writeStdin(key, data))
@@ -381,6 +448,9 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   // —— 终端（Terminal，自由 shell）与 Tab 关闭 ——
   ipcMain.handle(IPC.terminalOpen, (_e, projectPath: string, key?: string, cwd?: string) =>
     openTerminal(projectPath, key, cwd)
+  )
+  ipcMain.handle(IPC.sshTerminalOpen, (_e, ownerKey: string, serverId: string, key?: string) =>
+    openSshTerminal(ownerKey, serverId, key)
   )
   // 用户关闭 Tab（Run Session / Terminal 通用）：温和停止 + 弃会话 + 通知渲染端移除 Tab。
   ipcMain.handle(IPC.sessionClose, (_e, key: string) => closeSession(key))
@@ -401,28 +471,28 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     }
   )
 
-  // —— 命令型配置 CRUD ——
-  ipcMain.handle(IPC.configCreate, (_e, input: Omit<CommandRunConfig, 'id' | 'kind'>) => {
+  // —— 命令型配置 CRUD（本机或服务器上；返回两类条目的快照） ——
+  ipcMain.handle(IPC.configCreate, (_e, input: EditableRunConfigInput): TreeSnapshot => {
     createCommandConfig(input)
-    return buildTree()
+    return treeSnapshot()
   })
 
-  ipcMain.handle(IPC.configUpdate, (_e, config: CommandRunConfig) => {
+  ipcMain.handle(IPC.configUpdate, (_e, config: EditableRunConfig): TreeSnapshot => {
     updateCommandConfig(config)
-    return buildTree()
+    return treeSnapshot()
   })
 
-  ipcMain.handle(IPC.configDelete, (_e, id: string) => {
+  ipcMain.handle(IPC.configDelete, (_e, id: string): TreeSnapshot => {
     // 删除前销毁其会话（杀进程树 + 清状态）。
     const config = getConfigs().find((c) => c.id === id)
     if (config) disposeSession(configKey(config))
     deleteConfig(id)
-    return buildTree()
+    return treeSnapshot()
   })
 
-  ipcMain.handle(IPC.configReorder, (_e, projectPath: string, orderedIds: string[]) => {
-    reorderConfigs(projectPath, orderedIds)
-    return buildTree()
+  ipcMain.handle(IPC.configReorder, (_e, ownerKey: string, orderedIds: string[]): TreeSnapshot => {
+    reorderConfigs(ownerKey, orderedIds)
+    return treeSnapshot()
   })
 
   ipcMain.handle(IPC.configPickCwd, async (_e, projectPath: unknown, currentCwd: unknown) => {

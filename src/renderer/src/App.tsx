@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react'
 import { ProjectTree } from '@renderer/components/ProjectTree'
 import { Console } from '@renderer/components/Console'
+import { AskpassDialog } from '@renderer/components/AskpassDialog'
 import { CloneProjectDialog } from '@renderer/components/CloneProjectDialog'
 import { ConfigDialog } from '@renderer/components/ConfigDialog'
+import { ServerDialog } from '@renderer/components/ServerDialog'
 import { ContentSearchPanel } from '@renderer/components/ContentSearchPanel'
 import { AppTitleBar } from '@renderer/components/AppTitleBar'
 import { SettingsDialog } from '@renderer/components/SettingsDialog'
@@ -11,57 +13,68 @@ import { orderedTabKeys, resolveTabs, useApp } from '@renderer/store'
 import { gitState, useGit } from '@renderer/git-store'
 import type { AppShortcut } from '@shared/app-shortcut'
 import type { AppUpdateState } from '@shared/app-update-state'
-import { filterProjectNodes, sortProjectNodes } from '@shared/project-sort'
+import { filterTreeEntries, sortTreeEntries } from '@shared/project-sort'
 import { isResidentTabKey } from '@shared/runnable'
+import {
+  buildTreeEntries,
+  entryItem,
+  isServerEntryKey,
+  serverIdOfEntryKey
+} from '@shared/tree-entry'
 import { GIT_DEFAULTS } from '@shared/git'
 
-// 在当前项目的全部 Tab（Git + Files + 运行会话 + 终端）间循环。dir: +1 下一个 / -1 上一个。
-function cycleTab(projectPath: string, dir: 1 | -1): void {
+// 在当前条目的全部 Tab（Git + Files + 运行会话 + 终端）间循环。dir: +1 下一个 / -1 上一个。
+function cycleTab(entryKey: string, dir: 1 | -1): void {
   const st = useApp.getState()
-  const ordered = orderedTabKeys(st, projectPath)
+  const ordered = orderedTabKeys(st, entryKey)
   if (ordered.length === 0) return
-  const { activeKey } = resolveTabs(st, projectPath)
-  const idx = ordered.indexOf(activeKey)
+  const { activeKey } = resolveTabs(st, entryKey)
+  const idx = activeKey === null ? -1 : ordered.indexOf(activeKey)
   const next =
     idx < 0
       ? dir === 1
         ? ordered[0]
         : ordered[ordered.length - 1]
       : ordered[(idx + dir + ordered.length) % ordered.length]
-  st.activateTab(projectPath, next)
+  st.activateTab(entryKey, next)
 }
 
-/** 直达当前项目第 n 个 Tab（1-based）；越界则忽略。 */
-function activateTabAt(projectPath: string, index1: number): void {
+/** 直达当前条目第 n 个 Tab（1-based）；越界则忽略。 */
+function activateTabAt(entryKey: string, index1: number): void {
   const st = useApp.getState()
-  const key = orderedTabKeys(st, projectPath)[index1 - 1]
-  if (key) st.activateTab(projectPath, key)
+  const key = orderedTabKeys(st, entryKey)[index1 - 1]
+  if (key) st.activateTab(entryKey, key)
 }
 
 /**
- * 在左树当前可见序（排序 + 筛选，含 Pin 分区）上切换项目。
+ * 在左树当前可见序（排序 + 筛选，含 Pin 分区）上切换条目（Project / Server）。
  * dir: -1 上一项 / +1 下一项；循环；滚入视口。
  */
-function cycleProject(dir: 1 | -1): void {
+function cycleEntry(dir: 1 | -1): void {
   const st = useApp.getState()
-  const nodes = filterProjectNodes(sortProjectNodes(st.tree, st.projectSortPrefs), st.projectFilter)
-  if (nodes.length === 0) return
-  const idx = nodes.findIndex((n) => n.project.path === st.currentProjectPath)
+  const entries = filterTreeEntries(
+    sortTreeEntries(buildTreeEntries(st.tree, st.servers), st.projectSortPrefs),
+    st.projectFilter,
+    st.projectSortPrefs
+  )
+  if (entries.length === 0) return
+  const idx = entries.findIndex((e) => e.key === st.currentEntryKey)
   const next =
     idx < 0
       ? dir === 1
-        ? nodes[0]
-        : nodes[nodes.length - 1]
-      : nodes[(idx + dir + nodes.length) % nodes.length]
-  const path = next.project.path
-  if (path === st.currentProjectPath) return
-  st.selectProject(path)
-  useApp.setState({ scrollToProjectPath: path })
+        ? entries[0]
+        : entries[entries.length - 1]
+      : entries[(idx + dir + entries.length) % entries.length]
+  if (next.key === st.currentEntryKey) return
+  st.selectEntry(next.key)
+  useApp.setState({ scrollToEntryKey: next.key })
 }
 
 function handleAppShortcut(shortcut: AppShortcut): void {
   const st = useApp.getState()
-  const proj = st.currentProjectPath
+  const entry = st.currentEntryKey
+  // Files / Git / 内容搜索只对 Project 有意义；Server 条目没有这些
+  const proj = entry !== null && !isServerEntryKey(entry) ? entry : null
 
   switch (shortcut.id) {
     case 'focusProjectFilter':
@@ -77,35 +90,40 @@ function handleAppShortcut(shortcut: AppShortcut): void {
       if (proj) useFiles.getState().openRecentMenu(proj)
       return
     case 'prevProject':
-      cycleProject(-1)
+      cycleEntry(-1)
       return
     case 'nextProject':
-      cycleProject(1)
+      cycleEntry(1)
       return
     case 'prevTab':
-      if (proj) cycleTab(proj, -1)
+      if (entry) cycleTab(entry, -1)
       return
     case 'nextTab':
-      if (proj) cycleTab(proj, 1)
+      if (entry) cycleTab(entry, 1)
       return
     case 'tabAt':
-      if (proj) activateTabAt(proj, shortcut.index)
+      if (entry) activateTabAt(entry, shortcut.index)
       return
-    case 'newTerminal':
-      if (proj) void st.newTerminal(proj)
+    case 'newTerminal': {
+      if (!entry) return
+      // Server 条目的「新建终端」即再开一个连到它的 SSH Terminal
+      const serverId = serverIdOfEntryKey(entry)
+      if (serverId === null) void st.newTerminal(entry)
+      else void st.newSshTerminal(entry, serverId)
       return
+    }
     case 'closeTab': {
-      // 有当前项目即吞掉（主进程已 preventDefault），避免落到系统 Cmd+W 关窗。
-      if (!proj) return
-      const { activeKey } = resolveTabs(st, proj)
-      if (!isResidentTabKey(activeKey)) void st.closeTab(activeKey)
+      // 有当前条目即吞掉（主进程已 preventDefault），避免落到系统 Cmd+W 关窗。
+      if (!entry) return
+      const { activeKey } = resolveTabs(st, entry)
+      if (activeKey !== null && !isResidentTabKey(activeKey)) void st.closeTab(activeKey)
       return
     }
     case 'cycleTabNext':
-      if (proj) cycleTab(proj, 1)
+      if (entry) cycleTab(entry, 1)
       return
     case 'cycleTabPrev':
-      if (proj) cycleTab(proj, -1)
+      if (entry) cycleTab(entry, -1)
       return
   }
 }
@@ -113,21 +131,27 @@ function handleAppShortcut(shortcut: AppShortcut): void {
 function App(): React.JSX.Element {
   const init = useApp((s) => s.init)
   const dialog = useApp((s) => s.dialog)
-  // 当前项目名（无当前项目 / 树里暂未找到则为 null）；驱动窗口标题。
-  const projectName = useApp((s) =>
-    s.currentProjectPath
-      ? (s.tree.find((n) => n.project.path === s.currentProjectPath)?.project.name ?? null)
-      : null
-  )
+  const serverDialog = useApp((s) => s.serverDialog)
+  const askpass = useApp((s) => s.askpassQueue[0] ?? null)
+  // 当前条目名（无当前条目 / 暂未找到则为 null）；驱动窗口标题。
+  const entryName = useApp((s) => {
+    const key = s.currentEntryKey
+    if (key === null) return null
+    const entry = buildTreeEntries(s.tree, s.servers).find((e) => e.key === key)
+    return entry ? entryItem(entry).name : null
+  })
 
-  const windowTitle = projectName ? `${projectName} — DevCube` : 'DevCube'
+  const windowTitle = entryName ? `${entryName} — DevCube` : 'DevCube'
 
   // 窗口标题跟随当前选中的项目（主进程未固定 title、未拦 page-title-updated，document.title 会自动反映）。
   useEffect(() => {
     document.title = windowTitle
   }, [windowTitle])
 
-  const currentProjectPath = useApp((s) => s.currentProjectPath)
+  // 当前条目若是 Project 即其路径（Git 预加载、内容搜索只对 Project）
+  const currentProjectPath = useApp((s) =>
+    s.currentEntryKey !== null && !isServerEntryKey(s.currentEntryKey) ? s.currentEntryKey : null
+  )
   const contentSearchOpen = useApp((s) => s.contentSearchOpen)
   const cloneDialogOpen = useApp((s) => s.cloneDialogOpen)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -136,6 +160,16 @@ function App(): React.JSX.Element {
   useEffect(() => {
     void init()
     const offTree = window.api.onTreeChanged((tree) => useApp.getState().setTree(tree))
+    const offServers = window.api.onServersChanged((servers) =>
+      useApp.getState().setServers(servers)
+    )
+    // ssh 的提问（主机指纹确认、密码、口令、验证码）：排队弹窗；连接已结束的提问随之撤掉。
+    const offAskpass = window.api.onAskpassRequest((request) =>
+      useApp.getState().enqueueAskpass(request)
+    )
+    const offAskpassDismiss = window.api.onAskpassDismiss((id) =>
+      useApp.getState().dismissAskpass(id)
+    )
     const offStatus = window.api.onSessionStatus((s) => useApp.getState().setSession(s))
     const offRemoved = window.api.onSessionRemoved((key) =>
       useApp.getState().handleSessionRemoved(key)
@@ -155,6 +189,9 @@ function App(): React.JSX.Element {
     void window.api.getAppUpdateState().then(setUpdate)
     return () => {
       offTree()
+      offServers()
+      offAskpass()
+      offAskpassDismiss()
       offStatus()
       offRemoved()
       offGit()
@@ -180,8 +217,10 @@ function App(): React.JSX.Element {
   useEffect(() => {
     if (!gitAutoFetch) return
     const timer = setInterval(() => {
-      const projectPath = useApp.getState().currentProjectPath
-      if (projectPath) void useGit.getState().refresh(projectPath, { suppressErrorBox: true })
+      const entryKey = useApp.getState().currentEntryKey
+      if (entryKey !== null && !isServerEntryKey(entryKey)) {
+        void useGit.getState().refresh(entryKey, { suppressErrorBox: true })
+      }
     }, GIT_DEFAULTS.autoFetchIntervalMs)
     return () => clearInterval(timer)
   }, [gitAutoFetch])
@@ -199,6 +238,8 @@ function App(): React.JSX.Element {
         <Console />
       </div>
       {dialog.open && <ConfigDialog key={dialog.config?.id ?? 'new'} />}
+      {serverDialog.open && <ServerDialog key={serverDialog.server?.server.id ?? 'new'} />}
+      {askpass && <AskpassDialog key={askpass.id} request={askpass} />}
       {cloneDialogOpen && <CloneProjectDialog />}
       {contentSearchOpen && currentProjectPath && (
         <ContentSearchPanel

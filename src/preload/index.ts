@@ -2,7 +2,7 @@ import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import { electronAPI } from '@electron-toolkit/preload'
 import { IPC } from '../shared/ipc'
 import type { RendererBootstrap } from '../shared/renderer-bootstrap'
-import type { CommandRunConfig, RunAPI, RunTarget } from '../shared/types'
+import type { RunAPI, RunTarget } from '../shared/types'
 import type { GitAction, GitDetailsRequest, GitDiffRequest, GitLoadOptions } from '../shared/git'
 
 function subscribe<T>(channel: string, cb: (arg: T) => void): () => void {
@@ -26,9 +26,9 @@ const api: RunAPI = {
     ipcRenderer.invoke(IPC.projectCloneCheckTarget, parentDir, name),
   onProjectCloneProgress: (cb) => subscribe(IPC.projectCloneProgress, cb),
   removeProject: (path) => ipcRenderer.invoke(IPC.projectRemove, path),
-  reorderProjects: (orderedPaths) => ipcRenderer.invoke(IPC.projectReorder, orderedPaths),
+  reorderEntries: (orderedKeys) => ipcRenderer.invoke(IPC.entryReorder, orderedKeys),
   touchProject: (path) => ipcRenderer.invoke(IPC.projectTouch, path),
-  setProjectPinned: (path, pinned) => ipcRenderer.invoke(IPC.projectSetPinned, path, pinned),
+  setEntryPinned: (key, pinned) => ipcRenderer.invoke(IPC.entrySetPinned, key, pinned),
   getProjectSortPrefs: () => ipcRenderer.invoke(IPC.projectSortPrefsGet),
   setProjectSortPrefs: (patch) => ipcRenderer.invoke(IPC.projectSortPrefsSet, patch),
   getAppPrefs: () => ipcRenderer.invoke(IPC.appPrefsGet),
@@ -37,6 +37,21 @@ const api: RunAPI = {
   pickDirectory: (defaultPath) => ipcRenderer.invoke(IPC.pickDirectory, defaultPath),
   readClipboardText: () => ipcRenderer.invoke(IPC.clipboardReadText),
   getWindowsShellOptions: () => ipcRenderer.invoke(IPC.windowsShellOptions),
+
+  getServers: () => ipcRenderer.invoke(IPC.serversGet),
+  listSshConfigHosts: () => ipcRenderer.invoke(IPC.serverSshConfigHosts),
+  addServers: (inputs) => ipcRenderer.invoke(IPC.serverAdd, inputs),
+  updateServer: (id, input) => ipcRenderer.invoke(IPC.serverUpdate, id, input),
+  removeServer: (id) => ipcRenderer.invoke(IPC.serverRemove, id),
+  touchServer: (id) => ipcRenderer.invoke(IPC.serverTouch, id),
+  getPasswordUnavailableReason: () => ipcRenderer.invoke(IPC.serverPasswordUnavailableReason),
+  pickSshIdentityFile: () => ipcRenderer.invoke(IPC.serverPickIdentityFile),
+  testServerConnection: (input) => ipcRenderer.invoke(IPC.serverTest, input),
+  cancelServerTest: () => ipcRenderer.invoke(IPC.serverTestCancel),
+  onServersChanged: (cb) => subscribe(IPC.serversChanged, cb),
+  onAskpassRequest: (cb) => subscribe(IPC.askpassRequest, cb),
+  onAskpassDismiss: (cb) => subscribe(IPC.askpassDismiss, cb),
+  respondAskpass: (response) => ipcRenderer.send(IPC.askpassRespond, response),
 
   run: (target: RunTarget) => ipcRenderer.invoke(IPC.run, target),
   stop: (key) => ipcRenderer.invoke(IPC.stop, key),
@@ -49,17 +64,18 @@ const api: RunAPI = {
 
   openTerminal: (projectPath, key, cwd) =>
     ipcRenderer.invoke(IPC.terminalOpen, projectPath, key, cwd),
+  openSshTerminal: (ownerKey, serverId, key) =>
+    ipcRenderer.invoke(IPC.sshTerminalOpen, ownerKey, serverId, key),
   closeSession: (key) => ipcRenderer.invoke(IPC.sessionClose, key),
   getTerminals: () => ipcRenderer.invoke(IPC.terminals),
   getWorkspaceUi: () => ipcRenderer.invoke(IPC.workspaceUiGet),
   setWorkspaceUi: (state) => ipcRenderer.invoke(IPC.workspaceUiSet, state),
 
-  createCommandConfig: (input: Omit<CommandRunConfig, 'id' | 'kind'>) =>
-    ipcRenderer.invoke(IPC.configCreate, input),
+  createCommandConfig: (input) => ipcRenderer.invoke(IPC.configCreate, input),
   updateCommandConfig: (config) => ipcRenderer.invoke(IPC.configUpdate, config),
   deleteConfig: (id) => ipcRenderer.invoke(IPC.configDelete, id),
-  reorderConfigs: (projectPath, orderedIds) =>
-    ipcRenderer.invoke(IPC.configReorder, projectPath, orderedIds),
+  reorderConfigs: (ownerKey, orderedIds) =>
+    ipcRenderer.invoke(IPC.configReorder, ownerKey, orderedIds),
   pickConfigCwd: (projectPath, currentCwd) =>
     ipcRenderer.invoke(IPC.configPickCwd, projectPath, currentCwd),
   promoteScript: (projectPath, source, scriptName) =>

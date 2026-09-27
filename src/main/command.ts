@@ -62,6 +62,21 @@ function splitPathEnv(pathEnv: string): string[] {
   return pathEnv.split(':').filter(Boolean)
 }
 
+/** 按 PATH 顺序找可执行文件（Windows 补 `.exe`），与用户终端里敲命令时找到的是同一个；找不到返回 null。 */
+export function findOnPath(
+  name: string,
+  env: NodeJS.ProcessEnv = process.env,
+  exists: (path: string) => boolean = existsSync,
+  platform: NodeJS.Platform = process.platform
+): string | null {
+  const file = platform === 'win32' && !/\.exe$/i.test(name) ? `${name}.exe` : name
+  for (const dir of splitPathEnv(env.Path ?? env.PATH ?? '')) {
+    const candidate = join(dir, file)
+    if (exists(candidate)) return candidate
+  }
+  return null
+}
+
 /** 给定 Git for Windows 安装根，优先 bin\\bash.exe，其次 usr\\bin\\bash.exe。 */
 function bashUnderGitRoot(gitRoot: string, exists: (path: string) => boolean): string | null {
   for (const rel of ['bin/bash.exe', 'usr/bin/bash.exe']) {
@@ -161,10 +176,40 @@ export function wrapWithRunHeader(command: string, cwd: string, shell: RunHeader
     const header = `\x1b[90m${cwd} $\x1b[0m \x1b[1m${command}\x1b[0m`
     return `echo ${`"${header.replace(/"/g, '""')}"`}&${command}`
   }
+  return `${shRunHeader(cwd, command)}; ${command}`
+}
+
+/** sh 风格的运行头：灰色「目录 $」+ 加粗命令（本机 sh 族与服务器上共用）。 */
+function shRunHeader(cwd: string, command: string): string {
   return (
     `printf '\\033[90m%s $\\033[0m \\033[1m%s\\033[0m\\n' ` +
-    `${shSingleQuote(cwd)} ${shSingleQuote(command)}; ${command}`
+    `${shSingleQuote(cwd)} ${shSingleQuote(command)}`
   )
+}
+
+/** 服务器上的 cd 目标：`~` 与 `~/…` 保留波浪线展开，其余整体加引号。 */
+function remoteCdTarget(cwd: string): string {
+  if (cwd === '~') return '~'
+  if (cwd.startsWith('~/')) return `~/${shSingleQuote(cwd.slice(2))}`
+  return shSingleQuote(cwd)
+}
+
+/**
+ * 服务器上的命令型配置交给远端登录 shell 执行的命令串（按 POSIX sh 语法）：
+ * 先由远端 shell 打印运行头（同 ADR-0023，头由执行命令的 shell 打印），再进工作目录、
+ * 导出环境变量、执行命令；任一步失败即停。工作目录缺省时头里显示 `~`（登录后的目录）。
+ */
+export function buildRemoteRunCommand(
+  command: string,
+  cwd: string | undefined,
+  env: Record<string, string> | undefined
+): string {
+  const steps = [
+    ...(cwd ? [`cd ${remoteCdTarget(cwd)}`] : []),
+    ...Object.entries(env ?? {}).map(([key, value]) => `export ${key}=${shSingleQuote(value)}`),
+    command
+  ]
+  return `${shRunHeader(cwd || '~', command)}; ${steps.join(' && ')}`
 }
 
 /** WindowsShell / posix → 运行头包装所用的 shell 族。 */

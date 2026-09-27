@@ -1,7 +1,8 @@
 import { randomUUID } from 'node:crypto'
 import { discoverRefKey } from '../shared/discover-key'
 import type { DiscoverSource } from '../shared/discover-source'
-import type { CommandRunConfig, RunConfig } from '../shared/types'
+import { configOwnerKey } from '../shared/tree-entry'
+import type { EditableRunConfig, EditableRunConfigInput, RunConfig } from '../shared/types'
 import {
   liveReferencedKeys,
   readFingerprintsForReconcile,
@@ -75,14 +76,14 @@ export function reconcileConfigs(): RunConfig[] {
   return removed
 }
 
-/** 新建一条命令型配置。 */
-export function createCommandConfig(input: Omit<CommandRunConfig, 'id' | 'kind'>): void {
-  const config: CommandRunConfig = { ...input, id: randomUUID(), kind: 'command' }
+/** 新建一条命令型配置（本机或服务器上）。 */
+export function createCommandConfig(input: EditableRunConfigInput): void {
+  const config: EditableRunConfig = { ...input, id: randomUUID() }
   setConfigs([...getConfigs(), config])
 }
 
-/** 覆盖更新一条命令型配置。 */
-export function updateCommandConfig(config: CommandRunConfig): void {
+/** 覆盖更新一条命令型配置（本机或服务器上）。 */
+export function updateCommandConfig(config: EditableRunConfig): void {
   setConfigs(getConfigs().map((c) => (c.id === config.id ? config : c)))
 }
 
@@ -91,13 +92,24 @@ export function deleteConfig(id: string): void {
   setConfigs(getConfigs().filter((c) => c.id !== id))
 }
 
-/** 重排某项目下的配置顺序。其它项目的配置相对顺序不变（buildTree 按项目过滤，跨项目顺序无关紧要）。 */
-export function reorderConfigs(projectPath: string, orderedIds: string[]): void {
+/**
+ * 重排某左树条目（Project / Server）下的配置顺序。其它条目的配置相对顺序不变
+ * （树与服务器列表都按条目过滤，跨条目顺序无关紧要）。
+ */
+export function reorderConfigs(ownerKey: string, orderedIds: string[]): void {
   const configs = getConfigs()
   const byId = new Map(configs.map((c) => [c.id, c]))
   const reordered = orderedIds
     .map((id) => byId.get(id))
-    .filter((c): c is RunConfig => !!c && c.projectPath === projectPath)
-  const others = configs.filter((c) => c.projectPath !== projectPath)
+    .filter((c): c is RunConfig => !!c && configOwnerKey(c) === ownerKey)
+  const others = configs.filter((c) => configOwnerKey(c) !== ownerKey)
   setConfigs([...others, ...reordered])
+}
+
+/** 移除左树条目（Project / Server）时删掉它名下的全部配置；返回被删的配置（供调用方销毁其会话）。 */
+export function deleteConfigsOf(ownerKey: string): RunConfig[] {
+  const configs = getConfigs()
+  const removed = configs.filter((c) => configOwnerKey(c) === ownerKey)
+  if (removed.length) setConfigs(configs.filter((c) => configOwnerKey(c) !== ownerKey))
+  return removed
 }

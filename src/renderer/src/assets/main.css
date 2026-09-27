@@ -453,7 +453,7 @@
   }
 
   /* 左树拖拽中：其它元素不响应 :hover（dnd 仍靠指针坐标做碰撞，不依赖元素 pointer-events） */
-  [data-project-tree]:has([data-dragging-project]) *,
+  [data-project-tree]:has([data-dragging-entry]) *,
   [data-project-tree]:has([data-dragging-config]) * {
     pointer-events: none;
   }

@@ -14,6 +14,16 @@ import type { GitCloneInput, GitCloneProgress, GitCloneTargetState } from './git
 import type { OpenInAppId, OpenInAppResult, OpenInAppStatus } from './open-in-app'
 import type { RendererBootstrap } from './renderer-bootstrap'
 import type {
+  AskpassRequest,
+  AskpassResponse,
+  Server,
+  ServerInput,
+  ServerNode,
+  ServerTestInput,
+  ServerTestResult,
+  SshConfigHost
+} from './server'
+import type {
   SystemIntegrationApplyResult,
   SystemIntegrationFeatureId,
   SystemIntegrationState
@@ -37,6 +47,8 @@ export interface Project {
   lastOpenedAt: number | null
   /** 是否 Pin（置顶）；老档案缺省为 false */
   pinned: boolean
+  /** 左树自定义序（与 Server 共用一条序列，小的在前）；老档案缺省时读取层按数组序补齐 */
+  order: number
 }
 
 /** 左树项目列表的排序方式。 */
@@ -51,13 +63,18 @@ export interface ProjectSortPrefs {
   direction: ProjectSortDirection
   /** 已 Pin 项目行是否叠放吸顶；关则置顶/未置顶均按当前段吸顶（视口最上一项）。默认开。 */
   pinSticky: boolean
+  /** 按类型筛选：是否显示 Project / Server；至少保留一类。默认都显示。 */
+  showProjects: boolean
+  showServers: boolean
 }
 
 /** 默认：添加时间倒序（新→旧）。已持久化的偏好不被覆盖。 */
 export const DEFAULT_PROJECT_SORT_PREFS: ProjectSortPrefs = {
   mode: 'addedAt',
   direction: 'desc',
-  pinSticky: true
+  pinSticky: true,
+  showProjects: true,
+  showServers: true
 }
 
 /** Windows 上 Terminal / Run Session 共用的 shell 偏好。 */
@@ -123,11 +140,36 @@ export interface CommandRunConfig {
   env?: Record<string, string>
 }
 
-export type RunConfig = ReferencedRunConfig | CommandRunConfig
+/**
+ * 命令型（服务器上）：属于某台 Server 的命令型配置，经 ssh 在服务器上执行（ADR-0038）。
+ * 字段同命令型，只是工作目录是服务器上的目录（缺省即登录后的目录），环境变量在服务器端导出。
+ */
+export interface RemoteRunConfig {
+  id: string
+  kind: 'remote'
+  serverId: string
+  name: string
+  command: string
+  /** 服务器上的目录；绝对路径或 `~` 开头，缺省即登录后的目录 */
+  cwd?: string
+  env?: Record<string, string>
+}
+
+export type RunConfig = ReferencedRunConfig | CommandRunConfig | RemoteRunConfig
+
+/** 用户可编辑的配置（命令型，本机或服务器上）。 */
+export type EditableRunConfig = CommandRunConfig | RemoteRunConfig
+
+/** 新建 / 编辑配置的提交内容（不含 id）。 */
+export type EditableRunConfigInput = Omit<CommandRunConfig, 'id'> | Omit<RemoteRunConfig, 'id'>
 
 /** 落盘的持久化状态（存于 electron-store 的 JSON）。 */
 export interface PersistedState {
   projects: Project[]
+  /** 已登记的服务器（ADR-0038） */
+  servers: Server[]
+  /** 记住的服务器密码：键 = 服务器 id，值 = safeStorage 密文的 base64（不下发渲染端） */
+  serverSecrets: Record<string, string>
   configs: RunConfig[]
   /** 每项目 git 设置（键 = 项目绝对路径；存的是覆写快照，读取时与默认值合并） */
   gitSettings: Record<string, GitRepoSettings>
@@ -154,6 +196,18 @@ export interface ProjectNode {
    * 主工作树 / 非仓库 / 主进程尚未解析 gitdir 时为 null
    */
   worktreeOf: string | null
+}
+
+/** 左树两类条目的全量快照：改动跨两类的操作（混排重排、Pin）一并返回。 */
+export interface TreeSnapshot {
+  tree: ProjectNode[]
+  servers: ServerNode[]
+}
+
+/** 添加服务器的结果：最新列表 + 新登记（或已存在而命中）的服务器 id，供选中与滚入视口。 */
+export interface ServerAddResult {
+  servers: ServerNode[]
+  focusIds: string[]
 }
 
 /** 添加 / 新建 / 拖入项目的结果：树 + 应聚焦的路径（取消或无效则为 null）。 */
@@ -207,12 +261,14 @@ export interface SessionBufferSnapshot {
   rows: number
 }
 
-/** 一个活跃 Terminal（自由 shell）的最小信息，供渲染端重建其 Tab（术语见 CONTEXT.md）。 */
+/** 一个活跃 Terminal / SSH Terminal 的最小信息，供渲染端重建其 Tab（术语见 CONTEXT.md）。 */
 export interface TerminalInfo {
-  /** 会话唯一键（`terminal:<uuid>`），与 Run Session 共用同一套输出/输入/缓冲通道 */
+  /** 会话唯一键（`terminal:<uuid>` / `ssh:<uuid>`），与 Run Session 共用同一套输出/输入/缓冲通道 */
   key: string
-  /** 所属项目绝对路径 —— 决定 cwd 与它归属的 Tab 栏 */
-  projectPath: string
+  /** 所属左树条目的键（Project 路径或 `server:<id>`）—— 决定它归属的 Tab 栏 */
+  ownerKey: string
+  /** SSH Terminal 所连服务器；本地 Terminal 缺省 */
+  serverId?: string
 }
 
 /** preload 经 contextBridge 暴露给渲染端的 API。随 slice 逐步实现；Git 部分见 GitAPI。 */
@@ -236,12 +292,12 @@ export interface RunAPI extends GitAPI {
   checkCloneTarget(parentDir: string, name: string): Promise<GitCloneTargetState>
   onProjectCloneProgress(cb: (progress: GitCloneProgress) => void): () => void
   removeProject(path: string): Promise<ProjectNode[]>
-  /** 重排项目列表顺序（自定义排序的落盘顺序） */
-  reorderProjects(orderedPaths: string[]): Promise<ProjectNode[]>
+  /** 重排左树条目（Project 与 Server 混排）的自定义序：按条目键顺序落盘 */
+  reorderEntries(orderedKeys: string[]): Promise<TreeSnapshot>
   /** 记录「打开」某项目（更新 lastOpenedAt） */
   touchProject(path: string): Promise<ProjectNode[]>
-  /** 设置 Project 的 Pin；置顶/取消后进入目标区块开头 */
-  setProjectPinned(path: string, pinned: boolean): Promise<ProjectNode[]>
+  /** 设置左树条目（Project / Server）的 Pin；置顶/取消后进入目标区块开头 */
+  setEntryPinned(key: string, pinned: boolean): Promise<TreeSnapshot>
   getProjectSortPrefs(): Promise<ProjectSortPrefs>
   setProjectSortPrefs(patch: Partial<ProjectSortPrefs>): Promise<ProjectSortPrefs>
   getAppPrefs(): Promise<AppPrefs>
@@ -253,6 +309,33 @@ export interface RunAPI extends GitAPI {
   readClipboardText(): Promise<string>
   /** Windows：列出 shell 选项及是否可用（非 win32 仍可调用，git-bash 通常为 false） */
   getWindowsShellOptions(): Promise<WindowsShellOption[]>
+
+  // —— 服务器（Server，ADR-0038） ——
+  getServers(): Promise<ServerNode[]>
+  /** `~/.ssh/config`（含 Include）里可直接连接的主机，连接信息按 `ssh -G` 解析 */
+  listSshConfigHosts(): Promise<SshConfigHost[]>
+  /** 登记服务器；同一 `~/.ssh/config` 别名不重复登记，命中即返回其 id */
+  addServers(inputs: ServerInput[]): Promise<ServerAddResult>
+  updateServer(id: string, input: ServerInput): Promise<ServerNode[]>
+  /** 移除服务器：关闭连到它的全部 SSH Terminal，删除记住的密码 */
+  removeServer(id: string): Promise<ServerNode[]>
+  /** 记录「打开」某服务器（更新 lastOpenedAt） */
+  touchServer(id: string): Promise<ServerNode[]>
+  /** 「记住密码」为什么不可用（没有可用的系统钥匙串）；可用时为 null */
+  getPasswordUnavailableReason(): Promise<string | null>
+  /** 选择私钥文件（默认定位到 `~/.ssh`）；取消返回 null */
+  pickSshIdentityFile(): Promise<string | null>
+  /** 测试连接：登录后立即退出；同一时刻只测一个，新测试会取消旧的 */
+  testServerConnection(input: ServerTestInput): Promise<ServerTestResult>
+  /** 取消进行中的测试连接（对话框关闭时） */
+  cancelServerTest(): Promise<void>
+  /** 主进程改了服务器列表（如移除后）时推送 */
+  onServersChanged(cb: (servers: ServerNode[]) => void): () => void
+  /** ssh 的一次提问需要用户回答 */
+  onAskpassRequest(cb: (request: AskpassRequest) => void): () => void
+  /** 某次提问已失效（连接已结束），渲染端应关掉对应弹窗 */
+  onAskpassDismiss(cb: (id: string) => void): () => void
+  respondAskpass(response: AskpassResponse): void
 
   // —— 运行时（slice 3+） ——
   run(target: RunTarget): Promise<void>
@@ -275,6 +358,12 @@ export interface RunAPI extends GitAPI {
    */
   /** cwd 限项目内目录（越界/失效回落项目根；不随壳持久化——重启回项目根） */
   openTerminal(projectPath: string, key?: string, cwd?: string): Promise<string>
+  /**
+   * 在某左树条目（Project 或 Server）下开一个连到 serverId 的 SSH Terminal，返回其会话键。
+   * 同 openTerminal 的约定：不传 key 即新开并立即连接；传 key 是恢复跨重启的壳——只建会话、
+   * 提示按回车连接，已存在则原样返回。
+   */
+  openSshTerminal(ownerKey: string, serverId: string, key?: string): Promise<string>
   /** 读取工作台 UI 快照（ADR-0008） */
   getWorkspaceUi(): Promise<WorkspaceUiState>
   /** 整表覆写工作台 UI（渲染端为真相源，变更即写） */
@@ -287,12 +376,12 @@ export interface RunAPI extends GitAPI {
   /** 当前所有活跃 Terminal（供渲染端重建 Tab，如 dev 热重载后） */
   getTerminals(): Promise<TerminalInfo[]>
 
-  // —— 命令型配置（slice 6） ——
-  createCommandConfig(input: Omit<CommandRunConfig, 'id' | 'kind'>): Promise<ProjectNode[]>
-  updateCommandConfig(config: CommandRunConfig): Promise<ProjectNode[]>
-  deleteConfig(id: string): Promise<ProjectNode[]>
-  /** 重排某项目下「我的配置」的顺序 */
-  reorderConfigs(projectPath: string, orderedIds: string[]): Promise<ProjectNode[]>
+  // —— 命令型配置（slice 6；本机或服务器上） ——
+  createCommandConfig(input: EditableRunConfigInput): Promise<TreeSnapshot>
+  updateCommandConfig(config: EditableRunConfig): Promise<TreeSnapshot>
+  deleteConfig(id: string): Promise<TreeSnapshot>
+  /** 重排某左树条目（Project / Server）下配置的顺序 */
+  reorderConfigs(ownerKey: string, orderedIds: string[]): Promise<TreeSnapshot>
   /**
    * 为命令型配置挑选工作目录。仅放行已登记项目；
    * 返回写入表单的 cwd（项目根下为相对路径，否则绝对；根目录本身为空串）；取消为 null。

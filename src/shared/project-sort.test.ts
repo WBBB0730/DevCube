@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
-  applyProjectPinned,
   cycleProjectSort,
-  filterProjectNodes,
-  sortProjectNodes
+  filterTreeEntries,
+  pinnedEntryOrder,
+  sortTreeEntries
 } from './project-sort'
+import type { ServerNode } from './server'
+import { serverEntryKey, type TreeEntry } from './tree-entry'
 import {
   DEFAULT_PROJECT_SORT_PREFS,
   type Project,
@@ -17,15 +19,43 @@ function node(
   path: string,
   addedAt: number,
   lastOpenedAt: number | null = null,
-  pinned = false
-): ProjectNode {
-  const project: Project = { path, name, addedAt, lastOpenedAt, pinned }
-  return { project, packageManager: null, discovered: [], configs: [], worktreeOf: null }
+  pinned = false,
+  order = 0
+): TreeEntry {
+  const project: Project = { path, name, addedAt, lastOpenedAt, pinned, order }
+  const n: ProjectNode = {
+    project,
+    packageManager: null,
+    discovered: [],
+    configs: [],
+    worktreeOf: null
+  }
+  return { kind: 'project', key: path, node: n }
+}
+
+function server(name: string, id: string, order: number, pinned = false): TreeEntry {
+  const n: ServerNode = {
+    server: {
+      id,
+      name,
+      target: { kind: 'config', alias: name },
+      addedAt: 0,
+      lastOpenedAt: null,
+      pinned,
+      order,
+      direct: false
+    },
+    hasPassword: false,
+    configs: []
+  }
+  return { kind: 'server', key: serverEntryKey(id), node: n }
 }
 
 function prefs(partial: Partial<ProjectSortPrefs> = {}): ProjectSortPrefs {
   return { ...DEFAULT_PROJECT_SORT_PREFS, ...partial }
 }
+
+const keys = (entries: TreeEntry[]): string[] => entries.map((e) => e.key)
 
 describe('cycleProjectSort', () => {
   it('切入自定义固定 asc', () => {
@@ -61,146 +91,161 @@ describe('cycleProjectSort', () => {
     )
   })
 
-  it('切换排序保留 pinSticky', () => {
-    expect(
-      cycleProjectSort(prefs({ mode: 'name', direction: 'asc', pinSticky: false }), 'addedAt')
-        .pinSticky
-    ).toBe(false)
+  it('切换排序保留 pinSticky 与类型筛选', () => {
+    const next = cycleProjectSort(
+      prefs({ mode: 'name', direction: 'asc', pinSticky: false, showServers: false }),
+      'addedAt'
+    )
+    expect(next.pinSticky).toBe(false)
+    expect(next.showServers).toBe(false)
   })
 })
 
 describe('DEFAULT_PROJECT_SORT_PREFS', () => {
-  it('默认添加时间倒序且开启置顶吸顶', () => {
+  it('默认添加时间倒序、开启置顶吸顶、两类都显示', () => {
     expect(DEFAULT_PROJECT_SORT_PREFS).toEqual({
       mode: 'addedAt',
       direction: 'desc',
-      pinSticky: true
+      pinSticky: true,
+      showProjects: true,
+      showServers: true
     })
   })
 })
 
-describe('sortProjectNodes', () => {
+describe('sortTreeEntries', () => {
   const nodes = [
-    node('zeta', '/z', 100, 50),
-    node('alpha', '/a', 300, null),
-    node('Beta', '/b', 200, 200)
+    node('zeta', '/z', 100, 50, false, 0),
+    node('alpha', '/a', 300, null, false, 1),
+    node('Beta', '/b', 200, 200, false, 2)
   ]
 
-  it('自定义保持原序', () => {
-    expect(
-      sortProjectNodes(nodes, prefs({ mode: 'custom', direction: 'asc' })).map(
-        (n) => n.project.name
-      )
-    ).toEqual(['zeta', 'alpha', 'Beta'])
+  it('自定义按 order 升序', () => {
+    expect(keys(sortTreeEntries(nodes, prefs({ mode: 'custom', direction: 'asc' })))).toEqual([
+      '/z',
+      '/a',
+      '/b'
+    ])
+    const reordered = [
+      node('zeta', '/z', 100, 50, false, 5),
+      node('alpha', '/a', 300, null, false, -1),
+      node('Beta', '/b', 200, 200, false, 2)
+    ]
+    expect(keys(sortTreeEntries(reordered, prefs({ mode: 'custom' })))).toEqual(['/a', '/b', '/z'])
   })
 
   it('名称升序忽略大小写', () => {
-    expect(
-      sortProjectNodes(nodes, prefs({ mode: 'name', direction: 'asc' })).map((n) => n.project.name)
-    ).toEqual(['alpha', 'Beta', 'zeta'])
+    expect(keys(sortTreeEntries(nodes, prefs({ mode: 'name', direction: 'asc' })))).toEqual([
+      '/a',
+      '/b',
+      '/z'
+    ])
   })
 
   it('添加时间降序（新→旧）', () => {
-    expect(
-      sortProjectNodes(nodes, prefs({ mode: 'addedAt', direction: 'desc' })).map(
-        (n) => n.project.path
-      )
-    ).toEqual(['/a', '/b', '/z'])
+    expect(keys(sortTreeEntries(nodes, prefs({ mode: 'addedAt', direction: 'desc' })))).toEqual([
+      '/a',
+      '/b',
+      '/z'
+    ])
   })
 
   it('打开时间：固定最近→最远，null 永远排最后（忽略 direction）', () => {
     expect(
-      sortProjectNodes(nodes, prefs({ mode: 'lastOpenedAt', direction: 'desc' })).map(
-        (n) => n.project.path
-      )
+      keys(sortTreeEntries(nodes, prefs({ mode: 'lastOpenedAt', direction: 'desc' })))
     ).toEqual(['/b', '/z', '/a'])
-    expect(
-      sortProjectNodes(nodes, prefs({ mode: 'lastOpenedAt', direction: 'asc' })).map(
-        (n) => n.project.path
-      )
-    ).toEqual(['/b', '/z', '/a'])
+    expect(keys(sortTreeEntries(nodes, prefs({ mode: 'lastOpenedAt', direction: 'asc' })))).toEqual(
+      ['/b', '/z', '/a']
+    )
   })
 
   it('Pin 分区：已置顶整段在前，组内仍按当前排序', () => {
     const mixed = [
-      node('zeta', '/z', 100, 50, false),
-      node('alpha', '/a', 300, null, true),
-      node('Beta', '/b', 200, 200, true),
-      node('gamma', '/g', 50, 10, false)
+      node('zeta', '/z', 100, 50, false, 0),
+      node('alpha', '/a', 300, null, true, 1),
+      node('Beta', '/b', 200, 200, true, 2),
+      node('gamma', '/g', 50, 10, false, 3)
     ]
-    expect(
-      sortProjectNodes(mixed, prefs({ mode: 'name', direction: 'asc' })).map((n) => n.project.path)
-    ).toEqual(['/a', '/b', '/g', '/z'])
-    // 自定义：各区保持传入相对序 → 置顶 alpha,Beta；未置顶 zeta,gamma
-    expect(
-      sortProjectNodes(mixed, prefs({ mode: 'custom', direction: 'asc' })).map(
-        (n) => n.project.path
-      )
-    ).toEqual(['/a', '/b', '/z', '/g'])
+    expect(keys(sortTreeEntries(mixed, prefs({ mode: 'name', direction: 'asc' })))).toEqual([
+      '/a',
+      '/b',
+      '/g',
+      '/z'
+    ])
+    expect(keys(sortTreeEntries(mixed, prefs({ mode: 'custom', direction: 'asc' })))).toEqual([
+      '/a',
+      '/b',
+      '/z',
+      '/g'
+    ])
+  })
+
+  it('Project 与 Server 按同一条 order 混排', () => {
+    const mixed = [node('web', '/web', 1, null, false, 2), server('prod', 's1', 1)]
+    expect(keys(sortTreeEntries(mixed, prefs({ mode: 'custom' })))).toEqual([
+      serverEntryKey('s1'),
+      '/web'
+    ])
   })
 })
 
-describe('filterProjectNodes', () => {
-  const nodes = [node('DevCube', '/a', 1), node('other', '/b', 2)]
+describe('filterTreeEntries', () => {
+  const both = { showProjects: true, showServers: true }
+  const entries = [node('DevCube', '/a', 1), node('other', '/b', 2), server('dev-box', 's1', 3)]
 
-  it('空查询原样返回', () => {
-    expect(filterProjectNodes(nodes, '  ')).toBe(nodes)
+  it('空查询只按类型筛', () => {
+    expect(keys(filterTreeEntries(entries, '  ', both))).toEqual(['/a', '/b', 'server:s1'])
   })
 
-  it('大小写不敏感包含匹配', () => {
-    expect(filterProjectNodes(nodes, 'dev').map((n) => n.project.name)).toEqual(['DevCube'])
+  it('名称大小写不敏感包含匹配，两类一起筛', () => {
+    expect(keys(filterTreeEntries(entries, 'dev', both))).toEqual(['/a', 'server:s1'])
+  })
+
+  it('只显示服务器 / 只显示项目', () => {
+    expect(
+      keys(filterTreeEntries(entries, '', { showProjects: false, showServers: true }))
+    ).toEqual(['server:s1'])
+    expect(
+      keys(filterTreeEntries(entries, '', { showProjects: true, showServers: false }))
+    ).toEqual(['/a', '/b'])
   })
 
   it('筛选后仍可再套 Pin 分区排序', () => {
     const mixed = [
-      node('alpha', '/a', 1, null, false),
-      node('alpine', '/p', 2, null, true),
-      node('beta', '/b', 3, null, false)
+      node('alpha', '/a', 1, null, false, 0),
+      node('alpine', '/p', 2, null, true, 1),
+      node('beta', '/b', 3, null, false, 2)
     ]
-    const filtered = filterProjectNodes(mixed, 'al')
-    expect(
-      sortProjectNodes(filtered, prefs({ mode: 'custom', direction: 'asc' })).map(
-        (n) => n.project.path
-      )
-    ).toEqual(['/p', '/a'])
+    const filtered = filterTreeEntries(mixed, 'al', both)
+    expect(keys(sortTreeEntries(filtered, prefs({ mode: 'custom', direction: 'asc' })))).toEqual([
+      '/p',
+      '/a'
+    ])
   })
 })
 
-describe('applyProjectPinned', () => {
-  const base: Project[] = [
-    { path: '/a', name: 'a', addedAt: 1, lastOpenedAt: null, pinned: true },
-    { path: '/b', name: 'b', addedAt: 2, lastOpenedAt: null, pinned: true },
-    { path: '/c', name: 'c', addedAt: 3, lastOpenedAt: null, pinned: false },
-    { path: '/d', name: 'd', addedAt: 4, lastOpenedAt: null, pinned: false }
+describe('pinnedEntryOrder', () => {
+  const base = [
+    { key: '/a', pinned: true, order: 0 },
+    { key: '/b', pinned: true, order: 1 },
+    { key: '/c', pinned: false, order: 2 },
+    { key: 'server:s', pinned: false, order: 3 }
   ]
 
   it('置顶：进入置顶区开头', () => {
-    const next = applyProjectPinned(base, '/d', true)
-    expect(next.map((p) => [p.path, p.pinned])).toEqual([
-      ['/d', true],
-      ['/a', true],
-      ['/b', true],
-      ['/c', false]
-    ])
+    expect(pinnedEntryOrder(base, 'server:s', true)).toBe(-1)
   })
 
   it('取消置顶：进入未置顶区开头', () => {
-    const next = applyProjectPinned(base, '/b', false)
-    expect(next.map((p) => [p.path, p.pinned])).toEqual([
-      ['/a', true],
-      ['/b', false],
-      ['/c', false],
-      ['/d', false]
-    ])
+    expect(pinnedEntryOrder(base, '/b', false)).toBe(1)
   })
 
-  it('路径不存在原样返回', () => {
-    expect(applyProjectPinned(base, '/nope', true)).toBe(base)
+  it('键不存在返回 null', () => {
+    expect(pinnedEntryOrder(base, '/nope', true)).toBeNull()
   })
 
-  it('全部未置顶时置顶第一个：移到数组头', () => {
-    const none = base.map((p) => ({ ...p, pinned: false }))
-    const next = applyProjectPinned(none, '/c', true)
-    expect(next[0]).toMatchObject({ path: '/c', pinned: true })
+  it('目标区块没有别的条目时保留原 order', () => {
+    const none = base.map((i) => ({ ...i, pinned: false }))
+    expect(pinnedEntryOrder(none, '/c', true)).toBe(2)
   })
 })

@@ -33,6 +33,12 @@ describe('resolveDefaultActiveKey', () => {
       })
     ).toBe('git:/p')
   })
+
+  it('Server 条目没有常驻 Tab：落第一个终端，一个都没有为 null', () => {
+    const server = { gitKey: null, filesKey: null, runTabs: [] }
+    expect(resolveDefaultActiveKey({ ...server, termTabs: [{ key: 'ssh:1' }] })).toBe('ssh:1')
+    expect(resolveDefaultActiveKey({ ...server, termTabs: [] })).toBeNull()
+  })
 })
 
 describe('resolveActiveTabKey', () => {
