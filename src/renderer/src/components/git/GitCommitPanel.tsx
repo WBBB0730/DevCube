@@ -11,6 +11,7 @@ import { ChevronRight, Ellipsis, File as FileIcon, Folder } from 'lucide-react'
 import type { GitFileChange } from '@shared/git'
 import { gitState, useGit } from '@renderer/git-store'
 import { useFiles } from '@renderer/files-store'
+import { useDoubleClick } from '@renderer/lib/double-click'
 import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui/button'
 import { Checkbox } from '@renderer/components/ui/checkbox'
@@ -444,6 +445,8 @@ function FileSection({
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set())
   /** 整段折叠态（标题行即本段顶级目录）：默认展开，折叠时段内容整体隐藏。 */
   const [sectionOpen, setSectionOpen] = useState(true)
+  /** 标题行与目录行的双击折叠共用：同一串连续点击必落在同一行。 */
+  const isDoubleClick = useDoubleClick()
   /**
    * 行尾 ⋯ 菜单打开中的文件行：保持 hover 行底 + ⋯ 常显（指针移入菜单会丢 :hover）。
    * 右键路径不需要——右键会先把行重置为选区（蓝底自然持久）。
@@ -605,8 +608,10 @@ function FileSection({
           zIndex: 30 - stickyLevel,
           paddingLeft: 8 + vDepth * 16
         }}
-        onClick={(e) => selectRow(e, row)}
-        onDoubleClick={() => toggleFolder(row.folderPath)}
+        onClick={(e) => {
+          selectRow(e, row)
+          if (isDoubleClick(e)) toggleFolder(row.folderPath)
+        }}
         onContextMenu={(e) => openRowMenu(e, row)}
       >
         {/* chevron 单独响应开合：stopPropagation 防止连带触发选中 */}
@@ -740,8 +745,10 @@ function FileSection({
         )}
         style={{ paddingLeft: 8 }}
         title="点击跳到此段"
-        onClick={onHeaderClick}
-        onDoubleClick={() => setSectionOpen((v) => !v)}
+        onClick={(e) => {
+          onHeaderClick()
+          if (isDoubleClick(e)) setSectionOpen((v) => !v)
+        }}
       >
         {/* chevron 单独响应折叠：stopPropagation 防止连带触发跳转 */}
         <span

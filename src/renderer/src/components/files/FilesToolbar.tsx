@@ -15,6 +15,7 @@ import {
 import type { GitFileStatus } from '@shared/git'
 import { normalizePath } from '@shared/files-path'
 import { SHORTCUT } from '@shared/shortcut-label'
+import { useDoubleClick } from '@renderer/lib/double-click'
 import { relPathUnderRoot, toSysPath } from '@renderer/lib/files-paths'
 import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
@@ -183,17 +184,20 @@ export function FilesToolbar({
     path && path.startsWith(projectRoot + '/') ? path.slice(projectRoot.length + 1) : (path ?? '')
   const parts = rel.split('/').filter((p) => p.length > 0)
   const fileColour = fileStatus ? FILE_STATUS_COLOR[fileStatus] : undefined
+  const isDoubleClick = useDoubleClick()
   return (
     <div
       className="flex h-10 shrink-0 cursor-default items-center gap-2 border-b border-[var(--separator)] bg-panel px-2 text-[13px] select-none"
-      onDoubleClick={onToggleTree}
+      onClick={(e) => {
+        if (isDoubleClick(e)) onToggleTree()
+      }}
     >
       <div className="flex min-w-0 flex-1 items-center overflow-hidden" title={path ?? undefined}>
         {/* 与面包屑留 8px（同工具栏各区之间的 gap-2）；面包屑截断时钮不缩；双击不触发文件树显隐（同右侧钮组） */}
         {pathExtra !== undefined && pathExtra !== null && (
           <div
             className="mr-2 flex shrink-0 items-center gap-0.5"
-            onDoubleClick={(e) => e.stopPropagation()}
+            onClick={(e) => e.stopPropagation()}
           >
             {pathExtra}
           </div>
@@ -220,8 +224,10 @@ export function FilesToolbar({
                           } as React.CSSProperties)
                         : undefined
                     }
-                    onClick={() => void onRevealInTree(segmentPath, !last)}
-                    onDoubleClick={(e) => e.stopPropagation()}
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      void onRevealInTree(segmentPath, !last)
+                    }}
                   >
                     {part}
                   </button>
@@ -232,10 +238,7 @@ export function FilesToolbar({
         )}
       </div>
       {error && <span className="shrink-0 text-xs text-[var(--status-failed)]">{error}</span>}
-      <div
-        className="flex shrink-0 items-center gap-0.5"
-        onDoubleClick={(e) => e.stopPropagation()}
-      >
+      <div className="flex shrink-0 items-center gap-0.5" onClick={(e) => e.stopPropagation()}>
         {extra !== undefined && extra !== null && (
           <>
             {extra}

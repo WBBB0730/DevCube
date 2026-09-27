@@ -70,6 +70,7 @@ import {
 import { configKey, scriptKey } from '@shared/runnable'
 import { filterProjectNodes, sortProjectNodes } from '@shared/project-sort'
 import { SHORTCUT } from '@shared/shortcut-label'
+import { useDoubleClick } from '@renderer/lib/double-click'
 import { shortcutLabel, shortcutTitle } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
@@ -1028,6 +1029,7 @@ function ProjectHeader({
   const [moreMenuOpen, setMoreMenuOpen] = useState(false)
   // 菜单开着时指针已离行，`:hover` 会丢；保持与 hover 相同的行底 / ⋮ 可见性。
   const rowHoverLike = !!isDragging || contextMenuOpen || moreMenuOpen
+  const isDoubleClick = useDoubleClick()
   const pinned = node.project.pinned
   const stickyStyle: CSSProperties = style ?? {
     position: 'sticky',
@@ -1059,8 +1061,8 @@ function ProjectHeader({
           dragHandleProps?.onClick?.(e)
           selectProject(node.project.path)
           onScrollIntoPlace()
+          if (isDoubleClick(e)) onToggleExpand()
         }}
-        onDoubleClick={onToggleExpand}
       >
         <button
           type="button"
@@ -1209,6 +1211,7 @@ function ProjectRow({
   const [moreMenuOpen, setMoreMenuOpen] = useState(false)
   // 菜单开着时指针已离行，`:hover` 会丢；保持与 hover 相同的行底 / ⋮ 可见性。
   const rowHoverLike = !!isDragging || contextMenuOpen || moreMenuOpen
+  const isDoubleClick = useDoubleClick()
 
   const expanded = open && !forceCollapsed
   const pinned = node.project.pinned
@@ -1246,8 +1249,8 @@ function ProjectRow({
             dragHandleProps?.onClick?.(e)
             selectProject(node.project.path)
             onScrollIntoPlace()
+            if (isDoubleClick(e)) onToggleOpen()
           }}
-          onDoubleClick={onToggleOpen}
         >
           <button
             type="button"
