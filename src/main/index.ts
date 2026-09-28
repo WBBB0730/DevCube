@@ -9,6 +9,7 @@ import { bindMainWindow, registerIpcHandlers } from './ipc'
 import { isAppQuitting, isQuitAllowed, markAppQuitting, markQuitAllowed } from './app-shutdown'
 import { killAllSessions } from './runner'
 import { disposeAskpass } from './askpass'
+import { disposeAllServerStatus } from './server-status'
 import { closeAllProjectWatchers } from './project-watchers'
 import { resolveReleaseEdition } from '../shared/release-edition'
 import { confirmQuitIfNeeded } from './quit-confirm'
@@ -216,6 +217,7 @@ async function runQuitCleanup(): Promise<void> {
   markAppQuitting()
   disposeTray()
   killAllSessions()
+  disposeAllServerStatus()
   disposeAskpass()
   await Promise.all([closeAllProjectWatchers(), closeAllPreviewWatchers()])
   // 给原生 watcher stop 一点时间收尾，再拆 Node Environment。

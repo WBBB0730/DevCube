@@ -26,7 +26,7 @@ _Avoid_: Run, Process, Instance, Job
 **Terminal（终端）**：项目下的一个自由交互 shell 会话——起用户配置的 shell（posix 为 `$SHELL`；Windows 默认 Git Bash，可改 PowerShell / cmd，与 **Run Session** 共用同一偏好），cwd 默认项目根，也可从 **Files Tab** 的「在终端中打开」在项目内某目录起；cwd 不随壳持久化（重启回项目根）。可随意敲命令，**不绑定任何 Run Configuration / Discovered Script**。壳（稳定身份、显示名、在项目 Tab 栏中的顺序）可按项目持久化；**进程与输出不持久化**——重启后需再次拉起空 shell，历史输出不恢复。shell 进程结束即销毁其活会话并关闭对应 Tab。与 **Run Session** 并列但语义不同：Run Session 是"某条配置的一次执行"，Terminal 是"项目下的一个自由 shell"。一个项目可同时拥有任意多个 Terminal。
 _Avoid_: Shell（裸用）, 控制台
 
-**Server（服务器）**：被登记进 DevCube 的一台远程主机，是左树里与 **Project** 并列的顶层条目；它要么引用 `~/.ssh/config` 里的一个主机，要么是手填的地址、用户与端口。它拥有 0..N 个 **SSH Terminal** 与 0..N 条命令型 **Run Configuration**（在服务器上执行），没有 **Git Tab**，也没有 **Discovered Script**。
+**Server（服务器）**：被登记进 DevCube 的一台远程主机，是左树里与 **Project** 并列的顶层条目；它要么引用 `~/.ssh/config` 里的一个主机，要么是手填的地址、用户与端口。它恒有一个 **Status Tab**，拥有 0..N 个 **SSH Terminal** 与 0..N 条命令型 **Run Configuration**（在服务器上执行），没有 **Git Tab**、**Files Tab**，也没有 **Discovered Script**。
 _Avoid_: Host, 主机, 远程, Site, 站点, 会话
 
 **SSH Terminal（SSH 终端）**：连到某台 **Server** 的交互终端，可以开在该 Server 下，也可以开在某个 **Project** 下。与 **Terminal** 不同：连接断开后 Tab 保留、可原地重连；跨重启只恢复壳，不自动连接。
@@ -37,6 +37,9 @@ _Avoid_: Git 面板, 图谱 Tab, 仓库视图
 
 **Files Tab（文件标签页）**：项目的文件浏览与编辑视图——展示该项目根下文件系统可见的**全部**条目（不按 `.gitignore` 等忽略规则过滤）。已展开的文件树与当前打开条目随磁盘变化自动跟进。打开条目时按类型分流：文本进编辑器；图片内嵌预览；PDF 内嵌预览；PPT（pptx 及其放映版 / 模板 / 带宏版本）内嵌预览；Excel（xlsx 及其模板 / 带宏版本与老 xls）内嵌预览；Chromium 可播的音视频内嵌预览；其余只读占位并可以系统应用打开。同一时刻**至多打开一个条目**（点树即切换，无内层多文件 Tab）。正文在左、文件树在右。支持**基础文件管理**：树上右键新建文件 / 新建文件夹 / 重命名 / 删除（删除移入系统回收站）；**复制 / 移动仍不做**——走系统文件管理器或 **Terminal**。每项目**恒有一个**、常驻 Tab 栏**第二位**（紧接 **Git Tab** 之后、会话 Tab 之前）、不可关闭；它不是会话（无进程、无输出流），是 Tab 模型中的非会话 Tab 之一（与 **Git Tab** 同类）。
 _Avoid_: Editor Tab, Code Tab, 文件面板, 编辑器 Tab, Workspace
+
+**Status Tab（状态标签页）**：服务器的运行状态视图——连上后定时显示该 **Server** 的 CPU、内存、网络、硬盘、进程与基本系统信息。每台服务器**恒有一个**、常驻 Tab 栏最前、不可关闭；它是非会话 Tab（与 **Git Tab** 同类），背后那条状态连接不是 **SSH Terminal**。只支持 Linux 服务器。
+_Avoid_: 仪表盘, Dashboard, 监控面板, 概览
 
 **Content Search（内容搜索）**：在当前 **Project** 内按文本搜索文件内容的居中浮层面板；结果按文件分组、可预览，确认命中后经 **Files Tab** 打开并定位到行。
 _Avoid_: 全文搜索, 全局搜索, Find in Files
@@ -80,6 +83,7 @@ _Avoid_: Release Notes, 发版说明, 更新说明, 提交记录（指日志内�
 - 一台 **Server** 拥有 0..N 条命令型 **Run Configuration**，运行时在服务器上执行，其 **Run Session** 出现在该 Server 的 Tab 栏里；引用型只属于 **Project**。移除 Server 连同它的配置一起删除。
 - 一台 **Server** 拥有 0..N 个 **SSH Terminal**；一个 **Project** 也可以拥有 0..N 个连到某台 Server 的 **SSH Terminal**，与它的 **Terminal** 并列在 Tab 栏里。移除一台 Server 会关闭所有连到它的 SSH Terminal，无论开在哪里。
 - **Server** 与 **Project** 同在左树，共用 **Pin**、排序、拖拽与名称筛选；左树可以按类型只显示其中一类。
+- 一台 **Server** 恒有一个 **Status Tab**（非会话、不可关闭、常驻其 Tab 栏最前）；它与该 Server 的 Run Session / **SSH Terminal** 的 Tab 共用激活与循环规则，所以点开服务器默认就是它。它背后的状态连接独立于 **SSH Terminal**，点「连接」才建立，连上后不论是否切走都持续刷新，可手动断开。
 - 一个 **Project** 恒有一个 **Git Tab**（非会话、不可关闭、常驻其 Tab 栏最前）；它与 **Files Tab** / Run Session / Terminal 的 Tab 共用激活与循环规则。
 - 一个 **Project** 恒有一个 **Files Tab**（非会话、不可关闭、常驻其 Tab 栏第二位，紧接 Git Tab）；它与 Git Tab / Run Session / Terminal 的 Tab 共用激活与循环规则。一个 Files Tab 同一时刻至多打开一个条目。
 - 从 **Git Tab**「打开文件」进入该项目的 **Files Tab** 并打开对应路径；Files Tab 另提供「在其他应用中打开」（系统默认应用）。

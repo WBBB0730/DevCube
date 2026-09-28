@@ -10,6 +10,7 @@ import { promisify } from 'node:util'
 import { LineType, parse, type Line } from 'ssh-config'
 import {
   connectableHostAliases,
+  parseSshConfigValues,
   parseSshEffectiveConfig,
   sameServerTarget,
   serverTargetLabel,
@@ -177,6 +178,19 @@ async function sshEffectiveConfig(
   env: NodeJS.ProcessEnv
 ): Promise<string> {
   return (await execFileAsync(ssh, ['-G', ...sshArgs(target)], { env, timeout: 5000 })).stdout
+}
+
+/** 连接目标最终连到的主机名或 IP（`ssh -G` 的 hostname）；读不到为空串。 */
+export async function sshHostNameOf(
+  ssh: string,
+  env: NodeJS.ProcessEnv,
+  target: ServerTarget
+): Promise<string> {
+  try {
+    return parseSshConfigValues(await sshEffectiveConfig(ssh, target, env)).get('hostname') ?? ''
+  } catch {
+    return ''
+  }
 }
 
 /** `~/.ssh/config`（含 Include）里可直接连接的主机，按出现顺序去重；读不到配置或找不到 ssh 时为空。 */

@@ -17,7 +17,7 @@ import { DEFAULT_APP_PREFS, DEFAULT_PROJECT_SORT_PREFS } from '@shared/types'
 import type { GitCloneInput } from '@shared/git-clone'
 import type { AskpassRequest, AskpassResponse, ServerInput, ServerNode } from '@shared/server'
 import type { ThemeMode } from '@shared/theme'
-import { configKey, filesTabKey, gitTabKey, isResidentTabKey } from '@shared/runnable'
+import { configKey, filesTabKey, gitTabKey, isResidentTabKey, statusTabKey } from '@shared/runnable'
 import { cycleProjectSort } from '@shared/project-sort'
 import {
   orderedTabKeysOf,
@@ -173,15 +173,16 @@ async function ensureTerminalSpawned(
 
 /** 某条目「实际显示」的 Tab 解析结果（Console / cycleTab / 关闭快捷键共用同一规则，避免三处不一致）。 */
 export interface ResolvedTabs {
-  /** 常驻 Git Tab 的键（`git:<projectPath>`，恒排最前、不可关闭，ADR-0005）；Server 条目为 null */
-  gitKey: string | null
-  /** 常驻 Files Tab 的键（`files:<projectPath>`，排第二、不可关闭）；Server 条目为 null */
-  filesKey: string | null
+  /**
+   * 常驻非会话 Tab 的键，按 Tab 序（不可关闭）：Project 为 Git（`git:<path>`，ADR-0005）、
+   * Files（`files:<path>`）；Server 为 Status（`status:server:<id>`）
+   */
+  residentKeys: string[]
   /** 运行会话 Tab（树序）：每条有会话的配置一个 */
   runTabs: RunTabInfo[]
   /** 终端 Tab（Terminal 与 SSH Terminal，组内可拖拽排序） */
   termTabs: TerminalTab[]
-  /** 当前激活的 Tab；Project 有常驻 Tab 故恒非 null，一个 Tab 都没有的 Server 为 null */
+  /** 当前激活的 Tab；每个条目都有常驻 Tab，解析结果不会是 null（类型沿用激活规则的返回） */
   activeKey: string | null
 }
 
@@ -196,13 +197,13 @@ export function entryConfigs(s: Pick<AppState, 'tree' | 'servers'>, entryKey: st
 
 /**
  * 解析某条目的 Tab 栏与激活 Tab。
- * Tab 顺序 = Git → Files → 运行会话（树序）→ 终端（Server 条目没有 Git / Files）。
+ * Tab 顺序 = 常驻 Tab（Project：Git → Files；Server：Status）→ 运行会话（树序）→ 终端。
  * 默认激活：有运行中的 Run Session → 第一个运行中的；否则 Tab 序首位（ADR-0005）。
  */
 export function resolveTabs(s: TabState, entryKey: string): ResolvedTabs {
-  const isServer = isServerEntryKey(entryKey)
-  const gitKey = isServer ? null : gitTabKey(entryKey)
-  const filesKey = isServer ? null : filesTabKey(entryKey)
+  const residentKeys = isServerEntryKey(entryKey)
+    ? [statusTabKey(entryKey)]
+    : [gitTabKey(entryKey), filesTabKey(entryKey)]
   const runTabs: RunTabInfo[] = []
   for (const c of entryConfigs(s, entryKey)) {
     const key = configKey(c)
@@ -217,8 +218,8 @@ export function resolveTabs(s: TabState, entryKey: string): ResolvedTabs {
   }
   const termTabs = s.terminals.filter((t) => t.ownerKey === entryKey)
   const stored = s.activeTabByEntry[entryKey]
-  const activeKey = resolveActiveTabKey({ gitKey, filesKey, runTabs, termTabs, stored })
-  return { gitKey, filesKey, runTabs, termTabs, activeKey }
+  const activeKey = resolveActiveTabKey({ residentKeys, runTabs, termTabs, stored })
+  return { residentKeys, runTabs, termTabs, activeKey }
 }
 
 /** Tab 栏从左到右的键序（与 cycleTab / ⌘1–9 共用）。 */

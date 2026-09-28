@@ -90,7 +90,7 @@ export function ErrorDialog({
 /** 字段旁的说明图标（hover 出 title）。 */
 export function InfoIcon({ text }: { text: string }): React.JSX.Element {
   return (
-    <span title={text} className="flex shrink-0 cursor-help items-center">
+    <span title={text} className="flex shrink-0 items-center">
       <Info className="size-3.5 text-muted-foreground" />
     </span>
   )

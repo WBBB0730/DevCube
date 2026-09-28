@@ -1,21 +1,18 @@
 import type { SessionStatus } from './types'
 
 export interface TabActivationInput {
-  /** 常驻 Git Tab；Server 条目没有（null） */
-  gitKey: string | null
-  /** 常驻 Files Tab；Server 条目没有（null） */
-  filesKey: string | null
+  /** 常驻非会话 Tab 的键，按 Tab 序：Project 为 Git、Files；Server 为 Status */
+  residentKeys: string[]
   runTabs: { key: string; status: SessionStatus }[]
   termTabs: { key: string }[]
   /** undefined = 从未显式激活；null / 失效键走默认规则 */
   stored: string | null | undefined
 }
 
-/** Tab 栏从左到右的键序：Git → Files → 运行会话 → 终端（缺席的常驻 Tab 跳过）。 */
+/** Tab 栏从左到右的键序：常驻 Tab → 运行会话 → 终端。 */
 export function orderedTabKeysOf(input: Omit<TabActivationInput, 'stored'>): string[] {
   return [
-    ...(input.gitKey === null ? [] : [input.gitKey]),
-    ...(input.filesKey === null ? [] : [input.filesKey]),
+    ...input.residentKeys,
     ...input.runTabs.map((t) => t.key),
     ...input.termTabs.map((t) => t.key)
   ]
@@ -23,7 +20,7 @@ export function orderedTabKeysOf(input: Omit<TabActivationInput, 'stored'>): str
 
 /**
  * 默认激活（ADR-0005）：有运行中的 Run Session → Tab 序第一个运行中的；
- * 否则按 Tab 序取第一个（Project 即 gitKey）；一个 Tab 都没有（空的 Server 条目）为 null。
+ * 否则按 Tab 序取第一个（Project 即 Git Tab，Server 即 Status Tab）；一个 Tab 都没有时为 null。
  * 关闭邻接不走此函数。
  */
 export function resolveDefaultActiveKey(input: Omit<TabActivationInput, 'stored'>): string | null {

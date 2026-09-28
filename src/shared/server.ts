@@ -143,6 +143,26 @@ export function sshRunArgs(
   return ['-t', ...sshArgs(target, options), remoteCommand]
 }
 
+/**
+ * 服务器状态连接（Status Tab）：不分配终端（-T）；每 15 秒保活一次、连续 3 次无响应即断开，
+ * 暂停读取期间网络断了也能及时发现。remoteCommand 由服务器经 sh 执行。
+ */
+export function sshStatusArgs(
+  target: ServerTarget,
+  remoteCommand: string,
+  options: readonly string[] = []
+): string[] {
+  return [
+    '-T',
+    '-o',
+    'ServerAliveInterval=15',
+    '-o',
+    'ServerAliveCountMax=3',
+    ...sshArgs(target, options),
+    remoteCommand
+  ]
+}
+
 /** 测试连接失败的说明：取 ssh 报错的最后一行（如 `Permission denied (…)`），没有输出时给退出代码。 */
 export function sshFailureMessage(stderr: string, exitCode: number | null): string {
   const last = stderr

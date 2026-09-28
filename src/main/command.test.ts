@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { SCRIPT_SOURCE } from '../shared/discover-source'
 import {
   buildRemoteRunCommand,
+  buildRemoteStatusCommand,
   buildScriptCommand,
   buildShellInvocation,
   buildShellSession,
@@ -102,6 +103,12 @@ describe('findGitBash', () => {
   })
   it('找不到时返回 null', () => {
     expect(findGitBash({}, () => false)).toBeNull()
+  })
+})
+
+describe('buildRemoteStatusCommand', () => {
+  it('整段脚本交给 sh -c，脚本里的单引号按 sh 规则转义', () => {
+    expect(buildRemoteStatusCommand("echo 'a'\necho b")).toBe(`sh -c 'echo '\\''a'\\''\necho b'`)
   })
 })
 

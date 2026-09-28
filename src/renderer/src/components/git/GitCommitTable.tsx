@@ -558,7 +558,7 @@ const CommitRow = memo(function CommitRow({
           {headDot && (
             <span
               title={headDotTip}
-              className="mr-[5px] size-2.5 shrink-0 cursor-help rounded-full border-2"
+              className="mr-[5px] size-2.5 shrink-0 rounded-full border-2"
               style={{ borderColor: 'var(--git-graph-color)' }}
             />
           )}

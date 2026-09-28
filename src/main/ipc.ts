@@ -56,6 +56,14 @@ import {
   updateServer
 } from './servers'
 import { reorderEntries, setEntryPinned } from './tree-order'
+import {
+  connectServerStatus,
+  disconnectServerStatus,
+  disposeServerStatus,
+  getServerStatus,
+  resetServerStatus,
+  setServerStatusSink
+} from './server-status'
 import { cancelClone, checkCloneTarget, runClone } from './git-clone'
 import {
   addProjectByPath,
@@ -371,6 +379,8 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   })
   ipcMain.handle(IPC.serverUpdate, (_e, id: string, input: ServerInput) => {
     updateServer(id, input)
+    // 连接信息可能变了：状态连接断开，回到未连接
+    resetServerStatus(id)
     return listServerNodes()
   })
   ipcMain.handle(IPC.serverRemove, (_e, id: string) => {
@@ -378,6 +388,7 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     // 再清工作台现场、删登记与记住的密码
     for (const config of deleteConfigsOf(serverEntryKey(id))) disposeSession(configKey(config))
     disposeSshTerminalsForServer(id)
+    disposeServerStatus(id)
     deleteWorkspaceUiForEntry(serverEntryKey(id))
     deleteSshShellsForServer(id)
     removeServer(id)
@@ -391,6 +402,12 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   ipcMain.handle(IPC.serverPickIdentityFile, () => pickFile(join(homedir(), '.ssh'), mainWindow))
   ipcMain.handle(IPC.serverTest, (_e, input: ServerTestInput) => testServerConnection(input))
   ipcMain.handle(IPC.serverTestCancel, () => cancelServerTest())
+  ipcMain.handle(IPC.serverStatusGet, (_e, serverId: string) => getServerStatus(serverId))
+  ipcMain.handle(IPC.serverStatusConnect, (_e, serverId: string) => connectServerStatus(serverId))
+  ipcMain.handle(IPC.serverStatusDisconnect, (_e, serverId: string) =>
+    disconnectServerStatus(serverId)
+  )
+  setServerStatusSink((event) => liveMainWindow()?.webContents.send(IPC.serverStatusChanged, event))
   ipcMain.on(IPC.askpassRespond, (_e, response: AskpassResponse) => respondAskpass(response))
   setAskpassSink({
     request: (request) => {

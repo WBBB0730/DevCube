@@ -8,7 +8,9 @@ const buttonVariants = cva(
       variant: {
         default: 'bg-primary text-primary-foreground hover:bg-primary/90',
         ghost: 'text-foreground hover:bg-[var(--bg-row-hover)]',
-        destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90'
+        destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
+        // 弱危险：淡红底 + 红字，用于常驻页面、不需要抢眼的危险动作（如状态页的「断开连接」）
+        destructiveSoft: 'bg-destructive/10 text-destructive hover:bg-destructive/20'
       },
       size: {
         default: 'h-8 px-3.5',

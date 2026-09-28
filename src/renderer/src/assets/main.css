@@ -57,6 +57,9 @@
   --status-running: #5fad65;
   --status-success: #57965d;
   --status-failed: #c94f4f;
+  /* 图表的两个系列色（服务器状态的曲线）：蓝、橙，按 dataviz 规范的验证脚本在面板底上验过深色档 */
+  --chart-1: #3987e5;
+  --chart-2: #d95926;
 
   /* —— Git 文件状态（Dark.icls FILESTATUS_*） —— */
   --git-status-added: #73bd79;
@@ -196,6 +199,8 @@
     --status-running: #208a3c;
     --status-success: #208a3c;
     --status-failed: #db3b4b;
+    --chart-1: #2a78d6;
+    --chart-2: #eb6834;
 
     /* —— Git 文件状态（expUI_lightScheme.xml FILESTATUS_*） —— */
     --git-status-added: #067d17;

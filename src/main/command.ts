@@ -157,6 +157,14 @@ function shSingleQuote(s: string): string {
   return `'${s.replace(/'/g, `'\\''`)}'`
 }
 
+/**
+ * 服务器状态脚本的远端命令：`sh -c '<脚本>'`，交给服务器自带的 sh 执行，不依赖登录 shell 的语法
+ * （脚本见 shared/server-status 的 STATUS_SCRIPT）。
+ */
+export function buildRemoteStatusCommand(script: string): string {
+  return `sh -c ${shSingleQuote(script)}`
+}
+
 function psSingleQuote(s: string): string {
   return `'${s.replace(/'/g, "''")}'`
 }

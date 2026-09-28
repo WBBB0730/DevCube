@@ -11,6 +11,7 @@ import {
   sshArgs,
   sshFailureMessage,
   sshRunArgs,
+  sshStatusArgs,
   sshTestArgs,
   supportsSshDirect,
   type ServerTarget
@@ -69,6 +70,25 @@ describe('sshArgs', () => {
       'BindAddress=192.168.1.2',
       '--',
       'prod'
+    ])
+  })
+})
+
+describe('sshStatusArgs', () => {
+  it('不分配终端、带保活，额外选项在目标之前，远端命令最后', () => {
+    expect(
+      sshStatusArgs({ kind: 'config', alias: 'prod' }, 'sh -c x', ['-o', 'BindAddress=1.2.3.4'])
+    ).toEqual([
+      '-T',
+      '-o',
+      'ServerAliveInterval=15',
+      '-o',
+      'ServerAliveCountMax=3',
+      '-o',
+      'BindAddress=1.2.3.4',
+      '--',
+      'prod',
+      'sh -c x'
     ])
   })
 })

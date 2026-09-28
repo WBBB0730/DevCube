@@ -7,8 +7,7 @@ import {
 
 describe('resolveDefaultActiveKey', () => {
   const base = {
-    gitKey: 'git:/p',
-    filesKey: 'files:/p',
+    residentKeys: ['git:/p', 'files:/p'],
     termTabs: [{ key: 'terminal:1' }]
   }
 
@@ -34,17 +33,22 @@ describe('resolveDefaultActiveKey', () => {
     ).toBe('git:/p')
   })
 
-  it('Server 条目没有常驻 Tab：落第一个终端，一个都没有为 null', () => {
-    const server = { gitKey: null, filesKey: null, runTabs: [] }
-    expect(resolveDefaultActiveKey({ ...server, termTabs: [{ key: 'ssh:1' }] })).toBe('ssh:1')
-    expect(resolveDefaultActiveKey({ ...server, termTabs: [] })).toBeNull()
+  it('Server 条目：无运行中时落 Status Tab；有运行中的会话仍优先', () => {
+    const server = { residentKeys: ['status:server:s1'], termTabs: [{ key: 'ssh:1' }] }
+    expect(resolveDefaultActiveKey({ ...server, runTabs: [] })).toBe('status:server:s1')
+    expect(
+      resolveDefaultActiveKey({ ...server, runTabs: [{ key: 'run:a', status: 'running' }] })
+    ).toBe('run:a')
+  })
+
+  it('一个 Tab 都没有时为 null', () => {
+    expect(resolveDefaultActiveKey({ residentKeys: [], runTabs: [], termTabs: [] })).toBeNull()
   })
 })
 
 describe('resolveActiveTabKey', () => {
   const base = {
-    gitKey: 'git:/p',
-    filesKey: 'files:/p',
+    residentKeys: ['git:/p', 'files:/p'],
     runTabs: [{ key: 'run:a', status: 'running' as const }],
     termTabs: [] as { key: string }[]
   }

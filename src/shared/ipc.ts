@@ -29,6 +29,11 @@ export const IPC = {
   /** 测试连接：一次只测一个，cancel 取消进行中的测试 */
   serverTest: 'server:test',
   serverTestCancel: 'server:test-cancel',
+  /** 服务器状态（Status Tab）：取当前状态 / 连接 / 断开；主进程每帧推送 */
+  serverStatusGet: 'server-status:get',
+  serverStatusConnect: 'server-status:connect',
+  serverStatusDisconnect: 'server-status:disconnect',
+  serverStatusChanged: 'server-status:changed',
   /** ssh 提问：主进程 → 渲染端请求回答 / 让过期弹窗消失；渲染端 → 主进程回答 */
   askpassRequest: 'askpass:request',
   askpassDismiss: 'askpass:dismiss',

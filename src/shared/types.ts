@@ -13,6 +13,7 @@ import type { GitAPI, GitRepoSettings, GitViewPrefs } from './git'
 import type { GitCloneInput, GitCloneProgress, GitCloneTargetState } from './git-clone'
 import type { OpenInAppId, OpenInAppResult, OpenInAppStatus } from './open-in-app'
 import type { RendererBootstrap } from './renderer-bootstrap'
+import type { ServerStatusEvent, ServerStatusState } from './server-status'
 import type {
   AskpassRequest,
   AskpassResponse,
@@ -329,6 +330,14 @@ export interface RunAPI extends GitAPI {
   testServerConnection(input: ServerTestInput): Promise<ServerTestResult>
   /** 取消进行中的测试连接（对话框关闭时） */
   cancelServerTest(): Promise<void>
+  /** 某台服务器状态连接的当前状态（Status Tab 挂载时取一次，之后靠推送） */
+  getServerStatus(serverId: string): Promise<ServerStatusState>
+  /** 点「连接」/「重新连接」：建立状态连接 */
+  connectServerStatus(serverId: string): Promise<void>
+  /** 点「断开」：结束状态连接（曲线保留） */
+  disconnectServerStatus(serverId: string): Promise<void>
+  /** 某台服务器的状态有变化（每帧一次） */
+  onServerStatusChanged(cb: (event: ServerStatusEvent) => void): () => void
   /** 主进程改了服务器列表（如移除后）时推送 */
   onServersChanged(cb: (servers: ServerNode[]) => void): () => void
   /** ssh 的一次提问需要用户回答 */

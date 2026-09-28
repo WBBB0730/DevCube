@@ -36,7 +36,17 @@ export function isFilesTabKey(key: string): boolean {
   return key.startsWith('files:')
 }
 
-/** 常驻非会话 Tab（Git / Files）：Cmd+W / closeTab 均为 no-op。 */
+// Status Tab 键：每台 Server 一个常驻、非会话的 Tab，排在它的 Tab 栏最前（见 docs/prd/server-status.md）。
+// entryKey 即 `server:<id>`，键形如 `status:server:<id>`。
+export function statusTabKey(entryKey: string): string {
+  return `status:${entryKey}`
+}
+
+export function isStatusTabKey(key: string): boolean {
+  return key.startsWith('status:')
+}
+
+/** 常驻非会话 Tab（Git / Files / Status）：Cmd+W / closeTab 均为 no-op。 */
 export function isResidentTabKey(key: string): boolean {
-  return isGitTabKey(key) || isFilesTabKey(key)
+  return isGitTabKey(key) || isFilesTabKey(key) || isStatusTabKey(key)
 }
