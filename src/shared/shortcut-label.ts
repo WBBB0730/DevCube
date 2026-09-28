@@ -156,6 +156,8 @@ export const SHORTCUT = {
   refresh: { mod: true, key: 'R' } satisfies ShortcutChord,
   /** Files 看图 / PDF 回适应窗口：渲染层自持的预览键，不进 matchAppShortcut，只用于 title 文案 */
   fitWindow: { mod: true, key: '0' } satisfies ShortcutChord,
+  /** 服务器上的文件手动保存（docs/prd/server-files.md）：渲染层自持，不进 matchAppShortcut */
+  save: { mod: true, key: 'S' } satisfies ShortcutChord,
   cycleTabNext: { ctrl: true, key: 'Tab' } satisfies ShortcutChord,
   cycleTabPrev: { ctrl: true, shift: true, key: 'Tab' } satisfies ShortcutChord
 } as const

@@ -47,37 +47,39 @@ describe('mergeReloadedDirs', () => {
 })
 
 describe('resolveOpenTextDiskSync', () => {
-  const loaded = { path: '/p/a.ts', mtimeMs: 10, dirty: false }
+  const loaded = { path: '/p/a.ts', mtimeMs: 10, size: 1, dirty: false }
+  const text = (content: string, mtimeMs: number, size = content.length) =>
+    ({ kind: 'text', path: '/p/a.ts', content, mtimeMs, size }) as const
 
-  it('mtime 未变 → noop', () => {
-    expect(
-      resolveOpenTextDiskSync(loaded, {
-        kind: 'text',
-        path: '/p/a.ts',
-        content: 'x',
-        mtimeMs: 10
-      })
-    ).toEqual({ action: 'noop' })
+  it('修改时间与大小都未变 → noop', () => {
+    expect(resolveOpenTextDiskSync(loaded, text('x', 10))).toEqual({ action: 'noop' })
   })
 
-  it('无脏且 mtime 变 → reload', () => {
-    expect(
-      resolveOpenTextDiskSync(loaded, {
-        kind: 'text',
-        path: '/p/a.ts',
-        content: 'y',
-        mtimeMs: 20
-      })
-    ).toEqual({ action: 'reload', content: 'y', mtimeMs: 20 })
+  it('无脏且修改时间变 → reload', () => {
+    expect(resolveOpenTextDiskSync(loaded, text('y', 20))).toEqual({
+      action: 'reload',
+      content: 'y',
+      mtimeMs: 20,
+      size: 1
+    })
   })
 
-  it('有脏且 mtime 变 → conflict', () => {
-    expect(
-      resolveOpenTextDiskSync(
-        { ...loaded, dirty: true },
-        { kind: 'text', path: '/p/a.ts', content: 'y', mtimeMs: 20 }
-      )
-    ).toEqual({ action: 'conflict', disk: 'y', mtimeMs: 20 })
+  it('修改时间没变、大小变了（同一秒内被改）→ 同样算改过', () => {
+    expect(resolveOpenTextDiskSync(loaded, text('xy', 10))).toEqual({
+      action: 'reload',
+      content: 'xy',
+      mtimeMs: 10,
+      size: 2
+    })
+  })
+
+  it('有脏且修改时间变 → conflict', () => {
+    expect(resolveOpenTextDiskSync({ ...loaded, dirty: true }, text('y', 20))).toEqual({
+      action: 'conflict',
+      disk: 'y',
+      mtimeMs: 20,
+      size: 1
+    })
   })
 
   it('读失败 → gone', () => {

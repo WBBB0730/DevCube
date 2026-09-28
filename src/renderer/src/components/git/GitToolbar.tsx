@@ -1,15 +1,13 @@
 // Git Tab 顶部工具栏：左侧「分支：」标签 + 分支筛选下拉 + 工作树图标钮 + 视图选项 Popover + 查找；
 // 右侧图标钮组（提交 / 刷新 / 拉取 / 推送 / 创建分支 / 仓库设置）。高 40px、bg-panel，
-// 对齐 Console Tab 栏观感。刷新 = fetch + 静默软重载（store.refresh，fetch 期间小圈转动、
-// 不弹进行中遮罩）；拉取 / 推送 / 创建分支预设目标后打开既有对话框（GitDialogs）。
+// 对齐 Console Tab 栏观感。刷新 = fetch + 静默软重载（store.refresh，fetch 期间换成转圈图标、
+// 结束后转回原位才换回刷新图标，不弹进行中遮罩）；拉取 / 推送 / 创建分支预设目标后打开既有对话框（GitDialogs）。
 import { useEffect, useState } from 'react'
 import {
   CircleArrowDown,
   CircleArrowUp,
   GitBranchPlus,
   GitCommitHorizontal,
-  LoaderCircle,
-  RotateCw,
   Search,
   Settings
 } from 'lucide-react'
@@ -17,6 +15,9 @@ import { UNCOMMITTED } from '@shared/git'
 import { SHORTCUT } from '@shared/shortcut-label'
 import { gitState, useGit } from '@renderer/git-store'
 import { shortcutTitle } from '@renderer/lib/shortcut-label'
+import { useSpinUntilRest } from '@renderer/lib/use-spin-until-rest'
+import { cn } from '@renderer/lib/utils'
+import { RefreshIcon } from '@renderer/components/RefreshIcon'
 import { GitBranchDropdown } from './GitBranchDropdown'
 import { opBlockReason } from './GitOpStatusBar'
 import { GitViewOptions } from './GitViewOptions'
@@ -54,6 +55,8 @@ export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.
   }, [status, isRepo, config, projectPath, loadRepoConfig])
 
   const refreshing = fetching || status === 'loading'
+  // 结束后转圈图标转回原位才恢复（见 useSpinUntilRest）
+  const refreshSpin = useSpinUntilRest(refreshing)
 
   return (
     <div className="flex h-10 shrink-0 items-center gap-2 bg-panel px-2">
@@ -85,15 +88,12 @@ export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.
         <button
           type="button"
           title={shortcutTitle('刷新（fetch + 重载）', SHORTCUT.refresh)}
-          disabled={refreshing}
-          className={ICON_BTN}
+          disabled={refreshSpin.spinning}
+          // 置灰与恢复也走过渡，跟图标的淡入淡出同步
+          className={cn(ICON_BTN, 'transition-[color,background-color,opacity] duration-200')}
           onClick={() => void refresh(projectPath)}
         >
-          {refreshing ? (
-            <LoaderCircle className="size-4 animate-spin" />
-          ) : (
-            <RotateCw className="size-4" />
-          )}
+          <RefreshIcon {...refreshSpin} />
         </button>
         <button
           type="button"

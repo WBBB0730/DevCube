@@ -6,9 +6,6 @@ import Papa from 'papaparse'
 import { Workbook } from '@dukelib/sheets-wasm'
 import { MEDIA_ZOOM_STEP } from './files-media-zoom'
 
-/** 超过这个大小的 Excel 不在此预览：库在页面线程解析，文件太大会长时间卡住界面 */
-export const XLSX_PREVIEW_MAX_BYTES = 10 * 1024 * 1024
-
 /** CSV 列宽估算的下限 / 上限（Excel 列宽单位，约等于字符数）：下限是 Excel 默认列宽，上限免得一格长文把整列撑满一屏 */
 const CSV_COL_MIN_WIDTH = 8.43
 const CSV_COL_MAX_WIDTH = 50

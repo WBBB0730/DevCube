@@ -16,7 +16,8 @@ function ContextMenuContent({
   align,
   sideOffset,
   alignOffset,
-  collisionPadding
+  collisionPadding,
+  finalFocus
 }: {
   className?: string
   children?: React.ReactNode
@@ -27,6 +28,8 @@ function ContextMenuContent({
   sideOffset?: number
   alignOffset?: number
   collisionPadding?: number
+  /** 关闭后焦点去向（缺省还给右键前的焦点），见 Base UI `Menu.Popup` */
+  finalFocus?: BaseContextMenu.Popup.Props['finalFocus']
 }): React.JSX.Element {
   return (
     <BaseContextMenu.Portal>
@@ -42,6 +45,7 @@ function ContextMenuContent({
         collisionPadding={collisionPadding}
       >
         <BaseContextMenu.Popup
+          finalFocus={finalFocus}
           className={cn(
             'min-w-32 rounded-lg border border-[color:var(--border-input)] bg-elevated p-1.5 shadow-xl outline-none',
             className

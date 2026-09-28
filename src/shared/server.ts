@@ -163,6 +163,22 @@ export function sshStatusArgs(
   ]
 }
 
+/**
+ * 服务器文件连接（Files Tab，ADR-0040）：打开服务器的 sftp 子系统（-s），不分配终端；
+ * 保活参数同状态连接，网络断了约 45 秒内发现。
+ */
+export function sshSftpArgs(target: ServerTarget, options: readonly string[] = []): string[] {
+  return [
+    '-s',
+    '-o',
+    'ServerAliveInterval=15',
+    '-o',
+    'ServerAliveCountMax=3',
+    ...sshArgs(target, options),
+    'sftp'
+  ]
+}
+
 /** 测试连接失败的说明：取 ssh 报错的最后一行（如 `Permission denied (…)`），没有输出时给退出代码。 */
 export function sshFailureMessage(stderr: string, exitCode: number | null): string {
   const last = stderr

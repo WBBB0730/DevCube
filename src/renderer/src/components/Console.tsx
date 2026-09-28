@@ -58,6 +58,7 @@ import {
   type TerminalTab
 } from '@renderer/store'
 import { ServerStatusPane } from '@renderer/components/ServerStatusPane'
+import { ServerFilesPane } from '@renderer/components/ServerFilesPane'
 import { ConnectServerItems } from '@renderer/components/ConnectServerItems'
 import {
   DropdownMenu,
@@ -173,6 +174,16 @@ export function Console(): React.JSX.Element {
           return (
             <div key={sk} className={cn('absolute inset-0', !visible && 'hidden')}>
               <ServerStatusPane serverId={n.server.id} />
+            </div>
+          )
+        })}
+        {/* 服务器的 Files 面板：每台服务器常驻一个（切走仅隐藏；连接与传输不随之中断，见 ServerFilesPane）。 */}
+        {servers.map((n) => {
+          const fk = filesTabKey(serverEntryKey(n.server.id))
+          const visible = fk === activeKey
+          return (
+            <div key={fk} className={cn('absolute inset-0', !visible && 'hidden')}>
+              <ServerFilesPane serverId={n.server.id} visible={visible} />
             </div>
           )
         })}
@@ -329,7 +340,7 @@ function TabBar({
   activeKey
 }: {
   entryKey: string
-  /** 常驻 Tab 的键（按序）：Project 为 Git、Files；Server 为 Status */
+  /** 常驻 Tab 的键（按序）：Project 为 Git、Files；Server 为 Status、Files */
   residentKeys: string[]
   runTabs: RunTabInfo[]
   termTabs: TerminalTab[]
@@ -338,7 +349,7 @@ function TabBar({
   const newSshTerminal = useApp((s) => s.newSshTerminal)
   const reorderTerminals = useApp((s) => s.reorderTerminals)
   const serverId = serverIdOfEntryKey(entryKey)
-  // 常驻 Tab 占最前的 ⌘ 序号（Project 为 ⌘1 / ⌘2，Server 为 ⌘1）
+  // 常驻 Tab 占最前的 ⌘ 序号（两类条目都是 ⌘1 / ⌘2）
   const residentCount = residentKeys.length
   const tabBarRef = useRef<HTMLDivElement>(null)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
@@ -395,17 +406,12 @@ function TabBar({
         className="tab-bar-scroll scroll-fade-scroller flex h-full flex-nowrap items-center overflow-x-auto overflow-y-hidden scroll-px-4"
         title={`切换 Tab (${shortcutLabel(SHORTCUT.prevTab)} / ${shortcutLabel(SHORTCUT.nextTab)}，或 ${shortcutLabel(SHORTCUT.cycleTabNext)})`}
       >
-        {/* 常驻 Tab：Project 为 Git（⌘1，ADR-0005）、Files（⌘2）；Server 为状态（⌘1）。不可关闭。 */}
+        {/* 常驻 Tab：Project 为 Git（⌘1，ADR-0005）、Files（⌘2）；Server 为状态（⌘1）、Files（⌘2）。不可关闭。 */}
         {residentKeys.map((key) =>
           isGitTabKey(key) ? (
             <GitTabItem key={key} gitKey={key} projectPath={entryKey} active={key === activeKey} />
           ) : isFilesTabKey(key) ? (
-            <FilesTabItem
-              key={key}
-              filesKey={key}
-              projectPath={entryKey}
-              active={key === activeKey}
-            />
+            <FilesTabItem key={key} filesKey={key} entryKey={entryKey} active={key === activeKey} />
           ) : (
             <StatusTabItem
               key={key}
@@ -547,13 +553,14 @@ function GitTabItem({
   )
 }
 
+// 文件 Tab：Project 常驻第二（紧接 Git），Server 常驻第二（紧接状态），不可关闭。
 function FilesTabItem({
   filesKey,
-  projectPath,
+  entryKey,
   active
 }: {
   filesKey: string
-  projectPath: string
+  entryKey: string
   active: boolean
 }): React.JSX.Element {
   const activateTab = useApp((s) => s.activateTab)
@@ -563,7 +570,7 @@ function FilesTabItem({
       className={cn(TAB, 'pl-3 pr-3')}
       style={active ? TAB_ACTIVE : undefined}
       title={shortcutTitle('文件', tabAtShortcut(2))}
-      onClick={() => activateTab(projectPath, filesKey)}
+      onClick={() => activateTab(entryKey, filesKey)}
     >
       <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
       <span className="text-foreground">文件</span>

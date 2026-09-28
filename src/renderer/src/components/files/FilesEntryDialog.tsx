@@ -4,21 +4,20 @@
 import { useEffect, useRef, useState } from 'react'
 import { FormDialogShell } from '@renderer/components/ui/form-dialog'
 import { Input } from '@renderer/components/ui/input'
+import { ipcErrorMessage } from '@renderer/lib/ipc-error'
 
 export type FilesEntryDialogRequest =
   | { kind: 'create-file'; dir: string }
   | { kind: 'create-dir'; dir: string }
   | { kind: 'rename'; path: string; isDirectory: boolean }
+  /** 本机：移到回收站（可恢复） */
   | { kind: 'trash'; path: string; isDirectory: boolean }
+  /** 服务器上：没有回收站，删了即不可恢复 */
+  | { kind: 'delete'; path: string; isDirectory: boolean }
 
+/** 条目名；根自身（`/`）原样 */
 function baseName(p: string): string {
-  return p.slice(p.lastIndexOf('/') + 1)
-}
-
-/** Electron invoke 抛错带 "Error invoking remote method 'x': Error: " 前缀，剥掉只留正文。 */
-function errorText(e: unknown): string {
-  const msg = e instanceof Error ? e.message : String(e)
-  return msg.replace(/^Error invoking remote method '[^']*':\s*(Error:\s*)?/, '')
+  return p.slice(p.lastIndexOf('/') + 1) || p
 }
 
 /** WebStorm 式提示语：完整语句说明目标与动作（B 类外壳无标题栏，提示语即说明）。 */
@@ -32,6 +31,8 @@ function messageFor(request: FilesEntryDialogRequest): string {
       return `将 “${baseName(request.path)}” 重命名为：`
     case 'trash':
       return `将把${request.isDirectory ? '文件夹' : '文件'} “${baseName(request.path)}” 移到回收站。`
+    case 'delete':
+      return `将从服务器上删除${request.isDirectory ? '文件夹' : '文件'} “${baseName(request.path)}”${request.isDirectory ? '及其中的全部内容' : ''}，删除后无法恢复。`
   }
 }
 
@@ -39,7 +40,8 @@ const PRIMARY_LABEL: Record<FilesEntryDialogRequest['kind'], string> = {
   'create-file': '创建',
   'create-dir': '创建',
   rename: '重命名',
-  trash: '删除'
+  trash: '删除',
+  delete: '删除'
 }
 
 export function FilesEntryDialog({
@@ -52,7 +54,8 @@ export function FilesEntryDialog({
   /** 确认：新建 / 重命名传输入名，删除传空串；成功由调用方关闭，抛错则留在弹窗展示 */
   onSubmit: (name: string) => Promise<void>
 }): React.JSX.Element {
-  const isTrash = request.kind === 'trash'
+  /** 删除类只确认、不输入名称 */
+  const isRemoval = request.kind === 'trash' || request.kind === 'delete'
   const initial = request.kind === 'rename' ? baseName(request.path) : ''
   const [name, setName] = useState(initial)
   const [busy, setBusy] = useState(false)
@@ -77,11 +80,11 @@ export function FilesEntryDialog({
   const submit = (): void => {
     if (busy) return
     const trimmed = name.trim()
-    if (!isTrash && trimmed === '') return
+    if (!isRemoval && trimmed === '') return
     setBusy(true)
     setError(null)
     onSubmit(trimmed).catch((e: unknown) => {
-      setError(errorText(e))
+      setError(ipcErrorMessage(e))
       setBusy(false)
     })
   }
@@ -92,14 +95,14 @@ export function FilesEntryDialog({
       buttons={[
         {
           label: PRIMARY_LABEL[request.kind],
-          disabled: busy || (!isTrash && name.trim() === ''),
+          disabled: busy || (!isRemoval && name.trim() === ''),
           onClick: submit
         }
       ]}
       onCancel={busy ? () => undefined : onClose}
       cancelDisabled={busy}
     >
-      {!isTrash && (
+      {!isRemoval && (
         <Input
           ref={inputRef}
           value={name}

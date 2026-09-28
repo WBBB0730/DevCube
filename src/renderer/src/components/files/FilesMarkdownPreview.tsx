@@ -1,13 +1,14 @@
 // Files Tab · Markdown 预览：react-markdown + GFM。原始 HTML 不渲染（库默认，天然防注入）；
-// 相对路径图片解析到项目内后经 dc-media 协议流式读取（越界 / 非图片不渲染）；链接一律拦截
-// 默认跳转，http/https/mailto 交给系统浏览器，其余（锚点 / 相对链接）不动作。
-import { useMemo } from 'react'
+// 相对路径图片解析到项目内后经 dc-media 协议流式读取（越界 / 非图片不渲染；服务器上的文件不解析，
+// 相对图片不显示）；链接一律拦截默认跳转，http/https/mailto 交给系统浏览器，其余（锚点 / 相对链接）不动作。
+import { useContext, useMemo } from 'react'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { isExternalLink } from '@shared/external-link'
 import { buildFilesMediaUrl } from '@shared/files'
 import { resolveWithinProject } from '@shared/files-path'
 import { imageMimeOf } from '@shared/git'
+import { FilesLocalContext } from './files-local-context'
 
 function hasScheme(url: string): boolean {
   return /^[a-z][a-z0-9+.-]*:/i.test(url) || url.startsWith('//')
@@ -30,6 +31,7 @@ export function FilesMarkdownPreview({
   content: string
   projectRoot: string
 }): React.JSX.Element {
+  const local = useContext(FilesLocalContext)
   const components = useMemo<Components>(() => {
     const dir = path.slice(0, path.lastIndexOf('/'))
     return {
@@ -50,7 +52,9 @@ export function FilesMarkdownPreview({
       img: ({ src, alt, ...rest }) => {
         let resolved = typeof src === 'string' ? src : undefined
         if (resolved !== undefined && !hasScheme(resolved)) {
-          const logical = resolveWithinProject(projectRoot, dir + '/' + decodeMaybe(resolved))
+          const logical = local
+            ? resolveWithinProject(projectRoot, dir + '/' + decodeMaybe(resolved))
+            : null
           const mime = logical === null ? null : imageMimeOf(logical)
           resolved =
             logical !== null && mime !== null
@@ -60,7 +64,7 @@ export function FilesMarkdownPreview({
         return <img {...rest} src={resolved} alt={alt ?? ''} />
       }
     }
-  }, [path, projectRoot])
+  }, [path, projectRoot, local])
 
   return (
     <div className="min-h-0 flex-1 overflow-y-auto bg-deepest">

@@ -34,8 +34,8 @@
 
 ## Implementation Decisions
 
-- **Tab**：**Status Tab** 键为 `status:server:<id>`，与 Git / Files 同属常驻非会话 Tab：不可关闭，⌘W 无效；Tab 序为「常驻 Tab → 运行会话 → 终端」，Server 的常驻 Tab 只有它，占 ⌘1。默认激活规则不变（有运行中的 **Run Session** 先激活它，否则 Tab 序首位），所以点开服务器默认就是 **Status Tab**。原先服务器没有 Tab 时的占位页（「尚未连接到 X」+「连接」，点了开一个 **SSH Terminal**）合并进 **Status Tab** 的未连接状态，那里的「连接」改为开始看状态；开终端用 Tab 栏的「+」。
-- **激活规则的数据结构**：Tab 激活的纯函数接收「按序的常驻 Tab 键列表」，不为每种常驻 Tab 各设一个参数；**Project** 为 Git、Files，**Server** 为 Status。
+- **Tab**：**Status Tab** 键为 `status:server:<id>`，与 Git / Files 同属常驻非会话 Tab：不可关闭，⌘W 无效；Tab 序为「常驻 Tab → 运行会话 → 终端」，Server 的常驻 Tab 为它（⌘1）与 **Files Tab**（⌘2，见 `docs/prd/server-files.md`）。默认激活规则不变（有运行中的 **Run Session** 先激活它，否则 Tab 序首位），所以点开服务器默认就是 **Status Tab**。原先服务器没有 Tab 时的占位页（「尚未连接到 X」+「连接」，点了开一个 **SSH Terminal**）合并进 **Status Tab** 的未连接状态，那里的「连接」改为开始看状态；开终端用 Tab 栏的「+」。
+- **激活规则的数据结构**：Tab 激活的纯函数接收「按序的常驻 Tab 键列表」，不为每种常驻 Tab 各设一个参数；**Project** 为 Git、Files，**Server** 为 Status、Files。
 - **连接**：每台服务器至多一条状态连接，由主进程管理。经 `prepareSsh` 起系统 `ssh`（沿用 **Server** 的连接目标与「绕开代理直连」，ADR-0039），不分配终端（`-T`），带 `ServerAliveInterval=15`、`ServerAliveCountMax=3`，网络断了约 45 秒内发现。提问照常经 askpass（ADR-0038），记住的密码自动作答。
 - **服务器上的脚本**：远端命令为 `sh -c '<脚本>'`（不依赖登录 shell 的语法）。脚本先检查 `/proc/stat` 可读，否则输出「不支持」标记后退出；再输出一次基本信息（主机名、`/etc/os-release` 的 `PRETTY_NAME`、`uname` 的内核与架构、CPU 核数与型号、默认路由所在网卡及其 IPv4 地址、`/proc/stat` 的 btime、`getconf` 的页大小与每秒时钟嘀嗒数），然后循环：**每从标准输入读到一行，就输出一帧数据**——`/proc/stat` 首行、`/proc/meminfo` 里用到的七行、`/proc/loadavg`、`/proc/uptime`、默认网卡在 `/proc/net/dev` 的那一行、`df -kP`、系统盘在 `/proc/diskstats` 的那一行（按 `/proc/self/mountinfo` 里 `/` 的设备号取，LVM 等也对得上；根在 overlay 上时没有）、进程排行。各段以 `@@` 开头的标记行分隔；登录时 rc 文件打印的杂项落在帧外，一律忽略。每帧约 1 KB。
 - **进程排行**：在服务器上算好再传回。每帧读全部 `/proc/<pid>/stat` 的 utime + stime（时钟嘀嗒）与常驻页数，和上一帧相减，输出 CPU 前 10 与常驻内存前 10 的并集（增量、常驻页数、pid、内核记录的名字），切换排序不用等下一帧；再用一次 `ps -o pid=,user:32=,args= -p …` 补上它们的用户名（没有对应用户名时 procps 给出 uid 数字）与命令行。程序名取命令行首个词的文件名（去掉进程改标题时的尾冒号，如「sshd: …」）；没有命令行的（内核线程）用内核记录的名字。不用 `ps` 的 %CPU（进程一生的平均，反映不了当下），也不用 `top`（输出格式会被用户自己的 toprc 改掉）。主进程换算：CPU = 嘀嗒增量 /（每秒嘀嗒数 × 两帧间隔）× 100%，按单核计（同 top）；内存 = 常驻页数 × 页大小。界面按所选列降序取前 10，默认按 CPU。第一帧没有上一帧可比，排行为空。
@@ -79,3 +79,4 @@
 ## Further Notes
 
 - 术语见 CONTEXT.md（**Server**、**Status Tab**）；连接经系统 `ssh`，见 ADR-0038、ADR-0039。
+- 连接方式拟改为内置实现（提案中，尚未实施）：状态改为这台服务器共享连接上的一个 exec 通道，见 `docs/prd/ssh-connection.md`、ADR-0041。

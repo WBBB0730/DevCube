@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest'
 import { SCRIPT_SOURCE } from '../shared/discover-source'
 import {
   buildRemoteRunCommand,
+  buildRemoteShellInDir,
   buildRemoteStatusCommand,
   buildScriptCommand,
   buildShellInvocation,
@@ -131,6 +132,14 @@ describe('buildRemoteRunCommand', () => {
       "cd ~/'my app' && export MSG='it'\\''s' && ls"
     )
     expect(buildRemoteRunCommand('ls', '~', undefined)).toContain('; cd ~ && ls')
+  })
+})
+
+describe('buildRemoteShellInDir', () => {
+  it('进目录后换成登录 shell，目录整体加引号', () => {
+    expect(buildRemoteShellInDir("/srv/it's app")).toBe(
+      `cd '/srv/it'\\''s app' && exec "$SHELL" -l`
+    )
   })
 })
 

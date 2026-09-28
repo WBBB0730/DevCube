@@ -52,6 +52,42 @@ const api: RunAPI = {
   connectServerStatus: (serverId) => ipcRenderer.invoke(IPC.serverStatusConnect, serverId),
   disconnectServerStatus: (serverId) => ipcRenderer.invoke(IPC.serverStatusDisconnect, serverId),
   onServerStatusChanged: (cb) => subscribe(IPC.serverStatusChanged, cb),
+  getServerFilesState: (serverId) => ipcRenderer.invoke(IPC.serverFilesGet, serverId),
+  connectServerFiles: (serverId) => ipcRenderer.invoke(IPC.serverFilesConnect, serverId),
+  disconnectServerFiles: (serverId) => ipcRenderer.invoke(IPC.serverFilesDisconnect, serverId),
+  onServerFilesStateChanged: (cb) => subscribe(IPC.serverFilesStateChanged, cb),
+  serverFilesListDir: (serverId, dir) => ipcRenderer.invoke(IPC.serverFilesListDir, serverId, dir),
+  serverFilesStat: (serverId, path) => ipcRenderer.invoke(IPC.serverFilesStat, serverId, path),
+  serverFilesRead: (serverId, path, force) =>
+    ipcRenderer.invoke(IPC.serverFilesRead, serverId, path, force),
+  serverFilesCancelRead: (serverId) => ipcRenderer.invoke(IPC.serverFilesReadCancel, serverId),
+  onServerFilesReadProgress: (cb) => subscribe(IPC.serverFilesReadProgress, cb),
+  serverFilesWrite: (serverId, path, content, base) =>
+    ipcRenderer.invoke(IPC.serverFilesWrite, serverId, path, content, base),
+  serverFilesCreate: (serverId, dir, name, kind) =>
+    ipcRenderer.invoke(IPC.serverFilesCreate, serverId, dir, name, kind),
+  serverFilesRename: (serverId, path, newName) =>
+    ipcRenderer.invoke(IPC.serverFilesRename, serverId, path, newName),
+  serverFilesDelete: (serverId, path) => ipcRenderer.invoke(IPC.serverFilesDelete, serverId, path),
+  onServerFilesEntriesChanged: (cb) => subscribe(IPC.serverFilesEntriesChanged, cb),
+  serverFilesGetUi: (serverId) => ipcRenderer.invoke(IPC.serverFilesGetUi, serverId),
+  serverFilesSetUi: (serverId, patch) => ipcRenderer.invoke(IPC.serverFilesSetUi, serverId, patch),
+  serverFilesUpload: (serverId, remoteDir, localPaths) =>
+    ipcRenderer.invoke(IPC.serverFilesUpload, serverId, remoteDir, localPaths),
+  serverFilesUploadPick: (serverId, remoteDir, kind) =>
+    ipcRenderer.invoke(IPC.serverFilesUploadPick, serverId, remoteDir, kind),
+  serverFilesDownload: (serverId, path, isDirectory) =>
+    ipcRenderer.invoke(IPC.serverFilesDownload, serverId, path, isDirectory),
+  getServerTransfers: (serverId) => ipcRenderer.invoke(IPC.serverTransfersGet, serverId),
+  onServerTransfersChanged: (cb) => subscribe(IPC.serverTransfersChanged, cb),
+  cancelServerTransfer: (serverId, id) =>
+    ipcRenderer.invoke(IPC.serverTransferCancel, serverId, id),
+  dismissServerTransfer: (serverId, id) =>
+    ipcRenderer.invoke(IPC.serverTransferDismiss, serverId, id),
+  onTransferConflictRequest: (cb) => subscribe(IPC.transferConflictRequest, cb),
+  onTransferConflictDismiss: (cb) => subscribe(IPC.transferConflictDismiss, cb),
+  respondTransferConflict: (response) => ipcRenderer.send(IPC.transferConflictRespond, response),
+  reportUnsavedServerFiles: (count) => ipcRenderer.send(IPC.serverFilesUnsavedCount, count),
   onServersChanged: (cb) => subscribe(IPC.serversChanged, cb),
   onAskpassRequest: (cb) => subscribe(IPC.askpassRequest, cb),
   onAskpassDismiss: (cb) => subscribe(IPC.askpassDismiss, cb),
@@ -68,8 +104,8 @@ const api: RunAPI = {
 
   openTerminal: (projectPath, key, cwd) =>
     ipcRenderer.invoke(IPC.terminalOpen, projectPath, key, cwd),
-  openSshTerminal: (ownerKey, serverId, key) =>
-    ipcRenderer.invoke(IPC.sshTerminalOpen, ownerKey, serverId, key),
+  openSshTerminal: (ownerKey, serverId, key, cwd) =>
+    ipcRenderer.invoke(IPC.sshTerminalOpen, ownerKey, serverId, key, cwd),
   closeSession: (key) => ipcRenderer.invoke(IPC.sessionClose, key),
   getTerminals: () => ipcRenderer.invoke(IPC.terminals),
   getWorkspaceUi: () => ipcRenderer.invoke(IPC.workspaceUiGet),

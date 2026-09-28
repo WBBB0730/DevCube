@@ -8,8 +8,15 @@ export interface FilesDirEntry {
   isDirectory: boolean
 }
 
+/** 文本进编辑器的大小上限；超过即不打开（本机与服务器同一条线）。 */
+export const FILES_TEXT_MAX_BYTES = 5 * 1024 * 1024
+
+/** Excel 表格预览的大小上限：库在页面线程解析，文件太大会长时间卡住界面（本机与服务器同一条线）。 */
+export const FILES_XLSX_PREVIEW_MAX_BYTES = 10 * 1024 * 1024
+
 export type FilesReadResult =
-  | { kind: 'text'; path: string; content: string; mtimeMs: number }
+  /** mtimeMs 与 size 一起判断文件是否被别处改过 */
+  | { kind: 'text'; path: string; content: string; mtimeMs: number; size: number }
   | {
       kind: 'image'
       path: string
@@ -68,6 +75,11 @@ export function buildFilesTileUrl(key: string, rel: string, mime: string): strin
   u.searchParams.set('f', rel)
   u.searchParams.set('m', mime)
   return u.toString()
+}
+
+/** 新建 / 重命名的名称硬约束（单段、非空、不含分隔符）；合法为 null，其余交给文件系统报错。 */
+export function filesEntryNameError(name: string): string | null {
+  return name === '' || name === '.' || name === '..' || /[/\\]/.test(name) ? '名称无效' : null
 }
 
 /** 树内同级排序：目录在前，名称大小写不敏感升序（listDir 与过滤树共用）。 */

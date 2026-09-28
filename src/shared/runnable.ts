@@ -27,9 +27,10 @@ export function isGitTabKey(key: string): boolean {
   return key.startsWith('git:')
 }
 
-// Files Tab 键：每项目一个常驻、非会话的 Tab（ADR-0005），排在 Git Tab 之后。
-export function filesTabKey(projectPath: string): string {
-  return `files:${projectPath}`
+// Files Tab 键：每个条目一个常驻、非会话的 Tab（ADR-0005）。Project 排在 Git Tab 之后，键形如
+// `files:<项目路径>`；Server 排在 Status Tab 之后，键形如 `files:server:<id>`（见 docs/prd/server-files.md）。
+export function filesTabKey(entryKey: string): string {
+  return `files:${entryKey}`
 }
 
 export function isFilesTabKey(key: string): boolean {

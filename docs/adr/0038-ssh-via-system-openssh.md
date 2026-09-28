@@ -1,5 +1,7 @@
 # SSH 一律经系统 OpenSSH，不内置协议实现
 
+> 拟被 ADR-0041 取代（提案中，尚未实施）：配置仍由系统 OpenSSH 解析（`ssh -G`），连接改由内置的 ssh2 完成。
+
 要支持连服务器（**SSH Terminal**，以后还有远程文件管理）时，可以像 FinalShell / Termius 那样内置一套 SSH 客户端（Node 生态里是 `ssh2`），也可以直接调用系统自带的 `ssh`。我们决定一律经系统 OpenSSH：**SSH Terminal** 就是在 PTY 里跑 `ssh`；密码和其他提问经 `SSH_ASKPASS` + `SSH_ASKPASS_REQUIRE=force` 交给 DevCube 回答；记住的密码用 Electron `safeStorage` 加密存放，由 askpass 递给 `ssh`，不经命令行参数或环境变量传递。这样，用户 `~/.ssh/config` 里的 `Include`、`Match`、`ProxyJump`、`ProxyCommand`，ssh-agent、known_hosts 以及 `UseKeychain` 这类平台专有选项全部原样生效，DevCube 不必重做一遍配置解析和认证。
 
 ## Considered Options

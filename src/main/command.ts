@@ -220,6 +220,14 @@ export function buildRemoteRunCommand(
   return `${shRunHeader(cwd || '~', command)}; ${steps.join(' && ')}`
 }
 
+/**
+ * 「在 SSH 终端中打开」：登录后先进目录，再以登录 shell 替换自己，得到与直接 ssh 登录一样的交互 shell
+ * （按 POSIX sh 语法，同 buildRemoteRunCommand）。目录是 Files Tab 里的绝对路径。
+ */
+export function buildRemoteShellInDir(dir: string): string {
+  return `cd ${shSingleQuote(dir)} && exec "$SHELL" -l`
+}
+
 /** WindowsShell / posix → 运行头包装所用的 shell 族。 */
 export function runHeaderShellFor(
   platform: NodeJS.Platform,

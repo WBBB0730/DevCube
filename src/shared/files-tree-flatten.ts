@@ -7,20 +7,39 @@ export interface FilesTreeRow {
   /** 内容缩进层级：根的直接子级为 0 */
   depth: number
   isDirectory: boolean
+  /** 提示行（如展开的目录读不出来时的「没有权限」）：name 即提示文字，不对应任何条目 */
+  notice?: true
+}
+
+/** 提示行的键：目录路径后接 NUL，不会与任何条目路径撞上。 */
+export function filesTreeNoticePath(dirPath: string): string {
+  return `${dirPath}\0notice`
 }
 
 /**
  * 把「目录映射 + 展开集合」按展开态拍平成可见行数组（树行虚拟化用）：
  * 根自身不产行、其子级恒可见；其余目录仅展开时其子级进入结果；
- * 顺序即树自上而下的视觉序。
+ * 读不出来的目录（notices 里有它）在子级位置出一条提示行；顺序即树自上而下的视觉序。
  */
 export function flattenFilesTree(
   rootPath: string,
   childrenByDir: Record<string, FilesDirEntry[]>,
-  expanded: ReadonlySet<string>
+  expanded: ReadonlySet<string>,
+  notices: Readonly<Record<string, string>> = {}
 ): FilesTreeRow[] {
   const rows: FilesTreeRow[] = []
   const walk = (dirPath: string, depth: number): void => {
+    const notice = notices[dirPath]
+    if (notice !== undefined) {
+      rows.push({
+        path: filesTreeNoticePath(dirPath),
+        name: notice,
+        depth,
+        isDirectory: false,
+        notice: true
+      })
+      return
+    }
     for (const e of childrenByDir[dirPath] ?? []) {
       rows.push({ path: e.path, name: e.name, depth, isDirectory: e.isDirectory })
       if (e.isDirectory && expanded.has(e.path)) walk(e.path, depth + 1)

@@ -201,25 +201,25 @@ export function setAppPrefs(patch: Partial<AppPrefs>): AppPrefs {
   return merged
 }
 
-export function getFilesUi(projectPath: string): FilesUiState {
+export function getFilesUi(entryKey: string): FilesUiState {
   const all = store.get('filesUi') ?? {}
-  const stored = all[projectPath]
+  const stored = all[entryKey]
   return {
     ...DEFAULT_FILES_UI,
     ...pickKnownKeys(DEFAULT_FILES_UI, stored)
   }
 }
 
-export function setFilesUi(projectPath: string, patch: Partial<FilesUiState>): FilesUiState {
-  const merged = { ...getFilesUi(projectPath), ...patch }
-  store.set('filesUi', { ...(store.get('filesUi') ?? {}), [projectPath]: merged })
+export function setFilesUi(entryKey: string, patch: Partial<FilesUiState>): FilesUiState {
+  const merged = { ...getFilesUi(entryKey), ...patch }
+  store.set('filesUi', { ...(store.get('filesUi') ?? {}), [entryKey]: merged })
   return merged
 }
 
-/** 项目移除时清掉 Files UI，避免残留。 */
-export function deleteFilesUi(projectPath: string): void {
+/** 项目或服务器移除时清掉 Files UI，避免残留。 */
+export function deleteFilesUi(entryKey: string): void {
   const all = { ...(store.get('filesUi') ?? {}) }
-  delete all[projectPath]
+  delete all[entryKey]
   store.set('filesUi', all)
 }
 

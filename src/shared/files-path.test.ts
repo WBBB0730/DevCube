@@ -1,9 +1,37 @@
 import { describe, expect, it } from 'vitest'
-import { normalizePath, remapPathPrefix, resolveWithinProject } from './files-path'
+import {
+  childPathPrefix,
+  joinLogicalPath,
+  logicalParentPath,
+  normalizePath,
+  remapPathPrefix,
+  resolveWithinProject
+} from './files-path'
 
 describe('normalizePath', () => {
   it('折叠 . 与 ..', () => {
     expect(normalizePath('/a/./b/../c')).toBe('/a/c')
+  })
+})
+
+describe('childPathPrefix / joinLogicalPath / logicalParentPath', () => {
+  it('根以 / 结尾时不重复补斜杠', () => {
+    expect(childPathPrefix('/proj')).toBe('/proj/')
+    expect(childPathPrefix('/')).toBe('/')
+    expect(childPathPrefix('C:/')).toBe('C:/')
+    expect(joinLogicalPath('/', 'etc')).toBe('/etc')
+    expect(joinLogicalPath('/etc', 'nginx')).toBe('/etc/nginx')
+  })
+
+  it('拼接不规范化：服务器上的文件名可以含反斜杠', () => {
+    expect(joinLogicalPath('/srv', 'a\\b')).toBe('/srv/a\\b')
+  })
+
+  it('所在目录：落到根时保留根的斜杠', () => {
+    expect(logicalParentPath('/etc/nginx')).toBe('/etc')
+    expect(logicalParentPath('/etc')).toBe('/')
+    expect(logicalParentPath('/')).toBe('/')
+    expect(logicalParentPath('C:/x')).toBe('C:/')
   })
 })
 

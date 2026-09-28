@@ -39,6 +39,24 @@ export function normalizePath(p: string): string {
   return out.join('/')
 }
 
+/** 根下子路径的公共前缀：根本身以 `/` 结尾（`/`、`C:/`）时不再补一个。 */
+export function childPathPrefix(root: string): string {
+  return root.endsWith('/') ? root : root + '/'
+}
+
+/** 在目录下拼出子路径（纯拼接，不规范化：服务器上的文件名可能含 `\`）。 */
+export function joinLogicalPath(dir: string, name: string): string {
+  return childPathPrefix(dir) + name
+}
+
+/** 所在目录（纯字符串运算）；`/x` → `/`，`C:/x` → `C:/`，根自身原样返回。 */
+export function logicalParentPath(p: string): string {
+  const slash = p.lastIndexOf('/')
+  if (slash < 0) return p
+  const withSlash = p.slice(0, slash + 1)
+  return withSlash === '/' || /^[a-zA-Z]:\/$/.test(withSlash) ? withSlash : withSlash.slice(0, -1)
+}
+
 /**
  * 前缀重映射（重命名后同步展开 / 打开 / 最近路径）：
  * p 等于 oldBase 或位于其内时替换前缀为 newBase，否则原样返回。

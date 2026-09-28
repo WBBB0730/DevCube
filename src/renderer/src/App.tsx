@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react'
 import { ProjectTree } from '@renderer/components/ProjectTree'
 import { Console } from '@renderer/components/Console'
 import { AskpassDialog } from '@renderer/components/AskpassDialog'
+import { TransferConflictDialog } from '@renderer/components/TransferConflictDialog'
+import { UnsavedChangesDialog } from '@renderer/components/UnsavedChangesDialog'
 import { CloneProjectDialog } from '@renderer/components/CloneProjectDialog'
 import { ConfigDialog } from '@renderer/components/ConfigDialog'
 import { ServerDialog } from '@renderer/components/ServerDialog'
@@ -73,7 +75,7 @@ function cycleEntry(dir: 1 | -1): void {
 function handleAppShortcut(shortcut: AppShortcut): void {
   const st = useApp.getState()
   const entry = st.currentEntryKey
-  // Files / Git / 内容搜索只对 Project 有意义；Server 条目没有这些
+  // 内容搜索只对 Project 有意义；Files Tab 两类条目都有（服务器上 ⌥⌘F 聚焦「前往路径」）
   const proj = entry !== null && !isServerEntryKey(entry) ? entry : null
 
   switch (shortcut.id) {
@@ -81,13 +83,13 @@ function handleAppShortcut(shortcut: AppShortcut): void {
       st.focusProjectFilter()
       return
     case 'focusFilesFilter':
-      if (proj) useFiles.getState().focusFilesFilter(proj)
+      if (entry) useFiles.getState().focusFilesFilter(entry)
       return
     case 'contentSearch':
       if (proj) st.setContentSearchOpen(true)
       return
     case 'recentFiles':
-      if (proj) useFiles.getState().openRecentMenu(proj)
+      if (entry) useFiles.getState().openRecentMenu(entry)
       return
     case 'prevProject':
       cycleEntry(-1)
@@ -133,6 +135,8 @@ function App(): React.JSX.Element {
   const dialog = useApp((s) => s.dialog)
   const serverDialog = useApp((s) => s.serverDialog)
   const askpass = useApp((s) => s.askpassQueue[0] ?? null)
+  const transferConflict = useApp((s) => s.transferConflictQueue[0] ?? null)
+  const unsavedPrompt = useApp((s) => s.unsavedPrompt)
   // 当前条目名（无当前条目 / 暂未找到则为 null）；驱动窗口标题。
   const entryName = useApp((s) => {
     const key = s.currentEntryKey
@@ -170,6 +174,13 @@ function App(): React.JSX.Element {
     const offAskpassDismiss = window.api.onAskpassDismiss((id) =>
       useApp.getState().dismissAskpass(id)
     )
+    // 上传 / 下载遇到同名文件：排队弹窗；传输被取消时随之撤掉。
+    const offConflict = window.api.onTransferConflictRequest((request) =>
+      useApp.getState().enqueueTransferConflict(request)
+    )
+    const offConflictDismiss = window.api.onTransferConflictDismiss((id) =>
+      useApp.getState().dismissTransferConflict(id)
+    )
     const offStatus = window.api.onSessionStatus((s) => useApp.getState().setSession(s))
     const offRemoved = window.api.onSessionRemoved((key) =>
       useApp.getState().handleSessionRemoved(key)
@@ -192,6 +203,8 @@ function App(): React.JSX.Element {
       offServers()
       offAskpass()
       offAskpassDismiss()
+      offConflict()
+      offConflictDismiss()
       offStatus()
       offRemoved()
       offGit()
@@ -239,6 +252,13 @@ function App(): React.JSX.Element {
       </div>
       {dialog.open && <ConfigDialog key={dialog.config?.id ?? 'new'} />}
       {serverDialog.open && <ServerDialog key={serverDialog.server?.server.id ?? 'new'} />}
+      {unsavedPrompt && (
+        <UnsavedChangesDialog name={unsavedPrompt.name} onChoose={unsavedPrompt.resolve} />
+      )}
+      {/* ssh 提问排在同名询问之后渲染，叠在它上面 */}
+      {transferConflict && (
+        <TransferConflictDialog key={transferConflict.id} request={transferConflict} />
+      )}
       {askpass && <AskpassDialog key={askpass.id} request={askpass} />}
       {cloneDialogOpen && <CloneProjectDialog />}
       {contentSearchOpen && currentProjectPath && (

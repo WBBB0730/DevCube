@@ -20,7 +20,12 @@ import {
   type XlsxCellStyleContext,
   type XlsxScrollerRenderProps
 } from '@extend-ai/react-xlsx'
-import { buildFilesAssetUrl, FILES_ASSET_XLSX, FILES_XLSX_WASM } from '@shared/files'
+import {
+  buildFilesAssetUrl,
+  FILES_ASSET_XLSX,
+  FILES_XLSX_PREVIEW_MAX_BYTES,
+  FILES_XLSX_WASM
+} from '@shared/files'
 import { cn } from '@renderer/lib/utils'
 import { useCtrlWheelZoom, usePagedPreviewKeys } from '@renderer/lib/files-paged-preview'
 import {
@@ -30,7 +35,6 @@ import {
   sheetScrollAfterZoom,
   sheetStepZoom,
   sheetWheelZoom,
-  XLSX_PREVIEW_MAX_BYTES,
   type SheetCellText
 } from '@renderer/lib/files-sheet'
 import { FilesPreviewError } from './FilesPreviewError'
@@ -74,7 +78,7 @@ export function FilesSheetPreview({
   /** 上一个 / 下一个选中的命中下标；null = 取 `findFrom` 起的首个 */
   const [activeMatch, setActiveMatch] = useState<number | null>(null)
 
-  const tooLarge = source.kind === 'xlsx' && source.size > XLSX_PREVIEW_MAX_BYTES
+  const tooLarge = source.kind === 'xlsx' && source.size > FILES_XLSX_PREVIEW_MAX_BYTES
   const kind = source.kind
   const data = source.kind === 'xlsx' ? source.src : source.content
   const tsv = source.kind === 'csv' && path.toLowerCase().endsWith('.tsv')

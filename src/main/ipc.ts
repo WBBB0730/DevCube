@@ -1,6 +1,6 @@
 import { app, ipcMain, BrowserWindow, clipboard, shell } from 'electron'
 import { homedir } from 'node:os'
-import { join } from 'node:path'
+import { join, posix } from 'node:path'
 import { IPC } from '../shared/ipc'
 import { configKey } from '../shared/runnable'
 import { isOpenInAppId } from '../shared/open-in-app'
@@ -20,6 +20,7 @@ import type {
   WindowsShellOption
 } from '../shared/types'
 import type { AskpassResponse, ServerInput, ServerTestInput } from '../shared/server'
+import type { TransferConflictResponse } from '../shared/server-files'
 import { serverEntryKey } from '../shared/tree-entry'
 import { resolveClonePath, type GitCloneInput } from '../shared/git-clone'
 import { listOpenInApps, openInApp } from './open-in-app'
@@ -42,7 +43,7 @@ import {
   reorderConfigs,
   updateCommandConfig
 } from './configs'
-import { pickDirectory, pickFile } from './dialogs'
+import { pickDirectory, pickFile, pickPaths, pickSavePath } from './dialogs'
 import { respondAskpass, setAskpassSink } from './askpass'
 import { passwordUnavailableReason } from './server-secrets'
 import {
@@ -64,6 +65,29 @@ import {
   resetServerStatus,
   setServerStatusSink
 } from './server-status'
+import {
+  cancelServerFileRead,
+  cancelServerTransfer,
+  connectServerFiles,
+  createServerEntry,
+  deleteServerEntry,
+  disconnectServerFiles,
+  disposeServerFiles,
+  dismissServerTransfer,
+  downloadFromServer,
+  getServerFilesState,
+  getServerTransfers,
+  listServerDir,
+  readServerFile,
+  renameServerEntry,
+  resetServerFiles,
+  respondTransferConflict,
+  setServerFilesSink,
+  setUnsavedServerFileCount,
+  statServerPath,
+  uploadToServer,
+  writeServerFile
+} from './server-files'
 import { cancelClone, checkCloneTarget, runClone } from './git-clone'
 import {
   addProjectByPath,
@@ -379,6 +403,7 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   })
   ipcMain.handle(IPC.serverUpdate, (_e, id: string, input: ServerInput) => {
     updateServer(id, input)
+    resetServerFiles(id)
     // 连接信息可能变了：状态连接断开，回到未连接
     resetServerStatus(id)
     return listServerNodes()
@@ -389,6 +414,8 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     for (const config of deleteConfigsOf(serverEntryKey(id))) disposeSession(configKey(config))
     disposeSshTerminalsForServer(id)
     disposeServerStatus(id)
+    disposeServerFiles(id)
+    deleteFilesUi(serverEntryKey(id))
     deleteWorkspaceUiForEntry(serverEntryKey(id))
     deleteSshShellsForServer(id)
     removeServer(id)
@@ -408,6 +435,105 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     disconnectServerStatus(serverId)
   )
   setServerStatusSink((event) => liveMainWindow()?.webContents.send(IPC.serverStatusChanged, event))
+
+  // —— 服务器文件（Server 的 Files Tab，ADR-0040） ——
+  ipcMain.handle(IPC.serverFilesGet, (_e, serverId: string) => getServerFilesState(serverId))
+  ipcMain.handle(IPC.serverFilesConnect, (_e, serverId: string) => connectServerFiles(serverId))
+  ipcMain.handle(IPC.serverFilesDisconnect, (_e, serverId: string) =>
+    disconnectServerFiles(serverId)
+  )
+  ipcMain.handle(IPC.serverFilesListDir, (_e, serverId: string, dir: string) =>
+    listServerDir(serverId, dir)
+  )
+  ipcMain.handle(IPC.serverFilesStat, (_e, serverId: string, path: string) =>
+    statServerPath(serverId, path)
+  )
+  ipcMain.handle(IPC.serverFilesRead, (_e, serverId: string, path: string, force: boolean) =>
+    readServerFile(serverId, path, force)
+  )
+  ipcMain.handle(IPC.serverFilesReadCancel, (_e, serverId: string) =>
+    cancelServerFileRead(serverId)
+  )
+  ipcMain.handle(
+    IPC.serverFilesWrite,
+    (
+      _e,
+      serverId: string,
+      path: string,
+      content: string,
+      base: { mtimeMs: number; size: number }
+    ) => writeServerFile(serverId, path, content, base)
+  )
+  ipcMain.handle(
+    IPC.serverFilesCreate,
+    (_e, serverId: string, dir: string, name: string, kind: 'file' | 'directory') =>
+      createServerEntry(serverId, dir, name, kind)
+  )
+  ipcMain.handle(IPC.serverFilesRename, (_e, serverId: string, path: string, newName: string) =>
+    renameServerEntry(serverId, path, newName)
+  )
+  ipcMain.handle(IPC.serverFilesDelete, (_e, serverId: string, path: string) =>
+    deleteServerEntry(serverId, path)
+  )
+  // 服务器的 Files UI 按条目键记；不在这里剔除失效路径（要连上才查得了），打开失败时渲染端自行剔除
+  ipcMain.handle(IPC.serverFilesGetUi, (_e, serverId: string) =>
+    getFilesUi(serverEntryKey(serverId))
+  )
+  ipcMain.handle(IPC.serverFilesSetUi, (_e, serverId: string, patch: Partial<FilesUiState>) =>
+    setFilesUi(serverEntryKey(serverId), patch)
+  )
+  ipcMain.handle(
+    IPC.serverFilesUpload,
+    (_e, serverId: string, remoteDir: string, localPaths: string[]) =>
+      uploadToServer(serverId, localPaths, remoteDir)
+  )
+  ipcMain.handle(
+    IPC.serverFilesUploadPick,
+    async (_e, serverId: string, remoteDir: string, kind: 'file' | 'directory') => {
+      const picked = await pickPaths(
+        [kind === 'file' ? 'openFile' : 'openDirectory', 'multiSelections'],
+        undefined,
+        mainWindow
+      )
+      uploadToServer(serverId, picked, remoteDir)
+    }
+  )
+  // 下载：文件弹保存对话框（同名由系统问），文件夹选目标目录；默认都在系统「下载」文件夹
+  ipcMain.handle(
+    IPC.serverFilesDownload,
+    async (_e, serverId: string, remotePath: string, isDirectory: boolean) => {
+      const downloads = app.getPath('downloads')
+      const target = isDirectory
+        ? await pickDirectory(downloads, mainWindow)
+        : await pickSavePath(join(downloads, posix.basename(remotePath)), mainWindow)
+      if (target !== null) downloadFromServer(serverId, remotePath, isDirectory, target)
+    }
+  )
+  ipcMain.handle(IPC.serverTransfersGet, (_e, serverId: string) => getServerTransfers(serverId))
+  ipcMain.handle(IPC.serverTransferCancel, (_e, serverId: string, id: string) =>
+    cancelServerTransfer(serverId, id)
+  )
+  ipcMain.handle(IPC.serverTransferDismiss, (_e, serverId: string, id: string) =>
+    dismissServerTransfer(serverId, id)
+  )
+  ipcMain.on(IPC.transferConflictRespond, (_e, response: TransferConflictResponse) =>
+    respondTransferConflict(response)
+  )
+  ipcMain.on(IPC.serverFilesUnsavedCount, (_e, count: number) => setUnsavedServerFileCount(count))
+  setServerFilesSink({
+    state: (event) => liveMainWindow()?.webContents.send(IPC.serverFilesStateChanged, event),
+    transfers: (event) => liveMainWindow()?.webContents.send(IPC.serverTransfersChanged, event),
+    readProgress: (event) => liveMainWindow()?.webContents.send(IPC.serverFilesReadProgress, event),
+    entriesChanged: (serverId) =>
+      liveMainWindow()?.webContents.send(IPC.serverFilesEntriesChanged, serverId),
+    conflict: (request) => {
+      const win = liveMainWindow()
+      // 没有主窗口就没人能回答：按跳过处理
+      if (win) win.webContents.send(IPC.transferConflictRequest, request)
+      else respondTransferConflict({ id: request.id, action: 'skip', applyToRest: false })
+    },
+    conflictDismiss: (id) => liveMainWindow()?.webContents.send(IPC.transferConflictDismiss, id)
+  })
   ipcMain.on(IPC.askpassRespond, (_e, response: AskpassResponse) => respondAskpass(response))
   setAskpassSink({
     request: (request) => {
@@ -466,8 +592,10 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   ipcMain.handle(IPC.terminalOpen, (_e, projectPath: string, key?: string, cwd?: string) =>
     openTerminal(projectPath, key, cwd)
   )
-  ipcMain.handle(IPC.sshTerminalOpen, (_e, ownerKey: string, serverId: string, key?: string) =>
-    openSshTerminal(ownerKey, serverId, key)
+  ipcMain.handle(
+    IPC.sshTerminalOpen,
+    (_e, ownerKey: string, serverId: string, key?: string, cwd?: string) =>
+      openSshTerminal(ownerKey, serverId, key, cwd)
   )
   // 用户关闭 Tab（Run Session / Terminal 通用）：温和停止 + 弃会话 + 通知渲染端移除 Tab。
   ipcMain.handle(IPC.sessionClose, (_e, key: string) => closeSession(key))

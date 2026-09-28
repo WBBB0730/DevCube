@@ -15,7 +15,7 @@
 - **项目里也能连**：项目的新建终端菜单可直接「连接到服务器」，开出的同样是 **SSH Terminal**。
 - **开着 TUN 代理也能连**（macOS / Windows）：给服务器打开「绕开代理直连」，连接就不经过代理、直接使用本机网络，不用改代理软件的规则（ADR-0039）。
 
-远程文件管理（替代 WinSCP）以后作为 **Server** 的常驻 Tab 加入，不在本期。
+远程文件管理（替代 WinSCP）是 **Server** 的另一个常驻 Tab（**Files Tab**），见 `docs/prd/server-files.md`。
 
 ## User Stories
 
@@ -55,7 +55,7 @@
 - **条目与自定义序**：左树条目键 = **Project** 的绝对路径或 `server:<id>`（绝对路径不会以 `server:` 开头，与 Tab 键的前缀约定同理）。**Project** 与 **Server** 各自带一个 `order`，自定义序按它升序；老档案里的 **Project** 缺 `order` 时按数组下标补齐，原有自定义序原样保住。新登记的条目取全部条目最小值再减一（插到最前）；拖拽松手后在「全部条目按当前规则排好的序列」里挪位并整体重写 `order`，按类型筛掉的条目保留各自相对位置；**Pin** 时取目标区块最小值再减一。工作台现场的「当前项目 / 每项目激活 Tab / 每项目终端壳」相应推广为按条目记（`currentEntryKey` / `activeTabByEntry` / `terminalsByEntry`），读档时把旧字段名迁移过来。
 - **左树**：**Server** 行用 lucide `Server` 图标，与项目行一样有折叠箭头与配置区（只有命令型，没有「检测到的配置」）；hover 显示「更多」，右键菜单与之相同：新建终端、新建配置、编辑、置顶 / 取消置顶、移除。**Pin**、排序、拖拽、名称筛选沿用 `project-sort` 的规则，扩展为同时处理两类条目。新增 **Server** 与新增 **Project** 一样插到列表前部、自动选中并滚入视口。
 - **排序菜单**：「固定置顶」下方加分隔线，再加「项目」「服务器」两项勾选（样式同「固定置顶」）；只剩一项勾选时，该项不可取消。勾选状态随排序偏好一起持久化。
-- **Tab 与工作台**：**Server** 的 Tab 栏没有 Git / Files，常驻 Tab 只有 **Status Tab**（见 `docs/prd/server-status.md`），其后是它的配置的 **Run Session** 与 **SSH Terminal**。激活 Tab 记忆、默认激活、关闭后回落的规则与 **Project** 一致。**SSH Terminal** 的壳（id、名称、顺序、所连 **Server**）按条目持久化，做法同 **Terminal** 壳（ADR-0008），恢复后是已断开状态。
+- **Tab 与工作台**：**Server** 的 Tab 栏没有 Git，常驻 Tab 为 **Status Tab**（见 `docs/prd/server-status.md`）与 **Files Tab**（见 `docs/prd/server-files.md`），其后是它的配置的 **Run Session** 与 **SSH Terminal**。激活 Tab 记忆、默认激活、关闭后回落的规则与 **Project** 一致。**SSH Terminal** 的壳（id、名称、顺序、所连 **Server**）按条目持久化，做法同 **Terminal** 壳（ADR-0008），恢复后是已断开状态。
 - **SSH Terminal 生命周期**：`ssh` 进程退出后会话保留、Tab 不关，追加一行「连接已断开，退出代码为 N，按回车重新连接」（形式参照 **Run Session** 的结束行）；按回车就在同一个 Tab 里重新启动 `ssh`；只有手动关闭 Tab 才销毁。与 **Terminal** 一样不计入退出确认。
 - **项目里的 SSH Terminal**：**Project** 的新建终端入口加「连接到服务器 ▸」子菜单；开出的 Tab 与本地 **Terminal** 并列在项目 Tab 栏里，壳随项目持久化。
 - **移除 Server**：确认方式与移除 **Project** 一致；关闭所有连到它的 **SSH Terminal**，删除记录和记住的密码。
@@ -93,7 +93,7 @@
 
 ## Out of Scope
 
-- 远程文件管理（替代 WinSCP）：以后作为 **Server** 的常驻 Tab 另行立项。
+- 远程文件管理（替代 WinSCP）：另行立项，见 `docs/prd/server-files.md`。
 - 端口转发、隧道、SOCKS 代理的管理。
 - **Server** 分组、多台批量执行命令。
 - 内置 SSH 协议实现（见 ADR-0038）。
@@ -110,3 +110,4 @@
 
 - 术语见 CONTEXT.md（**Server**、**SSH Terminal**）；取舍见 ADR-0038、ADR-0039。
 - 远程文件管理也必须经系统 `ssh` 建立连接，保证「终端连得上，文件就连得上」。
+- 连接方式拟改为内置实现、配置仍由系统 OpenSSH 解析（提案中，尚未实施）：见 `docs/prd/ssh-connection.md`、ADR-0041。

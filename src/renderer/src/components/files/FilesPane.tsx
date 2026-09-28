@@ -5,6 +5,7 @@ import {
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
+  CornerDownLeft,
   Folder,
   FolderOpen,
   LoaderCircle,
@@ -13,18 +14,31 @@ import {
   X
 } from 'lucide-react'
 import {
+  FILES_TEXT_MAX_BYTES,
   pushRecentPath,
   type FilesDirEntry,
-  type FilesReadResult,
   type FilesUiState
 } from '@shared/files'
 import { flattenFilesTree } from '@shared/files-tree-flatten'
 import type { GitFileStatus } from '@shared/git'
-import { normalizePath, remapPathPrefix } from '@shared/files-path'
+import {
+  childPathPrefix,
+  joinLogicalPath,
+  logicalParentPath,
+  normalizePath,
+  remapPathPrefix
+} from '@shared/files-path'
 import { mergeReloadedDirs, resolveOpenTextDiskSync } from '@shared/files-watch'
+import {
+  resolveRemoteInput,
+  sameServerFileVersion,
+  uploadTargetDir,
+  type ServerFileVersion,
+  type ServerFilesReadProgress
+} from '@shared/server-files'
 import { SHORTCUT } from '@shared/shortcut-label'
 import { createKeyedSubscription } from '@renderer/lib/keyed-subscription'
-import { shortcutTitle } from '@renderer/lib/shortcut-label'
+import { isPrimaryModifierEvent, shortcutTitle } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
 import {
   FILES_BASIC_SETUP,
@@ -42,6 +56,7 @@ import {
   adjacentMediaPath,
   isCsvPath,
   isMarkdownPath,
+  isMediaPreviewPath,
   isPreviewableSourcePath,
   isSvgPath
 } from '@shared/files-kind'
@@ -55,7 +70,11 @@ import {
   type MediaPreviewHandle
 } from './FilesMediaPreview'
 import { FilesEntryDialog, type FilesEntryDialogRequest } from './FilesEntryDialog'
-import { FilesTreeMenu, type FilesTreeMenuTarget } from './FilesTreeMenu'
+import {
+  FilesTreeMenu,
+  type FilesTreeMenuTarget,
+  type FilesTreeServerActions
+} from './FilesTreeMenu'
 import { FilesPdfPreview } from './FilesPdfPreview'
 import { FilesPptxPreview } from './FilesPptxPreview'
 import { FilesSheetPreview } from './FilesSheetPreview'
@@ -66,10 +85,26 @@ import { arrowDirection, editableTarget, overlayOpen } from '@renderer/lib/files
 import { filterFilesTreeByType, type FilesTypeCategory } from '@shared/files-type-filter'
 import { FILES_ALL_TYPES, PreviewTypeFilterButton } from './PreviewTreeControls'
 import { relPathUnderRoot, toSysPath } from '@renderer/lib/files-paths'
+import {
+  localFilesBackend,
+  serverFilesBackend,
+  type FilesOpenResult
+} from '@renderer/lib/files-backend'
+import { ipcErrorMessage } from '@renderer/lib/ipc-error'
+import { useSpinUntilRest } from '@renderer/lib/use-spin-until-rest'
 import { useFiles } from '@renderer/files-store'
 import { useApp } from '@renderer/store'
+import { RefreshIcon } from '@renderer/components/RefreshIcon'
+import { Button } from '@renderer/components/ui/button'
 import { FormDialogShell } from '@renderer/components/ui/form-dialog'
 import { FILE_STATUS_COLOR, workingTreeStatusByPath } from '@renderer/components/git/git-details'
+import { FilesDownloadContext, FilesLocalContext } from './files-local-context'
+import {
+  ServerFilePlaceholder,
+  ServerOpenProgress,
+  ServerSaveBar,
+  type ServerSaveState
+} from './ServerFileViews'
 
 /** 编辑器跳转请求（FilesPane → FilesTextEditor）：内容搜索带行与选中区间；不带行只聚焦（最近打开选取后）。 */
 interface EditorJumpRequest {
@@ -86,6 +121,16 @@ const subscribeFilesChanged = createKeyedSubscription(
   (projectPath) => projectPath
 )
 
+// 服务器的 Files 面板同样常驻：上传完成的刷新与打开时的下载进度按服务器 id 分发。
+const subscribeServerEntriesChanged = createKeyedSubscription(
+  (cb: (serverId: string) => void) => window.api.onServerFilesEntriesChanged(cb),
+  (serverId) => serverId
+)
+const subscribeServerReadProgress = createKeyedSubscription(
+  (cb: (progress: ServerFilesReadProgress) => void) => window.api.onServerFilesReadProgress(cb),
+  (progress) => progress.serverId
+)
+
 const IDLE_SAVE_MS = 2000
 const FILTER_DEBOUNCE_MS = 200
 const TREE_W = 280
@@ -94,25 +139,56 @@ const TREE_ROW_H = 32
 /** 交互对齐左树（选中色 / hover / transition）；尺寸更紧凑（非左树 h-10/14px）。 */
 const ROW =
   'flex h-8 w-full cursor-pointer items-center gap-1 rounded px-1.5 text-left text-[13px] text-foreground transition-colors'
+/** 服务器：从本机拖进来时的落点目录行（行底 + 主色描边） */
+const DROP_TARGET = 'bg-[var(--bg-row-hover)] ring-1 ring-inset ring-[color:var(--primary)]'
 
 type Loaded =
-  | { kind: 'text'; path: string; content: string; mtimeMs: number; dirty: boolean }
-  | {
-      kind: 'image'
-      path: string
-      mediaUrl: string
-      mime: string
-      width?: number
-      height?: number
-      tiled?: boolean
-    }
-  | { kind: 'audio'; path: string; mediaUrl: string; mime: string }
-  | { kind: 'video'; path: string; mediaUrl: string; mime: string }
-  | { kind: 'pdf'; path: string; mediaUrl: string }
-  | { kind: 'pptx'; path: string; mediaUrl: string }
-  | { kind: 'xlsx'; path: string; mediaUrl: string; size: number }
-  | { kind: 'other'; path: string; size: number }
+  | ((
+      | {
+          kind: 'text'
+          path: string
+          content: string
+          /** 载入 / 上次保存时文件的修改时间与大小：判断文件是否被别处改过 */
+          mtimeMs: number
+          size: number
+          dirty: boolean
+        }
+      | {
+          kind: 'image'
+          path: string
+          mediaUrl: string
+          mime: string
+          width?: number
+          height?: number
+          tiled?: boolean
+          /** 经主进程出图用的本机文件（服务器上的图即下载的缓存） */
+          decode: { root: string; path: string }
+        }
+      | { kind: 'audio'; path: string; mediaUrl: string; mime: string }
+      | { kind: 'video'; path: string; mediaUrl: string; mime: string }
+      | { kind: 'pdf'; path: string; mediaUrl: string }
+      | { kind: 'pptx'; path: string; mediaUrl: string }
+      | { kind: 'xlsx'; path: string; mediaUrl: string; size: number }
+      | { kind: 'other'; path: string; size: number }
+      /** 服务器上较大的文件：占位，canForce 时可「仍然打开」 */
+      | { kind: 'too-large'; path: string; size: number; canForce: boolean }
+    ) & {
+      /** 服务器上的非文本文件载入时的版本（见 FilesOpenResult） */
+      version?: ServerFileVersion
+    })
   | null
+
+/** 未保存的编辑与别处的改动撞上 */
+type FilesConflict =
+  /** 别处改过：disk 为别处的当前内容（服务器上的超过文本上限时为 null），修改时间与大小为它的 */
+  | { kind: 'changed'; disk: string | null; mtimeMs: number; size: number }
+  /** 服务器上的文件已被删除（本地自动保存，碰不到） */
+  | { kind: 'gone' }
+
+/** 打开结果 → 正文状态（被取消的打开不改正文，调用方先挡掉）。 */
+function loadedFrom(result: Exclude<FilesOpenResult, { kind: 'canceled' }>): NonNullable<Loaded> {
+  return result.kind === 'text' ? { ...result, dirty: false } : result
+}
 
 async function loadWorkingTreeStatus(rootPath: string): Promise<Map<string, GitFileStatus>> {
   try {
@@ -126,13 +202,29 @@ async function loadWorkingTreeStatus(rootPath: string): Promise<Map<string, GitF
 }
 
 /**
- * 面板宿主（docs/prd/file-preview-window.md「同一个组件、两种宿主」）：
+ * 面板宿主（docs/prd/file-preview-window.md「同一个组件、两种宿主」，docs/prd/server-files.md「面板宿主」）：
  * - project：主窗口 Files Tab——根即 Project 根，状态按项目落盘，树菜单含「在终端中打开」。
  * - preview：Preview Window——根可在树菜单「上一级」/「作为根目录」换、初始文件由宿主给、状态只在窗口内存，
  *   树顶栏多「按类型筛选」（集合由宿主持有以跨换根保留）；「添加为项目 / 转到项目」在窗口顶栏与树空白区菜单各一份。
+ * - server：Server 的 Files Tab——根恒为服务器的 `/`，读写经 SFTP（lib/files-backend）；树顶是「前往路径」
+ *   而不是筛选，没有 Git 标记与本机专属入口；不随服务器上的变化自动跟进，切回来 / 窗口回到前台时刷新一次。
  */
 export type FilesPaneHost =
   | { kind: 'project' }
+  | {
+      kind: 'server'
+      serverId: string
+      /** 条目键 `server:<id>`：⌥⌘F / ⌘E 按它分发 */
+      entryKey: string
+      /** 家目录：首次打开展开到这里，「前往路径」的 `~` 也指它 */
+      home: string
+      /** 连接可用；意外断开时面板保留，读写暂停，连回来后刷新并补存未保存的编辑 */
+      connected: boolean
+      /** 「断开连接」（面板先落未保存的编辑再调它） */
+      onDisconnect: () => void
+      /** 「在 SSH 终端中打开」 */
+      onOpenInSshTerminal: (dir: string) => void
+    }
   | {
       kind: 'preview'
       /** 初始打开的文件（已删除等无文件时 null） */
@@ -164,14 +256,24 @@ export function FilesPane({
   host?: FilesPaneHost
 }): React.JSX.Element {
   const rootLogical = normalizePath(rootPath)
-  /** 只有项目宿主落盘（上次打开 / 展开 / 最近）；预览窗口是临时的 */
-  const persist = host.kind === 'project'
+  /** 预览窗口是临时的、不落盘；项目与服务器按条目记住上次打开 / 展开 / 最近 */
+  const persist = host.kind !== 'preview'
+  /** 服务器上的文件（经 SFTP）：没有 Git 标记、筛选与本机专属入口，靠事件刷新 */
+  const remote = host.kind === 'server'
+  const serverId = host.kind === 'server' ? host.serverId : null
+  const connected = host.kind !== 'server' || host.connected
+  const backend = useMemo(
+    () => (serverId !== null ? serverFilesBackend(serverId) : localFilesBackend(rootPath, persist)),
+    [serverId, rootPath, persist]
+  )
+  /** 外部请求（⌥⌘F、⌘E、Git「打开文件」等）的分发键：项目与预览窗口为根路径，服务器为条目键 */
+  const storeKey = host.kind === 'server' ? host.entryKey : rootPath
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [childrenByDir, setChildrenByDir] = useState<Record<string, FilesDirEntry[]>>({})
   const [selectedPath, setSelectedPath] = useState<string | null>(null)
   const [loaded, setLoaded] = useState<Loaded>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
-  const [conflict, setConflict] = useState<{ disk: string; mtimeMs: number } | null>(null)
+  const [conflict, setConflict] = useState<FilesConflict | null>(null)
   /** 相对项目根路径 → 工作区 Git 状态（与提交面板文件树上色同源） */
   const [statusByRel, setStatusByRel] = useState<Map<string, GitFileStatus>>(() => new Map())
   /** 当前打开文本文件在 HEAD 的基线（gutter diff 条纹）；无基线为 null */
@@ -179,6 +281,23 @@ export function FilesPane({
   const [recentPaths, setRecentPaths] = useState<string[]>([])
   /** 工具栏「最近打开文件」下拉开合（受控，供 ⌘E 打开） */
   const [recentMenuOpen, setRecentMenuOpen] = useState(false)
+  /** 展开后读不出来的目录 → 原因（如「没有权限」），树里在它的子级位置显示提示行 */
+  const [dirNotices, setDirNotices] = useState<Record<string, string>>({})
+  /**
+   * 正在打开的服务器文件：正文区盖上「正在加载…」，开始下载后换成进度（可取消）；progress 为下载进度，
+   * 开始下载才有（用副本、只给占位的没有）
+   */
+  const [opening, setOpening] = useState<{
+    path: string
+    progress: { doneBytes: number; totalBytes: number } | null
+  } | null>(null)
+  const openingRef = useRef(opening)
+  const dirNoticesRef = useRef(dirNotices)
+  /** 服务器：树顶「前往路径」的输入与出错原因 */
+  const [goQuery, setGoQuery] = useState('')
+  const [goError, setGoError] = useState<string | null>(null)
+  /** 服务器：从本机拖进来时的目标目录（高亮该目录行） */
+  const [dropDir, setDropDir] = useState<string | null>(null)
 
   const loadedRef = useRef(loaded)
   const recentPathsRef = useRef(recentPaths)
@@ -229,10 +348,11 @@ export function FilesPane({
     expanded: Set<string>
   } | null>(null)
   const filterInputRef = useRef<HTMLInputElement>(null)
-  const consumedFilterFocusNonce = useRef(0)
-  const filterFocusNonce = useFiles((s) => s.filterFocusNonceByProject[rootPath] ?? 0)
-  const consumedRecentMenuNonce = useRef(0)
-  const recentMenuNonce = useFiles((s) => s.recentMenuNonceByProject[rootPath] ?? 0)
+  // 外部请求只认挂载之后的：服务器面板连上才挂，没连上时按的、断开前按过的都不补
+  const filterFocusNonce = useFiles((s) => s.filterFocusNonceByKey[storeKey] ?? 0)
+  const consumedFilterFocusNonce = useRef(filterFocusNonce)
+  const recentMenuNonce = useFiles((s) => s.recentMenuNonceByKey[storeKey] ?? 0)
+  const consumedRecentMenuNonce = useRef(recentMenuNonce)
   const filterViewRef = useRef(filterView)
 
   useLayoutEffect(() => {
@@ -241,9 +361,11 @@ export function FilesPane({
     expandedRef.current = expanded
     childrenByDirRef.current = childrenByDir
     filterViewRef.current = filterView
-  }, [loaded, recentPaths, expanded, childrenByDir, filterView])
+    openingRef.current = opening
+    dirNoticesRef.current = dirNotices
+  }, [loaded, recentPaths, expanded, childrenByDir, filterView, opening, dirNotices])
 
-  // 隐藏时丢弃临时过滤、gutter 弹窗与最近打开下拉；其它 Files 状态继续常驻。
+  // 隐藏时丢弃临时过滤（服务器为「前往路径」的输入）、gutter 弹窗与最近打开下拉；其它 Files 状态继续常驻。
   const [filterVisible, setFilterVisible] = useState(visible)
   if (filterVisible !== visible) {
     setFilterVisible(visible)
@@ -251,6 +373,8 @@ export function FilesPane({
       setFilterQuery('')
       setFilterScanning(false)
       setFilterView(null)
+      setGoQuery('')
+      setGoError(null)
       setHunkPopup(null)
       setRecentMenuOpen(false)
     }
@@ -292,8 +416,8 @@ export function FilesPane({
 
   // 树行虚拟化：按展开态拍平成行数组，仅渲染视口内行（命中再多渲染成本恒定）
   const flatRows = useMemo(
-    () => flattenFilesTree(rootLogical, displayChildren, displayExpanded),
-    [rootLogical, displayChildren, displayExpanded]
+    () => flattenFilesTree(rootLogical, displayChildren, displayExpanded, dirNotices),
+    [rootLogical, displayChildren, displayExpanded, dirNotices]
   )
   // eslint-disable-next-line react-hooks/incompatible-library -- tanstack virtual 实例天然可变，React Compiler 跳过本组件 memo 是预期行为
   const rowVirtualizer = useVirtualizer({
@@ -310,9 +434,9 @@ export function FilesPane({
     if (seq === gitStatusSeqRef.current) setStatusByRel(status)
   }, [rootPath])
 
-  // Files 可见时拉未提交状态；仓库变动（含工作区 watcher）后刷新
+  // Files 可见时拉未提交状态；仓库变动（含工作区 watcher）后刷新（服务器上的文件没有 Git 标记）
   useEffect(() => {
-    if (!visible) return
+    if (!visible || remote) return
     const seq = ++gitStatusSeqRef.current
     void loadWorkingTreeStatus(rootPath).then((status) => {
       if (seq === gitStatusSeqRef.current) setStatusByRel(status)
@@ -321,12 +445,12 @@ export function FilesPane({
       if (p === rootPath) void refreshGitStatus()
     })
     return dispose
-  }, [visible, rootPath, refreshGitStatus])
+  }, [visible, remote, rootPath, refreshGitStatus])
 
   // 打开文本文件时取 HEAD 基线（gutter diff）；提交 / 暂存等 git 变化后重取
   const openTextPath = loaded?.kind === 'text' ? loaded.path : null
   useEffect(() => {
-    if (!visible || openTextPath === null) return
+    if (!visible || remote || openTextPath === null) return
     let stale = false
     const load = (): void => {
       window.api
@@ -353,7 +477,7 @@ export function FilesPane({
       stale = true
       dispose()
     }
-  }, [visible, openTextPath, rootPath])
+  }, [visible, remote, openTextPath, rootPath])
 
   // 打开文件 / 显式定位后滚入视口；目标行尚未进树（目录加载中）时保持挂起重试
   useLayoutEffect(() => {
@@ -369,35 +493,69 @@ export function FilesPane({
     pendingScrollPath.current = null
   }, [visible, treeVisible, selectedPath, flatRows, revealTick, rowVirtualizer])
 
-  /** 落盘 UI 态（仅项目宿主）；预览窗口一律不写集中配置存储 */
-  const setUi = useCallback(
-    (patch: Partial<FilesUiState>) => {
-      if (persist) void window.api.filesSetUi(rootPath, patch)
-    },
-    [persist, rootPath]
-  )
+  /** 落盘 UI 态（项目与服务器）；预览窗口一律不写集中配置存储（由 backend 决定） */
+  const setUi = useCallback((patch: Partial<FilesUiState>) => backend.setUi(patch), [backend])
   const persistUi = useCallback(
     (openPath: string | null, expandedPaths: string[]) => setUi({ openPath, expandedPaths }),
     [setUi]
   )
 
+  /** 从「最近打开」里去掉已不在的文件 */
+  const dropRecent = useCallback(
+    (path: string): void => {
+      const next = recentPathsRef.current.filter((p) => p !== path)
+      recentPathsRef.current = next
+      setRecentPaths(next)
+      setUi({ recentPaths: next })
+    },
+    [setUi]
+  )
+
+  /** 服务器上的文件正在保存（保存栏转圈） */
+  const [saving, setSaving] = useState(false)
+
+  /**
+   * 写入当前文本。服务器上的文件在编辑期间被别处改过时不写，转为冲突（本地弹框，服务器在保存栏里处理）。
+   * 保存期间又键入的内容不算已保存：写完只更新基准，内容变过就仍是未保存。
+   */
   const flushSave = useCallback(async (): Promise<boolean> => {
     const cur = loadedRef.current
     if (!cur || cur.kind !== 'text' || !cur.dirty) return true
+    setSaving(true)
     try {
-      const { mtimeMs } = await window.api.filesWrite(rootPath, cur.path, cur.content)
+      const result = await backend.write(cur.path, cur.content, {
+        mtimeMs: cur.mtimeMs,
+        size: cur.size
+      })
+      if ('conflict' in result) {
+        const { content, mtimeMs, size } = result.conflict
+        setConflict({ kind: 'changed', disk: content, mtimeMs, size })
+        return false
+      }
       // 同步写 ref，避免保存触发的 files:changed 仍读到旧 dirty/mtime 而误报冲突
-      const next = { ...cur, dirty: false, mtimeMs }
-      loadedRef.current = next
-      setLoaded((prev) => (prev && prev.kind === 'text' && prev.path === cur.path ? next : prev))
+      const settle = (prev: Loaded): Loaded =>
+        prev && prev.kind === 'text' && prev.path === cur.path
+          ? {
+              ...prev,
+              mtimeMs: result.mtimeMs,
+              size: result.size,
+              dirty: prev.content !== cur.content
+            }
+          : prev
+      loadedRef.current = settle(loadedRef.current)
+      setLoaded(settle)
       setSaveError(null)
-      void refreshGitStatus()
+      // 写成了即不再冲突（服务器上已删除的，保存即重新创建）
+      setConflict(null)
+      if (!remote) void refreshGitStatus()
       return true
     } catch (e) {
-      setSaveError(e instanceof Error ? e.message : String(e))
+      setSaveError(ipcErrorMessage(e))
       return false
+    } finally {
+      setSaving(false)
     }
-  }, [rootPath, refreshGitStatus])
+  }, [backend, remote, refreshGitStatus])
 
   const scheduleIdleSave = useCallback(() => {
     if (idleTimer.current) clearTimeout(idleTimer.current)
@@ -406,8 +564,15 @@ export function FilesPane({
     }, IDLE_SAVE_MS)
   }, [flushSave])
 
+  /**
+   * 打开条目。force：不先处理当前文件的未保存编辑（调用方已处理，或本就要丢掉）；openLarge：服务器上的大文件「仍然打开」。
+   * 换到别的文件前：本地先自动保存；服务器上的文件手动保存，先问「保存 / 不保存 / 取消」。
+   * 正在编辑的文件再点一次不重读，免得冲掉未保存的修改。
+   * 服务器上的文件先下载，期间正文区盖上进度，「取消」即回到原来的正文；意外断开期间不打开（正文不动）。
+   */
   const openFile = useCallback(
-    async (filePath: string, opts?: { force?: boolean }) => {
+    async (filePath: string, opts?: { force?: boolean; openLarge?: boolean }) => {
+      if (!connected) return
       setHunkPopup(null)
       if (idleTimer.current) {
         clearTimeout(idleTimer.current)
@@ -415,59 +580,28 @@ export function FilesPane({
       }
       const seq = ++openSeqRef.current
       const cur = loadedRef.current
-      if (cur?.kind === 'text' && cur.dirty && cur.path !== filePath && !opts?.force) {
-        const ok = await flushSave()
-        if (!ok) return
+      if (cur?.kind === 'text' && cur.dirty && !opts?.force) {
+        if (cur.path === filePath) return
+        if (remote) {
+          const choice = await useApp.getState().askUnsaved(baseName(cur.path))
+          if (choice === 'cancel' || (choice === 'save' && !(await flushSave()))) return
+        } else if (!(await flushSave())) {
+          return
+        }
         if (seq !== openSeqRef.current) return
       }
+      // 树上的选中先切过去，不等读完（服务器上的文件要下载一会儿）；被取消时退回正文所在的那个
+      setSelectedPath(filePath)
+      if (remote) setOpening({ path: filePath, progress: null })
       try {
-        const result: FilesReadResult = await window.api.filesRead(rootPath, filePath)
+        const result = await backend.read(filePath, opts?.openLarge)
         if (seq !== openSeqRef.current) return
-        if (result.kind === 'text') {
-          setLoaded({
-            kind: 'text',
-            path: result.path,
-            content: result.content,
-            mtimeMs: result.mtimeMs,
-            dirty: false
-          })
-        } else if (result.kind === 'image') {
-          setLoaded({
-            kind: 'image',
-            path: result.path,
-            mediaUrl: result.mediaUrl,
-            mime: result.mime,
-            width: result.width,
-            height: result.height,
-            tiled: result.tiled
-          })
-        } else if (result.kind === 'pdf' || result.kind === 'pptx') {
-          setLoaded({ kind: result.kind, path: result.path, mediaUrl: result.mediaUrl })
-        } else if (result.kind === 'xlsx') {
-          setLoaded({
-            kind: 'xlsx',
-            path: result.path,
-            mediaUrl: result.mediaUrl,
-            size: result.size
-          })
-        } else if (result.kind === 'audio') {
-          setLoaded({
-            kind: 'audio',
-            path: result.path,
-            mediaUrl: result.mediaUrl,
-            mime: result.mime
-          })
-        } else if (result.kind === 'video') {
-          setLoaded({
-            kind: 'video',
-            path: result.path,
-            mediaUrl: result.mediaUrl,
-            mime: result.mime
-          })
-        } else {
-          setLoaded({ kind: 'other', path: result.path, size: result.size })
+        if (result.kind === 'canceled') {
+          setSelectedPath(loadedRef.current?.path ?? null)
+          return
         }
-        setSelectedPath(filePath)
+        setLoaded(loadedFrom(result))
+        setConflict(null)
         setSaveError(null)
         const nextRecent = pushRecentPath(recentPathsRef.current, filePath)
         setRecentPaths(nextRecent)
@@ -478,27 +612,64 @@ export function FilesPane({
         })
       } catch (e) {
         if (seq !== openSeqRef.current) return
-        setSaveError(e instanceof Error ? e.message : String(e))
+        setSaveError(ipcErrorMessage(e))
         setLoaded(null)
         setSelectedPath(null)
         persistUi(null, [...expandedRef.current])
+        // 服务器上已经不在的从「最近打开」里去掉（本地的在启动时剔除）
+        if (serverId !== null) {
+          void window.api.serverFilesStat(serverId, filePath).then(
+            (st) => {
+              if (st === null) dropRecent(filePath)
+            },
+            () => undefined
+          )
+        }
+      } finally {
+        if (seq === openSeqRef.current) setOpening(null)
       }
     },
-    [flushSave, persistUi, setUi, rootPath]
+    [connected, backend, remote, serverId, flushSave, persistUi, setUi, dropRecent]
   )
 
+  // 服务器：打开时的下载进度
+  useEffect(() => {
+    if (serverId === null) return
+    return subscribeServerReadProgress(serverId, (p) =>
+      setOpening((prev) =>
+        prev !== null && prev.path === p.path
+          ? { ...prev, progress: { doneBytes: p.doneBytes, totalBytes: p.totalBytes } }
+          : prev
+      )
+    )
+  }, [serverId])
+
+  /**
+   * 读目录并缓存。读不出来（没有权限等）时记下原因、按空目录缓存：树里在它的子级位置显示提示行，
+   * 收起时丢掉缓存（见 toggleDir），再展开会重读。
+   */
   const ensureDirLoaded = useCallback(
     async (dirPath: string): Promise<FilesDirEntry[]> => {
       const cached = childrenByDirRef.current[dirPath]
       if (cached) return cached
-      const entries = await window.api.filesListDir(rootPath, dirPath)
+      let entries: FilesDirEntry[] = []
+      let notice: string | null = null
+      try {
+        entries = await backend.listDir(dirPath)
+      } catch (e) {
+        notice = ipcErrorMessage(e)
+      }
       const raced = childrenByDirRef.current[dirPath]
       if (raced) return raced
       childrenByDirRef.current = { ...childrenByDirRef.current, [dirPath]: entries }
       setChildrenByDir((prev) => (prev[dirPath] ? prev : { ...prev, [dirPath]: entries }))
+      if (notice !== null) {
+        const message = notice
+        setDirNotices((prev) => ({ ...prev, [dirPath]: message }))
+      }
       return entries
     },
-    [rootPath]
+    [backend]
   )
 
   const toggleDir = useCallback(
@@ -514,8 +685,22 @@ export function FilesPane({
         return
       }
       const willOpen = !expandedRef.current.has(dirPath)
+      // 意外断开期间读不了：没读过的目录不展开，读过的照常开合
+      if (willOpen && !connected && !(dirPath in childrenByDirRef.current)) return
       // 手动收起时作废进行中的「全部展开」，否则后续 flush 会把目录再次打开
       if (!willOpen) expandAllSeqRef.current++
+      // 读不出来的目录收起时丢掉缓存与提示，再展开会重读
+      if (!willOpen && dirPath in dirNoticesRef.current) {
+        const nextChildren = { ...childrenByDirRef.current }
+        delete nextChildren[dirPath]
+        childrenByDirRef.current = nextChildren
+        setChildrenByDir(nextChildren)
+        setDirNotices((prev) => {
+          const next = { ...prev }
+          delete next[dirPath]
+          return next
+        })
+      }
       if (willOpen) await ensureDirLoaded(dirPath)
       const next = new Set(expandedRef.current)
       if (willOpen) next.add(dirPath)
@@ -524,7 +709,7 @@ export function FilesPane({
       setExpanded(next)
       persistUi(loadedRef.current?.path ?? null, [...next])
     },
-    [ensureDirLoaded, filterQuery, persistUi]
+    [connected, ensureDirLoaded, filterQuery, persistUi]
   )
 
   const collapseAllDirs = useCallback(() => {
@@ -584,7 +769,7 @@ export function FilesPane({
       nextExpanded.add(dir)
       try {
         if (!nextChildren[dir]) {
-          nextChildren[dir] = await window.api.filesListDir(rootPath, dir)
+          nextChildren[dir] = await backend.listDir(dir)
         }
       } catch {
         nextChildren[dir] = nextChildren[dir] ?? []
@@ -613,18 +798,21 @@ export function FilesPane({
         persistUi(loadedRef.current?.path ?? null, [...expandedRef.current])
       }
     }
-  }, [filterQuery, persistUi, rootPath, rootLogical])
+  }, [filterQuery, persistUi, backend, rootLogical])
 
   /** 展开到目标：文件只展开祖先；目录连自身一并展开。 */
   const expandToPath = useCallback(
     async (logical: string, isDirectory: boolean): Promise<Set<string>> => {
+      // 意外断开期间读不了目录：不展开（免得留下「未连接到服务器」的提示行）
+      if (!connected) return expandedRef.current
       const toAdd: string[] = [rootLogical]
-      const rel = logical.startsWith(rootLogical + '/') ? logical.slice(rootLogical.length + 1) : ''
+      const under = childPathPrefix(rootLogical)
+      const rel = logical.startsWith(under) ? logical.slice(under.length) : ''
       if (rel) {
         const segs = rel.split('/')
         let prefix = rootLogical
         for (let i = 0; i < segs.length; i++) {
-          prefix = normalizePath(prefix + '/' + segs[i])
+          prefix = joinLogicalPath(prefix, segs[i]!)
           const last = i === segs.length - 1
           if (!last || isDirectory) {
             toAdd.push(prefix)
@@ -638,7 +826,7 @@ export function FilesPane({
       setExpanded(next)
       return next
     },
-    [ensureDirLoaded, rootLogical]
+    [connected, ensureDirLoaded, rootLogical]
   )
 
   const expandToFile = useCallback(
@@ -652,7 +840,8 @@ export function FilesPane({
   /**
    * 上一个 / 下一个媒体（位图 / SVG / PDF / 音视频）按**树里当前可见的顺序**走——跨目录、跨类型，
    * 但只进已展开的目录（折叠的不自动钻），并尊重类型筛选；到头停下。
-   * 当前正文是媒体才响应（看图 / SVG 预览态 / PDF / PPT / 音视频）。
+   * 当前正文是媒体才响应（看图 / SVG 预览态 / PDF / PPT / 音视频，及服务器上超过预览上限的媒体占位）。
+   * 服务器上的还在下载时，从正在打开的那个往下数：连按即连跳，不会反复重开同一个。
    */
   const goAdjacentMedia = useCallback(
     async (dir: -1 | 1) => {
@@ -664,9 +853,10 @@ export function FilesPane({
         cur.kind === 'pptx' ||
         cur.kind === 'audio' ||
         cur.kind === 'video' ||
-        (cur.kind === 'text' && isSvgPath(cur.path))
+        (cur.kind === 'text' && isSvgPath(cur.path)) ||
+        (cur.kind === 'too-large' && isMediaPreviewPath(cur.path))
       if (!isMedia) return
-      const next = adjacentMediaPath(flatRows, cur.path, dir)
+      const next = adjacentMediaPath(flatRows, openingRef.current?.path ?? cur.path, dir)
       if (next === null) return
       if (isSvgPath(next)) setSourcePreview(true)
       await openFile(next)
@@ -676,11 +866,12 @@ export function FilesPane({
   const goPrevImage = useCallback(() => void goAdjacentMedia(-1), [goAdjacentMedia])
   const goNextImage = useCallback(() => void goAdjacentMedia(1), [goAdjacentMedia])
 
-  // 音视频正文：四个方向键切上一个 / 下一个媒体（同看图；守卫同看图——不抢输入框与弹层）。
-  // 焦点落在播放器上时也拦下，播放器自己的键盘进度 / 音量让位给切换，进度条仍可拖。
+  // 音视频正文与服务器上的大媒体占位（没有自己的键盘处理）：四个方向键切上一个 / 下一个媒体
+  // （同看图；守卫同看图——不抢输入框与弹层）。焦点落在播放器上时也拦下，播放器自己的键盘进度 / 音量让位给切换，进度条仍可拖。
   const avOpen = loaded?.kind === 'audio' || loaded?.kind === 'video'
+  const arrowKeysHere = avOpen || (loaded?.kind === 'too-large' && isMediaPreviewPath(loaded.path))
   useEffect(() => {
-    if (!visible || !avOpen) return
+    if (!visible || !arrowKeysHere) return
     const onKey = (e: KeyboardEvent): void => {
       const dir = arrowDirection(e)
       if (dir === null) return
@@ -693,7 +884,7 @@ export function FilesPane({
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [visible, avOpen, goAdjacentMedia])
+  }, [visible, arrowKeysHere, goAdjacentMedia])
 
   /** 分页文档预览：PDF 用 PDF.js，PPT 用 pptx-renderer，外壳与参数相同 */
   const PagedPreview = loaded?.kind === 'pptx' ? FilesPptxPreview : FilesPdfPreview
@@ -705,8 +896,9 @@ export function FilesPane({
         ? loaded.path
         : null
 
+  // 服务器上的图要先下载，不预取相邻的
   useEffect(() => {
-    if (!viewingImagePath) {
+    if (!viewingImagePath || remote) {
       setPrefetch([])
       return
     }
@@ -737,7 +929,7 @@ export function FilesPane({
     return () => {
       cancelled = true
     }
-  }, [viewingImagePath, flatRows, rootPath])
+  }, [viewingImagePath, remote, flatRows, rootPath])
 
   /** 在右侧文件树展开并滚到目标（不打开/切换正文，除非本来就是该文件）。 */
   const revealInTree = useCallback(
@@ -818,9 +1010,11 @@ export function FilesPane({
     }
   }, [filterQuery, rootPath, rootLogical, visible])
 
-  // 首次变为可见时：项目宿主恢复树展开与上次打开（pending 由下一 effect 统一消费，避免竞态）；
+  // 首次变为可见时：项目与服务器宿主恢复树展开与上次打开（pending 由下一 effect 统一消费，避免竞态），
+  // 服务器头一回打开（没有记住的展开）时展开到家目录；
   // 预览宿主不读落盘态，展开到初始文件并打开（可预览的源文件按默认的预览态打开，SVG 起手即图）。
   const previewInitialFile = host.kind === 'preview' ? host.initialFile : null
+  const serverHome = host.kind === 'server' ? host.home : null
   useEffect(() => {
     if (!visible || ready) return
     let cancelled = false
@@ -837,17 +1031,17 @@ export function FilesPane({
         setReady(true)
         return
       }
-      const ui = await window.api.filesGetUi(rootPath)
+      const ui = await backend.getUi()
       if (cancelled) return
-      const exp = new Set(ui.expandedPaths.length ? ui.expandedPaths : [])
+      const exp = new Set(ui.expandedPaths)
       expandedRef.current = exp
       setExpanded(exp)
       setRecentPaths(ui.recentPaths)
-      for (const d of exp) {
-        await ensureDirLoaded(d).catch(() => undefined)
-        if (cancelled) return
-      }
-      const hasPending = !!useFiles.getState().pendingOpenByProject[rootPath]
+      await Promise.all([...exp].map((d) => ensureDirLoaded(d)))
+      if (cancelled) return
+      if (serverHome !== null && exp.size === 0) await revealInTree(serverHome, true)
+      if (cancelled) return
+      const hasPending = !!useFiles.getState().pendingOpenByProject[storeKey]
       if (!hasPending && ui.openPath) await openFile(ui.openPath, { force: true })
       if (cancelled) return
       setReady(true)
@@ -860,10 +1054,13 @@ export function FilesPane({
     ready,
     persist,
     previewInitialFile,
+    serverHome,
+    backend,
+    storeKey,
     ensureDirLoaded,
     expandToFile,
+    revealInTree,
     openFile,
-    rootPath,
     rootLogical
   ])
 
@@ -875,10 +1072,10 @@ export function FilesPane({
   }, [ready, openPath, onOpenPathChange])
 
   // Git / 内容搜索等外部 pending open（ready 之后才消费）
-  const pending = useFiles((s) => s.pendingOpenByProject[rootPath])
+  const pending = useFiles((s) => s.pendingOpenByProject[storeKey])
   useEffect(() => {
     if (!ready || !pending) return
-    const req = useFiles.getState().consumePendingOpen(rootPath)
+    const req = useFiles.getState().consumePendingOpen(storeKey)
     if (!req) return
     // 不在 cleanup 里取消：consume 会立刻把 pending 置空并重跑 effect，取消会误杀本次打开。
     void (async () => {
@@ -891,7 +1088,7 @@ export function FilesPane({
         setEditorJump({ path: logical, ...req.at, nonce: ++editorJumpNonce.current })
       }
     })()
-  }, [ready, pending, rootPath, expandToFile, openFile])
+  }, [ready, pending, storeKey, expandToFile, openFile])
 
   // ⌥⌘F：切到本 Tab 后聚焦文件树筛选；树隐藏时先展开再等下一拍聚焦。
   useEffect(() => {
@@ -917,31 +1114,46 @@ export function FilesPane({
     setRecentMenuOpen(true)
   }, [recentMenuNonce, visible, ready])
 
-  // 离开 Files Tab / 失焦 → 保存
+  // 离开 Files Tab / 失焦 → 保存（仅本地；服务器上的文件手动保存，见 docs/prd/server-files.md）
   useEffect(() => {
-    if (!visible) void flushSave()
-  }, [visible, flushSave])
+    if (!visible && !remote) void flushSave()
+  }, [visible, remote, flushSave])
 
   useEffect(() => {
+    if (remote) return
     const onBlur = (): void => {
       void flushSave()
     }
     window.addEventListener('blur', onBlur)
     return () => window.removeEventListener('blur', onBlur)
-  }, [flushSave])
+  }, [remote, flushSave])
 
   /**
    * 磁盘变更（ADR-0011）：重拉已缓存目录；过滤态重扫；同步当前打开文件。
    * 隐藏不卸载时也跟进，切回 Files Tab 时树与正文已是新态。
+   * 服务器：只重读已展开的目录与根（其余缓存丢掉，再展开时现读）；打开的文件先看修改时间与大小，
+   * 变了才处理——文本重读，预览与占位重新打开；意外断开期间不刷新——读失败会被当成目录已删、把树收起。
    */
-  const refreshFromDisk = useCallback(async () => {
-    const dirs = Object.keys(childrenByDirRef.current)
+  const syncFromDisk = useCallback(async () => {
+    if (!connected) return
+    const failed = dirNoticesRef.current
+    let dirs = Object.keys(childrenByDirRef.current).filter((d) => !(d in failed))
+    if (remote) {
+      const keep = new Set([rootLogical, ...expandedRef.current])
+      const cached = Object.entries(childrenByDirRef.current)
+      if (cached.some(([d]) => !keep.has(d) && !(d in failed))) {
+        const pruned = Object.fromEntries(cached.filter(([d]) => keep.has(d) || d in failed))
+        childrenByDirRef.current = pruned
+        setChildrenByDir(pruned)
+      }
+      dirs = dirs.filter((d) => keep.has(d))
+    }
     if (dirs.length > 0) {
       const reloaded: Record<string, FilesDirEntry[] | null> = {}
       await Promise.all(
         dirs.map(async (dir) => {
           try {
-            reloaded[dir] = await window.api.filesListDir(rootPath, dir)
+            reloaded[dir] = await backend.listDir(dir)
           } catch {
             reloaded[dir] = null
           }
@@ -992,14 +1204,6 @@ export function FilesPane({
     const cur = loadedRef.current
     if (!cur) return
     const path = cur.path
-    let fresh: FilesReadResult | null = null
-    try {
-      fresh = await window.api.filesRead(rootPath, path)
-    } catch {
-      fresh = null
-    }
-    const still = loadedRef.current
-    if (!still || still.path !== path) return
 
     const clearOpen = (): void => {
       setLoaded(null)
@@ -1014,6 +1218,46 @@ export function FilesPane({
       })
     }
 
+    if (serverId !== null) {
+      // 正在打开别的文件时不动（查完再看一次）：同一台服务器同一时刻只能有一个打开，这里再读会把那个取消掉
+      if (openingRef.current !== null) return
+      const st = await window.api.serverFilesStat(serverId, path).catch(() => undefined)
+      const still = loadedRef.current
+      if (st === undefined || !still || still.path !== path || openingRef.current !== null) return
+      // 有未保存的修改时不关、不重开（手动保存，修改可能放了很久）：已删除、长过文本上限都转为冲突，在保存栏里处理
+      const dirty = still.kind === 'text' && still.dirty
+      if (st === null) {
+        if (dirty) setConflict({ kind: 'gone' })
+        else clearOpen()
+        return
+      }
+      // 文本比对载入 / 上次保存时的版本，其余比对载入时的；预览与占位变了就重新打开
+      const base = still.kind === 'text' ? still : still.version
+      if (base === undefined || sameServerFileVersion(st, base)) return
+      if (still.kind !== 'text' || st.size > FILES_TEXT_MAX_BYTES) {
+        if (dirty) setConflict({ kind: 'changed', disk: null, mtimeMs: st.mtimeMs, size: st.size })
+        else await openFile(path, { force: true })
+        return
+      }
+    }
+
+    let fresh: FilesOpenResult | null = null
+    try {
+      fresh = await backend.read(path)
+    } catch {
+      fresh = null
+    }
+    const still = loadedRef.current
+    if (!still || still.path !== path || fresh?.kind === 'canceled') return
+    // 服务器上查完到读之间又变了（被删、长过上限）：有未保存的修改先不动，下次刷新按上面处理
+    const unreadable = fresh === null || fresh.kind === 'too-large'
+    if (remote && unreadable && still.kind === 'text' && still.dirty) return
+    // 服务器上的文本长过了上限：重开即落到占位
+    if (fresh?.kind === 'too-large') {
+      await openFile(path, { force: true })
+      return
+    }
+
     if (still.kind === 'text') {
       const decision = resolveOpenTextDiskSync(still, fresh)
       if (decision.action === 'noop') return
@@ -1023,12 +1267,14 @@ export function FilesPane({
           path,
           content: decision.content,
           mtimeMs: decision.mtimeMs,
+          size: decision.size,
           dirty: false
         })
         return
       }
       if (decision.action === 'conflict') {
-        setConflict({ disk: decision.disk, mtimeMs: decision.mtimeMs })
+        const { disk, mtimeMs, size } = decision
+        setConflict({ kind: 'changed', disk, mtimeMs, size })
         return
       }
       if (decision.action === 'gone') {
@@ -1044,19 +1290,182 @@ export function FilesPane({
       return
     }
     if (fresh.kind !== still.kind) await openFile(path, { force: true })
-  }, [filterQuery, openFile, persistUi, setUi, rootPath, rootLogical])
+  }, [
+    connected,
+    remote,
+    serverId,
+    backend,
+    filterQuery,
+    openFile,
+    persistUi,
+    setUi,
+    rootPath,
+    rootLogical
+  ])
+
+  /**
+   * 服务器上的刷新要一会儿：进行中「刷新」钮的图标转圈、钮置灰，自动触发的也算；
+   * 结束后图标转回原位才恢复（useSpinUntilRest）
+   */
+  const [refreshing, setRefreshing] = useState(0)
+  const refreshSpin = useSpinUntilRest(refreshing > 0)
+  const refreshFromDisk = useCallback(async () => {
+    if (!remote) return syncFromDisk()
+    setRefreshing((n) => n + 1)
+    try {
+      await syncFromDisk()
+    } finally {
+      setRefreshing((n) => n - 1)
+    }
+  }, [remote, syncFromDisk])
 
   useEffect(() => {
     if (!ready) return
-    return subscribeFilesChanged(rootPath, () => void refreshFromDisk())
-  }, [ready, rootPath, refreshFromDisk])
+    return serverId !== null
+      ? subscribeServerEntriesChanged(serverId, () => void refreshFromDisk())
+      : subscribeFilesChanged(rootPath, () => void refreshFromDisk())
+  }, [ready, serverId, rootPath, refreshFromDisk])
 
-  /** 树行 / 空白区右键 → 打开条目菜单。 */
-  const openTreeMenu = useCallback((path: string, isDirectory: boolean, e: React.MouseEvent) => {
-    e.preventDefault()
-    e.stopPropagation()
-    setTreeMenu({ x: e.clientX, y: e.clientY, path, isDirectory })
+  // 服务器上的变化没人通知：切回这个 Tab、窗口回到前台、断线后连回来时各刷新一次（首次就绪时刚读过，跳过）。
+  const refreshRef = useRef(refreshFromDisk)
+  const flushSaveRef = useRef(flushSave)
+  useLayoutEffect(() => {
+    refreshRef.current = refreshFromDisk
+    flushSaveRef.current = flushSave
+  })
+  const refreshArmed = useRef(false)
+  useEffect(() => {
+    if (!ready || !remote || !visible || !connected) return
+    if (refreshArmed.current) void refreshRef.current()
+    refreshArmed.current = true
+    const onFocus = (): void => void refreshRef.current()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [ready, remote, visible, connected])
+
+  // 服务器上的文件有未保存的修改时登记到全局：断开、编辑或移除服务器、退出前据此先问（见 store）
+  const unsavedName =
+    serverId !== null && loaded?.kind === 'text' && loaded.dirty ? baseName(loaded.path) : null
+  useEffect(() => {
+    if (serverId === null) return
+    useApp
+      .getState()
+      .setUnsavedServerFile(
+        serverId,
+        unsavedName === null ? null : { name: unsavedName, save: () => flushSaveRef.current() }
+      )
+  }, [serverId, unsavedName])
+  useEffect(() => {
+    if (serverId === null) return
+    return () => useApp.getState().setUnsavedServerFile(serverId, null)
+  }, [serverId])
+
+  // ⌘S / Ctrl+S：保存服务器上的文件（编辑态与预览态都行；有弹层时让位）
+  const savable = remote && visible && connected && loaded?.kind === 'text'
+  useEffect(() => {
+    if (!savable) return
+    const onKey = (e: KeyboardEvent): void => {
+      if (e.key.toLowerCase() !== 's' || e.altKey || e.shiftKey || !isPrimaryModifierEvent(e))
+        return
+      if (overlayOpen()) return
+      e.preventDefault()
+      void flushSaveRef.current()
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [savable])
+
+  /** 树行 / 空白区右键 → 打开条目菜单（服务器意外断开期间不给：菜单里全是要连接才能做的事）。 */
+  const openTreeMenu = useCallback(
+    (path: string, isDirectory: boolean, e: React.MouseEvent) => {
+      e.preventDefault()
+      e.stopPropagation()
+      if (!connected) return
+      setTreeMenu({ x: e.clientX, y: e.clientY, path, isDirectory })
+    },
+    [connected]
+  )
+
+  // —— 服务器宿主：上传 / 下载 / 在 SSH 终端中打开 / 前往路径 / 断开 ——
+
+  // 选完文件时连接若已断开，传输照样列进传输栏、以失败收口（见主进程 enqueueTransfer）
+  const serverActions = useMemo<FilesTreeServerActions | undefined>(
+    () =>
+      host.kind !== 'server'
+        ? undefined
+        : {
+            onUpload: (dir, kind) =>
+              void window.api.serverFilesUploadPick(host.serverId, dir, kind),
+            onDownload: (path, isDirectory) =>
+              void window.api.serverFilesDownload(host.serverId, path, isDirectory),
+            onOpenInSshTerminal: host.onOpenInSshTerminal
+          },
+    [host]
+  )
+
+  /** 改「前往路径」的输入：出错原因随之撤掉。 */
+  const changeGoQuery = useCallback((query: string): void => {
+    setGoQuery(query)
+    setGoError(null)
   }, [])
+
+  /**
+   * 「前往路径」：目录即展开并定位，文件即打开；输入不对或路径不存在时就地提示（焦点留在输入框）。
+   * 前往成功后焦点离开输入框、落到目标上：先交给文件树（目标行已选中并滚到），文本文件打开后再进编辑器。
+   */
+  const goToPath = useCallback(async () => {
+    if (serverId === null || serverHome === null) return
+    const target = resolveRemoteInput(goQuery, serverHome)
+    if (target === null) {
+      setGoError('请输入以 / 或 ~ 开头的路径')
+      return
+    }
+    try {
+      const st = await window.api.serverFilesStat(serverId, target)
+      if (st === null) {
+        setGoError('路径不存在')
+        return
+      }
+      changeGoQuery('')
+      treeScrollRef.current?.focus({ preventScroll: true })
+      if (st.isDirectory) await revealInTree(target, true)
+      else await openFromRecent(target)
+    } catch (e) {
+      setGoError(ipcErrorMessage(e))
+    }
+  }, [serverId, serverHome, goQuery, changeGoQuery, revealInTree, openFromRecent])
+
+  /** 「断开连接」：有未保存的修改先问「保存 / 不保存 / 取消」，存不上（冲突 / 出错）就不断开。 */
+  const disconnect = useCallback(async () => {
+    if (host.kind !== 'server') return
+    if (await useApp.getState().resolveServerUnsaved(host.serverId)) host.onDisconnect()
+  }, [host])
+
+  /** 从本机拖进来：落点即行上标的目录（目录行即自身，文件行即所在目录，根行即根）；空白处不接受。 */
+  const dropDirOf = (e: React.DragEvent): string | null =>
+    (e.target as HTMLElement).closest<HTMLElement>('[data-drop-dir]')?.dataset.dropDir ?? null
+  const acceptsDrop = (e: React.DragEvent): boolean =>
+    remote && connected && e.dataTransfer.types.includes('Files')
+  const onTreeDragOver = (e: React.DragEvent): void => {
+    if (!acceptsDrop(e)) return
+    const dir = dropDirOf(e)
+    setDropDir(dir)
+    if (dir === null) return
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'copy'
+  }
+  const onTreeDragLeave = (e: React.DragEvent): void => {
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropDir(null)
+  }
+  const onTreeDrop = (e: React.DragEvent): void => {
+    setDropDir(null)
+    if (serverId === null || !acceptsDrop(e)) return
+    const dir = dropDirOf(e)
+    if (dir === null) return
+    e.preventDefault()
+    const paths = [...e.dataTransfer.files].map((f) => window.drop.getPathForFile(f))
+    void window.api.serverFilesUpload(serverId, dir, paths.filter(Boolean)).catch(reportError)
+  }
 
   /**
    * 条目操作执行（弹窗确认后）：主进程落盘 → 本地状态联动 → 统一从磁盘刷新树。
@@ -1065,8 +1474,7 @@ export function FilesPane({
   const submitEntryDialog = useCallback(
     async (req: FilesEntryDialogRequest, name: string) => {
       if (req.kind === 'create-file' || req.kind === 'create-dir') {
-        const entry = await window.api.filesCreate(
-          rootPath,
+        const entry = await backend.create(
           req.dir,
           name,
           req.kind === 'create-dir' ? 'directory' : 'file'
@@ -1085,10 +1493,11 @@ export function FilesPane({
       }
 
       if (req.kind === 'rename') {
-        // 先落未保存的编辑（旧路径此刻仍在），失败则不动文件
-        const saved = await flushSave()
-        if (!saved) throw new Error('有未保存的更改且写入失败，已取消重命名')
-        const { path: newPath } = await window.api.filesRename(rootPath, req.path, name)
+        // 本地先落未保存的编辑（旧路径此刻仍在），失败则不动文件；服务器上的文件手动保存，编辑留在编辑器里跟着改名
+        if (!remote && !(await flushSave())) {
+          throw new Error('有未保存的更改且写入失败，已取消重命名')
+        }
+        const { path: newPath } = await backend.rename(req.path, name)
         setEntryDialog(null)
         if (newPath === req.path) return
         const remap = (p: string): string => remapPathPrefix(p, req.path, newPath)
@@ -1105,9 +1514,16 @@ export function FilesPane({
           expandedPaths: [...nextExpanded],
           recentPaths: nextRecent
         })
-        // 先把打开文件切到新路径，refreshFromDisk 才不会把旧路径当「已消失」清掉
+        // 先把打开文件切到新路径，refreshFromDisk 才不会把旧路径当「已消失」清掉。
+        // 服务器上的就地换路径：不重新下载，未保存的编辑也还在（改名不改内容与修改时间）
         if (cur !== null && openRemapped !== null && openRemapped !== cur.path) {
-          await openFile(openRemapped, { force: true })
+          if (remote) {
+            const moved = { ...cur, path: openRemapped }
+            loadedRef.current = moved
+            setLoaded(moved)
+          } else {
+            await openFile(openRemapped, { force: true })
+          }
         }
         await refreshFromDisk()
         // 重命名子树下已展开的目录换了 key，补载新路径的目录列表
@@ -1119,7 +1535,8 @@ export function FilesPane({
         return
       }
 
-      await window.api.filesTrash(rootPath, req.path)
+      // 本机移到回收站，服务器上直接删除
+      await backend.remove(req.path)
       setEntryDialog(null)
       const gone = (p: string): boolean => p === req.path || p.startsWith(req.path + '/')
       const cur = loadedRef.current
@@ -1143,7 +1560,8 @@ export function FilesPane({
       await refreshFromDisk()
     },
     [
-      rootPath,
+      backend,
+      remote,
       refreshFromDisk,
       revealInTree,
       expandToFile,
@@ -1154,488 +1572,694 @@ export function FilesPane({
     ]
   )
 
+  /** 冲突时换成别处的版本（服务器上的已删除或新版本超过文本上限时重开，落到出错或占位） */
+  const reloadFromConflict = (): void => {
+    if (conflict === null) return
+    setConflict(null)
+    if (conflict.kind === 'gone' || conflict.disk === null) {
+      if (loaded !== null) void openFile(loaded.path, { force: true })
+      return
+    }
+    const { disk, mtimeMs, size } = conflict
+    setLoaded((prev) =>
+      prev && prev.kind === 'text' ? { ...prev, content: disk, mtimeMs, size, dirty: false } : prev
+    )
+  }
+  /** 冲突时保留编辑器内容：以别处的版本为基准，下次保存即覆盖它（服务器上已删除的，下次保存即重新创建） */
+  const keepEditorContent = (): void => {
+    if (conflict === null) return
+    setConflict(null)
+    if (conflict.kind === 'gone') return
+    const { mtimeMs, size } = conflict
+    const rebase = (prev: Loaded): Loaded =>
+      prev && prev.kind === 'text' ? { ...prev, mtimeMs, size } : prev
+    loadedRef.current = rebase(loadedRef.current)
+    setLoaded(rebase)
+  }
+
+  // 服务器上的文本文件手动保存：保存栏（常驻在面包屑工具栏之下），冲突也在这里处理
+  const textDirty = loaded?.kind === 'text' && loaded.dirty
+  const saveState: ServerSaveState =
+    conflict !== null
+      ? { kind: 'conflict', gone: conflict.kind === 'gone' }
+      : saving
+        ? { kind: 'saving' }
+        : !connected
+          ? { kind: 'offline', dirty: textDirty }
+          : saveError !== null && textDirty
+            ? { kind: 'failed', message: saveError }
+            : textDirty
+              ? { kind: 'dirty' }
+              : { kind: 'clean' }
+  const saveBar =
+    remote && loaded?.kind === 'text' ? (
+      <ServerSaveBar
+        state={saveState}
+        onSave={() => void flushSave()}
+        // 放弃修改：重新读服务器上的版本
+        onDiscard={() => void openFile(loaded.path, { force: true })}
+        onReload={reloadFromConflict}
+        onOverwrite={() => {
+          keepEditorContent()
+          void flushSave()
+        }}
+      />
+    ) : undefined
+
   const filterHint = shortcutTitle('筛选文件', SHORTCUT.filesFilter)
+  const goHint = shortcutTitle('前往路径…', SHORTCUT.filesFilter)
+  /** 服务器上某个文件的「下载」与「在 SSH 终端中打开」（占位与正文菜单用） */
+  const downloadFile = (path: string): void => serverActions?.onDownload(path, false)
+  /** 预览出错的占位里的「下载」：服务器上打开的文件没有「在其他应用中打开」，给它一个出口；断开时不给 */
+  const downloadOpenFile =
+    remote && connected && loaded !== null ? () => downloadFile(loaded.path) : null
 
   return (
-    <div className="flex h-full min-h-0">
-      <div
-        className="relative min-h-0 min-w-0 flex-1 bg-deepest"
-        onContextMenu={(e) => {
-          // 任何已打开的条目都有正文菜单；空态没有。看图 / SVG 预览态另给「复制图片」取图源
-          const cur = loaded
-          if (!cur) return
-          e.preventDefault()
-          let imageSrc: (() => Promise<string>) | null = null
-          if (cur.kind === 'image') {
-            // 复制屏上正显示的那张：超大位图与浏览器解不了、改由主进程出图的都是预览图（长边 4096），
-            // 整图塞剪贴板不现实；加载中 / 打不开时不给复制
-            const shown = imageRef.current?.displayedSrc() ?? null
-            if (shown) imageSrc = () => Promise.resolve(shown)
-          } else if (cur.kind === 'text' && isSvgPath(cur.path) && sourcePreview) {
-            const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(cur.content)}`
-            imageSrc = () => Promise.resolve(src)
-          }
-          setContentMenu({ x: e.clientX, y: e.clientY, path: cur.path, imageSrc })
-        }}
-      >
-        {!loaded && (
-          <div className="flex h-full min-h-0 flex-col">
-            <FilesToolbar
-              path={null}
-              projectRoot={rootLogical}
-              error={null}
-              recentPaths={recentPaths}
-              recentMenuOpen={recentMenuOpen}
-              onRecentMenuOpenChange={setRecentMenuOpen}
-              fileStatus={undefined}
-              treeVisible={treeVisible}
-              onShowTree={() => setTreeVisible(true)}
-              onToggleTree={() => setTreeVisible((v) => !v)}
-              onRevealInTree={revealInTree}
-              onOpenRecent={openFromRecent}
-            />
-            <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
-              在右侧选择文件
-            </div>
-          </div>
-        )}
-        {loaded?.kind === 'text' && (
-          <FilesTextEditor
-            path={loaded.path}
-            content={loaded.content}
-            baseline={headText !== null && headText.path === loaded.path ? headText.content : null}
-            projectRoot={rootLogical}
-            error={saveError}
-            recentPaths={recentPaths}
-            recentMenuOpen={recentMenuOpen}
-            onRecentMenuOpenChange={setRecentMenuOpen}
-            fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
-            treeVisible={treeVisible}
-            sourcePreview={sourcePreview}
-            onToggleSourcePreview={() => {
-              const next = !sourcePreview
-              // 切到预览前落盘，预览与磁盘一致；编辑器卸载，gutter 弹窗一并关闭
-              if (next) void flushSave()
-              setHunkPopup(null)
-              setSourcePreview(next)
-            }}
-            onShowTree={() => setTreeVisible(true)}
-            onToggleTree={() => setTreeVisible((v) => !v)}
-            onRevealInTree={revealInTree}
-            onOpenRecent={openFromRecent}
-            jump={editorJump}
-            onJumpDone={() => setEditorJump(null)}
-            onHunkClick={setHunkPopup}
-            onImagePrev={goPrevImage}
-            onImageNext={goNextImage}
-            active={visible}
-            imagePrefetch={prefetch}
-            onChange={(v) => {
-              // 文档一变，gutter 弹窗的 hunk 即过期，统一在此关闭（含弹窗内回滚）
-              setHunkPopup(null)
-              setLoaded((prev) =>
-                prev && prev.kind === 'text' ? { ...prev, content: v, dirty: true } : prev
-              )
-              scheduleIdleSave()
-            }}
-          />
-        )}
-        {loaded?.kind === 'image' && (
-          <div className="flex h-full min-h-0 flex-col">
-            <FilesToolbar
-              path={loaded.path}
-              projectRoot={rootLogical}
-              error={null}
-              recentPaths={recentPaths}
-              recentMenuOpen={recentMenuOpen}
-              onRecentMenuOpenChange={setRecentMenuOpen}
-              fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
-              treeVisible={treeVisible}
-              onShowTree={() => setTreeVisible(true)}
-              onToggleTree={() => setTreeVisible((v) => !v)}
-              onRevealInTree={revealInTree}
-              onOpenRecent={openFromRecent}
-              extra={
-                <MediaFitButtons active={imageFit} onFit={(axis) => imageRef.current?.fit(axis)} />
+    <FilesLocalContext.Provider value={!remote}>
+      <FilesDownloadContext.Provider value={downloadOpenFile}>
+        <div className="flex h-full min-h-0">
+          <div
+            className="relative min-h-0 min-w-0 flex-1 bg-deepest"
+            onContextMenu={(e) => {
+              // 任何已打开的条目都有正文菜单；空态没有。看图 / SVG 预览态另给「复制图片」取图源
+              const cur = loaded
+              if (!cur) return
+              e.preventDefault()
+              let imageSrc: (() => Promise<string>) | null = null
+              if (cur.kind === 'image') {
+                // 复制屏上正显示的那张：超大位图与浏览器解不了、改由主进程出图的都是预览图（长边 4096），
+                // 整图塞剪贴板不现实；加载中 / 打不开时不给复制
+                const shown = imageRef.current?.displayedSrc() ?? null
+                if (shown) imageSrc = () => Promise.resolve(shown)
+              } else if (cur.kind === 'text' && isSvgPath(cur.path) && sourcePreview) {
+                const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(cur.content)}`
+                imageSrc = () => Promise.resolve(src)
               }
-            />
-            <FilesMediaPreview
-              ref={imageRef}
-              onFitChange={setImageFit}
-              src={loaded.mediaUrl}
-              path={loaded.path}
-              projectPath={rootPath}
-              width={loaded.width}
-              height={loaded.height}
-              tiled={loaded.tiled === true}
-              prefetch={prefetch}
-              active={visible}
-              onPrev={goPrevImage}
-              onNext={goNextImage}
-            />
-          </div>
-        )}
-        {loaded?.kind === 'video' && (
-          <div className="flex h-full min-h-0 flex-col">
-            <FilesToolbar
-              path={loaded.path}
-              projectRoot={rootLogical}
-              error={null}
-              recentPaths={recentPaths}
-              recentMenuOpen={recentMenuOpen}
-              onRecentMenuOpenChange={setRecentMenuOpen}
-              fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
-              treeVisible={treeVisible}
-              onShowTree={() => setTreeVisible(true)}
-              onToggleTree={() => setTreeVisible((v) => !v)}
-              onRevealInTree={revealInTree}
-              onOpenRecent={openFromRecent}
-            />
-            <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
-              <video
-                key={loaded.mediaUrl}
-                controls
-                preload="metadata"
-                className="max-h-full max-w-full"
-              >
-                <source src={loaded.mediaUrl} type={loaded.mime} />
-              </video>
-            </div>
-          </div>
-        )}
-        {loaded?.kind === 'audio' && (
-          <div className="flex h-full min-h-0 flex-col">
-            <FilesToolbar
-              path={loaded.path}
-              projectRoot={rootLogical}
-              error={null}
-              recentPaths={recentPaths}
-              recentMenuOpen={recentMenuOpen}
-              onRecentMenuOpenChange={setRecentMenuOpen}
-              fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
-              treeVisible={treeVisible}
-              onShowTree={() => setTreeVisible(true)}
-              onToggleTree={() => setTreeVisible((v) => !v)}
-              onRevealInTree={revealInTree}
-              onOpenRecent={openFromRecent}
-            />
-            <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
-              <audio key={loaded.mediaUrl} controls preload="metadata">
-                <source src={loaded.mediaUrl} type={loaded.mime} />
-              </audio>
-            </div>
-          </div>
-        )}
-        {(loaded?.kind === 'pdf' || loaded?.kind === 'pptx') && (
-          // PDF 与 PPT 同一套分页预览外壳，参数一致；换类型时组件随之换掉
-          <PagedPreview
-            src={loaded.mediaUrl}
-            path={loaded.path}
-            active={visible}
-            thumbnails={pageThumbnails}
-            onToggleThumbnails={() => setPageThumbnails((v) => !v)}
-            onPrev={goPrevImage}
-            onNext={goNextImage}
-            toolbar={{
-              projectRoot: rootLogical,
-              recentPaths,
-              recentMenuOpen,
-              onRecentMenuOpenChange: setRecentMenuOpen,
-              fileStatus: statusByRel.get(relPathUnderRoot(rootLogical, loaded.path)),
-              treeVisible,
-              onShowTree: () => setTreeVisible(true),
-              onToggleTree: () => setTreeVisible((v) => !v),
-              onRevealInTree: revealInTree,
-              onOpenRecent: openFromRecent
+              setContentMenu({ x: e.clientX, y: e.clientY, path: cur.path, imageSrc })
             }}
-          />
-        )}
-        {loaded?.kind === 'xlsx' && (
-          <div className="flex h-full min-h-0 flex-col">
-            <FilesToolbar
-              path={loaded.path}
-              projectRoot={rootLogical}
-              error={null}
-              recentPaths={recentPaths}
-              recentMenuOpen={recentMenuOpen}
-              onRecentMenuOpenChange={setRecentMenuOpen}
-              fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
-              treeVisible={treeVisible}
-              onShowTree={() => setTreeVisible(true)}
-              onToggleTree={() => setTreeVisible((v) => !v)}
-              onRevealInTree={revealInTree}
-              onOpenRecent={openFromRecent}
-            />
-            <FilesSheetPreview
-              key={loaded.path}
-              source={{ kind: 'xlsx', src: loaded.mediaUrl, size: loaded.size }}
-              path={loaded.path}
-              active={visible}
-            />
+          >
+            {/* 不按文件重挂：盖上之后换打开别的文件也一直盖着，旧文件不会在两次打开之间露出来 */}
+            {opening !== null && serverId !== null && (
+              <ServerOpenProgress
+                path={opening.path}
+                progress={opening.progress}
+                onCancel={() => void window.api.serverFilesCancelRead(serverId)}
+              />
+            )}
+            {!loaded && (
+              <div className="flex h-full min-h-0 flex-col">
+                {/* 打开失败（如没有权限）会回到空态：原因留在这里 */}
+                <FilesToolbar
+                  path={null}
+                  projectRoot={rootLogical}
+                  error={saveError}
+                  recentPaths={recentPaths}
+                  recentMenuOpen={recentMenuOpen}
+                  onRecentMenuOpenChange={setRecentMenuOpen}
+                  fileStatus={undefined}
+                  treeVisible={treeVisible}
+                  onShowTree={() => setTreeVisible(true)}
+                  onToggleTree={() => setTreeVisible((v) => !v)}
+                  onRevealInTree={revealInTree}
+                  onOpenRecent={openFromRecent}
+                />
+                <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
+                  在右侧选择文件
+                </div>
+              </div>
+            )}
+            {loaded?.kind === 'text' && (
+              <FilesTextEditor
+                path={loaded.path}
+                content={loaded.content}
+                baseline={
+                  headText !== null && headText.path === loaded.path ? headText.content : null
+                }
+                projectRoot={rootLogical}
+                // 服务器上的文件保存出错写在保存栏里
+                error={remote ? null : saveError}
+                saveBar={saveBar}
+                recentPaths={recentPaths}
+                recentMenuOpen={recentMenuOpen}
+                onRecentMenuOpenChange={setRecentMenuOpen}
+                fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
+                treeVisible={treeVisible}
+                sourcePreview={sourcePreview}
+                onToggleSourcePreview={() => {
+                  const next = !sourcePreview
+                  // 本地切到预览前落盘，预览与磁盘一致（服务器上的预览看的是编辑器里的内容）；
+                  // 编辑器卸载，gutter 弹窗一并关闭
+                  if (next && !remote) void flushSave()
+                  setHunkPopup(null)
+                  setSourcePreview(next)
+                }}
+                onShowTree={() => setTreeVisible(true)}
+                onToggleTree={() => setTreeVisible((v) => !v)}
+                onRevealInTree={revealInTree}
+                onOpenRecent={openFromRecent}
+                jump={editorJump}
+                onJumpDone={() => setEditorJump(null)}
+                onHunkClick={setHunkPopup}
+                onImagePrev={goPrevImage}
+                onImageNext={goNextImage}
+                active={visible}
+                imagePrefetch={prefetch}
+                onChange={(v) => {
+                  // 文档一变，gutter 弹窗的 hunk 即过期，统一在此关闭（含弹窗内回滚）
+                  setHunkPopup(null)
+                  setLoaded((prev) =>
+                    prev && prev.kind === 'text' ? { ...prev, content: v, dirty: true } : prev
+                  )
+                  // 服务器上的文件手动保存，不自动写回
+                  if (!remote) scheduleIdleSave()
+                }}
+              />
+            )}
+            {loaded?.kind === 'image' && (
+              <div className="flex h-full min-h-0 flex-col">
+                <FilesToolbar
+                  path={loaded.path}
+                  projectRoot={rootLogical}
+                  error={null}
+                  recentPaths={recentPaths}
+                  recentMenuOpen={recentMenuOpen}
+                  onRecentMenuOpenChange={setRecentMenuOpen}
+                  fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
+                  treeVisible={treeVisible}
+                  onShowTree={() => setTreeVisible(true)}
+                  onToggleTree={() => setTreeVisible((v) => !v)}
+                  onRevealInTree={revealInTree}
+                  onOpenRecent={openFromRecent}
+                  extra={
+                    <MediaFitButtons
+                      active={imageFit}
+                      onFit={(axis) => imageRef.current?.fit(axis)}
+                    />
+                  }
+                />
+                <FilesMediaPreview
+                  // 服务器上的图是在进度遮罩后面换的：沿用旧图过渡会在遮罩撤掉时闪出上一张，按文件重挂
+                  key={remote ? loaded.path : undefined}
+                  ref={imageRef}
+                  onFitChange={setImageFit}
+                  src={loaded.mediaUrl}
+                  path={loaded.decode.path}
+                  projectPath={loaded.decode.root}
+                  width={loaded.width}
+                  height={loaded.height}
+                  tiled={loaded.tiled === true}
+                  prefetch={prefetch}
+                  active={visible}
+                  onPrev={goPrevImage}
+                  onNext={goNextImage}
+                />
+              </div>
+            )}
+            {loaded?.kind === 'video' && (
+              <div className="flex h-full min-h-0 flex-col">
+                <FilesToolbar
+                  path={loaded.path}
+                  projectRoot={rootLogical}
+                  error={null}
+                  recentPaths={recentPaths}
+                  recentMenuOpen={recentMenuOpen}
+                  onRecentMenuOpenChange={setRecentMenuOpen}
+                  fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
+                  treeVisible={treeVisible}
+                  onShowTree={() => setTreeVisible(true)}
+                  onToggleTree={() => setTreeVisible((v) => !v)}
+                  onRevealInTree={revealInTree}
+                  onOpenRecent={openFromRecent}
+                />
+                <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
+                  <video
+                    key={loaded.mediaUrl}
+                    controls
+                    preload="metadata"
+                    className="max-h-full max-w-full"
+                  >
+                    <source src={loaded.mediaUrl} type={loaded.mime} />
+                  </video>
+                </div>
+              </div>
+            )}
+            {loaded?.kind === 'audio' && (
+              <div className="flex h-full min-h-0 flex-col">
+                <FilesToolbar
+                  path={loaded.path}
+                  projectRoot={rootLogical}
+                  error={null}
+                  recentPaths={recentPaths}
+                  recentMenuOpen={recentMenuOpen}
+                  onRecentMenuOpenChange={setRecentMenuOpen}
+                  fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
+                  treeVisible={treeVisible}
+                  onShowTree={() => setTreeVisible(true)}
+                  onToggleTree={() => setTreeVisible((v) => !v)}
+                  onRevealInTree={revealInTree}
+                  onOpenRecent={openFromRecent}
+                />
+                <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
+                  <audio key={loaded.mediaUrl} controls preload="metadata">
+                    <source src={loaded.mediaUrl} type={loaded.mime} />
+                  </audio>
+                </div>
+              </div>
+            )}
+            {(loaded?.kind === 'pdf' || loaded?.kind === 'pptx') && (
+              // PDF 与 PPT 同一套分页预览外壳，参数一致；换类型时组件随之换掉
+              <PagedPreview
+                // 同上：服务器上的文档按文件重挂，不在遮罩撤掉时露出上一份
+                key={remote ? loaded.path : undefined}
+                src={loaded.mediaUrl}
+                path={loaded.path}
+                active={visible}
+                thumbnails={pageThumbnails}
+                onToggleThumbnails={() => setPageThumbnails((v) => !v)}
+                onPrev={goPrevImage}
+                onNext={goNextImage}
+                toolbar={{
+                  projectRoot: rootLogical,
+                  recentPaths,
+                  recentMenuOpen,
+                  onRecentMenuOpenChange: setRecentMenuOpen,
+                  fileStatus: statusByRel.get(relPathUnderRoot(rootLogical, loaded.path)),
+                  treeVisible,
+                  onShowTree: () => setTreeVisible(true),
+                  onToggleTree: () => setTreeVisible((v) => !v),
+                  onRevealInTree: revealInTree,
+                  onOpenRecent: openFromRecent
+                }}
+              />
+            )}
+            {loaded?.kind === 'xlsx' && (
+              <div className="flex h-full min-h-0 flex-col">
+                <FilesToolbar
+                  path={loaded.path}
+                  projectRoot={rootLogical}
+                  error={null}
+                  recentPaths={recentPaths}
+                  recentMenuOpen={recentMenuOpen}
+                  onRecentMenuOpenChange={setRecentMenuOpen}
+                  fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
+                  treeVisible={treeVisible}
+                  onShowTree={() => setTreeVisible(true)}
+                  onToggleTree={() => setTreeVisible((v) => !v)}
+                  onRevealInTree={revealInTree}
+                  onOpenRecent={openFromRecent}
+                />
+                <FilesSheetPreview
+                  key={loaded.path}
+                  source={{ kind: 'xlsx', src: loaded.mediaUrl, size: loaded.size }}
+                  path={loaded.path}
+                  active={visible}
+                />
+              </div>
+            )}
+            {loaded?.kind === 'other' && (
+              <div className="flex h-full min-h-0 flex-col">
+                <FilesToolbar
+                  path={loaded.path}
+                  projectRoot={rootLogical}
+                  error={null}
+                  recentPaths={recentPaths}
+                  recentMenuOpen={recentMenuOpen}
+                  onRecentMenuOpenChange={setRecentMenuOpen}
+                  fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
+                  treeVisible={treeVisible}
+                  onShowTree={() => setTreeVisible(true)}
+                  onToggleTree={() => setTreeVisible((v) => !v)}
+                  onRevealInTree={revealInTree}
+                  onOpenRecent={openFromRecent}
+                />
+                {host.kind === 'server' ? (
+                  <ServerFilePlaceholder
+                    reason="unsupported"
+                    size={loaded.size}
+                    connected={connected}
+                    onOpenAnyway={null}
+                    onDownload={() => downloadFile(loaded.path)}
+                    onOpenInSshTerminal={() =>
+                      host.onOpenInSshTerminal(logicalParentPath(loaded.path))
+                    }
+                  />
+                ) : (
+                  <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-sm text-muted-foreground">
+                    <p>无法在此编辑此文件</p>
+                    <p className="text-xs">{formatSize(loaded.size)}</p>
+                    <Button
+                      variant="secondary"
+                      onClick={() => void window.api.openPath(toSysPath(loaded.path))}
+                    >
+                      在其他应用中打开
+                    </Button>
+                  </div>
+                )}
+              </div>
+            )}
+            {loaded?.kind === 'too-large' && host.kind === 'server' && (
+              <div className="flex h-full min-h-0 flex-col">
+                <FilesToolbar
+                  path={loaded.path}
+                  projectRoot={rootLogical}
+                  error={null}
+                  recentPaths={recentPaths}
+                  recentMenuOpen={recentMenuOpen}
+                  onRecentMenuOpenChange={setRecentMenuOpen}
+                  fileStatus={undefined}
+                  treeVisible={treeVisible}
+                  onShowTree={() => setTreeVisible(true)}
+                  onToggleTree={() => setTreeVisible((v) => !v)}
+                  onRevealInTree={revealInTree}
+                  onOpenRecent={openFromRecent}
+                />
+                <ServerFilePlaceholder
+                  reason="too-large"
+                  size={loaded.size}
+                  connected={connected}
+                  onOpenAnyway={
+                    loaded.canForce ? () => void openFile(loaded.path, { openLarge: true }) : null
+                  }
+                  onDownload={() => downloadFile(loaded.path)}
+                  onOpenInSshTerminal={() =>
+                    host.onOpenInSshTerminal(logicalParentPath(loaded.path))
+                  }
+                />
+              </div>
+            )}
           </div>
-        )}
-        {loaded?.kind === 'other' && (
-          <div className="flex h-full min-h-0 flex-col">
-            <FilesToolbar
-              path={loaded.path}
-              projectRoot={rootLogical}
-              error={null}
-              recentPaths={recentPaths}
-              recentMenuOpen={recentMenuOpen}
-              onRecentMenuOpenChange={setRecentMenuOpen}
-              fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
-              treeVisible={treeVisible}
-              onShowTree={() => setTreeVisible(true)}
-              onToggleTree={() => setTreeVisible((v) => !v)}
-              onRevealInTree={revealInTree}
-              onOpenRecent={openFromRecent}
-            />
-            <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-sm text-muted-foreground">
-              <p>无法在此编辑此文件</p>
-              <p className="text-xs">{formatSize(loaded.size)}</p>
-              <button
-                type="button"
-                className="rounded-lg px-3 py-1.5 text-[color:var(--fg-primary)] transition-colors hover:bg-[var(--bg-button-hover)]"
-                onClick={() => void window.api.openPath(toSysPath(loaded.path))}
-              >
-                在其他应用中打开
-              </button>
-            </div>
-          </div>
-        )}
-      </div>
-      {treeVisible && (
-        <div
-          className="flex h-full shrink-0 flex-col border-l border-[var(--separator)] bg-panel"
-          style={{ width: TREE_W }}
-        >
-          <div className="flex h-10 shrink-0 items-center gap-1 border-b border-[var(--separator)] px-1.5">
+          {treeVisible && (
             <div
-              title={filterHint}
-              className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded px-1.5 transition-colors focus-within:bg-[var(--bg-row-hover)]"
+              className="flex h-full shrink-0 flex-col border-l border-[var(--separator)] bg-panel"
+              style={{ width: TREE_W }}
+              onDragOver={onTreeDragOver}
+              onDragLeave={onTreeDragLeave}
+              onDrop={onTreeDrop}
             >
-              <Search className="size-3.5 shrink-0 text-[color:var(--fg-disabled)]" />
-              <input
-                ref={filterInputRef}
-                value={filterQuery}
-                onChange={(e) => updateFilterQuery(e.target.value)}
+              <div className="flex h-10 shrink-0 items-center gap-1 border-b border-[var(--separator)] px-1.5">
+                {remote ? (
+                  // 服务器：「前往路径」（绝对路径或 ~ 开头），回车即前往；没有文件索引，不做筛选
+                  <div
+                    title={goHint}
+                    className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded px-1.5 transition-colors focus-within:bg-[var(--bg-row-hover)]"
+                  >
+                    <input
+                      ref={filterInputRef}
+                      value={goQuery}
+                      disabled={!connected}
+                      onChange={(e) => changeGoQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
+                          e.preventDefault()
+                          void goToPath()
+                        } else if (e.key === 'Escape') {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          changeGoQuery('')
+                        }
+                      }}
+                      placeholder={goHint}
+                      className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-[color:var(--fg-disabled)]"
+                    />
+                    {/* 两颗钮按下时不抢焦点：点「前往」同回车，「清空」后可接着输入 */}
+                    {goQuery !== '' && connected && (
+                      <>
+                        <button
+                          type="button"
+                          title="前往"
+                          className="flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => void goToPath()}
+                        >
+                          <CornerDownLeft className="size-3" />
+                        </button>
+                        <button
+                          type="button"
+                          title="清空"
+                          className="flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]"
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => changeGoQuery('')}
+                        >
+                          <X className="size-3" />
+                        </button>
+                      </>
+                    )}
+                  </div>
+                ) : (
+                  <div
+                    title={filterHint}
+                    className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded px-1.5 transition-colors focus-within:bg-[var(--bg-row-hover)]"
+                  >
+                    <Search className="size-3.5 shrink-0 text-[color:var(--fg-disabled)]" />
+                    <input
+                      ref={filterInputRef}
+                      value={filterQuery}
+                      onChange={(e) => updateFilterQuery(e.target.value)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Escape') {
+                          e.preventDefault()
+                          e.stopPropagation()
+                          void exitFilter()
+                        }
+                      }}
+                      placeholder={filterHint}
+                      className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-[color:var(--fg-disabled)]"
+                    />
+                    {filterQuery !== '' && (
+                      <button
+                        type="button"
+                        title="清空"
+                        className="flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]"
+                        onClick={() => void exitFilter()}
+                      >
+                        <X className="size-3" />
+                      </button>
+                    )}
+                  </div>
+                )}
+                <div className="flex shrink-0 items-center gap-0.5">
+                  {host.kind === 'preview' && (
+                    <PreviewTypeFilterButton
+                      typeFilter={host.typeFilter}
+                      onTypeFilterChange={host.onTypeFilterChange}
+                    />
+                  )}
+                  {remote ? (
+                    // 服务器上不给「全部展开」：从 / 递归展开等于把整台服务器扫一遍
+                    <button
+                      type="button"
+                      title="刷新"
+                      disabled={!connected || refreshSpin.spinning}
+                      className={cn(
+                        TOOLBAR_BTN,
+                        'transition-[color,background-color,opacity] duration-200 disabled:pointer-events-none disabled:opacity-50'
+                      )}
+                      onClick={() => void refreshFromDisk()}
+                    >
+                      <RefreshIcon {...refreshSpin} />
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      title="全部展开"
+                      className={TOOLBAR_BTN}
+                      onClick={() => void expandAllDirs()}
+                    >
+                      <ChevronsUpDown className="size-4" />
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    title="全部折叠"
+                    className={TOOLBAR_BTN}
+                    onClick={collapseAllDirs}
+                  >
+                    <ChevronsDownUp className="size-4" />
+                  </button>
+                  <button
+                    type="button"
+                    title="隐藏文件树"
+                    className={TOOLBAR_BTN}
+                    onClick={() => setTreeVisible(false)}
+                  >
+                    <Minus className="size-4" />
+                  </button>
+                </div>
+              </div>
+              {goError !== null && (
+                <div className="shrink-0 px-3 pt-1.5 text-xs text-[var(--status-failed)]">
+                  {goError}
+                </div>
+              )}
+              {/* 当前根文件夹行：告诉你树的根在哪（预览窗口上翻下钻后不迷路），右键即空白区那份根菜单——
+              文件铺满时也永远点得到。固定在列表之上不随滚动走；它是全树的根，图标顶格（不占层级缩进位）。 */}
+              <div
+                title={rootLogical}
+                data-drop-dir={remote ? rootLogical : undefined}
+                className={cn(
+                  'mx-1.5 mt-1 flex h-8 shrink-0 cursor-default items-center gap-1 rounded px-1.5 text-[13px] text-foreground transition-colors',
+                  dropDir === rootLogical
+                    ? DROP_TARGET
+                    : treeMenu !== null && treeMenu.path === rootLogical
+                      ? 'bg-[var(--bg-row-hover)]'
+                      : 'hover:bg-[var(--bg-row-hover)]'
+                )}
+                onContextMenu={(e) => openTreeMenu(rootLogical, true, e)}
+              >
+                <FolderOpen className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
+                <span className="min-w-0 flex-1 truncate font-medium">
+                  {rootLogical.slice(rootLogical.lastIndexOf('/') + 1) || rootLogical}
+                </span>
+                {remote && (
+                  <Button
+                    variant="destructiveSoft"
+                    className="h-6 px-2 text-[12px]"
+                    onClick={() => void disconnect()}
+                  >
+                    断开连接
+                  </Button>
+                )}
+              </div>
+              <div
+                ref={treeScrollRef}
+                tabIndex={0}
+                className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5 pt-1 outline-none"
+                onContextMenu={(e) => openTreeMenu(rootLogical, true, e)}
                 onKeyDown={(e) => {
+                  // 焦点在树上打字转进树顶输入（项目为筛选，服务器为「前往路径」；没连上时输入停用）
+                  if (e.target instanceof HTMLInputElement || (remote && !connected)) return
+                  const query = remote ? goQuery : filterQuery
+                  const setQuery = remote ? changeGoQuery : updateFilterQuery
                   if (e.key === 'Escape') {
+                    if (query.trim()) {
+                      e.preventDefault()
+                      if (remote) changeGoQuery('')
+                      else void exitFilter()
+                    }
+                    return
+                  }
+                  if (e.key === 'Backspace' && query) {
                     e.preventDefault()
-                    e.stopPropagation()
-                    void exitFilter()
+                    setQuery(query.slice(0, -1))
+                    filterInputRef.current?.focus()
+                    return
+                  }
+                  if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
+                    e.preventDefault()
+                    setQuery(query + e.key)
+                    filterInputRef.current?.focus()
                   }
                 }}
-                placeholder={filterHint}
-                className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-[color:var(--fg-disabled)]"
-              />
-              {filterQuery !== '' && (
-                <button
-                  type="button"
-                  title="清空"
-                  className="flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]"
-                  onClick={() => void exitFilter()}
-                >
-                  <X className="size-3" />
-                </button>
-              )}
+              >
+                {filterLoading && showFilterLoading ? (
+                  <div className="flex h-full min-h-full items-center justify-center gap-1.5 px-1.5 text-[13px] text-muted-foreground">
+                    <LoaderCircle className="size-3.5 animate-spin" />
+                    正在扫描…
+                  </div>
+                ) : filterEmpty ? (
+                  <div className="flex h-full min-h-full items-center justify-center px-1.5 text-[13px] text-muted-foreground">
+                    无匹配文件
+                  </div>
+                ) : (
+                  <div
+                    className="relative w-full"
+                    style={{ height: rowVirtualizer.getTotalSize() }}
+                  >
+                    {rowVirtualizer.getVirtualItems().map((vi) => {
+                      const row = flatRows[vi.index]
+                      // 空白区（根）目标的菜单不点亮任何行；行集合本就不含根
+                      const menuActive = treeMenu !== null && treeMenu.path === row.path
+                      return (
+                        <div
+                          key={vi.key}
+                          className="absolute left-0 top-0 w-full"
+                          style={{ transform: `translateY(${vi.start}px)` }}
+                          data-drop-dir={remote && !row.notice ? uploadTargetDir(row) : undefined}
+                        >
+                          {row.notice ? (
+                            <FileTreeNoticeRow message={row.name} depth={row.depth} />
+                          ) : row.isDirectory ? (
+                            <FileTreeDirRow
+                              name={row.name}
+                              depth={row.depth}
+                              isExpanded={displayExpanded.has(row.path)}
+                              selected={selectedPath === row.path}
+                              menuActive={menuActive}
+                              dropTarget={dropDir === row.path}
+                              onToggle={() => toggleDir(row.path)}
+                              onMenu={(e) => openTreeMenu(row.path, true, e)}
+                            />
+                          ) : (
+                            <FileTreeFileRow
+                              name={row.name}
+                              depth={row.depth}
+                              selected={selectedPath === row.path}
+                              menuActive={menuActive}
+                              status={statusByRel.get(relPathUnderRoot(rootLogical, row.path))}
+                              onOpen={() => void openFile(row.path)}
+                              onMenu={(e) => openTreeMenu(row.path, false, e)}
+                            />
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
-            <div className="flex shrink-0 items-center gap-0.5">
-              {host.kind === 'preview' && (
-                <PreviewTypeFilterButton
-                  typeFilter={host.typeFilter}
-                  onTypeFilterChange={host.onTypeFilterChange}
-                />
-              )}
-              <button
-                type="button"
-                title="全部展开"
-                className={TOOLBAR_BTN}
-                onClick={() => void expandAllDirs()}
-              >
-                <ChevronsUpDown className="size-4" />
-              </button>
-              <button
-                type="button"
-                title="全部折叠"
-                className={TOOLBAR_BTN}
-                onClick={collapseAllDirs}
-              >
-                <ChevronsDownUp className="size-4" />
-              </button>
-              <button
-                type="button"
-                title="隐藏文件树"
-                className={TOOLBAR_BTN}
-                onClick={() => setTreeVisible(false)}
-              >
-                <Minus className="size-4" />
-              </button>
-            </div>
-          </div>
-          {/* 当前根文件夹行：告诉你树的根在哪（预览窗口上翻下钻后不迷路），右键即空白区那份根菜单——
-              文件铺满时也永远点得到。固定在列表之上不随滚动走；它是全树的根，图标顶格（不占层级缩进位）。 */}
-          <div
-            title={rootLogical}
-            className={cn(
-              'mx-1.5 mt-1 flex h-8 shrink-0 cursor-default items-center gap-1 rounded px-1.5 text-[13px] text-foreground transition-colors',
-              treeMenu !== null && treeMenu.path === rootLogical
-                ? 'bg-[var(--bg-row-hover)]'
-                : 'hover:bg-[var(--bg-row-hover)]'
-            )}
-            onContextMenu={(e) => openTreeMenu(rootLogical, true, e)}
-          >
-            <FolderOpen className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
-            <span className="min-w-0 flex-1 truncate font-medium">
-              {rootLogical.slice(rootLogical.lastIndexOf('/') + 1) || rootLogical}
-            </span>
-          </div>
-          <div
-            ref={treeScrollRef}
-            tabIndex={0}
-            className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5 pt-1 outline-none"
-            onContextMenu={(e) => openTreeMenu(rootLogical, true, e)}
-            onKeyDown={(e) => {
-              if (e.target instanceof HTMLInputElement) return
-              if (e.key === 'Escape') {
-                if (filterQuery.trim()) {
-                  e.preventDefault()
-                  void exitFilter()
+          )}
+
+          {hunkPopup !== null && loaded?.kind === 'text' && (
+            <FilesGutterHunkPopover
+              popup={hunkPopup}
+              filePath={loaded.path}
+              onUpdate={setHunkPopup}
+              onClose={() => setHunkPopup(null)}
+            />
+          )}
+
+          <FilesContentMenu
+            menu={contentMenu}
+            onDownload={remote && connected ? downloadFile : undefined}
+            onClose={() => setContentMenu(null)}
+          />
+          <FilesTreeMenu
+            projectPath={rootPath}
+            terminal={host.kind === 'project'}
+            server={serverActions}
+            {...(host.kind === 'preview'
+              ? {
+                  onSetRoot: host.onSetRoot,
+                  onAscend: host.onAscend,
+                  onAddProject: host.onAddProject,
+                  projectRegistered: host.projectRegistered
                 }
-                return
-              }
-              if (e.key === 'Backspace' && filterQuery) {
-                e.preventDefault()
-                updateFilterQuery(filterQuery.slice(0, -1))
-                filterInputRef.current?.focus()
-                return
-              }
-              if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
-                e.preventDefault()
-                updateFilterQuery(filterQuery + e.key)
-                filterInputRef.current?.focus()
-              }
-            }}
-          >
-            {filterLoading && showFilterLoading ? (
-              <div className="flex h-full min-h-full items-center justify-center gap-1.5 px-1.5 text-[13px] text-muted-foreground">
-                <LoaderCircle className="size-3.5 animate-spin" />
-                正在扫描…
-              </div>
-            ) : filterEmpty ? (
-              <div className="flex h-full min-h-full items-center justify-center px-1.5 text-[13px] text-muted-foreground">
-                无匹配文件
-              </div>
-            ) : (
-              <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
-                {rowVirtualizer.getVirtualItems().map((vi) => {
-                  const row = flatRows[vi.index]
-                  // 空白区（根）目标的菜单不点亮任何行；行集合本就不含根
-                  const menuActive = treeMenu !== null && treeMenu.path === row.path
-                  return (
-                    <div
-                      key={vi.key}
-                      className="absolute left-0 top-0 w-full"
-                      style={{ transform: `translateY(${vi.start}px)` }}
-                    >
-                      {row.isDirectory ? (
-                        <FileTreeDirRow
-                          name={row.name}
-                          depth={row.depth}
-                          isExpanded={displayExpanded.has(row.path)}
-                          selected={selectedPath === row.path}
-                          menuActive={menuActive}
-                          onToggle={() => toggleDir(row.path)}
-                          onMenu={(e) => openTreeMenu(row.path, true, e)}
-                        />
-                      ) : (
-                        <FileTreeFileRow
-                          name={row.name}
-                          depth={row.depth}
-                          selected={selectedPath === row.path}
-                          menuActive={menuActive}
-                          status={statusByRel.get(relPathUnderRoot(rootLogical, row.path))}
-                          onOpen={() => void openFile(row.path)}
-                          onMenu={(e) => openTreeMenu(row.path, false, e)}
-                        />
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
-            )}
-          </div>
+              : {})}
+            projectRoot={rootLogical}
+            menu={treeMenu}
+            onClose={() => setTreeMenu(null)}
+            onRequest={setEntryDialog}
+          />
+          {entryDialog !== null && (
+            <FilesEntryDialog
+              key={`${entryDialog.kind}:${'dir' in entryDialog ? entryDialog.dir : entryDialog.path}`}
+              request={entryDialog}
+              onClose={() => setEntryDialog(null)}
+              onSubmit={(name) => submitEntryDialog(entryDialog, name)}
+            />
+          )}
+
+          {conflict?.kind === 'changed' && !remote && (
+            <FormDialogShell
+              message={`文件 “${loaded !== null ? baseName(loaded.path) : ''}” 已在磁盘上更改，当前还有未保存的编辑。要重载磁盘版本，还是保留编辑器内容？`}
+              cancelLabel="保留编辑器内容"
+              buttons={[{ label: '重载', onClick: reloadFromConflict }]}
+              onCancel={keepEditorContent}
+            />
+          )}
         </div>
-      )}
-
-      {hunkPopup !== null && loaded?.kind === 'text' && (
-        <FilesGutterHunkPopover
-          popup={hunkPopup}
-          filePath={loaded.path}
-          onUpdate={setHunkPopup}
-          onClose={() => setHunkPopup(null)}
-        />
-      )}
-
-      <FilesContentMenu menu={contentMenu} onClose={() => setContentMenu(null)} />
-      <FilesTreeMenu
-        projectPath={rootPath}
-        terminal={host.kind === 'project'}
-        {...(host.kind === 'preview'
-          ? {
-              onSetRoot: host.onSetRoot,
-              onAscend: host.onAscend,
-              onAddProject: host.onAddProject,
-              projectRegistered: host.projectRegistered
-            }
-          : {})}
-        projectRoot={rootLogical}
-        menu={treeMenu}
-        onClose={() => setTreeMenu(null)}
-        onRequest={setEntryDialog}
-      />
-      {entryDialog !== null && (
-        <FilesEntryDialog
-          key={`${entryDialog.kind}:${'dir' in entryDialog ? entryDialog.dir : entryDialog.path}`}
-          request={entryDialog}
-          onClose={() => setEntryDialog(null)}
-          onSubmit={(name) => submitEntryDialog(entryDialog, name)}
-        />
-      )}
-
-      {conflict && (
-        <FormDialogShell
-          message={`文件 “${loaded !== null ? loaded.path.slice(loaded.path.lastIndexOf('/') + 1) : ''}” 已在磁盘上更改，当前还有未保存的编辑。要重载磁盘版本，还是保留编辑器内容？`}
-          cancelLabel="保留编辑器内容"
-          buttons={[
-            {
-              label: '重载',
-              onClick: () => {
-                setLoaded((prev) =>
-                  prev && prev.kind === 'text'
-                    ? {
-                        ...prev,
-                        content: conflict.disk,
-                        mtimeMs: conflict.mtimeMs,
-                        dirty: false
-                      }
-                    : prev
-                )
-                setConflict(null)
-              }
-            }
-          ]}
-          onCancel={() => {
-            setLoaded((prev) =>
-              prev && prev.kind === 'text' && conflict
-                ? { ...prev, mtimeMs: conflict.mtimeMs }
-                : prev
-            )
-            setConflict(null)
-          }}
-        />
-      )}
-    </div>
+      </FilesDownloadContext.Provider>
+    </FilesLocalContext.Provider>
   )
 }
 
@@ -1645,6 +2269,7 @@ function FilesTextEditor({
   baseline,
   projectRoot,
   error,
+  saveBar,
   recentPaths,
   recentMenuOpen,
   onRecentMenuOpenChange,
@@ -1671,6 +2296,8 @@ function FilesTextEditor({
   baseline: string | null
   projectRoot: string
   error: string | null
+  /** 工具栏之下的保存栏（服务器上的文件手动保存才有） */
+  saveBar?: React.ReactNode
   recentPaths: string[]
   recentMenuOpen: boolean
   onRecentMenuOpenChange: (open: boolean) => void
@@ -1802,6 +2429,7 @@ function FilesTextEditor({
         onOpenRecent={onOpenRecent}
         onFocusContent={focusEditor}
       />
+      {saveBar}
       {markdown && sourcePreview ? (
         <FilesMarkdownPreview path={path} content={content} projectRoot={projectRoot} />
       ) : svg && sourcePreview ? (
@@ -1859,12 +2487,30 @@ function treeIndent(levels: number): React.JSX.Element | null {
   return levels > 0 ? <span className="shrink-0" style={{ width: levels * 12 }} /> : null
 }
 
+/** 读不出来的已展开目录（如「没有权限」）：在子级位置的一行提示，不可点。 */
+function FileTreeNoticeRow({
+  message,
+  depth
+}: {
+  message: string
+  depth: number
+}): React.JSX.Element {
+  return (
+    <div className={cn(ROW, 'cursor-default text-muted-foreground')}>
+      {treeIndent(depth)}
+      <span className="size-3.5 shrink-0" />
+      <span className="min-w-0 flex-1 truncate text-[12px]">{message}</span>
+    </div>
+  )
+}
+
 function FileTreeDirRow({
   name,
   depth,
   isExpanded,
   selected,
   menuActive,
+  dropTarget = false,
   onToggle,
   onMenu
 }: {
@@ -1874,6 +2520,8 @@ function FileTreeDirRow({
   selected: boolean
   /** 右键菜单打开中：保持 hover 行底（指针已移入菜单会丢 :hover） */
   menuActive: boolean
+  /** 服务器：从本机拖进来的落点就是它 */
+  dropTarget?: boolean
   onToggle: () => void
   onMenu: (e: React.MouseEvent) => void
 }): React.JSX.Element {
@@ -1882,11 +2530,13 @@ function FileTreeDirRow({
       type="button"
       className={cn(
         ROW,
-        selected
-          ? 'bg-[var(--selection-row)]'
-          : menuActive
-            ? 'bg-[var(--bg-row-hover)]'
-            : 'hover:bg-[var(--bg-row-hover)]'
+        dropTarget
+          ? DROP_TARGET
+          : selected
+            ? 'bg-[var(--selection-row)]'
+            : menuActive
+              ? 'bg-[var(--bg-row-hover)]'
+              : 'hover:bg-[var(--bg-row-hover)]'
       )}
       onClick={onToggle}
       onContextMenu={onMenu}
@@ -1954,6 +2604,11 @@ function FileTreeFileRow({
       </span>
     </button>
   )
+}
+
+/** 路径的最后一段（提示文案用） */
+function baseName(path: string): string {
+  return path.slice(path.lastIndexOf('/') + 1)
 }
 
 function formatSize(n: number): string {

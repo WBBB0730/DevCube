@@ -2,10 +2,10 @@ import { protocol } from 'electron'
 import { createReadStream, promises as fs } from 'node:fs'
 import path from 'node:path'
 import { Readable } from 'node:stream'
-import { FILES_MEDIA_SCHEME, isFilesTileKey } from '../shared/files'
+import { FILES_MEDIA_SCHEME } from '../shared/files'
 import { parseBytesRange } from '../shared/files-media-range'
 import { normalizePath, resolveWithinProject } from '../shared/files-path'
-import { imageTilesCacheRoot } from './files-image-pyramid'
+import { imageTilesDir } from './files-image-pyramid'
 import { appAssetMime, appAssetRoot } from './app-assets'
 import { isGrantedFilesRoot } from './files-roots'
 
@@ -48,8 +48,8 @@ function fileStreamResponse(
 }
 
 /**
- * 三种来源：`p` + `f` = 授权根（已登记项目根 / 预览窗口根）内的文件；`t` + `f` = 瓦片金字塔缓存目录内的文件
- * （预览图 / 瓦片，键形状须合法）；`a` + `f` = 应用自带静态资源（PDF.js 字体映射表、表格解析 WebAssembly 等，MIME 按扩展名）。
+ * 三种来源：`p` + `f` = 授权根（已登记项目根 / 预览窗口根）内的文件；`t` + `f` = 瓦片金字塔目录内的文件
+ * （预览图 / 瓦片；键形状须合法，见 imageTilesDir）；`a` + `f` = 应用自带静态资源（PDF.js 字体映射表、表格解析 WebAssembly 等，MIME 按扩展名）。
  * 都限制在各自根内，越界 403。
  */
 function resolveMediaSysPath(u: URL): { sys: string; mime?: string } | { status: 400 | 403 } {
@@ -64,8 +64,9 @@ function resolveMediaSysPath(u: URL): { sys: string; mime?: string } | { status:
   }
   const tileKey = u.searchParams.get('t')
   if (tileKey !== null) {
-    if (!isFilesTileKey(tileKey)) return { status: 403 }
-    const root = normalizePath(path.join(imageTilesCacheRoot(), tileKey))
+    const dir = imageTilesDir(tileKey)
+    if (dir === null) return { status: 403 }
+    const root = normalizePath(dir)
     const logical = resolveWithinProject(root, rel)
     return logical ? { sys: toSys(logical) } : { status: 403 }
   }

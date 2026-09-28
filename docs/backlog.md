@@ -17,21 +17,20 @@
 - 替代 FinalShell / Termius / Xshell。
 - 已实现，待验收：见 `docs/prd/ssh-server.md`、ADR-0038；术语见 CONTEXT.md（**Server**、**SSH Terminal**）。
 - 「绕开代理直连」：已实现，待验收（ADR-0039，PRD 用户故事 23–25）；Windows 待实测。
+- 连接方式改为内置实现、配置仍由系统 OpenSSH 解析（参照 WebStorm）：方案已定稿待确认，见 `docs/prd/ssh-connection.md`、ADR-0041（提案中）；分 5 步实施。
 - 「无项目」做好后，里面同样保留「连接到服务器」这个快捷入口。
 
 ### 远程文件管理
 
 - 替代 WinSCP。
-- 作为 **Server** 的常驻 Tab，复用 **Files Tab** 的面板能力：远程文件直接预览、编辑，保存即回传。
-- 技术路线：同样经系统 `ssh` 建立连接（ADR-0038），保证「终端连得上，文件就连得上」。
-- 待讨论：单栏还是双栏、上传下载怎么交互。
+- 已实现，待验收：见 `docs/prd/server-files.md`、ADR-0040；术语见 CONTEXT.md（**Files Tab**）；Windows 待实测。
 
 ### 服务器状态面板
 
 - 已实现，待验收：见 `docs/prd/server-status.md`；术语见 CONTEXT.md（**Status Tab**）。
 - 以后再加：Docker 容器。
 - 下一步：装了 sysstat 的服务器，读它的记录（用它自带的 `sadf` 取固定格式）做「按天看」的历史图，比如「今天 / 最近 24 小时」；没装就不显示入口。sysstat 默认每 10 分钟记一次，填不满 5 分钟的实时曲线，所以是另一块图。
-- 看服务器日志：目前靠 SSH 终端里敲命令，或给服务器新建配置（如 `tail -f 日志文件`）；远程文件管理做好后，可直接打开日志文件。
+- 看服务器日志：目前靠 SSH 终端里敲命令，或给服务器新建配置（如 `tail -f 日志文件`）；远程文件管理做好后，5 MB 以内的日志文件可直接打开。
 
 ### 无项目
 

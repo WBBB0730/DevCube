@@ -22,6 +22,7 @@ import type {
 import { beginAskpassConnection, endAskpassConnection } from './askpass'
 import {
   buildRemoteRunCommand,
+  buildRemoteShellInDir,
   buildShellInvocation,
   buildShellSession,
   resolveCwd,
@@ -45,6 +46,8 @@ interface Session {
   ownerKey?: string
   /** 仅 ssh：所连服务器 */
   serverId?: string
+  /** 仅 ssh：登录后进入的目录（Files Tab「在 SSH 终端中打开」）；重连照旧进入，不随壳持久化 */
+  remoteCwd?: string
   /** 会话代际标识（每次 spawn 唯一）。bytes 只在同代内可比，随输出与快照下发供渲染端跨代丢弃 */
   sid: string
   /** 仅 ssh 会为 null：尚未连接或连接已断开 */
@@ -445,12 +448,13 @@ export function disposeSshTerminalsForServer(serverId: string): void {
 /**
  * 在某左树条目下开一个连到 serverId 的 SSH Terminal，返回其会话键。同 openTerminal 的约定：
  * 不传 key 即新开并立即连接；传 key 是恢复跨重启的壳——只建会话、提示按回车连接（不自动连接），
- * 已存在则原样返回。
+ * 已存在则原样返回。remoteCwd：登录后进入服务器上的这个目录。
  */
 export async function openSshTerminal(
   ownerKey: string,
   serverId: string,
-  key?: string
+  key?: string,
+  remoteCwd?: string
 ): Promise<string> {
   if (key !== undefined && sessions.has(key)) return key
   const sessionKey = key ?? `ssh:${randomUUID()}`
@@ -460,6 +464,7 @@ export async function openSshTerminal(
     kind: 'ssh',
     ownerKey,
     serverId,
+    remoteCwd,
     sid: randomUUID(),
     pty: null,
     status: 'exited',
@@ -515,7 +520,11 @@ async function connectSsh(session: Session): Promise<void> {
   }
   let pty: IPty
   try {
-    pty = spawn(prepared.ssh, sshArgs(server.target, prepared.options), {
+    const args =
+      session.remoteCwd === undefined
+        ? sshArgs(server.target, prepared.options)
+        : sshRunArgs(server.target, buildRemoteShellInDir(session.remoteCwd), prepared.options)
+    pty = spawn(prepared.ssh, args, {
       name: 'xterm-256color',
       cols: session.cols,
       rows: session.rows,

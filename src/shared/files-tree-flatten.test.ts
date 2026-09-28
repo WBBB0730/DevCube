@@ -69,3 +69,22 @@ describe('flattenFilesTree', () => {
     expect(rows.map((r) => r.name)).toEqual(['lazy'])
   })
 })
+
+describe('flattenFilesTree 提示行', () => {
+  it('读不出来的已展开目录，在子级位置出一条提示行', () => {
+    const rows = flattenFilesTree(root, childrenByDir, new Set([`${root}/src`]), {
+      [`${root}/src`]: '没有权限'
+    })
+    expect(rows.map((r) => [r.name, r.depth, r.notice === true])).toEqual([
+      ['src', 0, false],
+      ['没有权限', 1, true],
+      ['README.md', 0, false],
+      ['package.json', 0, false]
+    ])
+  })
+
+  it('折叠的目录不出提示行', () => {
+    const rows = flattenFilesTree(root, childrenByDir, new Set(), { [`${root}/src`]: '没有权限' })
+    expect(rows.some((r) => r.notice)).toBe(false)
+  })
+})

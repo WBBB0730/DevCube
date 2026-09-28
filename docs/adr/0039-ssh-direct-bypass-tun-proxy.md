@@ -1,5 +1,7 @@
 # SSH 绕开 TUN 代理：由开关决定一律直连，不自动识别
 
+> 机制拟更新（ADR-0041，提案中）：连接改由内置的 ssh2 完成后，直连改为建连时绑定本机地址（`localAddress`）、连真实地址，按原主机名核对 known_hosts；「每台服务器一个开关、不自动识别」的决策不变。
+
 开着 TUN 模式代理（Clash Verge / mihomo 等）时，本机所有连接都先进代理的虚拟网卡：代理节点普遍封掉 22 端口，`ssh` 在收到服务器问候前就被断开；fake-IP 模式下，域名还会被解析成代理内部的假地址。我们决定给每台 **Server** 一个「绕开代理直连」开关，添加时默认不打开。开启时，DevCube 在 `ssh` 参数上追加 `BindAddress=<实体网卡的本机地址>`，让连接从实体网卡出去；连接目标是域名时，先向实体网卡所在网络的 DNS 查出真实地址（查询同样绑定该地址），再追加 `HostName=<真实地址>` 与 `HostKeyAlias=<原主机名>`，保证 known_hosts 照旧按原主机名核对。用户 ssh 配置里已写了 `ProxyJump`、`ProxyCommand`、`BindAddress` 或 `BindInterface` 的目标，DevCube 不插手。开启后找不到实体网卡、或查不到真实地址时，直接报出原因，不退回经代理连接。
 
 绑定本机地址能绕开虚拟网卡，是因为 macOS（scoped routing）和 Windows（强主机模型）会按源地址选出口网卡。Linux 只按目标地址（及策略路由）选路，普通进程没有 root 权限绕不开，所以 Linux 不提供这个开关。

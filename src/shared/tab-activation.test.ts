@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  orderedTabKeysOf,
   resolveActiveTabKey,
   resolveDefaultActiveKey,
   resolveNeighborAfterClose
@@ -33,8 +34,21 @@ describe('resolveDefaultActiveKey', () => {
     ).toBe('git:/p')
   })
 
+  it('Server 条目：Tab 序为 Status → Files → 运行会话 → 终端', () => {
+    expect(
+      orderedTabKeysOf({
+        residentKeys: ['status:server:s1', 'files:server:s1'],
+        runTabs: [{ key: 'run:a', status: 'exited' }],
+        termTabs: [{ key: 'ssh:1' }]
+      })
+    ).toEqual(['status:server:s1', 'files:server:s1', 'run:a', 'ssh:1'])
+  })
+
   it('Server 条目：无运行中时落 Status Tab；有运行中的会话仍优先', () => {
-    const server = { residentKeys: ['status:server:s1'], termTabs: [{ key: 'ssh:1' }] }
+    const server = {
+      residentKeys: ['status:server:s1', 'files:server:s1'],
+      termTabs: [{ key: 'ssh:1' }]
+    }
     expect(resolveDefaultActiveKey({ ...server, runTabs: [] })).toBe('status:server:s1')
     expect(
       resolveDefaultActiveKey({ ...server, runTabs: [{ key: 'run:a', status: 'running' }] })

@@ -10,9 +10,15 @@ import { isAppQuitting, isQuitAllowed, markAppQuitting, markQuitAllowed } from '
 import { killAllSessions } from './runner'
 import { disposeAskpass } from './askpass'
 import { disposeAllServerStatus } from './server-status'
+import {
+  disposeAllServerFiles,
+  setUnsavedServerFileCount,
+  unsavedServerFileCount
+} from './server-files'
+import { clearAllServerFilesCache } from './server-files-cache'
 import { closeAllProjectWatchers } from './project-watchers'
 import { resolveReleaseEdition } from '../shared/release-edition'
-import { confirmQuitIfNeeded } from './quit-confirm'
+import { confirmCloseIfUnsaved, confirmQuitIfNeeded } from './quit-confirm'
 import { canInstallUpdateOnQuit, installDownloadedUpdate } from './app-updater'
 import { rememberWindowPlacement, resolveRememberedWindowPlacement } from './window-placement'
 import { registerBootstrapIpc } from './renderer-bootstrap'
@@ -98,13 +104,26 @@ function createWindow(): BrowserWindow {
 
   // 关窗前写入进程内记忆（macOS 点 Dock 重开时恢复；重启进程则清空）。
   // Windows：点关闭隐藏到托盘，真正退出走托盘「退出」/ before-quit。
+  // 其余平台关窗即销毁渲染端：服务器上还有未保存的文件时先确认（退出时已由退出确认问过）。
+  let closeConfirmed = false
   win.on('close', (event) => {
     rememberWindowPlacement(win, 'main')
-    if (process.platform === 'win32' && !isAppQuitting()) {
+    if (isAppQuitting()) return
+    if (process.platform === 'win32') {
       event.preventDefault()
       win.hide()
+      return
     }
+    if (closeConfirmed || unsavedServerFileCount() === 0) return
+    event.preventDefault()
+    void confirmCloseIfUnsaved(win).then((ok) => {
+      if (!ok || win.isDestroyed()) return
+      closeConfirmed = true
+      win.close()
+    })
   })
+  // 渲染端没了，它登记的未保存文件也随之作废
+  win.on('closed', () => setUnsavedServerFileCount(0))
 
   win.on('ready-to-show', () => {
     if (placement.isMaximized) win.maximize()
@@ -163,6 +182,8 @@ app.whenReady().then(async () => {
   // 必须在建窗之前：themeSource 决定页面加载时 prefers-color-scheme 的取值，样式表解析即定音，首帧不闪。
   applyTheme(getAppPrefs().theme)
   handleFilesMediaProtocol()
+  // 上次异常退出留下的服务器文件缓存（正常退出时已清）
+  clearAllServerFilesCache()
   // preload sendSync 依赖此通道；必须在 createWindow / loadURL 之前。
   registerBootstrapIpc()
 
@@ -218,6 +239,8 @@ async function runQuitCleanup(): Promise<void> {
   disposeTray()
   killAllSessions()
   disposeAllServerStatus()
+  disposeAllServerFiles()
+  clearAllServerFilesCache()
   disposeAskpass()
   await Promise.all([closeAllProjectWatchers(), closeAllPreviewWatchers()])
   // 给原生 watcher stop 一点时间收尾，再拆 Node Environment。

@@ -11,6 +11,7 @@ import {
   sshArgs,
   sshFailureMessage,
   sshRunArgs,
+  sshSftpArgs,
   sshStatusArgs,
   sshTestArgs,
   supportsSshDirect,
@@ -89,6 +90,25 @@ describe('sshStatusArgs', () => {
       '--',
       'prod',
       'sh -c x'
+    ])
+  })
+})
+
+describe('sshSftpArgs', () => {
+  it('打开 sftp 子系统、带保活，额外选项在目标之前', () => {
+    expect(sshSftpArgs(manual({ port: 2222 }), ['-o', 'BindAddress=1.2.3.4'])).toEqual([
+      '-s',
+      '-o',
+      'ServerAliveInterval=15',
+      '-o',
+      'ServerAliveCountMax=3',
+      '-o',
+      'BindAddress=1.2.3.4',
+      '-p',
+      '2222',
+      '--',
+      'root@10.0.0.8',
+      'sftp'
     ])
   })
 })

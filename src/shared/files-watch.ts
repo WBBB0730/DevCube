@@ -42,22 +42,23 @@ export function mergeReloadedDirs(
 
 export type OpenTextDiskSync =
   | { action: 'noop' }
-  | { action: 'reload'; content: string; mtimeMs: number }
-  | { action: 'conflict'; disk: string; mtimeMs: number }
+  | { action: 'reload'; content: string; mtimeMs: number; size: number }
+  | { action: 'conflict'; disk: string; mtimeMs: number; size: number }
   | { action: 'gone' }
   | { action: 'reopen' }
 
 /**
- * 当前打开文本相对一次磁盘读结果该怎么同步。
+ * 当前打开文本相对一次磁盘读结果该怎么同步（修改时间与大小都没变才算没改）。
  * fresh=null 表示路径已不存在 / 读失败。
  */
 export function resolveOpenTextDiskSync(
-  loaded: { path: string; mtimeMs: number; dirty: boolean },
+  loaded: { path: string; mtimeMs: number; size: number; dirty: boolean },
   fresh: FilesReadResult | null
 ): OpenTextDiskSync {
   if (!fresh || fresh.path !== loaded.path) return { action: 'gone' }
   if (fresh.kind !== 'text') return { action: 'reopen' }
-  if (fresh.mtimeMs === loaded.mtimeMs) return { action: 'noop' }
-  if (loaded.dirty) return { action: 'conflict', disk: fresh.content, mtimeMs: fresh.mtimeMs }
-  return { action: 'reload', content: fresh.content, mtimeMs: fresh.mtimeMs }
+  if (fresh.mtimeMs === loaded.mtimeMs && fresh.size === loaded.size) return { action: 'noop' }
+  const version = { mtimeMs: fresh.mtimeMs, size: fresh.size }
+  if (loaded.dirty) return { action: 'conflict', disk: fresh.content, ...version }
+  return { action: 'reload', content: fresh.content, ...version }
 }

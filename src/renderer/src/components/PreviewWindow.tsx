@@ -7,7 +7,7 @@ import { FILES_ALL_TYPES } from '@renderer/components/files/PreviewTreeControls'
 import { useFiles } from '@renderer/files-store'
 import { useApp } from '@renderer/store'
 import type { AppUpdateState } from '@shared/app-update-state'
-import { normalizePath } from '@shared/files-path'
+import { childPathPrefix, normalizePath } from '@shared/files-path'
 import type { FilesTypeCategory } from '@shared/files-type-filter'
 import { parentLogicalPath, type PreviewLaunch } from '@shared/preview-window'
 
@@ -69,7 +69,8 @@ export function PreviewWindow({ launch }: { launch: PreviewLaunch }): React.JSX.
   const host = useMemo<FilesPaneHost>(
     () => ({
       kind: 'preview',
-      initialFile: openPath !== null && openPath.startsWith(root + '/') ? openPath : null,
+      initialFile:
+        openPath !== null && openPath.startsWith(childPathPrefix(root)) ? openPath : null,
       onAscend: parent === null ? null : () => changeRoot(parent),
       onSetRoot: changeRoot,
       onOpenPathChange: setOpenPath,

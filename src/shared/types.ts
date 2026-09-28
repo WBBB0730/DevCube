@@ -13,6 +13,18 @@ import type { GitAPI, GitRepoSettings, GitViewPrefs } from './git'
 import type { GitCloneInput, GitCloneProgress, GitCloneTargetState } from './git-clone'
 import type { OpenInAppId, OpenInAppResult, OpenInAppStatus } from './open-in-app'
 import type { RendererBootstrap } from './renderer-bootstrap'
+import type {
+  ServerFileStat,
+  ServerFilesReadProgress,
+  ServerFilesReadResult,
+  ServerFilesState,
+  ServerFilesStateEvent,
+  ServerFilesWriteResult,
+  ServerTransfer,
+  ServerTransfersEvent,
+  TransferConflictRequest,
+  TransferConflictResponse
+} from './server-files'
 import type { ServerStatusEvent, ServerStatusState } from './server-status'
 import type {
   AskpassRequest,
@@ -338,6 +350,64 @@ export interface RunAPI extends GitAPI {
   disconnectServerStatus(serverId: string): Promise<void>
   /** 某台服务器的状态有变化（每帧一次） */
   onServerStatusChanged(cb: (event: ServerStatusEvent) => void): () => void
+  // —— 服务器文件（Server 的 Files Tab，ADR-0040） ——
+  /** 某台服务器文件连接的当前状态（Files Tab 挂载时取一次，之后靠推送） */
+  getServerFilesState(serverId: string): Promise<ServerFilesState>
+  /** 点「连接」/「重新连接」：建立文件连接 */
+  connectServerFiles(serverId: string): Promise<void>
+  /** 点「断开连接」：结束文件连接，中止进行中的传输 */
+  disconnectServerFiles(serverId: string): Promise<void>
+  onServerFilesStateChanged(cb: (event: ServerFilesStateEvent) => void): () => void
+  serverFilesListDir(serverId: string, dir: string): Promise<FilesDirEntry[]>
+  /** 条目信息（跟随符号链接）；不存在为 null */
+  serverFilesStat(serverId: string, path: string): Promise<ServerFileStat | null>
+  /** 打开服务器上的文件；force = 超过预览上限时「仍然打开」。新的打开会取消旧的（旧的返回 canceled） */
+  serverFilesRead(serverId: string, path: string, force: boolean): Promise<ServerFilesReadResult>
+  /** 取消进行中的打开 */
+  serverFilesCancelRead(serverId: string): Promise<void>
+  onServerFilesReadProgress(cb: (progress: ServerFilesReadProgress) => void): () => void
+  /** 保存文本：base 为载入时的修改时间与大小，服务器上的文件变了就不写、带回冲突 */
+  serverFilesWrite(
+    serverId: string,
+    path: string,
+    content: string,
+    base: { mtimeMs: number; size: number }
+  ): Promise<ServerFilesWriteResult>
+  serverFilesCreate(
+    serverId: string,
+    dir: string,
+    name: string,
+    kind: 'file' | 'directory'
+  ): Promise<FilesDirEntry>
+  serverFilesRename(serverId: string, path: string, newName: string): Promise<{ path: string }>
+  /** 删除（不可恢复）；文件夹连同内容 */
+  serverFilesDelete(serverId: string, path: string): Promise<void>
+  /** 上传完成等：该服务器的文件树应重新读已展开的目录 */
+  onServerFilesEntriesChanged(cb: (serverId: string) => void): () => void
+  serverFilesGetUi(serverId: string): Promise<FilesUiState>
+  serverFilesSetUi(serverId: string, patch: Partial<FilesUiState>): Promise<FilesUiState>
+  /** 把本机文件 / 文件夹上传到服务器上的 remoteDir（进传输队列） */
+  serverFilesUpload(serverId: string, remoteDir: string, localPaths: string[]): Promise<void>
+  /** 弹系统对话框选本机文件或文件夹（可多选），再上传到 remoteDir */
+  serverFilesUploadPick(
+    serverId: string,
+    remoteDir: string,
+    kind: 'file' | 'directory'
+  ): Promise<void>
+  /** 下载：文件弹保存对话框，文件夹选目标目录（取消即不下载） */
+  serverFilesDownload(serverId: string, path: string, isDirectory: boolean): Promise<void>
+  getServerTransfers(serverId: string): Promise<ServerTransfer[]>
+  onServerTransfersChanged(cb: (event: ServerTransfersEvent) => void): () => void
+  cancelServerTransfer(serverId: string, id: string): Promise<void>
+  /** 关掉一项失败的传输 */
+  dismissServerTransfer(serverId: string, id: string): Promise<void>
+  /** 传输遇到同名文件，需要用户选择替换或跳过 */
+  onTransferConflictRequest(cb: (request: TransferConflictRequest) => void): () => void
+  /** 某次同名询问已失效（传输被取消），渲染端应关掉对应弹窗 */
+  onTransferConflictDismiss(cb: (id: string) => void): () => void
+  respondTransferConflict(response: TransferConflictResponse): void
+  /** 上报服务器上有未保存修改的文件数（服务器上的文件手动保存；退出确认用） */
+  reportUnsavedServerFiles(count: number): void
   /** 主进程改了服务器列表（如移除后）时推送 */
   onServersChanged(cb: (servers: ServerNode[]) => void): () => void
   /** ssh 的一次提问需要用户回答 */
@@ -370,9 +440,9 @@ export interface RunAPI extends GitAPI {
   /**
    * 在某左树条目（Project 或 Server）下开一个连到 serverId 的 SSH Terminal，返回其会话键。
    * 同 openTerminal 的约定：不传 key 即新开并立即连接；传 key 是恢复跨重启的壳——只建会话、
-   * 提示按回车连接，已存在则原样返回。
+   * 提示按回车连接，已存在则原样返回。cwd：登录后进入服务器上的这个目录（不随壳持久化）。
    */
-  openSshTerminal(ownerKey: string, serverId: string, key?: string): Promise<string>
+  openSshTerminal(ownerKey: string, serverId: string, key?: string, cwd?: string): Promise<string>
   /** 读取工作台 UI 快照（ADR-0008） */
   getWorkspaceUi(): Promise<WorkspaceUiState>
   /** 整表覆写工作台 UI（渲染端为真相源，变更即写） */
@@ -435,7 +505,11 @@ export interface RunAPI extends GitAPI {
   filesListDir(projectPath: string, dirPath: string): Promise<FilesDirEntry[]>
   filesFilterTree(projectPath: string, query: string): Promise<FilesTreeFilterResult>
   filesRead(projectPath: string, filePath: string): Promise<FilesReadResult>
-  filesWrite(projectPath: string, filePath: string, content: string): Promise<{ mtimeMs: number }>
+  filesWrite(
+    projectPath: string,
+    filePath: string,
+    content: string
+  ): Promise<{ mtimeMs: number; size: number }>
   /** 文件在 HEAD 的基线文本（编辑器 gutter diff）；无基线（非仓库 / 未跟踪 / 二进制 / 超限）为 null */
   filesHeadText(projectPath: string, filePath: string): Promise<string | null>
   /** 超大位图首屏：适配视口的预览图（缓存命中即返，否则 sharp 缩小解码） */

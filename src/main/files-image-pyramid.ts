@@ -1,6 +1,7 @@
 /**
  * 超大位图的瓦片金字塔（Tile Pyramid）与预览图：主进程用 sharp（libvips）生成，
  * 落在 userData/media-tiles/<key>/，key = sha1(路径 + mtime + 大小)；渲染层经 dc-media 协议读取（ADR-0029）。
+ * 服务器文件的副本例外：瓦片放在副本目录里，随副本一起删（server-files-cache）。
  * 预览图是首屏（JPEG 缩小解码，亚秒）；金字塔在后台一次性生成（秒级），之后任何倍率只取可见瓦片。
  */
 import { app } from 'electron'
@@ -18,6 +19,7 @@ import {
   type FilesImagePyramid,
   type FilesImageTileFormat
 } from '../shared/files-image-tiles'
+import { serverFileCopyTiles, serverFileCopyTilesDir } from './server-files-cache'
 
 const CACHE_DIR_NAME = 'media-tiles'
 /** 缓存总量上限；超出按最久未用的图整目录清理。 */
@@ -36,9 +38,19 @@ function openImage(sys: string): Sharp {
   return sharp(sys, { limitInputPixels: false, autoOrient: true })
 }
 
-async function cacheKeyFor(sys: string): Promise<string> {
+/** 一张图的瓦片放哪：服务器文件的副本放在副本目录里；其余按路径 + 修改时间 + 大小进瓦片缓存。 */
+async function tilesLocation(sys: string): Promise<{ key: string; dir: string }> {
+  const copy = serverFileCopyTiles(sys)
+  if (copy) return copy
   const st = await fs.stat(sys)
-  return createHash('sha1').update(`${sys}\0${st.mtimeMs}\0${st.size}`).digest('hex')
+  const key = createHash('sha1').update(`${sys}\0${st.mtimeMs}\0${st.size}`).digest('hex')
+  return { key, dir: path.join(imageTilesCacheRoot(), key) }
+}
+
+/** 协议按键找瓦片目录；键形状不合法为 null。 */
+export function imageTilesDir(key: string): string | null {
+  if (isFilesTileKey(key)) return path.join(imageTilesCacheRoot(), key)
+  return serverFileCopyTilesDir(key)
 }
 
 async function readMeta(
@@ -80,9 +92,8 @@ function dedupe<T>(key: string, run: () => Promise<T>): Promise<T> {
 }
 
 export async function ensureImagePreview(sys: string): Promise<FilesImagePreview> {
-  const key = await cacheKeyFor(sys)
+  const { key, dir } = await tilesLocation(sys)
   return dedupe(`preview:${key}`, async () => {
-    const dir = path.join(imageTilesCacheRoot(), key)
     const { width, height, format } = await readMeta(sys)
     const name = `preview.${format}`
     const file = path.join(dir, name)
@@ -114,16 +125,14 @@ async function readDzi(file: string): Promise<ReturnType<typeof parseDzi>> {
 }
 
 export async function ensureImagePyramid(sys: string): Promise<FilesImagePyramid> {
-  const key = await cacheKeyFor(sys)
+  const { key, dir } = await tilesLocation(sys)
   return dedupe(`pyramid:${key}`, async () => {
-    const root = imageTilesCacheRoot()
-    const dir = path.join(root, key)
     const dziFile = path.join(dir, `${DZI_BASENAME}.dzi`)
     let dzi = await readDzi(dziFile)
     if (!dzi) {
       const { format } = await readMeta(sys)
       // 先写临时目录，整体就绪后再挪进缓存目录，避免半成品被当缓存命中
-      const tmpDir = path.join(root, `${key}.${process.pid}.tmp`)
+      const tmpDir = `${dir}.${process.pid}.tmp`
       await fs.rm(tmpDir, { recursive: true, force: true })
       await fs.mkdir(tmpDir, { recursive: true })
       await encode(openImage(sys), format)

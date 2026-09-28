@@ -17,7 +17,9 @@ import { isIdeIgnoredEntryName } from '../shared/files-tree-filter'
 import { filterFilesListTree, type FilesTreeFilterResult } from '../shared/files-tree-search'
 import {
   FILES_RECENT_MAX,
+  FILES_TEXT_MAX_BYTES,
   buildFilesMediaUrl,
+  filesEntryNameError,
   compareFilesDirEntries,
   type FilesDirEntry,
   type FilesReadResult,
@@ -33,7 +35,6 @@ import { getFilesIndex } from './files-index'
 import { execGit, resolveRepoRoot } from './git-exec'
 import { isGrantedFilesRoot } from './files-roots'
 
-const MAX_TEXT_BYTES = 5 * 1024 * 1024
 const IMAGE_SIZE_PROBE_BYTES = 65536
 
 /** EXIF 方向 5–8 是转 90°，显示宽高与文件头相反（Chromium `<img>` 默认按 EXIF 转正）。 */
@@ -164,14 +165,15 @@ export async function readFileEntry(
 
   if (byName === 'text') {
     const buf = await fs.readFile(sys)
-    if (buf.length > MAX_TEXT_BYTES) {
+    if (buf.length > FILES_TEXT_MAX_BYTES) {
       return { kind: 'other', path: logical, size: buf.length }
     }
     return {
       kind: 'text',
       path: logical,
       content: buf.toString('utf8'),
-      mtimeMs: st.mtimeMs
+      mtimeMs: st.mtimeMs,
+      size: buf.length
     }
   }
 
@@ -236,12 +238,13 @@ export async function readFileEntry(
   }
 
   const buf = await fs.readFile(sys)
-  if (sniffTextBuffer(buf) && buf.length <= MAX_TEXT_BYTES) {
+  if (sniffTextBuffer(buf) && buf.length <= FILES_TEXT_MAX_BYTES) {
     return {
       kind: 'text',
       path: logical,
       content: buf.toString('utf8'),
-      mtimeMs: st.mtimeMs
+      mtimeMs: st.mtimeMs,
+      size: buf.length
     }
   }
   return { kind: 'other', path: logical, size: buf.length }
@@ -276,7 +279,7 @@ export async function readHeadText(projectPath: string, filePath: string): Promi
   const result = await execGit(repoRootSys, ['show', `HEAD:${rel}`])
   if (result.code !== 0) return null
   const buf = result.stdout
-  if (buf.length > MAX_TEXT_BYTES || !sniffTextBuffer(buf)) return null
+  if (buf.length > FILES_TEXT_MAX_BYTES || !sniffTextBuffer(buf)) return null
   return buf.toString('utf8')
 }
 
@@ -284,19 +287,18 @@ export async function writeFileEntry(
   projectPath: string,
   filePath: string,
   content: string
-): Promise<{ mtimeMs: number }> {
+): Promise<{ mtimeMs: number; size: number }> {
   const logical = within(projectPath, filePath)
   const sys = toSys(logical)
   await fs.writeFile(sys, content, 'utf8')
   const st = await fs.stat(sys)
-  return { mtimeMs: st.mtimeMs }
+  return { mtimeMs: st.mtimeMs, size: st.size }
 }
 
 /** 新建 / 重命名的名称校验：单段、非空、不含分隔符；其余交由文件系统报错。 */
 function assertEntryName(name: string): void {
-  if (name === '' || name === '.' || name === '..' || /[/\\]/.test(name)) {
-    throw new Error('名称无效')
-  }
+  const error = filesEntryNameError(name)
+  if (error !== null) throw new Error(error)
 }
 
 export async function createEntry(

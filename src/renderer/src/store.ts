@@ -16,6 +16,7 @@ import type {
 import { DEFAULT_APP_PREFS, DEFAULT_PROJECT_SORT_PREFS } from '@shared/types'
 import type { GitCloneInput } from '@shared/git-clone'
 import type { AskpassRequest, AskpassResponse, ServerInput, ServerNode } from '@shared/server'
+import type { TransferConflictRequest, TransferConflictResponse } from '@shared/server-files'
 import type { ThemeMode } from '@shared/theme'
 import { configKey, filesTabKey, gitTabKey, isResidentTabKey, statusTabKey } from '@shared/runnable'
 import { cycleProjectSort } from '@shared/project-sort'
@@ -175,7 +176,7 @@ async function ensureTerminalSpawned(
 export interface ResolvedTabs {
   /**
    * 常驻非会话 Tab 的键，按 Tab 序（不可关闭）：Project 为 Git（`git:<path>`，ADR-0005）、
-   * Files（`files:<path>`）；Server 为 Status（`status:server:<id>`）
+   * Files（`files:<path>`）；Server 为 Status（`status:server:<id>`）、Files（`files:server:<id>`）
    */
   residentKeys: string[]
   /** 运行会话 Tab（树序）：每条有会话的配置一个 */
@@ -197,12 +198,12 @@ export function entryConfigs(s: Pick<AppState, 'tree' | 'servers'>, entryKey: st
 
 /**
  * 解析某条目的 Tab 栏与激活 Tab。
- * Tab 顺序 = 常驻 Tab（Project：Git → Files；Server：Status）→ 运行会话（树序）→ 终端。
+ * Tab 顺序 = 常驻 Tab（Project：Git → Files；Server：Status → Files）→ 运行会话（树序）→ 终端。
  * 默认激活：有运行中的 Run Session → 第一个运行中的；否则 Tab 序首位（ADR-0005）。
  */
 export function resolveTabs(s: TabState, entryKey: string): ResolvedTabs {
   const residentKeys = isServerEntryKey(entryKey)
-    ? [statusTabKey(entryKey)]
+    ? [statusTabKey(entryKey), filesTabKey(entryKey)]
     : [gitTabKey(entryKey), filesTabKey(entryKey)]
   const runTabs: RunTabInfo[] = []
   for (const c of entryConfigs(s, entryKey)) {
@@ -248,6 +249,15 @@ interface AppState {
   serverDialog: ServerDialogState
   /** 等用户回答的 ssh 提问（先到先答，一次只弹一个） */
   askpassQueue: AskpassRequest[]
+  /** 等用户回答的传输同名询问（先到先答，一次只弹一个） */
+  transferConflictQueue: TransferConflictRequest[]
+  /**
+   * 服务器上有未保存修改的文件：服务器 id → 文件名与保存动作（服务器上的文件手动保存，由其 Files 面板登记，
+   * 见 docs/prd/server-files.md）。断开、编辑或移除服务器前据此先问
+   */
+  unsavedServerFiles: Record<string, UnsavedServerFile>
+  /** 等用户选「保存 / 不保存 / 取消」的未保存提示（同一时刻一个） */
+  unsavedPrompt: { name: string; resolve: (choice: UnsavedChoice) => void } | null
   /** 左树排序偏好（落盘） */
   projectSortPrefs: ProjectSortPrefs
   /**
@@ -325,7 +335,8 @@ interface AppState {
   /** cwd 缺省为项目根；Files 树「在终端中打开」传项目内目录 */
   newTerminal: (projectPath: string, cwd?: string) => Promise<string>
   /** 在某条目（Project / Server）下新建一个连到 serverId 的 SSH Terminal 并立即连接 */
-  newSshTerminal: (ownerKey: string, serverId: string) => Promise<void>
+  /** cwd：登录后进入服务器上的这个目录（Files Tab「在 SSH 终端中打开」；不随壳持久化） */
+  newSshTerminal: (ownerKey: string, serverId: string, cwd?: string) => Promise<void>
   renameTerminal: (key: string, name: string) => void
   /** 重排某条目终端 Tab 的顺序（落盘） */
   reorderTerminals: (ownerKey: string, orderedKeys: string[]) => void
@@ -345,6 +356,24 @@ interface AppState {
   enqueueAskpass: (request: AskpassRequest) => void
   dismissAskpass: (id: string) => void
   answerAskpass: (response: AskpassResponse) => void
+  enqueueTransferConflict: (request: TransferConflictRequest) => void
+  dismissTransferConflict: (id: string) => void
+  answerTransferConflict: (response: TransferConflictResponse) => void
+  /** Files 面板登记 / 撤销某台服务器上未保存的文件（null = 已保存或已关闭） */
+  setUnsavedServerFile: (serverId: string, file: UnsavedServerFile | null) => void
+  /** 弹「保存 / 不保存 / 取消」，等用户选 */
+  askUnsaved: (name: string) => Promise<UnsavedChoice>
+  /** 某台服务器上有未保存的文件就先问：保存（存成才继续）/ 不保存（继续）/ 取消（不继续）；返回是否继续 */
+  resolveServerUnsaved: (serverId: string) => Promise<boolean>
+}
+
+/** 未保存提示的选择。 */
+export type UnsavedChoice = 'save' | 'discard' | 'cancel'
+
+/** 服务器上一个有未保存修改的文件：名字用于提示，save 存成返回 true。 */
+export interface UnsavedServerFile {
+  name: string
+  save: () => Promise<boolean>
 }
 
 /** 记一次打开：Project 更新 lastOpenedAt 并回写树；Server 同理回写服务器列表。 */
@@ -408,6 +437,9 @@ export const useApp = create<AppState>((set, get) => ({
   dialog: { open: false },
   serverDialog: { open: false },
   askpassQueue: [],
+  transferConflictQueue: [],
+  unsavedServerFiles: {},
+  unsavedPrompt: null,
   projectFilter: '',
   projectFilterFocusNonce: 0,
   scrollToEntryKey: null,
@@ -626,11 +658,11 @@ export const useApp = create<AppState>((set, get) => ({
     if (switched) void touchEntry(set, projectPath)
     return key
   },
-  newSshTerminal: async (ownerKey, serverId) => {
+  newSshTerminal: async (ownerKey, serverId, cwd) => {
     const server = get().servers.find((n) => n.server.id === serverId)?.server
     if (!server) return
     // 主进程起完 ssh 就返回（不等登录完成），提问弹窗与报错都会落在随即出现的 Tab 里
-    const key = await window.api.openSshTerminal(ownerKey, serverId)
+    const key = await window.api.openSshTerminal(ownerKey, serverId, undefined, cwd)
     const switched = get().currentEntryKey !== ownerKey
     set((state) => ({
       terminals: [
@@ -699,6 +731,8 @@ export const useApp = create<AppState>((set, get) => ({
     if (first !== undefined) await focusEntry(set, get, serverEntryKey(first))
   },
   updateServer: async (id, input) => {
+    // 保存即断开它的文件连接（连接信息可能变了）：有未保存的文件先问，取消则对话框留着
+    if (!(await get().resolveServerUnsaved(id))) return
     // 改名同步到连到它的 SSH Terminal 的默认名（序号保留；用户改过的 Tab 名不动）。
     // 旧名在请求前取：等待期间可能收到服务器列表推送，那时 store 里已是新名
     const before = get().servers.find((n) => n.server.id === id)?.server.name
@@ -718,6 +752,7 @@ export const useApp = create<AppState>((set, get) => ({
     persistWorkspace(get)
   },
   removeServer: async (id) => {
+    if (!(await get().resolveServerUnsaved(id))) return
     const servers = await window.api.removeServer(id)
     // 连到它的 SSH Terminal 已由 main 销毁（逐个 sessionRemoved）；尚无会话的壳（含开在项目里的）在这里一并清掉。
     set((state) => ({
@@ -733,5 +768,45 @@ export const useApp = create<AppState>((set, get) => ({
   answerAskpass: (response) => {
     window.api.respondAskpass(response)
     get().dismissAskpass(response.id)
+  },
+  enqueueTransferConflict: (request) =>
+    set((state) => ({ transferConflictQueue: [...state.transferConflictQueue, request] })),
+  dismissTransferConflict: (id) =>
+    set((state) => ({
+      transferConflictQueue: state.transferConflictQueue.filter((r) => r.id !== id)
+    })),
+  answerTransferConflict: (response) => {
+    window.api.respondTransferConflict(response)
+    get().dismissTransferConflict(response.id)
+  },
+  setUnsavedServerFile: (serverId, file) => {
+    const current = get().unsavedServerFiles
+    if (file === null && !(serverId in current)) return
+    const next = { ...current }
+    if (file === null) delete next[serverId]
+    else next[serverId] = file
+    set({ unsavedServerFiles: next })
+    window.api.reportUnsavedServerFiles(Object.keys(next).length)
+  },
+  askUnsaved: (name) =>
+    new Promise((resolve) => {
+      // 同一时刻只问一件事：还有没答的就当取消
+      get().unsavedPrompt?.resolve('cancel')
+      set({
+        unsavedPrompt: {
+          name,
+          resolve: (choice) => {
+            set({ unsavedPrompt: null })
+            resolve(choice)
+          }
+        }
+      })
+    }),
+  resolveServerUnsaved: async (serverId) => {
+    const file = get().unsavedServerFiles[serverId]
+    if (!file) return true
+    const choice = await get().askUnsaved(file.name)
+    if (choice === 'cancel') return false
+    return choice === 'discard' || (await file.save())
   }
 }))

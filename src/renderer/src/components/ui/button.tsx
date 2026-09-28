@@ -7,6 +7,8 @@ const buttonVariants = cva(
     variants: {
       variant: {
         default: 'bg-primary text-primary-foreground hover:bg-primary/90',
+        // 灰底次要按钮：正文区占位里的动作（下载、在其他应用中打开、重试等）
+        secondary: 'bg-secondary text-secondary-foreground hover:bg-[var(--bg-button-hover)]',
         ghost: 'text-foreground hover:bg-[var(--bg-row-hover)]',
         destructive: 'bg-destructive text-destructive-foreground hover:bg-destructive/90',
         // 弱危险：淡红底 + 红字，用于常驻页面、不需要抢眼的危险动作（如状态页的「断开连接」）

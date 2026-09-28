@@ -1,7 +1,7 @@
 // Files Tab 工具栏：相对路径可点面包屑 + 右侧钮组（预览切换 / 最近打开 / 在文件树中显示 /
-// 在文件夹中显示 / 在其他应用中打开 / 显示文件树）。视觉见 DESIGN.md「Files Tab」。
+// 在文件夹中显示 / 在其他应用中打开（仅本机文件）/ 显示文件树）。视觉见 DESIGN.md「Files Tab」。
 // `extra` 给特定正文（如 PDF 的页码与缩放）在钮组最左再加一组；`pathExtra` 给特定正文在面包屑之前领头加钮（如 PDF 缩略图开关）。
-import { useLayoutEffect, useRef } from 'react'
+import { useContext, useLayoutEffect, useRef } from 'react'
 import {
   ChevronRight,
   Eye,
@@ -13,7 +13,7 @@ import {
   SquareArrowOutUpRight
 } from 'lucide-react'
 import type { GitFileStatus } from '@shared/git'
-import { normalizePath } from '@shared/files-path'
+import { joinLogicalPath } from '@shared/files-path'
 import { SHORTCUT } from '@shared/shortcut-label'
 import { useDoubleClick } from '@renderer/lib/double-click'
 import { relPathUnderRoot, toSysPath } from '@renderer/lib/files-paths'
@@ -26,6 +26,7 @@ import {
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
 import { FILE_STATUS_COLOR } from '@renderer/components/git/git-details'
+import { FilesLocalContext } from './files-local-context'
 
 /** 对齐 GitToolbar ICON_BTN：transition-colors + 钮组 gap-0.5 */
 export const TOOLBAR_BTN =
@@ -180,8 +181,8 @@ export function FilesToolbar({
   onOpenRecent,
   onFocusContent
 }: FilesToolbarProps): React.JSX.Element {
-  const rel =
-    path && path.startsWith(projectRoot + '/') ? path.slice(projectRoot.length + 1) : (path ?? '')
+  const local = useContext(FilesLocalContext)
+  const rel = path === null ? '' : relPathUnderRoot(projectRoot, path)
   const parts = rel.split('/').filter((p) => p.length > 0)
   const fileColour = fileStatus ? FILE_STATUS_COLOR[fileStatus] : undefined
   const isDoubleClick = useDoubleClick()
@@ -206,7 +207,7 @@ export function FilesToolbar({
           <div className="flex min-w-0 items-center gap-0.5 overflow-hidden">
             {parts.map((part, i) => {
               const last = i === parts.length - 1
-              const segmentPath = normalizePath(projectRoot + '/' + parts.slice(0, i + 1).join('/'))
+              const segmentPath = joinLogicalPath(projectRoot, parts.slice(0, i + 1).join('/'))
               return (
                 <span key={`${i}:${part}`} className="flex min-w-0 items-center gap-0.5">
                   {i > 0 && <ChevronRight className="size-3 shrink-0 text-muted-foreground" />}
@@ -277,22 +278,26 @@ export function FilesToolbar({
             >
               <ListTree className="size-4" />
             </button>
-            <button
-              type="button"
-              title="在文件夹中显示"
-              className={TOOLBAR_BTN}
-              onClick={() => void window.api.revealInFolder(toSysPath(path))}
-            >
-              <FolderOpen className="size-4" />
-            </button>
-            <button
-              type="button"
-              title="在其他应用中打开"
-              className={TOOLBAR_BTN}
-              onClick={() => void window.api.openPath(toSysPath(path))}
-            >
-              <SquareArrowOutUpRight className="size-4" />
-            </button>
+            {local && (
+              <>
+                <button
+                  type="button"
+                  title="在文件夹中显示"
+                  className={TOOLBAR_BTN}
+                  onClick={() => void window.api.revealInFolder(toSysPath(path))}
+                >
+                  <FolderOpen className="size-4" />
+                </button>
+                <button
+                  type="button"
+                  title="在其他应用中打开"
+                  className={TOOLBAR_BTN}
+                  onClick={() => void window.api.openPath(toSysPath(path))}
+                >
+                  <SquareArrowOutUpRight className="size-4" />
+                </button>
+              </>
+            )}
           </>
         )}
         {!treeVisible && (
