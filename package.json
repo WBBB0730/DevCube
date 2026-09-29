@@ -143,9 +143,11 @@
       "@vscode/ripgrep"
     ],
     "ignoredBuiltDependencies": [
-      "cpu-features",
       "ssh2"
     ],
+    "overrides": {
+      "ssh2>cpu-features": "-"
+    },
     "patchedDependencies": {
       "@aiden0z/pptx-renderer@1.3.0": "patches/@aiden0z__pptx-renderer@1.3.0.patch",
       "@extend-ai/react-xlsx@0.16.5": "patches/@extend-ai__react-xlsx@0.16.5.patch",
