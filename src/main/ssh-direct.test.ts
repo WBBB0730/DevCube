@@ -1,28 +1,19 @@
 import type { NetworkInterfaceInfo } from 'node:os'
 import { describe, expect, it } from 'vitest'
+import { parseSshHostConfig } from '../shared/ssh-config'
 import {
-  buildDirectOptions,
-  directTargetOf,
-  knownHostsName,
+  directHostOf,
   parsePrimaryInterface,
   parseScopedDnsServers,
   parseWindowsNetwork,
   usableIPv4Of
 } from './ssh-direct'
 
-describe('directTargetOf', () => {
-  it('取 ssh 最终要连的主机名与端口', () => {
-    expect(directTargetOf('user root\nhostname pj.example.com\nport 2222\n')).toEqual({
-      hostName: 'pj.example.com',
-      port: 2222,
-      hostKeyAlias: null
-    })
-  })
-
-  it('带上用户自设的 HostKeyAlias', () => {
-    expect(directTargetOf('hostname 10.0.0.5\nport 22\nhostkeyalias prod\n')?.hostKeyAlias).toBe(
-      'prod'
-    )
+describe('directHostOf', () => {
+  it('取 ssh 最终要连的主机名', () => {
+    expect(
+      directHostOf(parseSshHostConfig('user root\nhostname pj.example.com\nport 2222\n'))
+    ).toBe('pj.example.com')
   })
 
   it('用户配置自行指定了连接路径时不插手', () => {
@@ -32,43 +23,10 @@ describe('directTargetOf', () => {
       'bindaddress 192.168.1.2',
       'bindinterface en0'
     ]) {
-      expect(directTargetOf(`hostname a.example.com\nport 22\n${line}\n`)).toBeNull()
+      expect(
+        directHostOf(parseSshHostConfig(`hostname a.example.com\nport 22\n${line}\n`))
+      ).toBeNull()
     }
-  })
-})
-
-describe('knownHostsName', () => {
-  it('22 端口为主机名，其余为 [主机名]:端口（同 ssh 的写法）', () => {
-    expect(knownHostsName('a.example.com', 22)).toBe('a.example.com')
-    expect(knownHostsName('a.example.com', 2222)).toBe('[a.example.com]:2222')
-  })
-})
-
-describe('buildDirectOptions', () => {
-  const target = { hostName: 'a.example.com', port: 2222, hostKeyAlias: null }
-
-  it('目标已是 IP：只绑定实体网卡的地址', () => {
-    expect(buildDirectOptions({ ...target, hostName: '10.0.0.5' }, '192.168.31.32', null)).toEqual([
-      '-o',
-      'BindAddress=192.168.31.32'
-    ])
-  })
-
-  it('目标是域名：改连真实地址，known_hosts 仍按原主机名核对', () => {
-    expect(buildDirectOptions(target, '192.168.31.32', '20.205.243.166')).toEqual([
-      '-o',
-      'BindAddress=192.168.31.32',
-      '-o',
-      'HostName=20.205.243.166',
-      '-o',
-      'HostKeyAlias=[a.example.com]:2222'
-    ])
-  })
-
-  it('用户已自设 HostKeyAlias：沿用，不再追加', () => {
-    expect(
-      buildDirectOptions({ ...target, hostKeyAlias: 'prod' }, '192.168.31.32', '20.205.243.166')
-    ).toEqual(['-o', 'BindAddress=192.168.31.32', '-o', 'HostName=20.205.243.166'])
   })
 })
 

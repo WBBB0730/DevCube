@@ -1,11 +1,9 @@
 // 服务器状态连接（Status Tab，见 docs/prd/server-status.md）：每台服务器至多一条，由主进程管理。
-// 经系统 ssh（ADR-0038）在服务器上跑 STATUS_SCRIPT；连上后每 2 秒往它的标准输入写一个换行触发一帧，
-// 不管 Tab 是否可见——曲线因此连续。连接保留到手动断开、网络断开、服务器被编辑 / 移除或 DevCube 退出。
+// 经内置连接（ADR-0041）在服务器上跑 STATUS_SCRIPT（exec 通道）；连上后每 2 秒往它的标准输入写一个换行
+// 触发一帧，不管 Tab 是否可见——曲线因此连续。连接保留到手动断开、网络断开、服务器被编辑 / 移除或 DevCube 退出。
 
-import { spawn, type ChildProcess } from 'node:child_process'
-import { randomUUID } from 'node:crypto'
-import { homedir } from 'node:os'
-import { sshFailureMessage, sshStatusArgs } from '../shared/server'
+import type { Client, ClientChannel } from 'ssh2'
+import { sshFailureMessage } from '../shared/server'
 import {
   appendStatusHistory,
   computeStatusSample,
@@ -21,15 +19,16 @@ import {
   type StatusScale,
   type StatusStreamEvent
 } from '../shared/server-status'
-import { beginAskpassConnection, endAskpassConnection } from './askpass'
 import { buildRemoteStatusCommand } from './command'
-import { findServer, prepareSsh, sshHostNameOf } from './servers'
+import { findServer } from './servers'
+import { connectSsh, onSshClosed } from './ssh-connect'
 
 interface StatusConnection {
   state: ServerStatusState
-  child: ChildProcess | null
-  /** 本次 ssh 的 askpass 令牌 */
-  token: string | null
+  client: Client | null
+  channel: ClientChannel | null
+  /** 正在建立的连接：断开、编辑、移除时中止（撤下还没回答的提问） */
+  connecting: AbortController | null
   timer: NodeJS.Timeout | null
   /** 换算常数（读基本信息时拿到） */
   scale: StatusScale | null
@@ -37,7 +36,7 @@ interface StatusConnection {
   prevFrame: StatusFrame | null
   /** 最近 5 分钟的曲线：手动断开后保留，重新连上还接得上；服务器被编辑时清空 */
   history: StatusPoint[]
-  /** stderr 末尾：断开时取最后一行作原因 */
+  /** stderr 末尾：脚本出错退出时取最后一行作原因 */
   stderr: string
   /** 连接地址（本机 ssh 配置算出的 hostname），补进基本信息 */
   address: string
@@ -58,8 +57,9 @@ function connectionOf(serverId: string): StatusConnection {
   if (!conn) {
     conn = {
       state: IDLE,
-      child: null,
-      token: null,
+      client: null,
+      channel: null,
+      connecting: null,
       timer: null,
       scale: null,
       prevFrame: null,
@@ -80,9 +80,9 @@ function setState(serverId: string, conn: StatusConnection, state: ServerStatusS
 
 /** 已连上就定时取帧（开的时候先立即取一帧），否则停。 */
 function syncSampling(conn: StatusConnection): void {
-  const shouldRun = conn.state.phase === 'connected' && conn.child !== null
+  const shouldRun = conn.state.phase === 'connected' && conn.channel !== null
   if (shouldRun && conn.timer === null) {
-    const requestFrame = (): void => void conn.child?.stdin?.write('\n')
+    const requestFrame = (): void => void conn.channel?.write('\n')
     requestFrame()
     conn.timer = setInterval(requestFrame, STATUS_INTERVAL_MS)
   } else if (!shouldRun && conn.timer !== null) {
@@ -120,95 +120,95 @@ function handleStreamEvent(
   }
 }
 
-/** 点「连接」/「重新连接」：起 ssh 跑状态脚本；已在连接或已连上则不动。 */
+/** 点「连接」/「重新连接」：连上服务器、跑状态脚本；已在连接或已连上则不动。 */
 export async function connectServerStatus(serverId: string): Promise<void> {
   const conn = connectionOf(serverId)
   if (conn.state.phase === 'connecting' || conn.state.phase === 'connected') return
   const server = findServer(serverId)
   if (!server) return
   setState(serverId, conn, { phase: 'connecting' })
-  const stillConnecting = (): boolean =>
-    connections.get(serverId) === conn && conn.state.phase === 'connecting' && conn.child === null
+  const controller = new AbortController()
+  conn.connecting = controller
 
-  const prepared = await prepareSsh(server.target, server.direct)
-  if (!stillConnecting()) return
-  if ('failure' in prepared) {
-    setState(serverId, conn, { phase: 'disconnected', message: prepared.failure })
-    return
-  }
-  conn.address = await sshHostNameOf(prepared.ssh, prepared.env, server.target)
-  if (!stillConnecting()) return
-  const token = randomUUID()
-  const askpassEnv = await beginAskpassConnection(token, {
-    serverId,
-    serverName: server.name
-  })
-  if (!stillConnecting()) {
-    endAskpassConnection(token)
-    return
-  }
-
-  let child: ChildProcess
+  let client: Client
+  let channel: ClientChannel
   try {
-    child = spawn(
-      prepared.ssh,
-      sshStatusArgs(server.target, buildRemoteStatusCommand(STATUS_SCRIPT), prepared.options),
-      { cwd: homedir(), env: { ...prepared.env, ...askpassEnv }, windowsHide: true }
-    )
+    const connection = await connectSsh({
+      target: server.target,
+      direct: server.direct,
+      serverId,
+      password: undefined,
+      testing: false,
+      signal: controller.signal
+    })
+    client = connection.client
+    conn.address = connection.config.hostName
+    channel = await new Promise<ClientChannel>((resolve, reject) =>
+      client.exec(buildRemoteStatusCommand(STATUS_SCRIPT), (error, stream) =>
+        error ? reject(error) : resolve(stream)
+      )
+    ).catch((error: Error) => {
+      client.end()
+      throw error
+    })
   } catch (error) {
-    endAskpassConnection(token)
-    const reason = error instanceof Error ? error.message : String(error)
-    setState(serverId, conn, { phase: 'disconnected', message: `无法启动 ssh：${reason}` })
+    if (conn.connecting !== controller) return
+    conn.connecting = null
+    const message = error instanceof Error ? error.message : String(error)
+    setState(serverId, conn, { phase: 'disconnected', message })
     return
   }
-  conn.child = child
-  conn.token = token
+  if (conn.connecting !== controller) {
+    client.end()
+    return
+  }
+  conn.connecting = null
+  conn.client = client
+  conn.channel = channel
   conn.scale = null
   conn.prevFrame = null
   conn.stderr = ''
 
   const parse = createStatusStreamParser()
-  child.stdout?.setEncoding('utf8')
-  child.stdout?.on('data', (chunk: string) => {
-    if (conn.child !== child) return
+  channel.setEncoding('utf8')
+  channel.on('data', (chunk: string) => {
+    if (conn.channel !== channel) return
     for (const event of parse(chunk)) handleStreamEvent(serverId, conn, event)
   })
-  child.stderr?.setEncoding('utf8')
-  child.stderr?.on('data', (chunk: string) => {
+  channel.stderr.setEncoding('utf8')
+  channel.stderr.on('data', (chunk: string) => {
     conn.stderr = (conn.stderr + chunk).slice(-4000)
   })
-  // ssh 退出后还可能再写一次换行：吞掉 EPIPE
-  child.stdin?.on('error', () => undefined)
-  child.on('error', (error) => {
-    conn.stderr += `\n无法启动 ssh：${error.message}`
+  let exitCode: number | null = null
+  channel.on('exit', (code: number | null) => {
+    exitCode = code
   })
-  child.on('close', (code) => {
-    endAskpassConnection(token)
-    if (conn.child !== child) return
-    conn.child = null
-    conn.token = null
+  // 脚本退出即断开连接
+  channel.on('close', () => client.end())
+  onSshClosed(client, (reason) => {
+    if (conn.client !== client) return
+    conn.client = null
+    conn.channel = null
     // 不支持的系统：脚本给出标记后自行退出，停在「不支持」
     if (conn.state.phase === 'unsupported') {
       syncSampling(conn)
       return
     }
-    setState(serverId, conn, {
-      phase: 'disconnected',
-      message: sshFailureMessage(conn.stderr, code)
-    })
+    const message = reason ?? sshFailureMessage(conn.stderr, exitCode)
+    setState(serverId, conn, { phase: 'disconnected', message })
   })
 }
 
 /** 结束某台服务器的状态连接（不推送状态）。 */
 function stopConnection(conn: StatusConnection): void {
-  const child = conn.child
-  const token = conn.token
-  conn.child = null
-  conn.token = null
+  const client = conn.client
+  conn.connecting?.abort()
+  conn.connecting = null
+  conn.client = null
+  conn.channel = null
   conn.prevFrame = null
   syncSampling(conn)
-  if (token !== null) endAskpassConnection(token)
-  child?.kill()
+  client?.end()
 }
 
 /** 点「断开」：结束连接、回到未连接；曲线保留，5 分钟内重新连上还接得上。 */

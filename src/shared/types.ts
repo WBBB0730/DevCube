@@ -26,9 +26,8 @@ import type {
   TransferConflictResponse
 } from './server-files'
 import type { ServerStatusEvent, ServerStatusState } from './server-status'
+import type { SshPromptRequest, SshPromptResponse } from './ssh-connect'
 import type {
-  AskpassRequest,
-  AskpassResponse,
   Server,
   ServerInput,
   ServerNode,
@@ -154,7 +153,7 @@ export interface CommandRunConfig {
 }
 
 /**
- * 命令型（服务器上）：属于某台 Server 的命令型配置，经 ssh 在服务器上执行（ADR-0038）。
+ * 命令型（服务器上）：属于某台 Server 的命令型配置，经内置连接在服务器上执行（ADR-0041）。
  * 字段同命令型，只是工作目录是服务器上的目录（缺省即登录后的目录），环境变量在服务器端导出。
  */
 export interface RemoteRunConfig {
@@ -183,6 +182,8 @@ export interface PersistedState {
   servers: Server[]
   /** 记住的服务器密码：键 = 服务器 id，值 = safeStorage 密文的 base64（不下发渲染端） */
   serverSecrets: Record<string, string>
+  /** 记住的私钥口令：键 = 私钥文件的绝对路径，值同 serverSecrets（ADR-0041） */
+  keyPassphrases: Record<string, string>
   configs: RunConfig[]
   /** 每项目 git 设置（键 = 项目绝对路径；存的是覆写快照，读取时与默认值合并） */
   gitSettings: Record<string, GitRepoSettings>
@@ -350,7 +351,7 @@ export interface RunAPI extends GitAPI {
   disconnectServerStatus(serverId: string): Promise<void>
   /** 某台服务器的状态有变化（每帧一次） */
   onServerStatusChanged(cb: (event: ServerStatusEvent) => void): () => void
-  // —— 服务器文件（Server 的 Files Tab，ADR-0040） ——
+  // —— 服务器文件（Server 的 Files Tab，ADR-0041） ——
   /** 某台服务器文件连接的当前状态（Files Tab 挂载时取一次，之后靠推送） */
   getServerFilesState(serverId: string): Promise<ServerFilesState>
   /** 点「连接」/「重新连接」：建立文件连接 */
@@ -410,11 +411,11 @@ export interface RunAPI extends GitAPI {
   reportUnsavedServerFiles(count: number): void
   /** 主进程改了服务器列表（如移除后）时推送 */
   onServersChanged(cb: (servers: ServerNode[]) => void): () => void
-  /** ssh 的一次提问需要用户回答 */
-  onAskpassRequest(cb: (request: AskpassRequest) => void): () => void
+  /** 内置 SSH 连接的一次提问需要用户回答（主机指纹、密码、私钥口令、交互式提问） */
+  onSshPromptRequest(cb: (request: SshPromptRequest) => void): () => void
   /** 某次提问已失效（连接已结束），渲染端应关掉对应弹窗 */
-  onAskpassDismiss(cb: (id: string) => void): () => void
-  respondAskpass(response: AskpassResponse): void
+  onSshPromptDismiss(cb: (id: string) => void): () => void
+  respondSshPrompt(response: SshPromptResponse): void
 
   // —— 运行时（slice 3+） ——
   run(target: RunTarget): Promise<void>

@@ -32,6 +32,7 @@ export async function initStore(): Promise<void> {
       projects: [],
       servers: [],
       serverSecrets: {},
+      keyPassphrases: {},
       configs: [],
       gitSettings: {},
       gitViewPrefs: DEFAULT_GIT_VIEW_PREFS,
@@ -93,6 +94,18 @@ export function setServerSecret(serverId: string, secret: string | null): void {
   if (secret === null) delete all[serverId]
   else all[serverId] = secret
   store.set('serverSecrets', all)
+}
+
+/** 记住的私钥口令密文（同 getServerSecret）；键为私钥文件的绝对路径。 */
+export function getKeyPassphraseSecret(file: string): string | null {
+  return store.get('keyPassphrases')[file] ?? null
+}
+
+export function setKeyPassphraseSecret(file: string, secret: string | null): void {
+  const all = { ...store.get('keyPassphrases') }
+  if (secret === null) delete all[file]
+  else all[file] = secret
+  store.set('keyPassphrases', all)
 }
 
 export function getConfigs(): RunConfig[] {

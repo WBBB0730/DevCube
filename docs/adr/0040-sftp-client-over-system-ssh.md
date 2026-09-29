@@ -1,6 +1,6 @@
 # 服务器文件经系统 ssh 的 sftp 子系统，SFTP 客户端自己写
 
-> 拟被 ADR-0041 取代（提案中，尚未实施）：连接改由内置的 ssh2 完成后，改用它自带的 SFTP，本文的自写客户端随之删除。
+> 已被 ADR-0041 取代：改用内置连接（ssh2）自带的 SFTP，本文的自写协议层已删除；在途窗口的自适应调节保留，用在 ssh2 的基本读写之上。
 
 **Server** 的 **Files Tab**（`docs/prd/server-files.md`）要经系统 `ssh` 连接（ADR-0038），于是由主进程起 `ssh -s <目标> sftp`（连接目标、绕开代理直连与 askpass 同其他连接），在它的标准输入输出上跑 SFTP 协议。问题在于 Node 生态里没有一个仍在维护、又能跑在外部 `ssh` 进程上的 SFTP 客户端库。我们决定在主进程里自己写一个 SFTP v3 客户端：OpenSSH 只实现 v3（draft-ietf-secsh-filexfer-02），协议早已定型，客户端只需十余种报文（打开 / 读 / 写 / 关闭、读目录、stat / lstat、realpath、新建与删除目录、删除、改名）。
 

@@ -1,5 +1,5 @@
 // Files 面板的数据来源（docs/prd/server-files.md「面板宿主」）：本机（项目 / 预览窗口）走 files:* IPC，
-// 服务器走 server-files:*（SFTP，ADR-0040）。面板只认这一组操作，宿主差异不渗进读写流程。
+// 服务器走 server-files:*（SFTP，ADR-0041）。面板只认这一组操作，宿主差异不渗进读写流程。
 import {
   DEFAULT_FILES_UI,
   type FilesDirEntry,

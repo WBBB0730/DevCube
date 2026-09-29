@@ -18,7 +18,7 @@ export function ConfigDialog(): React.JSX.Element {
   const save = useApp((s) => s.saveCommandConfig)
   const config = dialog.config
   const ownerKey = dialog.ownerKey
-  // 服务器上的命令型：经 ssh 在服务器上执行，工作目录是服务器上的目录（不能用本机的目录选择器）
+  // 服务器上的命令型：在服务器上执行，工作目录是服务器上的目录（不能用本机的目录选择器）
   const serverId = ownerKey === undefined ? null : serverIdOfEntryKey(ownerKey)
 
   const [name, setName] = useState(config?.name ?? '')

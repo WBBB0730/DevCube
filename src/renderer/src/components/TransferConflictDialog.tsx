@@ -1,6 +1,6 @@
 // 传输同名询问（docs/prd/server-files.md）：上传时服务器上、或下载文件夹时本机上已有同名文件，
 // 选「替换」或「跳过」；一次传不止一个文件时可勾「对其余同名项同样处理」。
-// 叠在别的弹窗上时 Esc 只作「跳过」这一次回答（捕获阶段先收下，同 ssh 提问弹窗）；点遮罩不收口。
+// 叠在别的弹窗上时 Esc 只作「跳过」这一次回答（捕获阶段先收下，同 SSH 提问弹窗）；点遮罩不收口。
 import { useCallback, useEffect, useState } from 'react'
 import { Checkbox } from '@renderer/components/ui/checkbox'
 import { FormDialogShell } from '@renderer/components/ui/form-dialog'

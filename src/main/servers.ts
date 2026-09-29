@@ -1,23 +1,16 @@
-// 服务器（Server）登记与 `~/.ssh/config` 读取；术语见 CONTEXT.md，取舍见 ADR-0038。
+// 服务器（Server）登记、`~/.ssh/config` 读取与测试连接；术语见 CONTEXT.md，取舍见 ADR-0038、ADR-0041。
 // DevCube 只在自己的集中配置里记服务器，从不改写 `~/.ssh/config`。
 
-import { execFile, type ExecFileException } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { globSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
-import { promisify } from 'node:util'
 import { LineType, parse, type Line } from 'ssh-config'
 import {
   connectableHostAliases,
-  parseSshConfigValues,
-  parseSshEffectiveConfig,
   sameServerTarget,
   serverTargetLabel,
   sshArgs,
-  sshFailureMessage,
-  sshTestArgs,
-  supportsSshDirect,
   type PasswordChange,
   type Server,
   type ServerInput,
@@ -27,12 +20,10 @@ import {
   type ServerTestResult,
   type SshConfigHost
 } from '../shared/server'
+import { parseSshConfigHost } from '../shared/ssh-config'
 import type { RemoteRunConfig } from '../shared/types'
-import { beginAskpassConnection, endAskpassConnection } from './askpass'
-import { findOnPath, withTerminalLocale } from './command'
 import { forgetPassword, hasSavedPassword, savePassword } from './server-secrets'
-import { resolveShellEnvironment } from './shell-env'
-import { resolveDirectOptions } from './ssh-direct'
+import { connectSsh, resolveSsh, sshConfigOutput } from './ssh-connect'
 import { getConfigs, getServers, setServers } from './store'
 import { headOrder } from './tree-order'
 
@@ -169,28 +160,13 @@ function collectHostPatterns(file: string, seen: Set<string>, out: string[]): vo
   walk(lines)
 }
 
-const execFileAsync = promisify(execFile)
-
 /** `ssh -G <目标>`：ssh 自己算出的最终连接配置，与真正连接时一致。 */
-async function sshEffectiveConfig(
+function sshEffectiveConfig(
   ssh: string,
   target: ServerTarget,
   env: NodeJS.ProcessEnv
 ): Promise<string> {
-  return (await execFileAsync(ssh, ['-G', ...sshArgs(target)], { env, timeout: 5000 })).stdout
-}
-
-/** 连接目标最终连到的主机名或 IP（`ssh -G` 的 hostname）；读不到为空串。 */
-export async function sshHostNameOf(
-  ssh: string,
-  env: NodeJS.ProcessEnv,
-  target: ServerTarget
-): Promise<string> {
-  try {
-    return parseSshConfigValues(await sshEffectiveConfig(ssh, target, env)).get('hostname') ?? ''
-  } catch {
-    return ''
-  }
+  return sshConfigOutput(ssh, env, sshArgs(target))
 }
 
 /** `~/.ssh/config`（含 Include）里可直接连接的主机，按出现顺序去重；读不到配置或找不到 ssh 时为空。 */
@@ -202,7 +178,7 @@ export async function listSshConfigHosts(): Promise<SshConfigHost[]> {
   if (!ssh) return []
   return Promise.all(
     aliases.map(async (alias) =>
-      parseSshEffectiveConfig(
+      parseSshConfigHost(
         alias,
         await sshEffectiveConfig(ssh, { kind: 'config', alias }, env).catch(() => '')
       )
@@ -210,92 +186,39 @@ export async function listSshConfigHosts(): Promise<SshConfigHost[]> {
   )
 }
 
-// —— ssh 进程 ——
+// —— 测试连接 ——
 
-export const SSH_NOT_FOUND = '未找到 ssh，请安装 OpenSSH 客户端或将其加入 PATH'
-
-/** 登录 shell 环境里的 ssh（与用户终端里敲的是同一个）与该环境；找不到 ssh 时为 null。 */
-async function resolveSsh(): Promise<{ ssh: string | null; env: NodeJS.ProcessEnv }> {
-  const env = withTerminalLocale({ ...process.env, ...(await resolveShellEnvironment()) })
-  return { ssh: findOnPath('ssh', env), env }
-}
-
-/** 从 ssh 的报错里取出说明（最后一行，没有输出时给退出代码）。 */
-function sshErrorMessage(error: unknown): string {
-  const { code, stderr } = error as ExecFileException & { stderr?: string }
-  return sshFailureMessage(stderr ?? '', typeof code === 'number' ? code : null)
-}
-
-/**
- * 起 ssh 之前的准备：登录 shell 环境里的 ssh 与该环境，以及要追加的 ssh 选项——该服务器打开了
- * 绕开代理直连、且平台支持时，按 `ssh -G` 的结果算出直连选项（ADR-0039）。准备不成时返回原因。
- */
-export async function prepareSsh(
-  target: ServerTarget,
-  direct: boolean
-): Promise<{ ssh: string; env: NodeJS.ProcessEnv; options: string[] } | { failure: string }> {
-  const { ssh, env } = await resolveSsh()
-  if (!ssh) return { failure: SSH_NOT_FOUND }
-  if (!direct || !supportsSshDirect(process.platform)) return { ssh, env, options: [] }
-  let config: string
-  try {
-    config = await sshEffectiveConfig(ssh, target, env)
-  } catch (error) {
-    return { failure: sshErrorMessage(error) }
-  }
-  const resolved = await resolveDirectOptions(config)
-  return 'failure' in resolved ? resolved : { ssh, env, options: resolved.options }
-}
-
-/** 测试连接的总时限：含用户回答提问（确认指纹、输密码）的时间。 */
+/** 测试连接的总时限：含用户回答提问（确认指纹、输口令）的时间。 */
 const TEST_TIMEOUT_MS = 120_000
 
-/** 进行中的测试连接；进函数即登记，准备阶段（解析登录 shell 环境）被取消也不会漏。 */
+/** 进行中的测试连接；进函数即登记，准备阶段被取消也不会漏。 */
 let activeTest: AbortController | null = null
 
 /**
- * 测试连接：用表单当前的连接目标起系统 ssh，登录后在服务器上立即 `exit`（ADR-0038）。
+ * 测试连接：用表单当前的连接目标经内置连接登录（ADR-0041），认证通过即断开。
  * 只检验表单里的内容：密码只用表单里填的（或记住的）答一次，不弹给用户、也不记住；
- * 其余提问（指纹确认、私钥口令、验证码）照常经 askpass 弹窗。
- * 同一时刻只测一个：新测试会取消旧的，旧的以 canceled 收口。
+ * 其余提问（主机指纹、私钥口令、验证码）照常弹窗。同一时刻只测一个：新测试会取消旧的，旧的以 canceled 收口。
  */
 export async function testServerConnection(input: ServerTestInput): Promise<ServerTestResult> {
   activeTest?.abort()
   const controller = new AbortController()
   activeTest = controller
+  const timeout = AbortSignal.timeout(TEST_TIMEOUT_MS)
   try {
-    const prepared = await prepareSsh(input.target, input.direct)
-    if (controller.signal.aborted) return { status: 'canceled' }
-    if ('failure' in prepared) return { status: 'failed', message: prepared.failure }
-    const token = randomUUID()
-    // 密码被拒或根本没有密码：立即结束 ssh，以这句作为测试结果
-    const passwordFailure = new AbortController()
-    const askpassEnv = await beginAskpassConnection(token, {
+    const { client } = await connectSsh({
+      target: input.target,
+      direct: input.direct,
       serverId: input.serverId,
-      serverName: input.name.trim() || serverTargetLabel(input.target),
       password: input.password,
-      onTestPasswordFailure: (rejected) =>
-        passwordFailure.abort(rejected ? '密码错误' : '服务器要求输入密码，请先填写后再测试')
+      testing: true,
+      signal: AbortSignal.any([controller.signal, timeout])
     })
-    try {
-      controller.signal.throwIfAborted()
-      await execFileAsync(prepared.ssh, sshTestArgs(input.target, prepared.options), {
-        cwd: homedir(),
-        env: { ...prepared.env, ...askpassEnv },
-        signal: AbortSignal.any([controller.signal, passwordFailure.signal]),
-        timeout: TEST_TIMEOUT_MS
-      })
-      return { status: 'ok' }
-    } catch (error) {
-      if (controller.signal.aborted) return { status: 'canceled' }
-      if (passwordFailure.signal.aborted) {
-        return { status: 'failed', message: String(passwordFailure.signal.reason) }
-      }
-      if ((error as ExecFileException).killed) return { status: 'failed', message: '连接超时' }
-      return { status: 'failed', message: sshErrorMessage(error) }
-    } finally {
-      endAskpassConnection(token)
-    }
+    client.end()
+    return { status: 'ok' }
+  } catch (error) {
+    if (controller.signal.aborted) return { status: 'canceled' }
+    if (timeout.aborted) return { status: 'failed', message: '连接超时' }
+    return { status: 'failed', message: error instanceof Error ? error.message : String(error) }
   } finally {
     if (activeTest === controller) activeTest = null
   }

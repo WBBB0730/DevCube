@@ -5,16 +5,7 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()],
-    build: {
-      rollupOptions: {
-        input: {
-          index: resolve('src/main/index.ts'),
-          // ssh 的 askpass 小助手：由 ssh 以 Node 身份单独执行（ADR-0038）
-          askpass: resolve('src/main/askpass-main.ts')
-        }
-      }
-    }
+    plugins: [externalizeDepsPlugin()]
   },
   preload: {
     plugins: [externalizeDepsPlugin()]

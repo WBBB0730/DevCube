@@ -19,7 +19,8 @@ import type {
   TreeSnapshot,
   WindowsShellOption
 } from '../shared/types'
-import type { AskpassResponse, ServerInput, ServerTestInput } from '../shared/server'
+import type { ServerInput, ServerTestInput } from '../shared/server'
+import type { SshPromptResponse } from '../shared/ssh-connect'
 import type { TransferConflictResponse } from '../shared/server-files'
 import { serverEntryKey } from '../shared/tree-entry'
 import { resolveClonePath, type GitCloneInput } from '../shared/git-clone'
@@ -44,7 +45,7 @@ import {
   updateCommandConfig
 } from './configs'
 import { pickDirectory, pickFile, pickPaths, pickSavePath } from './dialogs'
-import { respondAskpass, setAskpassSink } from './askpass'
+import { respondSshPrompt, setSshPromptSink } from './ssh-prompts'
 import { passwordUnavailableReason } from './server-secrets'
 import {
   addServers,
@@ -436,7 +437,7 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   )
   setServerStatusSink((event) => liveMainWindow()?.webContents.send(IPC.serverStatusChanged, event))
 
-  // —— 服务器文件（Server 的 Files Tab，ADR-0040） ——
+  // —— 服务器文件（Server 的 Files Tab，ADR-0041） ——
   ipcMain.handle(IPC.serverFilesGet, (_e, serverId: string) => getServerFilesState(serverId))
   ipcMain.handle(IPC.serverFilesConnect, (_e, serverId: string) => connectServerFiles(serverId))
   ipcMain.handle(IPC.serverFilesDisconnect, (_e, serverId: string) =>
@@ -534,15 +535,15 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     },
     conflictDismiss: (id) => liveMainWindow()?.webContents.send(IPC.transferConflictDismiss, id)
   })
-  ipcMain.on(IPC.askpassRespond, (_e, response: AskpassResponse) => respondAskpass(response))
-  setAskpassSink({
+  ipcMain.on(IPC.sshPromptRespond, (_e, response: SshPromptResponse) => respondSshPrompt(response))
+  setSshPromptSink({
     request: (request) => {
       const win = liveMainWindow()
-      // 没有主窗口就没人能回答：直接取消，ssh 随即按放弃处理
-      if (win) win.webContents.send(IPC.askpassRequest, request)
-      else respondAskpass({ id: request.id, answer: null, remember: false })
+      // 没有主窗口就没人能回答：按取消处理
+      if (win) win.webContents.send(IPC.sshPromptRequest, request)
+      else respondSshPrompt({ id: request.id, answers: null, remember: false })
     },
-    dismiss: (id) => liveMainWindow()?.webContents.send(IPC.askpassDismiss, id),
+    dismiss: (id) => liveMainWindow()?.webContents.send(IPC.sshPromptDismiss, id),
     passwordSaved: () => liveMainWindow()?.webContents.send(IPC.serversChanged, listServerNodes())
   })
 

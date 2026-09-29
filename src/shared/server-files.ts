@@ -1,9 +1,8 @@
 // 服务器文件管理（Server 的 Files Tab，docs/prd/server-files.md）的共享类型与纯函数。
-// 连接经系统 ssh 的 sftp 子系统（ADR-0038、ADR-0040）；服务器上的路径一律按 POSIX 处理。
+// 连接经内置实现的 SFTP 通道（ADR-0041）；服务器上的路径一律按 POSIX 处理。
 import type { FilesOpenKind } from './files-kind'
 import { FILES_TEXT_MAX_BYTES, FILES_XLSX_PREVIEW_MAX_BYTES, type FilesReadResult } from './files'
 import { logicalParentPath } from './files-path'
-import { sshFailureMessage } from './server'
 
 /** 文件连接的状态：点「连接」才建立，连上后带回家目录（树首次打开时展开到这里）。 */
 export type ServerFilesState =
@@ -104,12 +103,14 @@ export type ServerFilesWriteResult =
   | { conflict: { content: string | null; mtimeMs: number; size: number } }
 
 /**
- * 文件连接失败的原因：服务器没启用 sftp 子系统时 ssh 只说「subsystem request failed」，换成明确的说法；
- * 其余同测试连接，取 ssh 报错的最后一行。
+ * 打开 SFTP 通道失败的原因：服务器没启用 sftp 子系统、或通道里混进了别的输出（ssh2 报 SFTP 协议错误，
+ * 最常见的是登录脚本往里打印了内容）时换成明确的说法，其余原样。
  */
-export function sftpConnectFailureMessage(stderr: string, exitCode: number | null): string {
-  if (/subsystem request failed/i.test(stderr)) return '服务器没有启用 SFTP，无法管理文件'
-  return sshFailureMessage(stderr, exitCode)
+export function sftpOpenFailureMessage(error: { message: string; level?: string }): string {
+  if (error.level === 'sftp-protocol') {
+    return '服务器返回了无法识别的数据，可能是登录脚本往 SFTP 通道里输出了内容'
+  }
+  return /subsystem/i.test(error.message) ? '服务器没有启用 SFTP，无法管理文件' : error.message
 }
 
 // —— 上传 / 下载 ——

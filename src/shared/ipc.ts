@@ -35,7 +35,7 @@ export const IPC = {
   serverStatusDisconnect: 'server-status:disconnect',
   serverStatusChanged: 'server-status:changed',
   /**
-   * 服务器文件（Server 的 Files Tab，ADR-0040）：连接状态、浏览与读写、上传下载。主进程推送连接状态、
+   * 服务器文件（Server 的 Files Tab，ADR-0041）：连接状态、浏览与读写、上传下载。主进程推送连接状态、
    * 打开时的下载进度、传输列表、需要刷新的服务器（上传完成后），以及同名询问（渲染端回答）
    */
   serverFilesGet: 'server-files:get',
@@ -66,10 +66,10 @@ export const IPC = {
   transferConflictRespond: 'server-files:conflict-respond',
   /** 渲染端 → 主进程：服务器上有未保存修改的文件数（退出确认用） */
   serverFilesUnsavedCount: 'server-files:unsaved-count',
-  /** ssh 提问：主进程 → 渲染端请求回答 / 让过期弹窗消失；渲染端 → 主进程回答 */
-  askpassRequest: 'askpass:request',
-  askpassDismiss: 'askpass:dismiss',
-  askpassRespond: 'askpass:respond',
+  /** 内置 SSH 连接的提问（ADR-0041）：主进程 → 渲染端请求回答 / 让过期弹窗消失；渲染端 → 主进程回答 */
+  sshPromptRequest: 'ssh-prompt:request',
+  sshPromptDismiss: 'ssh-prompt:dismiss',
+  sshPromptRespond: 'ssh-prompt:respond',
   projectSortPrefsGet: 'project:sort-prefs-get',
   projectSortPrefsSet: 'project:sort-prefs-set',
   appPrefsGet: 'app:prefs-get',

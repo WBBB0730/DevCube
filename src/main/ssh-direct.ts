@@ -1,14 +1,13 @@
 // 绕开代理直连（ADR-0039）：连接从实体网卡出去，不进 TUN 代理的虚拟网卡；目标是域名时，向实体网卡
 // 所在网络的 DNS 查真实地址（fake-IP 模式下系统解析出的是代理内部的假地址）。只在 macOS / Windows 提供。
-// DevCube 只给 ssh 追加选项：BindAddress 绑定实体网卡的地址；目标是域名时再以 HostName 改连真实地址，
-// 并以 HostKeyAlias 让 known_hosts 仍按原主机名核对。
+// 内置连接（ADR-0041）按这里查出的路线建立 TCP 连接：绑定实体网卡的地址、连真实地址，known_hosts 仍按原主机名核对。
 
 import { execFile } from 'node:child_process'
 import { Resolver } from 'node:dns/promises'
 import { isIP, isIPv4 } from 'node:net'
 import { networkInterfaces, type NetworkInterfaceInfo } from 'node:os'
 import { promisify } from 'node:util'
-import { DEFAULT_SSH_PORT, parseSshConfigValues, sshPortOf } from '../shared/server'
+import type { SshHostConfig } from '../shared/ssh-config'
 
 const execFileAsync = promisify(execFile)
 
@@ -18,48 +17,14 @@ export interface PhysicalNetwork {
   dnsServers: string[]
 }
 
-/** 直连的目标：ssh 最终要连的主机名与端口，以及用户自设的 HostKeyAlias。 */
-export interface DirectTarget {
-  hostName: string
-  port: number
-  hostKeyAlias: string | null
-}
-
-/** 用户 ssh 配置自行指定了连接路径的选项：有任一项时 DevCube 不插手。 */
-const USER_ROUTE_KEYS = ['proxyjump', 'proxycommand', 'bindaddress', 'bindinterface']
-
 /**
- * 按 `ssh -G` 的输出取直连目标；用户配置已自行指定连接路径（跳板、代理命令、绑定地址或网卡）时为 null，
- * 表示不插手。`ssh -G` 总会给出 hostname，缺了也按不插手处理。
+ * 直连要连的主机名（`ssh -G` 的 hostname）；用户配置已自行指定连接路径（跳板、代理命令、绑定地址或网卡）
+ * 时为 null，表示不插手。`ssh -G` 总会给出 hostname，缺了也按不插手处理。
  */
-export function directTargetOf(sshConfigOutput: string): DirectTarget | null {
-  const values = parseSshConfigValues(sshConfigOutput)
-  const hostName = values.get('hostname')
-  if (hostName === undefined || USER_ROUTE_KEYS.some((key) => values.has(key))) return null
-  return { hostName, port: sshPortOf(values), hostKeyAlias: values.get('hostkeyalias') ?? null }
-}
-
-/** known_hosts 记这台主机用的名字（与 ssh 的写法一致）：22 端口为主机名，其余为 `[主机名]:端口`。 */
-export function knownHostsName(hostName: string, port: number): string {
-  return port === DEFAULT_SSH_PORT ? hostName : `[${hostName}]:${port}`
-}
-
-/**
- * 直连追加的 ssh 选项：从实体网卡的地址出去。realAddress 不为 null（目标是域名，已查到真实地址）时
- * 改连真实地址，并让 known_hosts 仍按原主机名核对；用户已自设 HostKeyAlias 的沿用其设置。
- */
-export function buildDirectOptions(
-  target: DirectTarget,
-  localAddress: string,
-  realAddress: string | null
-): string[] {
-  const options = ['-o', `BindAddress=${localAddress}`]
-  if (realAddress === null) return options
-  options.push('-o', `HostName=${realAddress}`)
-  if (target.hostKeyAlias === null) {
-    options.push('-o', `HostKeyAlias=${knownHostsName(target.hostName, target.port)}`)
-  }
-  return options
+export function directHostOf(config: SshHostConfig): string | null {
+  const { hostName, proxyJump, proxyCommand, bindAddress, bindInterface } = config
+  const userRoute = [proxyJump, proxyCommand, bindAddress, bindInterface].some((v) => v !== null)
+  return hostName === '' || userRoute ? null : hostName
 }
 
 /** 可以用来连外网的 IPv4 地址：排除 169.254 开头的自动分配地址（没拿到 DHCP 时才会有）。 */
@@ -166,23 +131,22 @@ async function resolveRealAddress(host: string, network: PhysicalNetwork): Promi
   }
 }
 
-/**
- * 直连要追加的 ssh 选项；sshConfigOutput 是该连接目标的 `ssh -G` 输出。用户配置已自行指定连接路径时
- * 不插手（没有选项）。找不到实体网卡、或查不到真实地址时返回原因，不退回经代理连接。
- */
-export async function resolveDirectOptions(
-  sshConfigOutput: string
-): Promise<{ options: string[] } | { failure: string }> {
-  const target = directTargetOf(sshConfigOutput)
-  if (target === null) return { options: [] }
+/** 直连的路线：从实体网卡的 localAddress 出去；目标是域名时 realAddress 为查到的真实地址，是 IP 时为 null。 */
+export interface DirectRoute {
+  localAddress: string
+  realAddress: string | null
+}
+
+/** 现查直连路线；找不到实体网卡、或查不到真实地址时返回原因，不退回经代理连接。 */
+export async function resolveDirectRoute(
+  hostName: string
+): Promise<DirectRoute | { failure: string }> {
   const network = await physicalNetwork()
   if (network === null) return { failure: '无法直连：未找到可用的本机网络' }
-  if (isIP(target.hostName) !== 0) {
-    return { options: buildDirectOptions(target, network.address, null) }
-  }
-  const realAddress = await resolveRealAddress(target.hostName, network)
+  if (isIP(hostName) !== 0) return { localAddress: network.address, realAddress: null }
+  const realAddress = await resolveRealAddress(hostName, network)
   if (realAddress === null) {
-    return { failure: `无法直连：未能解析 ${target.hostName} 的真实地址` }
+    return { failure: `无法直连：未能解析 ${hostName} 的真实地址` }
   }
-  return { options: buildDirectOptions(target, network.address, realAddress) }
+  return { localAddress: network.address, realAddress }
 }

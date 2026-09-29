@@ -1,16 +1,16 @@
 import { randomUUID } from 'crypto'
 import { statSync } from 'node:fs'
-import { homedir } from 'node:os'
 import path from 'node:path'
 import { BrowserWindow } from 'electron'
 import { spawn, type IPty } from 'node-pty'
+import type { ClientChannel, PseudoTtyOptions } from 'ssh2'
 import { Terminal as HeadlessTerminal } from '@xterm/headless'
 import { SerializeAddon } from '@xterm/addon-serialize'
 import { IPC } from '../shared/ipc'
 import { configKey, scriptKey } from '../shared/runnable'
 import { resolveWithinProject } from '../shared/files-path'
 import type { QuitGuardSession } from '../shared/quit-guard'
-import { sshArgs, sshRunArgs } from '../shared/server'
+import type { Server } from '../shared/server'
 import type {
   RemoteRunConfig,
   RunTarget,
@@ -19,7 +19,6 @@ import type {
   SessionStatus,
   TerminalInfo
 } from '../shared/types'
-import { beginAskpassConnection, endAskpassConnection } from './askpass'
 import {
   buildRemoteRunCommand,
   buildRemoteShellInDir,
@@ -32,8 +31,22 @@ import {
   wrapWithRunHeader
 } from './command'
 import { detectPackageManager, readFingerprints } from './discovery'
-import { findServer, prepareSsh } from './servers'
+import { findServer } from './servers'
+import { connectSsh, onSshClosed } from './ssh-connect'
 import { getAppPrefs, getConfigs } from './store'
+
+/**
+ * 会话背后跑着的东西：本机是 PTY 里的进程（node-pty）；服务器上是内置连接（ADR-0041）上一个带伪终端的通道。
+ */
+interface SessionProcess {
+  write(data: string): void
+  resize(cols: number, rows: number): void
+  /**
+   * 结束：本机向整棵进程树发信号（posix 发给进程组，免得 dev server 子进程变孤儿）；
+   * 服务器上断开连接（SIGKILL 为直接断开），远端进程随之收到挂断（同关掉 ssh）。
+   */
+  kill(signal: NodeJS.Signals): void
+}
 
 interface Session {
   key: string
@@ -50,8 +63,10 @@ interface Session {
   remoteCwd?: string
   /** 会话代际标识（每次 spawn 唯一）。bytes 只在同代内可比，随输出与快照下发供渲染端跨代丢弃 */
   sid: string
-  /** 仅 ssh 会为 null：尚未连接或连接已断开 */
-  pty: IPty | null
+  /** 尚未连接、正在连接或已结束时为 null */
+  proc: SessionProcess | null
+  /** 正在连接服务器（服务器上的会话）：关掉 Tab、停止时中止，撤下还没回答的提问 */
+  connecting: AbortController | null
   status: SessionStatus
   exitCode: number | null
   /**
@@ -115,24 +130,20 @@ interface Resolved {
   env?: Record<string, string>
 }
 
-/** 经 ssh 在服务器上执行的配置。 */
+/** 在服务器上执行的配置。 */
 interface ResolvedRemote {
   type: 'remote'
   key: string
   config: RemoteRunConfig
 }
 
-/** 要启动的进程；failure 表示起不来（服务器已移除、找不到 ssh），把原因写进会话输出。 */
-type Launch =
-  | {
-      file: string
-      args: string[]
-      cwd: string
-      env: Record<string, string>
-      /** 经 ssh 在服务器上执行时的 askpass 令牌（进程退出即注销） */
-      askpassToken?: string
-    }
-  | { failure: string }
+/** 要在本机 PTY 里启动的进程。 */
+interface Launch {
+  file: string
+  args: string[]
+  cwd: string
+  env: Record<string, string>
+}
 
 /** 本机执行：经登录 shell，运行头由 shell 打印（在 ConPTY 启动清屏之后，ADR-0023）。 */
 function localLaunch(resolved: Resolved): Launch {
@@ -152,30 +163,6 @@ function localLaunch(resolved: Resolved): Launch {
     cwd: resolved.cwd,
     // 配置里写的 env（含 LANG）优先于缺省语言环境
     env: { ...withTerminalLocale(process.env), ...resolved.env } as Record<string, string>
-  }
-}
-
-/** 服务器上的命令型配置：经系统 ssh 在服务器上执行（ADR-0038），运行头由远端 shell 打印。 */
-async function remoteLaunch(config: RemoteRunConfig): Promise<Launch> {
-  const server = findServer(config.serverId)
-  if (!server) return { failure: '服务器已移除，无法运行' }
-  const prepared = await prepareSsh(server.target, server.direct)
-  if ('failure' in prepared) return { failure: prepared.failure }
-  const token = randomUUID()
-  const askpassEnv = await beginAskpassConnection(token, {
-    serverId: server.id,
-    serverName: server.name
-  })
-  return {
-    file: prepared.ssh,
-    args: sshRunArgs(
-      server.target,
-      buildRemoteRunCommand(config.command, config.cwd, config.env),
-      prepared.options
-    ),
-    cwd: homedir(),
-    env: { ...prepared.env, ...askpassEnv } as Record<string, string>,
-    askpassToken: token
   }
 }
 
@@ -244,26 +231,110 @@ function emitOutput(session: Session, data: string): void {
 }
 
 // 被新会话取代 / 已销毁的旧会话、被重连替换掉的旧进程不再产生输出（onData 可能在 kill 后仍短暂触发）。
-function pipeOutput(session: Session, pty: IPty): void {
-  pty.onData((data) => {
-    if (sessions.get(session.key) !== session || session.pty !== pty) return
+function outputOf(session: Session, proc: SessionProcess): (data: string) => void {
+  return (data) => {
+    if (sessions.get(session.key) !== session || session.proc !== proc) return
     emitOutput(session, data)
-  })
+  }
 }
 
-// 杀掉整棵进程树：posix 下向进程组发信号，避免 dev server 子进程变孤儿。
-function killTree(session: Session, signal: NodeJS.Signals): void {
-  const pty = session.pty
-  if (!pty) return
-  try {
-    if (process.platform === 'win32') pty.kill()
-    else process.kill(-pty.pid, signal)
-  } catch {
-    try {
-      pty.kill()
-    } catch {
-      /* 已退出 */
+/** 本机 PTY 里的进程。 */
+function ptyProcess(pty: IPty): SessionProcess {
+  return {
+    write: (data) => pty.write(data),
+    resize: (cols, rows) => pty.resize(cols, rows),
+    kill: (signal) => {
+      try {
+        if (process.platform === 'win32') pty.kill()
+        else process.kill(-pty.pid, signal)
+      } catch {
+        try {
+          pty.kill()
+        } catch {
+          /* 已退出 */
+        }
+      }
     }
+  }
+}
+
+/** 结束会话背后的进程；还在连接服务器时取消连接。 */
+function killProcess(session: Session, signal: NodeJS.Signals): void {
+  session.connecting?.abort()
+  session.proc?.kill(signal)
+}
+
+/** 服务器上的会话怎么结束：自己退出为退出代码（被信号结束等没有报告时为 null），连接意外断开为原因。 */
+type RemoteEnd = { exitCode: number | null } | { reason: string }
+
+/**
+ * 连上服务器，在 session 里开一个带伪终端的通道（ADR-0041），开好即成为它的进程。command 为 null 时是
+ * 登录 shell（ssh 配置里有 RemoteCommand 则执行它，同 ssh），否则执行 command。环境变量按 ssh 配置的
+ * SendEnv / SetEnv；服务器的欢迎横幅写进会话。连不上时抛出（原因在 message 里）；连接期间会话被关掉或停止
+ * 时也抛出，什么都不留下。onEnd：连接结束时调用（会话已被取代时不调）。
+ */
+async function openRemoteSession(
+  session: Session,
+  server: Server,
+  command: string | null,
+  onEnd: (end: RemoteEnd) => void
+): Promise<void> {
+  const controller = new AbortController()
+  session.connecting = controller
+  const current = (): boolean => sessions.get(session.key) === session && !controller.signal.aborted
+  try {
+    const { client, config, sessionEnv } = await connectSsh({
+      target: server.target,
+      direct: server.direct,
+      serverId: server.id,
+      password: undefined,
+      testing: false,
+      signal: controller.signal,
+      onBanner: (message) => {
+        if (current()) emitOutput(session, message.replace(/\r?\n/g, '\r\n'))
+      }
+    })
+    const pty: PseudoTtyOptions = { term: 'xterm-256color', cols: session.cols, rows: session.rows }
+    const run = command ?? config.remoteCommand
+    await new Promise<void>((resolve, reject) => {
+      const onChannel = (error: Error | undefined, channel: ClientChannel): void => {
+        if (error || !current()) {
+          client.end()
+          reject(new Error(error ? `无法打开终端：${error.message}` : '已取消'))
+          return
+        }
+        const proc: SessionProcess = {
+          write: (data) => void channel.write(data),
+          resize: (cols, rows) => void channel.setWindow(rows, cols, 0, 0),
+          // SIGKILL 直接断开：网络不通时 end 要等到保活超时才结束
+          kill: (signal) => {
+            if (signal === 'SIGKILL') client.destroy()
+            else client.end()
+          }
+        }
+        // 同步接上：开通道的回复与第一批输出可能在同一个数据包里
+        session.proc = proc
+        const output = outputOf(session, proc)
+        channel.setEncoding('utf8')
+        channel.stderr.setEncoding('utf8')
+        channel.on('data', output)
+        channel.stderr.on('data', output)
+        let exitCode: number | null = null
+        channel.on('exit', (code: number | null) => {
+          exitCode = typeof code === 'number' ? code : null
+        })
+        channel.once('close', () => client.end())
+        onSshClosed(client, (reason) => {
+          if (sessions.get(session.key) !== session || session.proc !== proc) return
+          onEnd(reason === null ? { exitCode } : { reason })
+        })
+        resolve()
+      }
+      if (run === null) client.shell(pty, { env: sessionEnv }, onChannel)
+      else client.exec(run, { pty, env: sessionEnv }, onChannel)
+    })
+  } finally {
+    if (session.connecting === controller) session.connecting = null
   }
 }
 
@@ -277,17 +348,18 @@ export async function run(target: RunTarget): Promise<void> {
   const rows = previous?.rows ?? DEFAULT_ROWS
   // 单实例：重复运行即先杀旧再起新。旧会话的 onExit / onData 因不再是当前会话而被忽略。
   if (previous) {
-    if (previous.status === 'running') killTree(previous, 'SIGKILL')
+    if (previous.status === 'running') killProcess(previous, 'SIGKILL')
     previous.screen.dispose() // 释放旧屏幕（新会话随即以同 key 顶替 Map 槽位）
   }
 
-  // 先占住会话槽位再准备进程：经 ssh 执行要等登录 shell 环境与 askpass，期间再点一次运行会顶替本会话。
+  // 先占住会话槽位再准备进程：在服务器上执行要等连接（含回答提问），期间再点一次运行会顶替本会话。
   const { screen, serializer } = createScreen(cols, rows)
   const session: Session = {
     key,
     kind: 'run',
     sid: randomUUID(),
-    pty: null,
+    proc: null,
+    connecting: null,
     status: 'running',
     exitCode: null,
     screen,
@@ -301,18 +373,12 @@ export async function run(target: RunTarget): Promise<void> {
   sessions.set(key, session)
   emitStatus(session)
 
-  const launch =
-    resolved.type === 'remote' ? await remoteLaunch(resolved.config) : localLaunch(resolved)
-  const token = 'askpassToken' in launch ? launch.askpassToken : undefined
-  if (sessions.get(key) !== session) {
-    if (token) endAskpassConnection(token)
+  // 服务器上的配置：连接在后台进行（要等回答提问），不让调用方等
+  if (resolved.type === 'remote') {
+    void runRemote(session, resolved.config)
     return
   }
-  if ('failure' in launch) {
-    endSession(session, launch.failure, null)
-    return
-  }
-
+  const launch = localLaunch(resolved)
   let pty: IPty
   try {
     pty = spawn(launch.file, launch.args, {
@@ -323,18 +389,41 @@ export async function run(target: RunTarget): Promise<void> {
       env: launch.env
     })
   } catch (error) {
-    if (token) endAskpassConnection(token)
     endSession(session, `无法启动：${error instanceof Error ? error.message : String(error)}`, null)
     return
   }
-  session.pty = pty
-  pipeOutput(session, pty)
+  const proc = ptyProcess(pty)
+  session.proc = proc
+  pty.onData(outputOf(session, proc))
 
   pty.onExit(({ exitCode }) => {
-    if (token) endAskpassConnection(token)
     if (sessions.get(session.key) !== session) return
     endSession(session, `进程已结束，退出代码为 ${exitCode}`, exitCode)
   })
+}
+
+/** 服务器上的命令型配置：经内置连接在服务器上执行（ADR-0041），运行头由远端 shell 打印。 */
+async function runRemote(session: Session, config: RemoteRunConfig): Promise<void> {
+  const server = findServer(config.serverId)
+  if (!server) {
+    endSession(session, '服务器已移除，无法运行', null)
+    return
+  }
+  try {
+    await openRemoteSession(
+      session,
+      server,
+      buildRemoteRunCommand(config.command, config.cwd, config.env),
+      (end) => {
+        if ('reason' in end) endSession(session, `连接已断开：${end.reason}`, null)
+        else if (end.exitCode === null) endSession(session, '进程已结束', null)
+        else endSession(session, `进程已结束，退出代码为 ${end.exitCode}`, end.exitCode)
+      }
+    )
+  } catch (error) {
+    if (sessions.get(session.key) !== session) return
+    endSession(session, error instanceof Error ? error.message : String(error), null)
+  }
 }
 
 /**
@@ -346,7 +435,7 @@ function endSession(session: Session, text: string, exitCode: number | null): vo
   const sep = session.bytes === 0 ? '' : session.endsWithNewline ? '\r\n' : '\r\n\r\n'
   const hideCursor = session.kind === 'run' ? '\x1b[?25l' : ''
   emitOutput(session, `${sep}\x1b[0m${text}\r\n${hideCursor}`)
-  session.pty = null
+  session.proc = null
   session.status = exitCode === 0 ? 'exited' : 'failed'
   session.exitCode = exitCode
   emitStatus(session)
@@ -389,12 +478,14 @@ export function openTerminal(projectPath: string, key?: string, cwd?: string): s
   })
 
   const { screen, serializer } = createScreen(DEFAULT_COLS, DEFAULT_ROWS)
+  const proc = ptyProcess(pty)
   const session: Session = {
     key: sessionKey,
     kind: 'terminal',
     ownerKey: projectPath,
     sid: randomUUID(),
-    pty,
+    proc,
+    connecting: null,
     status: 'running',
     exitCode: null,
     screen,
@@ -407,7 +498,7 @@ export function openTerminal(projectPath: string, key?: string, cwd?: string): s
   }
   sessions.set(sessionKey, session)
   emitStatus(session)
-  pipeOutput(session, pty)
+  pty.onData(outputOf(session, proc))
 
   pty.onExit(() => {
     if (sessions.get(sessionKey) !== session) return
@@ -447,8 +538,9 @@ export function disposeSshTerminalsForServer(serverId: string): void {
 
 /**
  * 在某左树条目下开一个连到 serverId 的 SSH Terminal，返回其会话键。同 openTerminal 的约定：
- * 不传 key 即新开并立即连接；传 key 是恢复跨重启的壳——只建会话、提示按回车连接（不自动连接），
- * 已存在则原样返回。remoteCwd：登录后进入服务器上的这个目录。
+ * 不传 key 即新开并立即开始连接（不等连上就返回，Tab 先出来，提问弹窗与报错都落在它里面）；
+ * 传 key 是恢复跨重启的壳——只建会话、提示按回车连接（不自动连接），已存在则原样返回。
+ * remoteCwd：登录后进入服务器上的这个目录。
  */
 export async function openSshTerminal(
   ownerKey: string,
@@ -466,7 +558,8 @@ export async function openSshTerminal(
     serverId,
     remoteCwd,
     sid: randomUUID(),
-    pty: null,
+    proc: null,
+    connecting: null,
     status: 'exited',
     exitCode: null,
     screen,
@@ -479,7 +572,7 @@ export async function openSshTerminal(
   }
   sessions.set(sessionKey, session)
   if (key === undefined) {
-    await connectSsh(session)
+    void connectSshTerminal(session)
   } else {
     const name = findServer(serverId)?.name ?? '服务器'
     emitOutput(session, `\x1b[0m未连接。按回车连接到 ${name}\r\n`)
@@ -489,76 +582,48 @@ export async function openSshTerminal(
 }
 
 /**
- * （重新）连接一个 SSH Terminal：在同一个会话里起系统 ssh（ADR-0038），输出接着写在原有内容之后；
- * ssh 退出后会话保留、提示按回车重连。ssh 按用户登录 shell 的 PATH 查找，与终端里敲的是同一个。
+ * （重新）连接一个 SSH Terminal：经内置连接（ADR-0041）开 shell 通道，输出接着写在原有内容之后；
+ * 断开后会话保留、提示按回车重连。
  */
-async function connectSsh(session: Session): Promise<void> {
+async function connectSshTerminal(session: Session): Promise<void> {
   if (session.status === 'running') return
   // 标成连接中，挡住连按回车触发的重复连接
   session.status = 'running'
+  session.exitCode = null
+  emitStatus(session)
   const server = findServer(session.serverId!)
   if (!server) {
     endSession(session, '服务器已移除，无法连接', null)
     return
   }
-  const prepared = await prepareSsh(server.target, server.direct)
-  // 每次等待之后都先确认会话还在（期间 Tab 可能已被关掉，服务器被移除也会关掉它）
-  if (sessions.get(session.key) !== session) return
-  if ('failure' in prepared) {
-    endSession(session, prepared.failure, null)
-    return
-  }
-
-  const token = randomUUID()
-  const askpassEnv = await beginAskpassConnection(token, {
-    serverId: server.id,
-    serverName: server.name
-  })
-  if (sessions.get(session.key) !== session) {
-    endAskpassConnection(token)
-    return
-  }
-  let pty: IPty
+  const command = session.remoteCwd === undefined ? null : buildRemoteShellInDir(session.remoteCwd)
   try {
-    const args =
-      session.remoteCwd === undefined
-        ? sshArgs(server.target, prepared.options)
-        : sshRunArgs(server.target, buildRemoteShellInDir(session.remoteCwd), prepared.options)
-    pty = spawn(prepared.ssh, args, {
-      name: 'xterm-256color',
-      cols: session.cols,
-      rows: session.rows,
-      cwd: homedir(),
-      env: { ...prepared.env, ...askpassEnv } as Record<string, string>
+    await openRemoteSession(session, server, command, (end) => {
+      if ('reason' in end) {
+        endSession(session, `连接已断开：${end.reason}。按回车重新连接`, null)
+      } else if (end.exitCode === null) {
+        endSession(session, '连接已断开。按回车重新连接', null)
+      } else {
+        endSession(session, `连接已断开，退出代码为 ${end.exitCode}。按回车重新连接`, end.exitCode)
+      }
     })
   } catch (error) {
-    endAskpassConnection(token)
-    endSession(
-      session,
-      `无法启动 ssh：${error instanceof Error ? error.message : String(error)}`,
-      null
-    )
+    // 连接期间 Tab 被关掉（服务器被移除也会关掉它）：什么都不做
+    if (sessions.get(session.key) === session) {
+      const message = error instanceof Error ? error.message : String(error)
+      endSession(session, `${message}。按回车重新连接`, null)
+    }
     return
   }
-  session.pty = pty
-  session.exitCode = null
-  emitStatus(session)
-  pipeOutput(session, pty)
-
-  pty.onExit(({ exitCode }) => {
-    endAskpassConnection(token)
-    if (sessions.get(session.key) !== session || session.pty !== pty) return
-    endSession(session, `连接已断开，退出代码为 ${exitCode}。按回车重新连接`, exitCode)
-  })
 }
 
 export function stop(key: string): void {
   const session = sessions.get(key)
   if (!session || session.status !== 'running') return
-  killTree(session, 'SIGTERM')
+  killProcess(session, 'SIGTERM')
   setTimeout(() => {
     const s = sessions.get(key)
-    if (s === session && s.status === 'running') killTree(s, 'SIGKILL')
+    if (s === session && s.status === 'running') killProcess(s, 'SIGKILL')
   }, 2000)
 }
 
@@ -567,10 +632,10 @@ export function writeStdin(key: string, data: string): void {
   if (!session) return
   // 未连接 / 已断开的 SSH Terminal：回车即（重新）连接，其余按键忽略
   if (session.kind === 'ssh' && session.status !== 'running') {
-    if (data.includes('\r')) void connectSsh(session)
+    if (data.includes('\r')) void connectSshTerminal(session)
     return
   }
-  session.pty?.write(data)
+  session.proc?.write(data)
 }
 
 export function resize(key: string, cols: number, rows: number): void {
@@ -583,7 +648,7 @@ export function resize(key: string, cols: number, rows: number): void {
   session.screen.resize(cols, rows)
   if (session.status === 'running') {
     try {
-      session.pty?.resize(cols, rows)
+      session.proc?.resize(cols, rows)
     } catch {
       /* 进程可能刚退出 */
     }
@@ -634,7 +699,7 @@ export function getQuitGuardSessions(): QuitGuardSession[] {
 export function disposeSession(key: string): void {
   const session = sessions.get(key)
   if (!session) return
-  if (session.status === 'running') killTree(session, 'SIGKILL')
+  if (session.status === 'running') killProcess(session, 'SIGKILL')
   session.screen.dispose()
   sessions.delete(key)
   post(IPC.sessionRemoved, key)
@@ -642,15 +707,15 @@ export function disposeSession(key: string): void {
 
 /**
  * 用户关闭一个 Tab（Run Session 或 Terminal）：运行中则 SIGTERM 温和停止（2s 未退升级
- * SIGKILL——会话已出 Map，onExit 早退不会更新状态，故到点盲发、killTree 自吞已退出的报错），
+ * SIGKILL——会话已出 Map，onExit 早退不会更新状态，故到点盲发、killProcess 自吞已退出的报错），
  * 并立即弃掉会话与输出。区别于 disposeSession 的立杀（那是删除/对账等非用户路径）。
  */
 export function closeSession(key: string): void {
   const session = sessions.get(key)
   if (!session) return
   if (session.status === 'running') {
-    killTree(session, 'SIGTERM')
-    setTimeout(() => killTree(session, 'SIGKILL'), 2000)
+    killProcess(session, 'SIGTERM')
+    setTimeout(() => killProcess(session, 'SIGKILL'), 2000)
   }
   session.screen.dispose()
   sessions.delete(key)
@@ -660,6 +725,6 @@ export function closeSession(key: string): void {
 /** 应用退出时清掉所有活跃进程树，避免 dev server 变孤儿。 */
 export function killAllSessions(): void {
   for (const session of sessions.values()) {
-    if (session.status === 'running') killTree(session, 'SIGKILL')
+    if (session.status === 'running') killProcess(session, 'SIGKILL')
   }
 }

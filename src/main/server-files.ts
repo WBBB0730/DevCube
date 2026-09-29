@@ -1,13 +1,13 @@
 // 服务器文件连接（Server 的 Files Tab，docs/prd/server-files.md）：每台服务器至多一条，由主进程管理，
-// 独立于 SSH Terminal 与状态连接。经系统 ssh 打开 sftp 子系统（ADR-0038），协议由自己写的
-// SFTP v3 客户端来说（ADR-0040）。点「连接」才建立；保留到手动断开、网络断开、服务器被编辑 / 移除或 DevCube 退出。
+// 独立于 SSH Terminal 与状态连接。经内置连接（ADR-0041）开两个 SFTP 通道：浏览（列目录、查信息、读写、
+// 打开时的下载）与传输（上传 / 下载队列），互不堵塞；通道出错或被关后下次使用时重开。
+// 点「连接」才建立；保留到手动断开、网络断开、服务器被编辑 / 移除或 DevCube 退出。
 // 上传 / 下载按服务器排队、一次一个；同名时经渲染端询问。
 
-import { spawn, type ChildProcess } from 'node:child_process'
 import { randomUUID } from 'node:crypto'
 import { lstat, mkdir, open, readdir, rm, stat } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import path from 'node:path'
+import type { Client } from 'ssh2'
 import { detectAv } from '@file-type/av'
 import { fileTypeFromBuffer } from 'file-type'
 import {
@@ -25,12 +25,11 @@ import {
 } from '../shared/files-kind'
 import { joinLogicalPath, logicalParentPath, normalizePath } from '../shared/files-path'
 import { isIdeIgnoredEntryName } from '../shared/files-tree-filter'
-import { sshSftpArgs } from '../shared/server'
 import {
   createConflictPolicy,
   sameServerFileVersion,
   serverOpenPlan,
-  sftpConnectFailureMessage,
+  sftpOpenFailureMessage,
   type ServerFileStat,
   type ServerFileVersion,
   type ServerFilesReadProgress,
@@ -44,13 +43,13 @@ import {
   type TransferConflictRequest,
   type TransferConflictResponse
 } from '../shared/server-files'
-import { SFTP_OPEN, SFTP_STATUS, sftpEntryKind, type SftpAttrs } from '../shared/sftp'
-import { beginAskpassConnection, endAskpassConnection } from './askpass'
+import { SFTP_STATUS, sftpEntryKind, type SftpAttrs } from '../shared/sftp'
 import { readFileEntry } from './files'
 import { newServerFileCopyPath, serverFilesCacheRoot } from './server-files-cache'
 import { ServerFileCopies, type ServerFileCopy } from './server-files-copies'
-import { findServer, prepareSsh } from './servers'
+import { findServer } from './servers'
 import { SftpClient, SftpStatusError } from './sftp-client'
+import { connectSsh, onSshClosed } from './ssh-connect'
 
 /** 嗅探类型读的文件开头：够 file-type 认出 OOXML（PPT / Excel）这类 zip 容器。 */
 const HEAD_BYTES = 64 * 1024
@@ -67,16 +66,17 @@ interface TransferTask {
   run: (task: TransferTask, report: () => void) => Promise<void>
 }
 
+/** 两个 SFTP 通道：浏览（列目录、查信息、读写、打开时的下载）与传输（上传 / 下载队列）。 */
+type ChannelKind = 'browse' | 'transfer'
+
 interface FilesConnection {
   state: ServerFilesState
-  child: ChildProcess | null
-  client: SftpClient | null
-  /** 本次 ssh 的 askpass 令牌 */
-  token: string | null
-  /** stderr 末尾：断开时取最后一行作原因 */
-  stderr: string
-  /** 数据流错乱时的原因（优先于 ssh 的报错） */
-  fatal: string | null
+  /** 已连上的连接；未连接为 null */
+  ssh: Client | null
+  /** 正在建立的连接：断开、编辑、移除时中止（撤下还没回答的提问） */
+  connecting: AbortController | null
+  /** 各通道（打开中或已打开）；出错或被关的下次使用时重开 */
+  channels: Map<ChannelKind, Promise<SftpClient>>
   /** 进行中的打开：同一时刻一个，新的打开取消旧的 */
   read: AbortController | null
   /** 上一次打开时判断出的类型（按版本）：同一版本再打开（如占位上点「仍然打开」）不必再读开头 */
@@ -120,11 +120,9 @@ function connectionOf(serverId: string): FilesConnection {
   if (!conn) {
     conn = {
       state: IDLE,
-      child: null,
-      client: null,
-      token: null,
-      stderr: '',
-      fatal: null,
+      ssh: null,
+      connecting: null,
+      channels: new Map(),
       read: null,
       lastKind: null,
       transfers: [],
@@ -146,82 +144,75 @@ export function getServerFilesState(serverId: string): ServerFilesState {
 
 // —— 连接 ——
 
-/** 点「连接」/「重新连接」：起 ssh 打开 sftp 子系统并握手；已在连接或已连上则不动。 */
+/** 在连接上开一个 SFTP 通道。 */
+function openSftp(ssh: Client): Promise<SftpClient> {
+  return new Promise((resolve, reject) =>
+    ssh.sftp((error, sftp) =>
+      error ? reject(new Error(sftpOpenFailureMessage(error))) : resolve(new SftpClient(sftp))
+    )
+  )
+}
+
+/** 点「连接」/「重新连接」：连上服务器、开浏览通道并取家目录；已在连接或已连上则不动。 */
 export async function connectServerFiles(serverId: string): Promise<void> {
   const conn = connectionOf(serverId)
   if (conn.state.phase === 'connecting' || conn.state.phase === 'connected') return
   const server = findServer(serverId)
   if (!server) return
   setState(serverId, conn, { phase: 'connecting' })
-  const stillConnecting = (): boolean =>
-    connections.get(serverId) === conn && conn.state.phase === 'connecting' && conn.child === null
+  const controller = new AbortController()
+  conn.connecting = controller
 
-  const prepared = await prepareSsh(server.target, server.direct)
-  if (!stillConnecting()) return
-  if ('failure' in prepared) {
-    setState(serverId, conn, { phase: 'disconnected', message: prepared.failure })
-    return
-  }
-  const token = randomUUID()
-  const askpassEnv = await beginAskpassConnection(token, {
-    serverId,
-    serverName: server.name
-  })
-  if (!stillConnecting()) {
-    endAskpassConnection(token)
-    return
-  }
-
-  let child: ChildProcess
+  let ssh: Client
+  let browse: SftpClient
   try {
-    child = spawn(prepared.ssh, sshSftpArgs(server.target, prepared.options), {
-      cwd: homedir(),
-      env: { ...prepared.env, ...askpassEnv },
-      windowsHide: true
+    ssh = (
+      await connectSsh({
+        target: server.target,
+        direct: server.direct,
+        serverId,
+        password: undefined,
+        testing: false,
+        signal: controller.signal
+      })
+    ).client
+    browse = await openSftp(ssh).catch((error: unknown) => {
+      ssh.end()
+      throw error
     })
   } catch (error) {
-    endAskpassConnection(token)
-    const reason = error instanceof Error ? error.message : String(error)
-    setState(serverId, conn, { phase: 'disconnected', message: `无法启动 ssh：${reason}` })
+    if (conn.connecting !== controller) return
+    conn.connecting = null
+    const message = error instanceof Error ? error.message : String(error)
+    setState(serverId, conn, { phase: 'disconnected', message })
     return
   }
-  const client = new SftpClient(child.stdin!, child.stdout!, (error) => {
-    conn.fatal = error.message
-    child.kill()
-  })
-  conn.child = child
-  conn.client = client
-  conn.token = token
-  conn.stderr = ''
-  conn.fatal = null
-
-  child.stderr?.setEncoding('utf8')
-  child.stderr?.on('data', (chunk: string) => {
-    conn.stderr = (conn.stderr + chunk).slice(-4000)
-  })
-  // ssh 退出后还可能再写请求：吞掉 EPIPE，请求由 client.close 统一失败
-  child.stdin?.on('error', () => undefined)
-  child.on('error', (error) => {
-    conn.stderr += `\n无法启动 ssh：${error.message}`
-  })
-  child.on('close', (code) => {
-    endAskpassConnection(token)
-    client.close(new Error('连接已断开'))
-    if (conn.child !== child) return
-    const message = conn.fatal ?? sftpConnectFailureMessage(conn.stderr, code)
-    detach(serverId, conn, '连接已断开')
-    setState(serverId, conn, { phase: 'disconnected', message })
-  })
-
-  try {
-    await client.init()
-    const home = await client.realpath('.')
-    if (conn.child !== child) return
-    setState(serverId, conn, { phase: 'connected', home })
-  } catch {
-    // 握手没成（ssh 已退出或数据流错乱）：结束 ssh，原因在 close 里收口
-    child.kill()
+  if (conn.connecting !== controller) {
+    ssh.end()
+    return
   }
+  conn.connecting = null
+  conn.ssh = ssh
+  conn.channels = new Map([['browse', Promise.resolve(browse)]])
+  onSshClosed(ssh, (reason) => {
+    if (conn.ssh !== ssh) return
+    detach(serverId, conn, '连接已断开')
+    setState(serverId, conn, { phase: 'disconnected', message: reason ?? '连接已断开' })
+  })
+
+  let home: string
+  try {
+    home = await browse.realpath('.')
+  } catch (error) {
+    // 连上了却读不到家目录：断开，报出原因
+    if (conn.ssh !== ssh) return
+    detach(serverId, conn, '连接已断开')
+    const message = error instanceof Error ? error.message : String(error)
+    setState(serverId, conn, { phase: 'disconnected', message })
+    return
+  }
+  if (conn.ssh !== ssh) return
+  setState(serverId, conn, { phase: 'connected', home })
 }
 
 /**
@@ -230,11 +221,11 @@ export async function connectServerFiles(serverId: string): Promise<void> {
  * （面板里的预览还在用，连回来后打开照样先核对版本）。不推送状态。
  */
 function detach(serverId: string, conn: FilesConnection, reason: string | null): void {
-  const child = conn.child
-  const token = conn.token
-  conn.child = null
-  conn.client = null
-  conn.token = null
+  const ssh = conn.ssh
+  conn.connecting?.abort()
+  conn.connecting = null
+  conn.ssh = null
+  conn.channels = new Map()
   conn.read?.abort()
   conn.read = null
   for (const task of conn.transfers) {
@@ -248,8 +239,7 @@ function detach(serverId: string, conn: FilesConnection, reason: string | null):
     textCopies.drop(serverId)
   }
   emitTransfers(serverId, conn, true)
-  if (token !== null) endAskpassConnection(token)
-  child?.kill()
+  ssh?.end()
 }
 
 /** 点「断开连接」：结束连接、中止传输，回到未连接。 */
@@ -280,10 +270,29 @@ export function disposeAllServerFiles(): void {
   for (const serverId of [...connections.keys()]) disposeServerFiles(serverId)
 }
 
-function connected(serverId: string): { conn: FilesConnection; client: SftpClient } {
+/** 取某个通道：还没开、或上一个已结束（出错、被关）时重开，同 WebStorm。 */
+async function channelOf(conn: FilesConnection, kind: ChannelKind): Promise<SftpClient> {
+  const current = conn.channels.get(kind)
+  if (current !== undefined) {
+    const client = await current.catch(() => null)
+    if (client !== null && !client.closed) return client
+    // 等的这会儿别处已经在重开：用它的
+    if (conn.channels.get(kind) !== current) return channelOf(conn, kind)
+  }
+  if (conn.ssh === null) throw new Error('未连接到服务器')
+  const opening = openSftp(conn.ssh)
+  conn.channels.set(kind, opening)
+  return opening
+}
+
+/** 已连上时取某个通道（缺省为浏览通道）；未连接时报错。 */
+async function connected(
+  serverId: string,
+  kind: ChannelKind = 'browse'
+): Promise<{ conn: FilesConnection; client: SftpClient }> {
   const conn = connections.get(serverId)
-  if (!conn?.client || conn.state.phase !== 'connected') throw new Error('未连接到服务器')
-  return { conn, client: conn.client }
+  if (!conn?.ssh || conn.state.phase !== 'connected') throw new Error('未连接到服务器')
+  return { conn, client: await channelOf(conn, kind) }
 }
 
 // —— 浏览与读写 ——
@@ -322,7 +331,7 @@ async function existsRemote(client: SftpClient, remotePath: string): Promise<boo
 
 /** 列目录：隐藏规则同本地；符号链接按目标类型显示，指向目录的可以展开（断链按文件）。 */
 export async function listServerDir(serverId: string, dir: string): Promise<FilesDirEntry[]> {
-  const { client } = connected(serverId)
+  const { client } = await connected(serverId)
   const names = await client.readdir(dir)
   const entries = await Promise.all(
     names
@@ -348,7 +357,7 @@ export async function statServerPath(
   serverId: string,
   remotePath: string
 ): Promise<ServerFileStat | null> {
-  const { client } = connected(serverId)
+  const { client } = await connected(serverId)
   const attrs = await statOrNull(client, remotePath)
   if (!attrs) return null
   return {
@@ -393,7 +402,7 @@ async function downloadFile(
 ): Promise<void> {
   const file = await open(localPath, 'w')
   try {
-    await client.withHandle(remotePath, SFTP_OPEN.READ, (handle) =>
+    await client.withHandle(remotePath, 'r', (handle) =>
       client.readInto(
         handle,
         size,
@@ -498,7 +507,7 @@ export async function readServerFile(
   remotePath: string,
   force: boolean
 ): Promise<ServerFilesReadResult> {
-  const { conn, client } = connected(serverId)
+  const { conn, client } = await connected(serverId)
   conn.read?.abort()
   const controller = new AbortController()
   conn.read = controller
@@ -579,7 +588,7 @@ export async function writeServerFile(
   content: string,
   base: ServerFileVersion
 ): Promise<ServerFilesWriteResult> {
-  const { client } = connected(serverId)
+  const { client } = await connected(serverId)
   const current = await statOrNull(client, remotePath)
   if (current && !sameServerFileVersion(versionOf(current), base)) {
     const size = current.size ?? 0
@@ -611,7 +620,7 @@ export async function createServerEntry(
   name: string,
   kind: 'file' | 'directory'
 ): Promise<FilesDirEntry> {
-  const { client } = connected(serverId)
+  const { client } = await connected(serverId)
   assertEntryName(name)
   const target = joinLogicalPath(dir, name)
   if (await existsRemote(client, target)) throw new Error('已存在同名条目')
@@ -630,7 +639,7 @@ export async function renameServerEntry(
   entryPath: string,
   newName: string
 ): Promise<{ path: string }> {
-  const { client } = connected(serverId)
+  const { client } = await connected(serverId)
   if (entryPath === '/') throw new Error('不能重命名根文件夹')
   assertEntryName(newName)
   const target = joinLogicalPath(logicalParentPath(entryPath), newName)
@@ -646,7 +655,7 @@ export async function renameServerEntry(
 
 /** 删除（服务器上没有回收站，删了即不可恢复）：文件夹连同内容逐项删除，符号链接只删链接本身。 */
 export async function deleteServerEntry(serverId: string, entryPath: string): Promise<void> {
-  const { client } = connected(serverId)
+  const { client } = await connected(serverId)
   if (entryPath === '/') throw new Error('不能删除根文件夹')
   const removeTree = async (target: string): Promise<void> => {
     const attrs = await client.lstat(target)
@@ -841,7 +850,7 @@ export function uploadToServer(serverId: string, localPaths: string[], remoteDir
   const names = localPaths.map((p) => path.basename(p))
   const label = names.length === 1 ? names[0]! : `${names[0]} 等 ${names.length} 项`
   enqueueTransfer(serverId, 'upload', label, async (task, report) => {
-    const { client } = connected(serverId)
+    const { client } = await connected(serverId, 'transfer')
     const { signal } = task.controller
     const items: LocalItem[] = []
     for (const local of localPaths) {
@@ -907,10 +916,7 @@ async function uploadFile(
 ): Promise<void> {
   const file = await open(localPath, 'r')
   try {
-    const handle = await client.open(
-      remotePath,
-      SFTP_OPEN.WRITE | SFTP_OPEN.CREAT | SFTP_OPEN.TRUNC
-    )
+    const handle = await client.open(remotePath, 'w')
     try {
       await client.writeFrom(
         handle,
@@ -946,7 +952,7 @@ export function downloadFromServer(
 ): void {
   const server = findServer(serverId)
   enqueueTransfer(serverId, 'download', path.posix.basename(remotePath), async (task, report) => {
-    const { client } = connected(serverId)
+    const { client } = await connected(serverId, 'transfer')
     const { signal } = task.controller
     const progress =
       (base: number) =>

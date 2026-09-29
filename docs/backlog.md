@@ -15,15 +15,15 @@
 ### SSH 终端
 
 - 替代 FinalShell / Termius / Xshell。
-- 已实现，待验收：见 `docs/prd/ssh-server.md`、ADR-0038；术语见 CONTEXT.md（**Server**、**SSH Terminal**）。
-- 「绕开代理直连」：已实现，待验收（ADR-0039，PRD 用户故事 23–25）；Windows 待实测。
-- 连接方式改为内置实现、配置仍由系统 OpenSSH 解析（参照 WebStorm）：方案已定稿待确认，见 `docs/prd/ssh-connection.md`、ADR-0041（提案中）；分 5 步实施。
+- 已实现，待验收：见 `docs/prd/ssh-server.md`；术语见 CONTEXT.md（**Server**、**SSH Terminal**）。
+- 「绕开代理直连」：已实现，待验收（ADR-0039，PRD 用户故事 23–25）。待实测：Windows（含 mihomo / sing-box 开 `strict-route`、物理网卡被 Hyper-V 外部交换机桥接）；macOS 上基于 NetworkExtension 的代理（Surge、Stash 等）。
+- 连接方式改为内置实现、配置仍由系统 OpenSSH 解析（参照 WebStorm）：已实现，待验收，见 `docs/prd/ssh-connection.md`、ADR-0041；实测清单见该 PRD。Windows 待实测：`ProxyCommand` 的执行方式（暂经 cmd）、是否启用 Pageant。
 - 「无项目」做好后，里面同样保留「连接到服务器」这个快捷入口。
 
 ### 远程文件管理
 
 - 替代 WinSCP。
-- 已实现，待验收：见 `docs/prd/server-files.md`、ADR-0040；术语见 CONTEXT.md（**Files Tab**）；Windows 待实测。
+- 已实现，待验收：见 `docs/prd/server-files.md`、ADR-0041；术语见 CONTEXT.md（**Files Tab**）；Windows 待实测。
 
 ### 服务器状态面板
 

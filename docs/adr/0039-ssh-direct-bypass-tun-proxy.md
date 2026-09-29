@@ -1,8 +1,8 @@
 # SSH 绕开 TUN 代理：由开关决定一律直连，不自动识别
 
-> 机制拟更新（ADR-0041，提案中）：连接改由内置的 ssh2 完成后，直连改为建连时绑定本机地址（`localAddress`）、连真实地址，按原主机名核对 known_hosts；「每台服务器一个开关、不自动识别」的决策不变。
+> 机制已随 ADR-0041 更新：连接改由内置的 ssh2 完成，直连由给 `ssh` 追加选项改为建连时绑定本机地址、连真实地址；「每台服务器一个开关、不自动识别」的决策不变。
 
-开着 TUN 模式代理（Clash Verge / mihomo 等）时，本机所有连接都先进代理的虚拟网卡：代理节点普遍封掉 22 端口，`ssh` 在收到服务器问候前就被断开；fake-IP 模式下，域名还会被解析成代理内部的假地址。我们决定给每台 **Server** 一个「绕开代理直连」开关，添加时默认不打开。开启时，DevCube 在 `ssh` 参数上追加 `BindAddress=<实体网卡的本机地址>`，让连接从实体网卡出去；连接目标是域名时，先向实体网卡所在网络的 DNS 查出真实地址（查询同样绑定该地址），再追加 `HostName=<真实地址>` 与 `HostKeyAlias=<原主机名>`，保证 known_hosts 照旧按原主机名核对。用户 ssh 配置里已写了 `ProxyJump`、`ProxyCommand`、`BindAddress` 或 `BindInterface` 的目标，DevCube 不插手。开启后找不到实体网卡、或查不到真实地址时，直接报出原因，不退回经代理连接。
+开着 TUN 模式代理（Clash Verge / mihomo 等）时，本机所有连接都先进代理的虚拟网卡：代理节点普遍封掉 22 端口，连接在收到服务器问候前就被断开；fake-IP 模式下，域名还会被解析成代理内部的假地址。我们决定给每台 **Server** 一个「绕开代理直连」开关，添加时默认不打开。开启时，DevCube 建立连接时绑定实体网卡的本机地址，让连接从实体网卡出去；连接目标是域名时，先向实体网卡所在网络的 DNS 查出真实地址（查询同样绑定该地址），改连这个地址，known_hosts 照旧按原主机名核对。用户 ssh 配置里已写了 `ProxyJump`、`ProxyCommand`、`BindAddress` 或 `BindInterface` 的目标，DevCube 不插手。开启后找不到实体网卡、或查不到真实地址时，直接报出原因，不退回经代理连接。
 
 绑定本机地址能绕开虚拟网卡，是因为 macOS（scoped routing）和 Windows（强主机模型）会按源地址选出口网卡。Linux 只按目标地址（及策略路由）选路，普通进程没有 root 权限绕不开，所以 Linux 不提供这个开关。
 
@@ -19,7 +19,9 @@
 ## Consequences
 
 - 只能经 VPN（公司内网、Tailscale 等）到达的服务器，打开直连后会连不上。因此添加服务器时默认不打开，保持与在终端里敲 `ssh` 一致。
-- 开启且目标是域名时，hosts 文件对它的映射不生效；用户 ssh 配置里的 `Match host` 与 `%h` 看到的是真实地址。
+- 开启且目标是域名时，hosts 文件对它的映射不生效。
 - 只处理 IPv4：绑定实体网卡的 IPv4 地址，只查 A 记录。
 - 实体网卡与 DNS 每次连接时现查（网络会变）：macOS 用 `scutil` 读主网卡（`PrimaryInterface`），DNS 取系统为这张网卡配置的那一组（`scutil --dns` 中限定到该网卡的解析器，手动设过的 DNS 也在其中）；Windows 用 PowerShell 取默认路由度量最小的实体网卡及其 DNS。Windows 部分未实测。
-- 远程文件管理经同一套 `ssh` 参数建立连接，自动适用。
+- 终端、服务器上的命令、状态、文件与测试连接都经同一套内置连接建立，自动适用。
+- 绑定源地址能改变出口，靠的是系统公开的选路规则：Windows 默认按强主机模型选路（只在源地址所在网卡的路由里找），macOS 为按地址隐式绑定网卡（Apple 推荐的显式做法 `IP_BOUND_IF` 在 Node 里用不了）；与 OpenSSH 的 `BindAddress` / `BindInterface` 同一个做法。网卡中途换了地址时，连接随之断开。
+- 能绕开的只是靠路由表接管流量的 TUN（mihomo / sing-box 的 auto-route，已实测）。以下未实测，可能绕不开或报错：macOS 上基于 NetworkExtension、开了 `includeAllNetworks` 的全局隧道（Surge、Stash 等；Apple 说明除少数系统流量外全部进隧道，主网卡也可能被识别成隧道）；Windows 上 mihomo / sing-box 开了 `strict-route`（会拦截发往实体网卡 DNS 的查询，域名目标可能报查不到真实地址）；Windows 上物理网卡被 Hyper-V 外部交换机桥接（地址在虚拟网卡上，找不到可用的本机网络）。Windows 自带 VPN 连上后会停用物理网卡的默认路由，绕不开，这是 VPN 的本意。

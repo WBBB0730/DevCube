@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { ProjectTree } from '@renderer/components/ProjectTree'
 import { Console } from '@renderer/components/Console'
-import { AskpassDialog } from '@renderer/components/AskpassDialog'
+import { SshPromptDialog } from '@renderer/components/SshPromptDialog'
 import { TransferConflictDialog } from '@renderer/components/TransferConflictDialog'
 import { UnsavedChangesDialog } from '@renderer/components/UnsavedChangesDialog'
 import { CloneProjectDialog } from '@renderer/components/CloneProjectDialog'
@@ -134,7 +134,7 @@ function App(): React.JSX.Element {
   const init = useApp((s) => s.init)
   const dialog = useApp((s) => s.dialog)
   const serverDialog = useApp((s) => s.serverDialog)
-  const askpass = useApp((s) => s.askpassQueue[0] ?? null)
+  const sshPrompt = useApp((s) => s.sshPromptQueue[0] ?? null)
   const transferConflict = useApp((s) => s.transferConflictQueue[0] ?? null)
   const unsavedPrompt = useApp((s) => s.unsavedPrompt)
   // 当前条目名（无当前条目 / 暂未找到则为 null）；驱动窗口标题。
@@ -167,12 +167,12 @@ function App(): React.JSX.Element {
     const offServers = window.api.onServersChanged((servers) =>
       useApp.getState().setServers(servers)
     )
-    // ssh 的提问（主机指纹确认、密码、口令、验证码）：排队弹窗；连接已结束的提问随之撤掉。
-    const offAskpass = window.api.onAskpassRequest((request) =>
-      useApp.getState().enqueueAskpass(request)
+    // SSH 的提问（主机指纹、密码、私钥口令、验证码）：排队弹窗；连接已结束的提问随之撤掉。
+    const offSshPrompt = window.api.onSshPromptRequest((request) =>
+      useApp.getState().enqueueSshPrompt(request)
     )
-    const offAskpassDismiss = window.api.onAskpassDismiss((id) =>
-      useApp.getState().dismissAskpass(id)
+    const offSshPromptDismiss = window.api.onSshPromptDismiss((id) =>
+      useApp.getState().dismissSshPrompt(id)
     )
     // 上传 / 下载遇到同名文件：排队弹窗；传输被取消时随之撤掉。
     const offConflict = window.api.onTransferConflictRequest((request) =>
@@ -201,8 +201,8 @@ function App(): React.JSX.Element {
     return () => {
       offTree()
       offServers()
-      offAskpass()
-      offAskpassDismiss()
+      offSshPrompt()
+      offSshPromptDismiss()
       offConflict()
       offConflictDismiss()
       offStatus()
@@ -255,11 +255,11 @@ function App(): React.JSX.Element {
       {unsavedPrompt && (
         <UnsavedChangesDialog name={unsavedPrompt.name} onChoose={unsavedPrompt.resolve} />
       )}
-      {/* ssh 提问排在同名询问之后渲染，叠在它上面 */}
+      {/* SSH 提问排在同名询问之后渲染，叠在它上面 */}
       {transferConflict && (
         <TransferConflictDialog key={transferConflict.id} request={transferConflict} />
       )}
-      {askpass && <AskpassDialog key={askpass.id} request={askpass} />}
+      {sshPrompt && <SshPromptDialog key={sshPrompt.id} request={sshPrompt} />}
       {cloneDialogOpen && <CloneProjectDialog />}
       {contentSearchOpen && currentProjectPath && (
         <ContentSearchPanel

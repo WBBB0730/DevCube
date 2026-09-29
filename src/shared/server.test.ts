@@ -1,19 +1,11 @@
 import { describe, expect, it } from 'vitest'
 import {
-  askpassAction,
-  askpassRememberDefault,
-  classifyAskpassPrompt,
   connectableHostAliases,
   manualTargetError,
-  parseSshEffectiveConfig,
   sameServerTarget,
   serverTargetLabel,
   sshArgs,
   sshFailureMessage,
-  sshRunArgs,
-  sshSftpArgs,
-  sshStatusArgs,
-  sshTestArgs,
   supportsSshDirect,
   type ServerTarget
 } from './server'
@@ -45,8 +37,8 @@ describe('sshArgs', () => {
     expect(sshArgs({ kind: 'config', alias: 'prod' })).toEqual(['--', 'prod'])
   })
 
-  it('手填：非默认端口与私钥用选项给出', () => {
-    expect(sshArgs(manual())).toEqual(['--', 'root@10.0.0.8'])
+  it('手填：用户、非默认端口与私钥用选项给出，最后一个参数是主机名', () => {
+    expect(sshArgs(manual())).toEqual(['-l', 'root', '--', '10.0.0.8'])
     expect(sshArgs(manual({ port: 2222, identityFile: '/k/id', user: '' }))).toEqual([
       '-p',
       '2222',
@@ -56,61 +48,6 @@ describe('sshArgs', () => {
       '10.0.0.8'
     ])
   })
-
-  it('额外选项排在最前（-- 之前）', () => {
-    expect(sshArgs(manual({ port: 2222 }), ['-o', 'BindAddress=192.168.1.2'])).toEqual([
-      '-o',
-      'BindAddress=192.168.1.2',
-      '-p',
-      '2222',
-      '--',
-      'root@10.0.0.8'
-    ])
-    expect(sshArgs({ kind: 'config', alias: 'prod' }, ['-o', 'BindAddress=192.168.1.2'])).toEqual([
-      '-o',
-      'BindAddress=192.168.1.2',
-      '--',
-      'prod'
-    ])
-  })
-})
-
-describe('sshStatusArgs', () => {
-  it('不分配终端、带保活，额外选项在目标之前，远端命令最后', () => {
-    expect(
-      sshStatusArgs({ kind: 'config', alias: 'prod' }, 'sh -c x', ['-o', 'BindAddress=1.2.3.4'])
-    ).toEqual([
-      '-T',
-      '-o',
-      'ServerAliveInterval=15',
-      '-o',
-      'ServerAliveCountMax=3',
-      '-o',
-      'BindAddress=1.2.3.4',
-      '--',
-      'prod',
-      'sh -c x'
-    ])
-  })
-})
-
-describe('sshSftpArgs', () => {
-  it('打开 sftp 子系统、带保活，额外选项在目标之前', () => {
-    expect(sshSftpArgs(manual({ port: 2222 }), ['-o', 'BindAddress=1.2.3.4'])).toEqual([
-      '-s',
-      '-o',
-      'ServerAliveInterval=15',
-      '-o',
-      'ServerAliveCountMax=3',
-      '-o',
-      'BindAddress=1.2.3.4',
-      '-p',
-      '2222',
-      '--',
-      'root@10.0.0.8',
-      'sftp'
-    ])
-  })
 })
 
 describe('supportsSshDirect', () => {
@@ -118,52 +55,6 @@ describe('supportsSshDirect', () => {
     expect(supportsSshDirect('darwin')).toBe(true)
     expect(supportsSshDirect('win32')).toBe(true)
     expect(supportsSshDirect('linux')).toBe(false)
-  })
-})
-
-describe('sshTestArgs / sshRunArgs', () => {
-  it('测试连接：不读标准输入，10 秒连接超时，登录后立即 exit', () => {
-    expect(sshTestArgs({ kind: 'config', alias: 'prod' })).toEqual([
-      '-n',
-      '-o',
-      'ConnectTimeout=10',
-      '--',
-      'prod',
-      'exit'
-    ])
-  })
-
-  it('在服务器上执行：-t 分配远端终端，命令作为目标之后的一个参数', () => {
-    expect(sshRunArgs(manual({ port: 2222 }), 'uptime')).toEqual([
-      '-t',
-      '-p',
-      '2222',
-      '--',
-      'root@10.0.0.8',
-      'uptime'
-    ])
-  })
-
-  it('额外选项同样排在目标之前', () => {
-    const options = ['-o', 'BindAddress=192.168.1.2']
-    expect(sshTestArgs({ kind: 'config', alias: 'prod' }, options)).toEqual([
-      '-n',
-      '-o',
-      'ConnectTimeout=10',
-      '-o',
-      'BindAddress=192.168.1.2',
-      '--',
-      'prod',
-      'exit'
-    ])
-    expect(sshRunArgs({ kind: 'config', alias: 'prod' }, 'uptime', options)).toEqual([
-      '-t',
-      '-o',
-      'BindAddress=192.168.1.2',
-      '--',
-      'prod',
-      'uptime'
-    ])
   })
 })
 
@@ -203,102 +94,12 @@ describe('manualTargetError', () => {
   })
 })
 
-describe('classifyAskpassPrompt', () => {
-  it('首次连接的主机指纹确认', () => {
-    expect(
-      classifyAskpassPrompt(
-        "The authenticity of host 'example.com (93.184.216.34)' can't be established.\n" +
-          'ED25519 key fingerprint is SHA256:abc.\n' +
-          'This key is not known by any other names.\n' +
-          'Are you sure you want to continue connecting (yes/no/[fingerprint])? '
-      )
-    ).toBe('confirm')
-  })
-
-  it('密码：password 认证与 keyboard-interactive 两种写法，含中文', () => {
-    expect(classifyAskpassPrompt("root@10.0.0.8's password: ")).toBe('password')
-    expect(classifyAskpassPrompt('(root@10.0.0.8) Password: ')).toBe('password')
-    expect(classifyAskpassPrompt('密码：')).toBe('password')
-  })
-
-  it('私钥口令与验证码不算密码', () => {
-    expect(classifyAskpassPrompt("Enter passphrase for key '/Users/me/.ssh/id_ed25519': ")).toBe(
-      'secret'
-    )
-    expect(classifyAskpassPrompt('Verification code: ')).toBe('secret')
-  })
-})
-
-describe('askpassAction', () => {
-  it('密码提问：有可自动作答的密码且本次连接还没用过时自动作答', () => {
-    expect(askpassAction('password', true, false, false)).toBe('answer')
-    expect(askpassAction('password', true, false, true)).toBe('answer')
-  })
-
-  it('密码被拒或没有密码：正常连接转给用户，测试连接拒答', () => {
-    expect(askpassAction('password', true, true, false)).toBe('ask')
-    expect(askpassAction('password', false, false, false)).toBe('ask')
-    expect(askpassAction('password', true, true, true)).toBe('refuse')
-    expect(askpassAction('password', false, false, true)).toBe('refuse')
-  })
-
-  it('其余提问一律转给用户，测试连接也是', () => {
-    expect(askpassAction('secret', true, false, false)).toBe('ask')
-    expect(askpassAction('confirm', true, false, true)).toBe('ask')
-    expect(askpassAction('secret', false, false, true)).toBe('ask')
-  })
-})
-
-describe('askpassRememberDefault', () => {
-  it('第一次问密码时不勾', () => {
-    expect(askpassRememberDefault(null, false)).toBe(false)
-  })
-
-  it('自动填入的记住的密码被拒后重问：算作勾着', () => {
-    expect(askpassRememberDefault(null, true)).toBe(true)
-  })
-
-  it('用户答错后重问：沿用他上一次的勾选', () => {
-    expect(askpassRememberDefault(true, false)).toBe(true)
-    expect(askpassRememberDefault(false, false)).toBe(false)
-    expect(askpassRememberDefault(false, true)).toBe(false)
-  })
-})
-
 describe('connectableHostAliases', () => {
   it('跳过通配符与取反模式', () => {
     expect(connectableHostAliases(['prod', '*', 'web-?', '!bastion', 'db.internal'])).toEqual([
       'prod',
       'db.internal'
     ])
-  })
-})
-
-describe('parseSshEffectiveConfig', () => {
-  it('取 hostname / user / port，首个值为准', () => {
-    const output = [
-      'host prod',
-      'user deploy',
-      'hostname 10.0.0.8',
-      'port 2222',
-      'identityfile ~/.ssh/id_ed25519',
-      'identityfile ~/.ssh/id_rsa'
-    ].join('\n')
-    expect(parseSshEffectiveConfig('prod', output)).toEqual({
-      alias: 'prod',
-      hostName: '10.0.0.8',
-      user: 'deploy',
-      port: 2222
-    })
-  })
-
-  it('缺项回落：地址用别名、端口 22', () => {
-    expect(parseSshEffectiveConfig('box', 'user me\r\n')).toEqual({
-      alias: 'box',
-      hostName: 'box',
-      user: 'me',
-      port: 22
-    })
   })
 })
 

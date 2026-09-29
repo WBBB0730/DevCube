@@ -15,7 +15,8 @@ import type {
 } from '@shared/types'
 import { DEFAULT_APP_PREFS, DEFAULT_PROJECT_SORT_PREFS } from '@shared/types'
 import type { GitCloneInput } from '@shared/git-clone'
-import type { AskpassRequest, AskpassResponse, ServerInput, ServerNode } from '@shared/server'
+import type { ServerInput, ServerNode } from '@shared/server'
+import type { SshPromptRequest, SshPromptResponse } from '@shared/ssh-connect'
 import type { TransferConflictRequest, TransferConflictResponse } from '@shared/server-files'
 import type { ThemeMode } from '@shared/theme'
 import { configKey, filesTabKey, gitTabKey, isResidentTabKey, statusTabKey } from '@shared/runnable'
@@ -247,8 +248,8 @@ interface AppState {
   runNonce: Record<string, number>
   dialog: DialogState
   serverDialog: ServerDialogState
-  /** 等用户回答的 ssh 提问（先到先答，一次只弹一个） */
-  askpassQueue: AskpassRequest[]
+  /** 等用户回答的 SSH 提问（先到先答，一次只弹一个） */
+  sshPromptQueue: SshPromptRequest[]
   /** 等用户回答的传输同名询问（先到先答，一次只弹一个） */
   transferConflictQueue: TransferConflictRequest[]
   /**
@@ -353,9 +354,9 @@ interface AppState {
   addServers: (inputs: ServerInput[]) => Promise<void>
   updateServer: (id: string, input: ServerInput) => Promise<void>
   removeServer: (id: string) => Promise<void>
-  enqueueAskpass: (request: AskpassRequest) => void
-  dismissAskpass: (id: string) => void
-  answerAskpass: (response: AskpassResponse) => void
+  enqueueSshPrompt: (request: SshPromptRequest) => void
+  dismissSshPrompt: (id: string) => void
+  answerSshPrompt: (response: SshPromptResponse) => void
   enqueueTransferConflict: (request: TransferConflictRequest) => void
   dismissTransferConflict: (id: string) => void
   answerTransferConflict: (response: TransferConflictResponse) => void
@@ -436,7 +437,7 @@ export const useApp = create<AppState>((set, get) => ({
   runNonce: {},
   dialog: { open: false },
   serverDialog: { open: false },
-  askpassQueue: [],
+  sshPromptQueue: [],
   transferConflictQueue: [],
   unsavedServerFiles: {},
   unsavedPrompt: null,
@@ -762,12 +763,13 @@ export const useApp = create<AppState>((set, get) => ({
     }))
     persistWorkspace(get)
   },
-  enqueueAskpass: (request) => set((state) => ({ askpassQueue: [...state.askpassQueue, request] })),
-  dismissAskpass: (id) =>
-    set((state) => ({ askpassQueue: state.askpassQueue.filter((r) => r.id !== id) })),
-  answerAskpass: (response) => {
-    window.api.respondAskpass(response)
-    get().dismissAskpass(response.id)
+  enqueueSshPrompt: (request) =>
+    set((state) => ({ sshPromptQueue: [...state.sshPromptQueue, request] })),
+  dismissSshPrompt: (id) =>
+    set((state) => ({ sshPromptQueue: state.sshPromptQueue.filter((r) => r.id !== id) })),
+  answerSshPrompt: (response) => {
+    window.api.respondSshPrompt(response)
+    get().dismissSshPrompt(response.id)
   },
   enqueueTransferConflict: (request) =>
     set((state) => ({ transferConflictQueue: [...state.transferConflictQueue, request] })),

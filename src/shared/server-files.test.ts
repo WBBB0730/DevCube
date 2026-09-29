@@ -5,7 +5,7 @@ import {
   normalizeRemotePath,
   resolveRemoteInput,
   serverOpenPlan,
-  sftpConnectFailureMessage,
+  sftpOpenFailureMessage,
   uploadTargetDir,
   type TransferConflictResponse
 } from './server-files'
@@ -106,14 +106,16 @@ describe('createConflictPolicy', () => {
   })
 })
 
-describe('sftpConnectFailureMessage', () => {
-  it('没启用 sftp 子系统时给明确原因，其余取 ssh 报错最后一行', () => {
-    expect(sftpConnectFailureMessage('subsystem request failed on channel 0\n', 255)).toBe(
+describe('sftpOpenFailureMessage', () => {
+  it('没启用 sftp 子系统、通道里混进别的输出时给明确原因，其余原样', () => {
+    expect(sftpOpenFailureMessage(new Error('Unable to start subsystem: sftp'))).toBe(
       '服务器没有启用 SFTP，无法管理文件'
     )
-    expect(sftpConnectFailureMessage('Warning: x\nPermission denied (password).\n', 255)).toBe(
-      'Permission denied (password).'
+    expect(
+      sftpOpenFailureMessage({ message: 'Invalid packet length', level: 'sftp-protocol' })
+    ).toBe('服务器返回了无法识别的数据，可能是登录脚本往 SFTP 通道里输出了内容')
+    expect(sftpOpenFailureMessage(new Error('No response from server'))).toBe(
+      'No response from server'
     )
-    expect(sftpConnectFailureMessage('', 255)).toBe('连接失败（退出代码 255）')
   })
 })

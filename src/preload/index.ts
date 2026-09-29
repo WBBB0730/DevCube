@@ -89,9 +89,9 @@ const api: RunAPI = {
   respondTransferConflict: (response) => ipcRenderer.send(IPC.transferConflictRespond, response),
   reportUnsavedServerFiles: (count) => ipcRenderer.send(IPC.serverFilesUnsavedCount, count),
   onServersChanged: (cb) => subscribe(IPC.serversChanged, cb),
-  onAskpassRequest: (cb) => subscribe(IPC.askpassRequest, cb),
-  onAskpassDismiss: (cb) => subscribe(IPC.askpassDismiss, cb),
-  respondAskpass: (response) => ipcRenderer.send(IPC.askpassRespond, response),
+  onSshPromptRequest: (cb) => subscribe(IPC.sshPromptRequest, cb),
+  onSshPromptDismiss: (cb) => subscribe(IPC.sshPromptDismiss, cb),
+  respondSshPrompt: (response) => ipcRenderer.send(IPC.sshPromptRespond, response),
 
   run: (target: RunTarget) => ipcRenderer.invoke(IPC.run, target),
   stop: (key) => ipcRenderer.invoke(IPC.stop, key),
