@@ -4,10 +4,10 @@
 // 全局键盘只在可见时挂 capture 监听：Esc 分层关闭、Cmd/Ctrl+F 打开查找、Cmd/Ctrl+R 刷新
 // （fetch + 软刷新；导航类快捷键改由主进程 before-input-event；F/R 须排除 Alt）。
 import { useEffect, useSyncExternalStore } from 'react'
-import { LoaderCircle } from 'lucide-react'
 import { gitState, useGit } from '@renderer/git-store'
 import { useApp } from '@renderer/store'
 import { isPrimaryModifierEvent } from '@renderer/lib/shortcut-label'
+import { CenteredHint, LoadingHint } from '@renderer/components/ui/centered-hint'
 import { GitToolbar } from './GitToolbar'
 import { GitOpStatusBar } from './GitOpStatusBar'
 import { GitCommitTable } from './GitCommitTable'
@@ -76,11 +76,15 @@ export function GitPane({
       const st = gitState(store, projectPath)
       const mod = isPrimaryModifierEvent(e)
       if (e.key === 'Escape') {
-        // 分层关闭：一次 Esc 只关最上层（diff → 详情 → 菜单 → 对话框 → 查找）
-        if (st.diffView) store.closeDiff(projectPath)
+        // 错误框开着：Esc 由它自己收下（ErrorDialog），这里不处理，免得连带关掉下层。标签详情同理：取不到详情时是
+        // 错误框（开没开着在 GitDialogs 里，这里看不到），否则它自己监听 Esc 关掉
+        if (st.actionErrors !== null || st.dialog?.kind === 'tag-details') return
+        // 分层关闭：一次 Esc 只关最上层（对话框 → diff → 详情 → 菜单 → 查找）。对话框盖在其余各层之上，
+        // 开着时焦点在它的按钮上也只关它，不连带关掉下面的 diff / 详情
+        if (st.dialog) store.closeDialog(projectPath)
+        else if (st.diffView) store.closeDiff(projectPath)
         else if (st.expanded) store.closeDetails(projectPath)
         else if (st.contextMenu) store.closeContextMenu(projectPath)
-        else if (st.dialog) store.closeDialog(projectPath)
         else if (st.find?.open) store.setFind(projectPath, { open: false })
         else return // 无可关闭层：不吞事件
         e.preventDefault()
@@ -110,10 +114,7 @@ export function GitPane({
       {/* 操作进行中状态条（变基/合并/拣选/回滚中断）：组件自判 opInProgress 为空即 null */}
       {showChrome && <GitOpStatusBar projectPath={projectPath} />}
       {status === 'idle' || status === 'loading' ? (
-        <CenteredHint>
-          <LoaderCircle className="size-4 animate-spin" />
-          <span>加载中 …</span>
-        </CenteredHint>
+        <LoadingHint delay={0} />
       ) : status === 'error' ? (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6">
           <div className="text-sm text-muted-foreground">无法加载提交</div>
@@ -172,10 +173,7 @@ export function GitPane({
             <GitDiffView projectPath={projectPath} />
             {/* 切分支 / 改视图开关时只给图谱区盖半透明 loading，工具栏与详情不受影响 */}
             {graphLoading && (
-              <div className="absolute inset-0 z-10 flex items-center justify-center gap-1.5 bg-deepest/70 text-sm text-muted-foreground">
-                <LoaderCircle className="size-4 animate-spin" />
-                <span>加载中 …</span>
-              </div>
+              <LoadingHint delay={0} className="absolute inset-0 z-10 bg-deepest/70" />
             )}
           </div>
           {hasExpanded && <GitCommitDetails projectPath={projectPath} />}
@@ -184,15 +182,6 @@ export function GitPane({
       {/* 右键菜单与对话框自带开合判空（无内容即 null），挂在根级即可 */}
       <GitContextMenu projectPath={projectPath} />
       <GitDialogs projectPath={projectPath} />
-    </div>
-  )
-}
-
-/** 居中的单行状态提示（非仓库 / 空仓库 / 加载中），观感对齐 Console 的 Placeholder。 */
-function CenteredHint({ children }: { children: React.ReactNode }): React.JSX.Element {
-  return (
-    <div className="flex min-h-0 flex-1 items-center justify-center gap-1.5 px-6 text-sm text-muted-foreground">
-      {children}
     </div>
   )
 }

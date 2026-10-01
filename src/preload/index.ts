@@ -37,6 +37,90 @@ const api: RunAPI = {
   pickDirectory: (defaultPath) => ipcRenderer.invoke(IPC.pickDirectory, defaultPath),
   readClipboardText: () => ipcRenderer.invoke(IPC.clipboardReadText),
   getWindowsShellOptions: () => ipcRenderer.invoke(IPC.windowsShellOptions),
+  getPasswordUnavailableReason: () => ipcRenderer.invoke(IPC.passwordUnavailableReason),
+
+  getDataSources: () => ipcRenderer.invoke(IPC.dataSourcesGet),
+  onDataSourcesChanged: (cb) => subscribe(IPC.dataSourcesChanged, cb),
+  addDataSource: (input) => ipcRenderer.invoke(IPC.dataSourceAdd, input),
+  updateDataSource: (id, input) => ipcRenderer.invoke(IPC.dataSourceUpdate, id, input),
+  removeDataSource: (id) => ipcRenderer.invoke(IPC.dataSourceRemove, id),
+  touchDataSource: (id) => ipcRenderer.invoke(IPC.dataSourceTouch, id),
+  setDataSourceShownDatabases: (id, databases) =>
+    ipcRenderer.invoke(IPC.dataSourceShownDatabasesSet, id, databases),
+  pickSqliteFile: () => ipcRenderer.invoke(IPC.dataSourcePickSqliteFile),
+  testDataSourceConnection: (input) => ipcRenderer.invoke(IPC.dataSourceTest, input),
+  cancelDataSourceTest: () => ipcRenderer.invoke(IPC.dataSourceTestCancel),
+  getDataSourceSession: (tabKey) => ipcRenderer.invoke(IPC.dataSourceSessionGet, tabKey),
+  connectDataSourceSession: (tabKey, dataSourceId, password) =>
+    ipcRenderer.invoke(IPC.dataSourceSessionConnect, tabKey, dataSourceId, password),
+  disconnectDataSourceSession: (tabKey) =>
+    ipcRenderer.invoke(IPC.dataSourceSessionDisconnect, tabKey),
+  closeDataSourceTab: (tabKey) => ipcRenderer.invoke(IPC.dataSourceTabClose, tabKey),
+  onDataSourceSessionChanged: (cb) => subscribe(IPC.dataSourceSessionChanged, cb),
+  reopenDataSourceSession: (tabKey) => ipcRenderer.invoke(IPC.dataSourceSessionReopen, tabKey),
+  openSqliteFileSession: (tabKey, rootPath, filePath) =>
+    ipcRenderer.invoke(IPC.dataSourceSqliteFileOpen, tabKey, rootPath, filePath),
+  closeSqliteFileSession: (tabKey) => ipcRenderer.invoke(IPC.dataSourceSqliteFileClose, tabKey),
+  readDataSourceCatalog: (tabKey, path) => ipcRenderer.invoke(IPC.dataSourceCatalog, tabKey, path),
+  peekDataSourceCatalog: (tabKey, path) =>
+    ipcRenderer.invoke(IPC.dataSourceCatalogPeek, tabKey, path),
+  peekDataSourceCatalogLayers: (tabKey) =>
+    ipcRenderer.invoke(IPC.dataSourceCatalogLayersPeek, tabKey),
+  onDataSourceCatalogLayersChanged: (cb) => subscribe(IPC.dataSourceCatalogLayersChanged, cb),
+  readDataSourceTablePage: (tabKey, request) =>
+    ipcRenderer.invoke(IPC.dataSourceTablePage, tabKey, request),
+  countDataSourceTableRows: (tabKey, table, where) =>
+    ipcRenderer.invoke(IPC.dataSourceTableCount, tabKey, table, where),
+  cancelDataSourceTableCount: (tabKey) =>
+    ipcRenderer.invoke(IPC.dataSourceTableCountCancel, tabKey),
+  readDataSourceObjectDetail: (tabKey, path, name, detail) =>
+    ipcRenderer.invoke(IPC.dataSourceObjectDetail, tabKey, path, name, detail),
+  peekDataSourceObjectDetail: (tabKey, path, name, detail) =>
+    ipcRenderer.invoke(IPC.dataSourceObjectDetailPeek, tabKey, path, name, detail),
+  runDataSourceConsole: (tabKey, statements) =>
+    ipcRenderer.invoke(IPC.dataSourceConsoleRun, tabKey, statements),
+  cancelDataSourceConsole: (tabKey) => ipcRenderer.invoke(IPC.dataSourceConsoleCancel, tabKey),
+  onDataSourceExecuted: (cb) => subscribe(IPC.dataSourceExecuted, cb),
+  readDataSourceCompletionSchema: (tabKey, database) =>
+    ipcRenderer.invoke(IPC.dataSourceCompletion, tabKey, database),
+  peekDataSourceCompletionSchema: (tabKey, database) =>
+    ipcRenderer.invoke(IPC.dataSourceCompletionPeek, tabKey, database),
+  getDataSourceCompletionUsage: (dataSourceId) =>
+    ipcRenderer.invoke(IPC.dataSourceCompletionUsageGet, dataSourceId),
+  setDataSourceCompletionUsage: (dataSourceId, usage) =>
+    ipcRenderer.invoke(IPC.dataSourceCompletionUsageSet, dataSourceId, usage),
+  getDataSourceConsoleContext: (tabKey) =>
+    ipcRenderer.invoke(IPC.dataSourceConsoleContextGet, tabKey),
+  onDataSourceConsoleContextChanged: (cb) => subscribe(IPC.dataSourceConsoleContextChanged, cb),
+  switchDataSourceConsoleContext: (tabKey, change) =>
+    ipcRenderer.invoke(IPC.dataSourceConsoleContextSwitch, tabKey, change),
+  peekDataSourceDatabases: (dataSourceId) =>
+    ipcRenderer.invoke(IPC.dataSourceDatabasesPeek, dataSourceId),
+  readDataSourceCompletionFor: (dataSourceId, database) =>
+    ipcRenderer.invoke(IPC.dataSourceCompletionFor, dataSourceId, database),
+  getDataSourceConsoleText: (tabKey) => ipcRenderer.invoke(IPC.dataSourceConsoleTextGet, tabKey),
+  setDataSourceConsoleText: (tabKey, text) =>
+    ipcRenderer.invoke(IPC.dataSourceConsoleTextSet, tabKey, text),
+  getDataSourceTabUi: (tabKey) => ipcRenderer.invoke(IPC.dataSourceTabUiGet, tabKey),
+  setDataSourceTabUi: (tabKey, patch) => ipcRenderer.invoke(IPC.dataSourceTabUiSet, tabKey, patch),
+  getDataSourceRecents: (dataSourceId) =>
+    ipcRenderer.invoke(IPC.dataSourceRecentsGet, dataSourceId),
+  pushDataSourceRecent: (dataSourceId, opened) =>
+    ipcRenderer.invoke(IPC.dataSourceRecentPush, dataSourceId, opened),
+  dropDataSourceRecent: (dataSourceId, opened) =>
+    ipcRenderer.invoke(IPC.dataSourceRecentDrop, dataSourceId, opened),
+  scanRedisKeys: (tabKey, pattern) => ipcRenderer.invoke(IPC.redisScanKeys, tabKey, pattern),
+  readRedisKey: (tabKey, key) => ipcRenderer.invoke(IPC.redisReadKey, tabKey, key),
+  hasRedisKey: (tabKey, key) => ipcRenderer.invoke(IPC.redisHasKey, tabKey, key),
+  runRedisCommands: (tabKey, lines) => ipcRenderer.invoke(IPC.redisRunCommands, tabKey, lines),
+  readRedisDatabases: (tabKey) => ipcRenderer.invoke(IPC.redisDatabases, tabKey),
+  readRedisCommands: (tabKey) => ipcRenderer.invoke(IPC.redisCommands, tabKey),
+  pickDataSourceExportFile: (fileName, format) =>
+    ipcRenderer.invoke(IPC.dataSourcePickExportFile, fileName, format),
+  exportDataSourceTable: (tabKey, request, format, file) =>
+    ipcRenderer.invoke(IPC.dataSourceExportTable, tabKey, request, format, file),
+  exportDataSourceRows: (kind, result, format, file) =>
+    ipcRenderer.invoke(IPC.dataSourceExportRows, kind, result, format, file),
 
   getServers: () => ipcRenderer.invoke(IPC.serversGet),
   listSshConfigHosts: () => ipcRenderer.invoke(IPC.serverSshConfigHosts),
@@ -44,7 +128,6 @@ const api: RunAPI = {
   updateServer: (id, input) => ipcRenderer.invoke(IPC.serverUpdate, id, input),
   removeServer: (id) => ipcRenderer.invoke(IPC.serverRemove, id),
   touchServer: (id) => ipcRenderer.invoke(IPC.serverTouch, id),
-  getPasswordUnavailableReason: () => ipcRenderer.invoke(IPC.serverPasswordUnavailableReason),
   pickSshIdentityFile: () => ipcRenderer.invoke(IPC.serverPickIdentityFile),
   testServerConnection: (input) => ipcRenderer.invoke(IPC.serverTest, input),
   cancelServerTest: () => ipcRenderer.invoke(IPC.serverTestCancel),
@@ -101,6 +184,11 @@ const api: RunAPI = {
   getSessionBuffer: (key) => ipcRenderer.invoke(IPC.sessionBuffer, key),
   clearSessionOutput: (key) => ipcRenderer.invoke(IPC.sessionClear, key),
   getSessions: () => ipcRenderer.invoke(IPC.sessions),
+  getDataSourceRunOutput: (key) => ipcRenderer.invoke(IPC.dataSourceRunOutputGet, key),
+  onDataSourceRunOutput: (cb) => subscribe(IPC.dataSourceRunOutput, cb),
+  getDataSourceRunParams: (configId) => ipcRenderer.invoke(IPC.dataSourceRunParamsGet, configId),
+  setDataSourceRunParams: (configId, params) =>
+    ipcRenderer.invoke(IPC.dataSourceRunParamsSet, configId, params),
 
   openTerminal: (projectPath, key, cwd) =>
     ipcRenderer.invoke(IPC.terminalOpen, projectPath, key, cwd),

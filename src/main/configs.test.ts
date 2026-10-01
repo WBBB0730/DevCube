@@ -123,6 +123,14 @@ describe('reconcile', () => {
     expect(reconcile(configs, aliveByProject)).toEqual(configs)
   })
 
+  it('服务器上与数据源上的配置不参与对账', () => {
+    const configs: RunConfig[] = [
+      { id: '1', kind: 'remote', serverId: 's1', name: 'logs', command: 'ls' },
+      { id: '2', kind: 'dataSource', dataSourceId: 'd1', name: 'clean', script: 'select 1' }
+    ]
+    expect(reconcile(configs, aliveByProject)).toEqual(configs)
+  })
+
   it('项目未登记（无存活集合）时保留其配置', () => {
     const configs: RunConfig[] = [
       {

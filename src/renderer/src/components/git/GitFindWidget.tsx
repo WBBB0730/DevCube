@@ -6,6 +6,7 @@ import { useEffect, useRef } from 'react'
 import { BookOpen, ChevronDown, ChevronUp, Search, X } from 'lucide-react'
 import { UNCOMMITTED, type GitCommit } from '@shared/git'
 import { gitState, useGit } from '@renderer/git-store'
+import { TOOLBAR_BTN_SM } from '@renderer/components/ui/toolbar'
 import { cn } from '@renderer/lib/utils'
 
 export interface FindOptions {
@@ -85,8 +86,6 @@ export function findMatches(commits: GitCommit[], query: string, opts: FindOptio
 // 开关钮（Aa / .* / 详情联动）：激活态用选中行蓝底区分
 const TOGGLE_BTN =
   'flex h-6 shrink-0 items-center justify-center rounded px-1 font-mono text-[11px] transition-colors'
-const NAV_BTN =
-  'flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)] disabled:pointer-events-none disabled:opacity-50'
 
 /** 查找浮层：由集成者挂在表格容器（relative）内，find 为 null 或未打开时不渲染。 */
 export function GitFindWidget({ projectPath }: { projectPath: string }): React.JSX.Element | null {
@@ -271,7 +270,7 @@ export function GitFindWidget({ projectPath }: { projectPath: string }): React.J
           title="上一个匹配 (Shift+Enter)"
           disabled={matchCount === 0}
           onClick={() => navigate(-1)}
-          className={NAV_BTN}
+          className={TOOLBAR_BTN_SM}
         >
           <ChevronUp className="size-4" />
         </button>
@@ -280,11 +279,11 @@ export function GitFindWidget({ projectPath }: { projectPath: string }): React.J
           title="下一个匹配 (Enter)"
           disabled={matchCount === 0}
           onClick={() => navigate(1)}
-          className={NAV_BTN}
+          className={TOOLBAR_BTN_SM}
         >
           <ChevronDown className="size-4" />
         </button>
-        <button type="button" title="关闭 (Esc)" onClick={close} className={NAV_BTN}>
+        <button type="button" title="关闭 (Esc)" onClick={close} className={TOOLBAR_BTN_SM}>
           <X className="size-4" />
         </button>
       </div>

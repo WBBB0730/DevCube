@@ -2,15 +2,21 @@
 // 未连接时同 Status Tab 的样式（「尚未连接到 X」+「连接」）；连上后是 Files 面板（server 宿主，根为 `/`），
 // 底部一条传输栏。意外断开时面板保留（未保存的编辑还在），顶部提示原因与「重新连接」；
 // 手动断开、服务器被编辑或移除才回到未连接。
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { Download, LoaderCircle, Upload, X } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
+import { ConnectPlaceholder } from '@renderer/components/ui/connect-placeholder'
 import { FormDialogShell } from '@renderer/components/ui/form-dialog'
 import { FilesPane, type FilesPaneHost } from '@renderer/components/files/FilesPane'
-import { createKeyedSubscription } from '@renderer/lib/keyed-subscription'
+import { createKeyedSubscription, useKeyedPushed } from '@renderer/lib/keyed-subscription'
 import { cn } from '@renderer/lib/utils'
 import { useApp } from '@renderer/store'
-import type { ServerFilesState, ServerTransfer } from '@shared/server-files'
+import type {
+  ServerFilesState,
+  ServerFilesStateEvent,
+  ServerTransfer,
+  ServerTransfersEvent
+} from '@shared/server-files'
 import { formatBytes } from '@shared/server-status'
 import { serverEntryKey } from '@shared/tree-entry'
 
@@ -24,6 +30,12 @@ const subscribeServerTransfers = createKeyedSubscription(
   (event) => event.serverId
 )
 
+const stateOf = (event: ServerFilesStateEvent): ServerFilesState => event.state
+const transfersOf = (event: ServerTransfersEvent): ServerTransfer[] => event.transfers
+
+const IDLE: ServerFilesState = { phase: 'idle' }
+const NO_TRANSFERS: ServerTransfer[] = []
+
 export function ServerFilesPane({
   serverId,
   visible
@@ -33,34 +45,22 @@ export function ServerFilesPane({
 }): React.JSX.Element {
   const entryKey = serverEntryKey(serverId)
   const name = useApp((s) => s.servers.find((n) => n.server.id === serverId)?.server.name ?? '')
-  const [state, setState] = useState<ServerFilesState>({ phase: 'idle' })
-  const [transfers, setTransfers] = useState<ServerTransfer[]>([])
+  // 渲染端重载后接上主进程里已有的连接与传输；尚未得知时按未连接、没有传输
+  const state =
+    useKeyedPushed(serverId, subscribeServerFiles, window.api.getServerFilesState, stateOf) ?? IDLE
+  const transfers =
+    useKeyedPushed(
+      serverId,
+      subscribeServerTransfers,
+      window.api.getServerTransfers,
+      transfersOf
+    ) ?? NO_TRANSFERS
   /** 连上过的家目录：有它面板就留着（意外断开也不卸），手动断开 / 编辑服务器（回到未连接）才清掉 */
   const [home, setHome] = useState<string | null>(null)
   const [confirmDisconnect, setConfirmDisconnect] = useState(false)
 
   if (state.phase === 'connected' && home !== state.home) setHome(state.home)
   if (state.phase === 'idle' && home !== null) setHome(null)
-
-  useEffect(() => {
-    let current = true
-    const offState = subscribeServerFiles(serverId, (event) => setState(event.state))
-    const offTransfers = subscribeServerTransfers(serverId, (event) =>
-      setTransfers(event.transfers)
-    )
-    // 渲染端重载后接上主进程里已有的连接与传输
-    void window.api.getServerFilesState(serverId).then((initial) => {
-      if (current) setState(initial)
-    })
-    void window.api.getServerTransfers(serverId).then((initial) => {
-      if (current) setTransfers(initial)
-    })
-    return () => {
-      current = false
-      offState()
-      offTransfers()
-    }
-  }, [serverId])
 
   const connect = (): void => void window.api.connectServerFiles(serverId)
   const activeTransfers = transfers.filter((t) => t.status !== 'failed').length
@@ -88,29 +88,25 @@ export function ServerFilesPane({
   )
 
   if (host === null) {
+    if (state.phase === 'connecting') return <ConnectPlaceholder phase="connecting" />
+    if (state.phase === 'disconnected') {
+      return (
+        <ConnectPlaceholder
+          phase="failed"
+          message={state.message}
+          actionLabel="重新连接"
+          onAction={connect}
+        />
+      )
+    }
+    // 其余即未连接（刚连上那一刻 home 尚未补上，这次渲染会因上面的 setHome 随即重来）
     return (
-      <div className="flex h-full select-text flex-col items-center justify-center gap-3 px-6 text-sm text-muted-foreground">
-        {state.phase === 'idle' && (
-          <>
-            <span>{name === '' ? '尚未连接' : `尚未连接到 ${name}`}</span>
-            <Button onClick={connect}>连接</Button>
-          </>
-        )}
-        {state.phase === 'connecting' && (
-          <span className="flex items-center gap-2">
-            <LoaderCircle className="size-4 animate-spin" />
-            正在连接…
-          </span>
-        )}
-        {state.phase === 'disconnected' && (
-          <>
-            <span className="max-w-xl whitespace-pre-wrap break-words text-center">
-              {state.message}
-            </span>
-            <Button onClick={connect}>重新连接</Button>
-          </>
-        )}
-      </div>
+      <ConnectPlaceholder
+        phase="idle"
+        message={name === '' ? '尚未连接' : `尚未连接到 ${name}`}
+        actionLabel="连接"
+        onAction={connect}
+      />
     )
   }
 

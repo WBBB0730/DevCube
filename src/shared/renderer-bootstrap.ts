@@ -1,5 +1,6 @@
 /** 主进程在 preload 阶段同步注入的首屏快照，避免首帧空树。 */
 
+import type { DataSourceNode } from './data-source'
 import type { ServerNode } from './server'
 import { buildTreeEntries, configOwnerKey } from './tree-entry'
 import type { AppPrefs, ProjectNode, ProjectSortPrefs, SessionState, TerminalInfo } from './types'
@@ -14,6 +15,7 @@ import {
 export type RendererBootstrap = {
   tree: ProjectNode[]
   servers: ServerNode[]
+  dataSources: DataSourceNode[]
   sessions: SessionState[]
   terminals: TerminalInfo[]
   projectSortPrefs: ProjectSortPrefs
@@ -26,6 +28,7 @@ export type RendererBootstrap = {
 export function workspaceSliceFromBootstrap(boot: Omit<RendererBootstrap, 'appPrefs'>): {
   tree: ProjectNode[]
   servers: ServerNode[]
+  dataSources: DataSourceNode[]
   sessions: Record<string, SessionState>
   terminals: ReturnType<typeof mergeTerminalTabs>
   projectSortPrefs: ProjectSortPrefs
@@ -38,11 +41,14 @@ export function workspaceSliceFromBootstrap(boot: Omit<RendererBootstrap, 'appPr
   const terminals = mergeTerminalTabs(boot.terminals, boot.workspace.terminalsByEntry, (id) =>
     serverNames.get(id)
   )
-  const entryKeys = new Set(buildTreeEntries(boot.tree, boot.servers).map((e) => e.key))
-  // Project 与 Server 下的配置都可能是上次的选中项
+  const entryKeys = new Set(
+    buildTreeEntries(boot.tree, boot.servers, boot.dataSources).map((e) => e.key)
+  )
+  // Project、Server 与 Data Source 下的配置都可能是上次的选中项
   const configs = [
     ...boot.tree.flatMap((n) => n.configs),
-    ...boot.servers.flatMap((n) => n.configs)
+    ...boot.servers.flatMap((n) => n.configs),
+    ...boot.dataSources.flatMap((n) => n.configs)
   ]
   const configKeys = new Set(configs.map((c) => configKey(c)))
   const currentEntryKey = resolvePersistedEntryKey(boot.workspace.currentEntryKey, entryKeys)
@@ -60,6 +66,7 @@ export function workspaceSliceFromBootstrap(boot: Omit<RendererBootstrap, 'appPr
   return {
     tree: boot.tree,
     servers: boot.servers,
+    dataSources: boot.dataSources,
     sessions,
     terminals,
     projectSortPrefs: boot.projectSortPrefs,

@@ -12,6 +12,15 @@ import type {
 import { DEFAULT_APP_PREFS, DEFAULT_PROJECT_SORT_PREFS, WINDOWS_SHELLS } from '../shared/types'
 import { THEME_MODES, type ThemeMode } from '../shared/theme'
 import type { Server } from '../shared/server'
+import type { DataSource } from '../shared/data-source'
+import type { SavedConsoleContext } from '../shared/data-source-context'
+import type { DataSourceRunParams } from '../shared/data-source-run'
+import {
+  DEFAULT_DATA_SOURCE_TAB_UI,
+  type DataSourceOpened,
+  type DataSourceTabUi
+} from '../shared/data-source-ui'
+import { isPageSize, type CompletionUsage } from '../shared/data-source-query'
 import type { TerminalShell, WorkspaceUiState } from '../shared/workspace'
 import { DEFAULT_WORKSPACE_UI, migrateLegacyWorkspaceUi } from '../shared/workspace'
 import {
@@ -33,7 +42,15 @@ export async function initStore(): Promise<void> {
       servers: [],
       serverSecrets: {},
       keyPassphrases: {},
+      dataSources: [],
+      dataSourceSecrets: {},
+      dataSourceConsoles: {},
+      dataSourceTabUi: {},
+      dataSourceConsoleContexts: {},
+      dataSourceRecents: {},
+      dataSourceCompletionUsage: {},
       configs: [],
+      dataSourceRunParams: {},
       gitSettings: {},
       gitViewPrefs: DEFAULT_GIT_VIEW_PREFS,
       projectSortPrefs: DEFAULT_PROJECT_SORT_PREFS,
@@ -84,28 +101,177 @@ export function setServers(servers: Server[]): void {
   store.set('servers', servers)
 }
 
+/** 记住的密文（safeStorage 输出的 base64）存在哪一份：服务器密码、私钥口令、数据源密码。 */
+type SecretField = 'serverSecrets' | 'keyPassphrases' | 'dataSourceSecrets'
+
+/** 按键（id、路径或 Tab 键）一项记一条的字段。 */
+type KeyedField =
+  | SecretField
+  | 'dataSourceConsoles'
+  | 'dataSourceTabUi'
+  | 'dataSourceConsoleContexts'
+  | 'dataSourceRecents'
+  | 'dataSourceCompletionUsage'
+  | 'dataSourceRunParams'
+  | 'gitSettings'
+  | 'filesUi'
+
+/** 按键删掉字段里的几条；一条都没有时不写盘。 */
+function deleteEntries(field: KeyedField, keys: readonly string[]): void {
+  const all = { ...store.get(field) }
+  if (!keys.some((key) => Object.hasOwn(all, key))) return
+  for (const key of keys) delete all[key]
+  store.set(field, all)
+}
+
+function getSecretIn(field: SecretField, key: string): string | null {
+  return store.get(field)[key] ?? null
+}
+
+/** 记下或删掉（secret 为 null）一条密文。 */
+function setSecretIn(field: SecretField, key: string, secret: string | null): void {
+  if (secret === null) deleteEntries(field, [key])
+  else store.set(field, { ...store.get(field), [key]: secret })
+}
+
 /** 记住的密码密文（safeStorage 输出的 base64）；没有返回 null。 */
 export function getServerSecret(serverId: string): string | null {
-  return store.get('serverSecrets')[serverId] ?? null
+  return getSecretIn('serverSecrets', serverId)
 }
 
 export function setServerSecret(serverId: string, secret: string | null): void {
-  const all = { ...store.get('serverSecrets') }
-  if (secret === null) delete all[serverId]
-  else all[serverId] = secret
-  store.set('serverSecrets', all)
+  setSecretIn('serverSecrets', serverId, secret)
 }
 
 /** 记住的私钥口令密文（同 getServerSecret）；键为私钥文件的绝对路径。 */
 export function getKeyPassphraseSecret(file: string): string | null {
-  return store.get('keyPassphrases')[file] ?? null
+  return getSecretIn('keyPassphrases', file)
 }
 
 export function setKeyPassphraseSecret(file: string, secret: string | null): void {
-  const all = { ...store.get('keyPassphrases') }
-  if (secret === null) delete all[file]
-  else all[file] = secret
-  store.set('keyPassphrases', all)
+  setSecretIn('keyPassphrases', file, secret)
+}
+
+export function getDataSources(): DataSource[] {
+  return store.get('dataSources')
+}
+
+export function setDataSources(dataSources: DataSource[]): void {
+  store.set('dataSources', dataSources)
+}
+
+/** 记住的数据源密码密文（同 getServerSecret）；没有返回 null。 */
+export function getDataSourceSecret(dataSourceId: string): string | null {
+  return getSecretIn('dataSourceSecrets', dataSourceId)
+}
+
+export function setDataSourceSecret(dataSourceId: string, secret: string | null): void {
+  setSecretIn('dataSourceSecrets', dataSourceId, secret)
+}
+
+/**
+ * 已删掉另存内容的 Data Source Tab 键（Tab 关闭、所在项目或数据源移除）：之后对它们的写入一律忽略。主进程先删内容，
+ * 渲染端随后才卸载控制台，卸载时会把防抖中还没写盘的内容写掉（见 useConsoleText），不拦下就留下一条没人用的记录。
+ * Tab 键不会复用（另开的是 uuid，常驻的随数据源 id，也是 uuid），只记在内存里即可：重启后不再有写它们的 Tab。
+ */
+const deletedTabKeys = new Set<string>()
+
+/** 某个 Data Source Tab 控制台里写的内容；没写过为空串。 */
+export function getDataSourceConsole(tabKey: string): string {
+  return store.get('dataSourceConsoles')[tabKey] ?? ''
+}
+
+export function setDataSourceConsole(tabKey: string, text: string): void {
+  if (deletedTabKeys.has(tabKey)) return
+  if (text === '') deleteEntries('dataSourceConsoles', [tabKey])
+  else store.set('dataSourceConsoles', { ...store.get('dataSourceConsoles'), [tabKey]: text })
+}
+
+/** 某个 Data Source Tab 记住的界面状态（停在哪一格、上次打开的、目录的展开）；没记过为默认。 */
+export function getDataSourceTabUi(tabKey: string): DataSourceTabUi {
+  return {
+    ...DEFAULT_DATA_SOURCE_TAB_UI,
+    ...pickKnownKeys(DEFAULT_DATA_SOURCE_TAB_UI, store.get('dataSourceTabUi')[tabKey])
+  }
+}
+
+export function setDataSourceTabUi(tabKey: string, patch: Partial<DataSourceTabUi>): void {
+  if (deletedTabKeys.has(tabKey)) return
+  const merged = { ...getDataSourceTabUi(tabKey), ...patch }
+  store.set('dataSourceTabUi', { ...store.get('dataSourceTabUi'), [tabKey]: merged })
+}
+
+/** 某个 Data Source Tab 记住的控制台上下文（在哪个库上执行，见 shared/data-source-context）；没记过为 null。 */
+export function getSavedConsoleContext(tabKey: string): SavedConsoleContext | null {
+  return store.get('dataSourceConsoleContexts')[tabKey] ?? null
+}
+
+/** 记下（context 为 null 即删掉）Tab 的控制台上下文；已删掉的 Tab 的写入不再收。 */
+export function setSavedConsoleContext(tabKey: string, context: SavedConsoleContext | null): void {
+  if (deletedTabKeys.has(tabKey)) return
+  if (context === null) {
+    deleteEntries('dataSourceConsoleContexts', [tabKey])
+  } else {
+    store.set('dataSourceConsoleContexts', {
+      ...store.get('dataSourceConsoleContexts'),
+      [tabKey]: context
+    })
+  }
+}
+
+/**
+ * Tab 关闭、所在项目或数据源移除时删掉这些 Tab 另存的：控制台里写的内容、记住的界面状态与控制台上下文。此后不再收
+ * 它们的写入。
+ */
+export function deleteDataSourceTabState(tabKeys: string[]): void {
+  for (const key of tabKeys) deletedTabKeys.add(key)
+  deleteEntries('dataSourceConsoles', tabKeys)
+  deleteEntries('dataSourceTabUi', tabKeys)
+  deleteEntries('dataSourceConsoleContexts', tabKeys)
+}
+
+/**
+ * 数据源的连接信息被改（连到的可能已是别的库）时，忘掉这些 Tab 记住的位置：上次打开的对象或键、目录的展开与控制台
+ * 上下文。停在哪一格与控制台里写的内容不动。
+ */
+export function forgetDataSourceTabPlaces(tabKeys: string[]): void {
+  const ui = { ...store.get('dataSourceTabUi') }
+  for (const key of tabKeys) {
+    if (Object.hasOwn(ui, key)) ui[key] = { ...ui[key]!, opened: null, expanded: [] }
+  }
+  store.set('dataSourceTabUi', ui)
+  deleteEntries('dataSourceConsoleContexts', tabKeys)
+}
+
+/** 某个数据源最近打开的对象或键（新→旧）；没有为空。 */
+export function getDataSourceRecents(dataSourceId: string): DataSourceOpened[] {
+  return store.get('dataSourceRecents')[dataSourceId] ?? []
+}
+
+export function setDataSourceRecents(dataSourceId: string, recents: DataSourceOpened[]): void {
+  store.set('dataSourceRecents', { ...store.get('dataSourceRecents'), [dataSourceId]: recents })
+}
+
+/** 数据源移除时删掉它的最近打开。 */
+export function deleteDataSourceRecents(dataSourceId: string): void {
+  deleteEntries('dataSourceRecents', [dataSourceId])
+}
+
+/** 某个数据源补全的使用次数；没有为空。 */
+export function getDataSourceCompletionUsage(dataSourceId: string): CompletionUsage {
+  return store.get('dataSourceCompletionUsage')[dataSourceId] ?? { keywords: {}, names: {} }
+}
+
+export function setDataSourceCompletionUsage(dataSourceId: string, usage: CompletionUsage): void {
+  store.set('dataSourceCompletionUsage', {
+    ...store.get('dataSourceCompletionUsage'),
+    [dataSourceId]: usage
+  })
+}
+
+/** 数据源移除时删掉它补全的使用次数。 */
+export function deleteDataSourceCompletionUsage(dataSourceId: string): void {
+  deleteEntries('dataSourceCompletionUsage', [dataSourceId])
 }
 
 export function getConfigs(): RunConfig[] {
@@ -114,6 +280,21 @@ export function getConfigs(): RunConfig[] {
 
 export function setConfigs(configs: RunConfig[]): void {
   store.set('configs', configs)
+}
+
+/** 数据源上的配置上次运行时填的参数值；没填过为空对象。 */
+export function getDataSourceRunParams(configId: string): DataSourceRunParams {
+  return store.get('dataSourceRunParams')[configId] ?? {}
+}
+
+/** 记下这次运行填的参数值（整份替换：只留这次用到的参数）。 */
+export function setDataSourceRunParams(configId: string, params: DataSourceRunParams): void {
+  store.set('dataSourceRunParams', { ...store.get('dataSourceRunParams'), [configId]: params })
+}
+
+/** 配置被删掉（删除配置、移除它所在的数据源）时删掉它记住的参数值。 */
+export function deleteDataSourceRunParams(configIds: string[]): void {
+  deleteEntries('dataSourceRunParams', configIds)
 }
 
 // —— Git 设置（每项目）与视图偏好 ——
@@ -149,9 +330,7 @@ export function setGitSettings(
 
 /** 项目移除时清掉它的 git 设置，避免残留。 */
 export function deleteGitSettings(projectPath: string): void {
-  const all = { ...store.get('gitSettings') }
-  delete all[projectPath]
-  store.set('gitSettings', all)
+  deleteEntries('gitSettings', [projectPath])
 }
 
 export function getGitViewPrefs(): GitViewPrefs {
@@ -192,13 +371,18 @@ function normalizeTheme(value: unknown): ThemeMode {
     : DEFAULT_APP_PREFS.theme
 }
 
+function normalizePageSize(value: unknown): number {
+  return isPageSize(value) ? value : DEFAULT_APP_PREFS.dataPageSize
+}
+
 export function getAppPrefs(): AppPrefs {
   const stored = store.get('appPrefs')
   return {
     ...DEFAULT_APP_PREFS,
     ...pickKnownKeys(DEFAULT_APP_PREFS, stored),
     windowsShell: normalizeWindowsShell(stored?.windowsShell ?? DEFAULT_APP_PREFS.windowsShell),
-    theme: normalizeTheme(stored?.theme ?? DEFAULT_APP_PREFS.theme)
+    theme: normalizeTheme(stored?.theme ?? DEFAULT_APP_PREFS.theme),
+    dataPageSize: normalizePageSize(stored?.dataPageSize)
   }
 }
 
@@ -208,7 +392,8 @@ export function setAppPrefs(patch: Partial<AppPrefs>): AppPrefs {
     ...current,
     ...patch,
     windowsShell: normalizeWindowsShell(patch.windowsShell ?? current.windowsShell),
-    theme: normalizeTheme(patch.theme ?? current.theme)
+    theme: normalizeTheme(patch.theme ?? current.theme),
+    dataPageSize: normalizePageSize(patch.dataPageSize ?? current.dataPageSize)
   }
   store.set('appPrefs', merged)
   return merged
@@ -231,9 +416,7 @@ export function setFilesUi(entryKey: string, patch: Partial<FilesUiState>): File
 
 /** 项目或服务器移除时清掉 Files UI，避免残留。 */
 export function deleteFilesUi(entryKey: string): void {
-  const all = { ...(store.get('filesUi') ?? {}) }
-  delete all[entryKey]
-  store.set('filesUi', all)
+  deleteEntries('filesUi', [entryKey])
 }
 
 function normalizeWorkspaceUi(raw: Partial<WorkspaceUiState> | undefined): WorkspaceUiState {
@@ -264,7 +447,7 @@ export function setWorkspaceUi(state: WorkspaceUiState): WorkspaceUiState {
   return normalized
 }
 
-/** 条目（Project / Server）移除时清掉它的激活 Tab / 终端壳；若当前条目或选中落在它上面则清空。 */
+/** 条目（Project / Server / Data Source）移除时清掉它的激活 Tab / 终端壳；若当前条目或选中落在它上面则清空。 */
 export function deleteWorkspaceUiForEntry(entryKey: string): void {
   const cur = getWorkspaceUi()
   const activeTabByEntry = { ...cur.activeTabByEntry }
@@ -280,12 +463,12 @@ export function deleteWorkspaceUiForEntry(entryKey: string): void {
   })
 }
 
-/** 服务器移除时清掉各条目（含 Project）下连到它的 SSH Terminal 壳。 */
-export function deleteSshShellsForServer(serverId: string): void {
+/** 清掉各条目（含 Project）下符合条件的终端组 Tab 壳（服务器移除时连到它的 SSH Terminal，数据源移除时连到它的 Data Source Tab）。 */
+export function deleteTerminalShells(match: (shell: TerminalShell) => boolean): void {
   const cur = getWorkspaceUi()
   const terminalsByEntry: Record<string, TerminalShell[]> = {}
   for (const [entryKey, shells] of Object.entries(cur.terminalsByEntry)) {
-    terminalsByEntry[entryKey] = shells.filter((s) => s.serverId !== serverId)
+    terminalsByEntry[entryKey] = shells.filter((s) => !match(s))
   }
   setWorkspaceUi({ ...cur, terminalsByEntry })
 }

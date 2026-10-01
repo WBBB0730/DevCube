@@ -2,7 +2,7 @@ import { app, ipcMain, BrowserWindow, clipboard, shell } from 'electron'
 import { homedir } from 'node:os'
 import { join, posix } from 'node:path'
 import { IPC } from '../shared/ipc'
-import { configKey } from '../shared/runnable'
+import { configKey, residentDataSourceTabKey } from '../shared/runnable'
 import { isOpenInAppId } from '../shared/open-in-app'
 import { isSystemIntegrationFeatureId } from '../shared/system-integration'
 import { isExternalLink } from '../shared/external-link'
@@ -19,10 +19,32 @@ import type {
   TreeSnapshot,
   WindowsShellOption
 } from '../shared/types'
-import type { ServerInput, ServerTestInput } from '../shared/server'
+import type { CatalogPath } from '../shared/data-source-catalog'
+import type { DataSourceRunParams } from '../shared/data-source-run'
+import type { DataSourceOpened, DataSourceTabUi } from '../shared/data-source-ui'
+import type { ConsoleContextChange } from '../shared/data-source-context'
+import type {
+  CompletionUsage,
+  ExportResult,
+  ResultSet,
+  TableExportRequest,
+  TablePageRequest,
+  TableRef
+} from '../shared/data-source-query'
+import { exportFileName, type ExportFormat } from '../shared/data-source-export'
+import { exportResultRows } from './data-source-export'
+import {
+  dataSourceConnectionChanged,
+  type DataSourceAddResult,
+  type DataSourceConnectPassword,
+  type DataSourceInput,
+  type DataSourceTestInput,
+  type SqlKind
+} from '../shared/data-source'
+import { serverConnectionChanged, type ServerInput, type ServerTestInput } from '../shared/server'
 import type { SshPromptResponse } from '../shared/ssh-connect'
 import type { TransferConflictResponse } from '../shared/server-files'
-import { serverEntryKey } from '../shared/tree-entry'
+import { dataSourceEntryKey, serverEntryKey } from '../shared/tree-entry'
 import { resolveClonePath, type GitCloneInput } from '../shared/git-clone'
 import { listOpenInApps, openInApp } from './open-in-app'
 import {
@@ -42,14 +64,67 @@ import {
   promoteScript,
   reconcileConfigs,
   reorderConfigs,
+  saveDataSourceRunParams,
   updateCommandConfig
 } from './configs'
 import { pickDirectory, pickFile, pickPaths, pickSavePath } from './dialogs'
 import { respondSshPrompt, setSshPromptSink } from './ssh-prompts'
-import { passwordUnavailableReason } from './server-secrets'
+import { passwordUnavailableReason } from './secrets'
+import {
+  addDataSource,
+  dropDataSourceRecent,
+  findDataSource,
+  forgetDataSourcePlaces,
+  listDataSourceNodes,
+  pushDataSourceRecent,
+  removeDataSource,
+  saveDataSourceCompletionUsage,
+  setDataSourceShownDatabases,
+  touchDataSource,
+  updateDataSource
+} from './data-sources'
+import { cancelDataSourceTest, testDataSourceConnection } from './data-source-connect'
+import { getDataSourceRunOutput } from './data-source-runs'
+import {
+  cancelDataSourceConsole,
+  cancelDataSourceTableCount,
+  closeDataSourceSession,
+  connectDataSourceSession,
+  connectSqliteFileSession,
+  countDataSourceTableRows,
+  disconnectDataSourceSession,
+  disposeDataSourceSessions,
+  exportDataSourceTable,
+  getDataSourceConsoleContext,
+  getDataSourceSession,
+  hasRedisKey,
+  peekDataSourceCatalog,
+  peekDataSourceCatalogLayers,
+  peekDataSourceCompletionSchema,
+  peekDataSourceDatabases,
+  peekDataSourceObjectDetail,
+  readDataSourceCatalog,
+  readDataSourceCompletionFor,
+  readDataSourceCompletionSchema,
+  readDataSourceObjectDetail,
+  readDataSourceTablePage,
+  readRedisCommands,
+  readRedisDatabases,
+  readRedisKey,
+  reopenDataSourceSession,
+  resetDataSourceSessions,
+  runDataSourceConsole,
+  runRedisCommands,
+  scanRedisKeys,
+  setDataSourceSessionSink,
+  switchDataSourceConsoleContext,
+  updateDataSourceSessionsPassword,
+  updateDataSourceSessionsShown
+} from './data-source-sessions'
 import {
   addServers,
   cancelServerTest,
+  findServer,
   listServerNodes,
   listSshConfigHosts,
   removeServer,
@@ -118,9 +193,15 @@ import {
 import {
   deleteFilesUi,
   deleteGitSettings,
-  deleteSshShellsForServer,
+  deleteDataSourceTabState,
+  deleteTerminalShells,
+  getDataSourceCompletionUsage,
+  getDataSourceConsole,
+  getDataSourceRecents,
+  getDataSourceTabUi,
   deleteWorkspaceUiForEntry,
   getConfigs,
+  getDataSourceRunParams,
   getFilesUi,
   getGitSettings,
   getGitViewPrefs,
@@ -128,6 +209,8 @@ import {
   getProjectSortPrefs,
   getProjects,
   getWorkspaceUi,
+  setDataSourceConsole,
+  setDataSourceTabUi,
   setAppPrefs,
   setFilesUi,
   setGitSettings,
@@ -139,6 +222,7 @@ import { applyTheme } from './theme'
 import {
   assertFilesRoot,
   createEntry,
+  filesSysPath,
   filterFilesTreeQuery,
   imagePreviewEntry,
   imagePyramidEntry,
@@ -189,6 +273,7 @@ import { isPathUnderGrantedRoot } from './files-roots'
 import { openPreviewWindowForRoot, setPreviewWindowRoot } from './preview-window'
 import { copyFileToClipboard } from './clipboard-file'
 import { setTerminalFocused } from './app-shortcuts'
+import { broadcast } from './app-window'
 
 let mainWindow: BrowserWindow | null = null
 /** 没有主窗口时（只开着预览窗口 / macOS 全关）由 index 提供建窗；工作台已预置当前项目 */
@@ -198,6 +283,24 @@ function liveMainWindow(): BrowserWindow | null {
   return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
 }
 
+/**
+ * 关掉 Data Source Tab（用户关 Tab、所在项目被移除）：断开并忘掉连接，删掉控制台里写的内容与记住的界面状态（此后渲染端
+ * 卸载控制台时晚到的写入不再收，见 deleteDataSourceTabState）。
+ */
+function closeDataSourceTabs(tabKeys: string[]): void {
+  for (const tabKey of tabKeys) closeDataSourceSession(tabKey)
+  deleteDataSourceTabState(tabKeys)
+}
+
+/** 连到数据源 id 的各个 Data Source Tab 的键：常驻的与另开的（含开在项目里的）。 */
+function dataSourceTabKeys(id: string): string[] {
+  const opened = Object.values(getWorkspaceUi().terminalsByEntry)
+    .flat()
+    .filter((shell) => shell.dataSourceId === id)
+    .map((shell) => shell.id)
+  return [residentDataSourceTabKey(dataSourceEntryKey(id)), ...opened]
+}
+
 /** 主动向渲染端推送最新树（供文件监听 / 自动删除等 main 侧变更使用）。 */
 export function emitTree(): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -205,9 +308,9 @@ export function emitTree(): void {
   }
 }
 
-/** 左树两类条目的全量快照（跨两类的改动一并返回）。 */
+/** 左树三类条目的全量快照（跨类的改动一并返回）。 */
 function treeSnapshot(): TreeSnapshot {
-  return { tree: buildTree(), servers: listServerNodes() }
+  return { tree: buildTree(), servers: listServerNodes(), dataSources: listDataSourceNodes() }
 }
 
 /** 某项目的仓库内容变化（.git 变动 / git 动作完成）：通知渲染端软刷新其图谱。 */
@@ -369,6 +472,12 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     // 先删掉该项目名下的配置并销毁其会话（杀进程树 + 清状态），再移除项目。
     for (const config of deleteConfigsOf(path)) disposeSession(configKey(config))
     disposeTerminalsForEntry(path) // 一并杀掉并清除它名下的全部 Terminal / SSH Terminal
+    // 开在它里面的 Data Source Tab 一并关掉（壳随下面清工作台现场时删掉）
+    closeDataSourceTabs(
+      (getWorkspaceUi().terminalsByEntry[path] ?? [])
+        .filter((shell) => shell.dataSourceId !== undefined)
+        .map((shell) => shell.id)
+    )
     removeProject(path)
     deleteGitSettings(path) // 连同它的 git 设置与仓库根缓存
     deleteFilesUi(path)
@@ -384,7 +493,7 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     return buildTree()
   })
 
-  // —— 左树条目（Project 与 Server 混排） ——
+  // —— 左树条目（Project、Server 与 Data Source 混排） ——
   ipcMain.handle(IPC.entryReorder, (_e, orderedKeys: string[]): TreeSnapshot => {
     reorderEntries(orderedKeys)
     return treeSnapshot()
@@ -395,6 +504,198 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     return treeSnapshot()
   })
 
+  // —— 数据源（Data Source，ADR-0043） ——
+  ipcMain.handle(IPC.dataSourcesGet, () => listDataSourceNodes())
+  ipcMain.handle(IPC.dataSourceAdd, (_e, input: DataSourceInput): DataSourceAddResult => ({
+    focusId: addDataSource(input),
+    dataSources: listDataSourceNodes()
+  }))
+  ipcMain.handle(IPC.dataSourceUpdate, (_e, id: string, input: DataSourceInput) => {
+    const before = findDataSource(id)
+    updateDataSource(id, input)
+    // 连接信息变了：它的各个 Tab 断开，回到未连接（运行会话的连接不断开，这一次照旧跑完），表结构缓存删掉；连到的
+    // 可能已是别的库，显示的库回到默认，最近打开与各 Tab 记住的对象、目录展开、控制台上下文一并忘掉。只改名、改记住的密码不断开；换了密码时之后另开的连接用新密码
+    if (before !== null && dataSourceConnectionChanged(before.target, input.target)) {
+      resetDataSourceSessions(id)
+      forgetDataSourcePlaces(id, dataSourceTabKeys(id))
+    } else if (typeof input.password === 'string') {
+      updateDataSourceSessionsPassword(id, input.password)
+    }
+    return listDataSourceNodes()
+  })
+  ipcMain.handle(IPC.dataSourceRemove, (_e, id: string) => {
+    // 先删掉它名下的配置并销毁其运行会话，断开并忘掉连到它的各个 Tab（含开在项目里的）、删掉表结构缓存，
+    // 再删它们的控制台内容与记住的界面状态、清工作台现场、删登记与记住的密码、最近打开、补全的使用次数
+    for (const config of deleteConfigsOf(dataSourceEntryKey(id))) disposeSession(configKey(config))
+    disposeDataSourceSessions(id)
+    deleteDataSourceTabState(dataSourceTabKeys(id))
+    deleteWorkspaceUiForEntry(dataSourceEntryKey(id))
+    deleteTerminalShells((shell) => shell.dataSourceId === id)
+    removeDataSource(id)
+    return listDataSourceNodes()
+  })
+  ipcMain.handle(IPC.dataSourceTouch, (_e, id: string) => {
+    touchDataSource(id)
+    return listDataSourceNodes()
+  })
+  // 目录根行勾选显示的库：按数据源记（它的各个 Tab 一样）；连着的各个 Tab 在后台把新勾上的库读一遍
+  ipcMain.handle(IPC.dataSourceShownDatabasesSet, (_e, id: string, databases: string[]) => {
+    const before = findDataSource(id)?.shownDatabases
+    setDataSourceShownDatabases(id, databases)
+    updateDataSourceSessionsShown(id, before)
+    return listDataSourceNodes()
+  })
+  ipcMain.handle(IPC.dataSourcePickSqliteFile, () => pickFile(undefined, mainWindow))
+  ipcMain.handle(IPC.dataSourceTest, (_e, input: DataSourceTestInput) =>
+    testDataSourceConnection(input)
+  )
+  ipcMain.handle(IPC.dataSourceTestCancel, () => cancelDataSourceTest())
+  ipcMain.handle(IPC.dataSourceSessionGet, (_e, tabKey: string) => getDataSourceSession(tabKey))
+  ipcMain.handle(
+    IPC.dataSourceSessionConnect,
+    (_e, tabKey: string, dataSourceId: string, password: DataSourceConnectPassword | null) =>
+      connectDataSourceSession(tabKey, dataSourceId, password)
+  )
+  ipcMain.handle(IPC.dataSourceSessionDisconnect, (_e, tabKey: string) =>
+    disconnectDataSourceSession(tabKey)
+  )
+  ipcMain.handle(IPC.dataSourceTabClose, (_e, tabKey: string) => closeDataSourceTabs([tabKey]))
+  ipcMain.handle(IPC.dataSourceConsoleRun, (_e, tabKey: string, statements: string[]) =>
+    runDataSourceConsole(tabKey, statements)
+  )
+  ipcMain.handle(IPC.dataSourceConsoleCancel, (_e, tabKey: string) =>
+    cancelDataSourceConsole(tabKey)
+  )
+  ipcMain.handle(IPC.dataSourceCompletion, (_e, tabKey: string, database?: string) =>
+    readDataSourceCompletionSchema(tabKey, database)
+  )
+  ipcMain.handle(IPC.dataSourceCompletionPeek, (_e, tabKey: string, database?: string) =>
+    peekDataSourceCompletionSchema(tabKey, database)
+  )
+  ipcMain.handle(IPC.dataSourceCompletionUsageGet, (_e, id: string) =>
+    getDataSourceCompletionUsage(id)
+  )
+  ipcMain.handle(IPC.dataSourceCompletionUsageSet, (_e, id: string, usage: CompletionUsage) =>
+    saveDataSourceCompletionUsage(id, usage)
+  )
+  ipcMain.handle(IPC.dataSourceConsoleContextGet, (_e, tabKey: string) =>
+    getDataSourceConsoleContext(tabKey)
+  )
+  ipcMain.handle(
+    IPC.dataSourceConsoleContextSwitch,
+    (_e, tabKey: string, change: ConsoleContextChange) =>
+      switchDataSourceConsoleContext(tabKey, change)
+  )
+  // 运行配置对话框：「库」的选项与补全都先取表结构缓存，不依赖 Tab
+  ipcMain.handle(IPC.dataSourceDatabasesPeek, (_e, id: string) => peekDataSourceDatabases(id))
+  ipcMain.handle(IPC.dataSourceCompletionFor, (_e, id: string, database: string) =>
+    readDataSourceCompletionFor(id, database)
+  )
+  ipcMain.handle(IPC.dataSourceConsoleTextGet, (_e, tabKey: string) => getDataSourceConsole(tabKey))
+  ipcMain.handle(IPC.dataSourceConsoleTextSet, (_e, tabKey: string, text: string) =>
+    setDataSourceConsole(tabKey, text)
+  )
+  ipcMain.handle(IPC.dataSourceTabUiGet, (_e, tabKey: string) => getDataSourceTabUi(tabKey))
+  ipcMain.handle(IPC.dataSourceTabUiSet, (_e, tabKey: string, patch: Partial<DataSourceTabUi>) =>
+    setDataSourceTabUi(tabKey, patch)
+  )
+  ipcMain.handle(IPC.dataSourceRecentsGet, (_e, id: string) => getDataSourceRecents(id))
+  ipcMain.handle(IPC.dataSourceRecentPush, (_e, id: string, opened: DataSourceOpened) =>
+    pushDataSourceRecent(id, opened)
+  )
+  ipcMain.handle(IPC.dataSourceRecentDrop, (_e, id: string, opened: DataSourceOpened) =>
+    dropDataSourceRecent(id, opened)
+  )
+  // 导出分两步：先在下载目录弹保存对话框（挂在发起导出的窗口上，主窗口或 Preview Window），选好了渲染端才开始导出
+  // （导出钮转圈）并交来文件写入；取消即不导出。默认文件名由表名处理成单个合法文件名
+  ipcMain.handle(
+    IPC.dataSourcePickExportFile,
+    (e, fileName: string, format: ExportFormat): Promise<string | null> =>
+      pickSavePath(
+        join(app.getPath('downloads'), exportFileName(fileName, format)),
+        BrowserWindow.fromWebContents(e.sender)
+      )
+  )
+  ipcMain.handle(
+    IPC.dataSourceExportTable,
+    (
+      _e,
+      tabKey: string,
+      request: TableExportRequest,
+      format: ExportFormat,
+      file: string
+    ): Promise<ExportResult> => exportDataSourceTable(tabKey, request, format, file)
+  )
+  ipcMain.handle(
+    IPC.dataSourceExportRows,
+    (_e, kind: SqlKind, result: ResultSet, format: ExportFormat, file: string) =>
+      exportResultRows(kind, result, format, file)
+  )
+  ipcMain.handle(IPC.dataSourceCatalog, (_e, tabKey: string, path: CatalogPath) =>
+    readDataSourceCatalog(tabKey, path)
+  )
+  // 取表结构缓存（不访问数据库）：界面先显示它，同时照常现查
+  ipcMain.handle(IPC.dataSourceCatalogPeek, (_e, tabKey: string, path: CatalogPath) =>
+    peekDataSourceCatalog(tabKey, path)
+  )
+  // 目录各层的表结构缓存（不访问数据库）与批量读取还在不在进行：目录按名称筛选时连同已读取的层一起找
+  ipcMain.handle(IPC.dataSourceCatalogLayersPeek, (_e, tabKey: string) =>
+    peekDataSourceCatalogLayers(tabKey)
+  )
+  ipcMain.handle(IPC.dataSourceTablePage, (_e, tabKey: string, request: TablePageRequest) =>
+    readDataSourceTablePage(tabKey, request)
+  )
+  ipcMain.handle(IPC.dataSourceTableCount, (_e, tabKey: string, table: TableRef, where: string) =>
+    countDataSourceTableRows(tabKey, table, where)
+  )
+  ipcMain.handle(IPC.dataSourceTableCountCancel, (_e, tabKey: string) =>
+    cancelDataSourceTableCount(tabKey)
+  )
+  ipcMain.handle(
+    IPC.dataSourceObjectDetail,
+    (_e, tabKey: string, path: CatalogPath, name: string, detail?: string) =>
+      readDataSourceObjectDetail(tabKey, path, name, detail)
+  )
+  ipcMain.handle(
+    IPC.dataSourceObjectDetailPeek,
+    (_e, tabKey: string, path: CatalogPath, name: string, detail?: string) =>
+      peekDataSourceObjectDetail(tabKey, path, name, detail)
+  )
+  ipcMain.handle(IPC.redisScanKeys, (_e, tabKey: string, pattern: string) =>
+    scanRedisKeys(tabKey, pattern)
+  )
+  ipcMain.handle(IPC.redisReadKey, (_e, tabKey: string, key: string) => readRedisKey(tabKey, key))
+  ipcMain.handle(IPC.redisHasKey, (_e, tabKey: string, key: string) => hasRedisKey(tabKey, key))
+  ipcMain.handle(IPC.redisRunCommands, (_e, tabKey: string, lines: string[]) =>
+    runRedisCommands(tabKey, lines)
+  )
+  ipcMain.handle(IPC.redisDatabases, (_e, tabKey: string) => readRedisDatabases(tabKey))
+  ipcMain.handle(IPC.redisCommands, (_e, tabKey: string) => readRedisCommands(tabKey))
+  ipcMain.handle(IPC.dataSourceSessionReopen, (_e, tabKey: string) =>
+    reopenDataSourceSession(tabKey)
+  )
+  // 会话记住发起打开的页面：它关闭、重载时一并关掉；路径越界等打不开的原因显示在面板里
+  ipcMain.handle(
+    IPC.dataSourceSqliteFileOpen,
+    (e, tabKey: string, rootPath: string, filePath: string) =>
+      connectSqliteFileSession(e.sender, tabKey, () => filesSysPath(rootPath, filePath))
+  )
+  // 它不保存控制台内容，关掉只断开连接（不走关 Data Source Tab 的收尾）
+  ipcMain.handle(IPC.dataSourceSqliteFileClose, (_e, tabKey: string) =>
+    closeDataSourceSession(tabKey)
+  )
+  setDataSourceSessionSink({
+    // Preview Window 里也能直接打开 SQLite 文件：连接状态推给所有窗口，各窗口按 Tab 键认领
+    state: (event) => broadcast(IPC.dataSourceSessionChanged, event),
+    dataSourcesChanged: () =>
+      liveMainWindow()?.webContents.send(IPC.dataSourcesChanged, listDataSourceNodes()),
+    context: (event) => broadcast(IPC.dataSourceConsoleContextChanged, event),
+    // 补全的计数器在主窗口里（登记的数据源只在主窗口打开），只推给它，免得各窗口重复计数
+    executed: (event) => liveMainWindow()?.webContents.send(IPC.dataSourceExecuted, event),
+    // 同连接状态：Preview Window 里直接打开的 SQLite 文件也有目录筛选
+    catalogLayers: (event) => broadcast(IPC.dataSourceCatalogLayersChanged, event)
+  })
+
   // —— 服务器（Server，ADR-0038） ——
   ipcMain.handle(IPC.serversGet, () => listServerNodes())
   ipcMain.handle(IPC.serverSshConfigHosts, () => listSshConfigHosts())
@@ -403,10 +704,13 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     return { servers: listServerNodes(), focusIds }
   })
   ipcMain.handle(IPC.serverUpdate, (_e, id: string, input: ServerInput) => {
+    const before = findServer(id)
     updateServer(id, input)
-    resetServerFiles(id)
-    // 连接信息可能变了：状态连接断开，回到未连接
-    resetServerStatus(id)
+    // 连接信息变了：文件与状态连接断开，回到未连接（只改名、改记住的密码不断开）
+    if (before !== null && serverConnectionChanged(before, input)) {
+      resetServerFiles(id)
+      resetServerStatus(id)
+    }
     return listServerNodes()
   })
   ipcMain.handle(IPC.serverRemove, (_e, id: string) => {
@@ -418,7 +722,7 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     disposeServerFiles(id)
     deleteFilesUi(serverEntryKey(id))
     deleteWorkspaceUiForEntry(serverEntryKey(id))
-    deleteSshShellsForServer(id)
+    deleteTerminalShells((shell) => shell.serverId === id)
     removeServer(id)
     return listServerNodes()
   })
@@ -426,7 +730,6 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     touchServer(id)
     return listServerNodes()
   })
-  ipcMain.handle(IPC.serverPasswordUnavailableReason, () => passwordUnavailableReason())
   ipcMain.handle(IPC.serverPickIdentityFile, () => pickFile(join(homedir(), '.ssh'), mainWindow))
   ipcMain.handle(IPC.serverTest, (_e, input: ServerTestInput) => testServerConnection(input))
   ipcMain.handle(IPC.serverTestCancel, () => cancelServerTest())
@@ -552,15 +855,14 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     setProjectSortPrefs(patch)
   )
 
+  ipcMain.handle(IPC.passwordUnavailableReason, () => passwordUnavailableReason())
   ipcMain.handle(IPC.appPrefsGet, () => getAppPrefs())
   ipcMain.handle(IPC.appPrefsSet, (_e, patch: Partial<AppPrefs>) => {
     const merged = setAppPrefs(patch)
     // 主题改动即时落到原生侧（themeSource 驱动渲染层 prefers-color-scheme，无需重启窗口）。
     if (patch.theme !== undefined) applyTheme(merged.theme)
     // 推给全部窗口：主窗口与 Preview Window 的设置弹窗都能改，JS 侧读的偏好（自动获取）各窗口同步
-    for (const w of BrowserWindow.getAllWindows()) {
-      if (!w.isDestroyed()) w.webContents.send(IPC.appPrefsChanged, merged)
-    }
+    broadcast(IPC.appPrefsChanged, merged)
     return merged
   })
   ipcMain.handle(IPC.pickDirectory, (_e, defaultPath?: string) =>
@@ -588,6 +890,13 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   ipcMain.handle(IPC.sessionBuffer, (_e, key: string) => getSessionBuffer(key))
   ipcMain.handle(IPC.sessionClear, (_e, key: string) => clearSessionOutput(key))
   ipcMain.handle(IPC.sessions, () => getSessions())
+  ipcMain.handle(IPC.dataSourceRunOutputGet, (_e, key: string) => getDataSourceRunOutput(key))
+  ipcMain.handle(IPC.dataSourceRunParamsGet, (_e, configId: string) =>
+    getDataSourceRunParams(configId)
+  )
+  ipcMain.handle(IPC.dataSourceRunParamsSet, (_e, configId: string, params: DataSourceRunParams) =>
+    saveDataSourceRunParams(configId, params)
+  )
 
   // —— 终端（Terminal，自由 shell）与 Tab 关闭 ——
   ipcMain.handle(IPC.terminalOpen, (_e, projectPath: string, key?: string, cwd?: string) =>
@@ -617,7 +926,7 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     }
   )
 
-  // —— 命令型配置 CRUD（本机或服务器上；返回两类条目的快照） ——
+  // —— 命令型配置 CRUD（本机、服务器上或数据源上；返回三类条目的快照） ——
   ipcMain.handle(IPC.configCreate, (_e, input: EditableRunConfigInput): TreeSnapshot => {
     createCommandConfig(input)
     return treeSnapshot()

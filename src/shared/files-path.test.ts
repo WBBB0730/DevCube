@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   childPathPrefix,
   joinLogicalPath,
+  lastPathSegment,
   logicalParentPath,
   normalizePath,
   remapPathPrefix,
@@ -32,6 +33,14 @@ describe('childPathPrefix / joinLogicalPath / logicalParentPath', () => {
     expect(logicalParentPath('/etc')).toBe('/')
     expect(logicalParentPath('/')).toBe('/')
     expect(logicalParentPath('C:/x')).toBe('C:/')
+  })
+})
+
+describe('lastPathSegment', () => {
+  it('兼容两种分隔符与末尾分隔符', () => {
+    expect(lastPathSegment('/a/b/c')).toBe('c')
+    expect(lastPathSegment('/a/b/c/')).toBe('c')
+    expect(lastPathSegment('C:\\a\\b')).toBe('b')
   })
 })
 

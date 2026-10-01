@@ -29,7 +29,7 @@ function PasswordInput({
         onMouseDown={(e) => e.preventDefault()}
         onMouseUp={(e) => e.preventDefault()}
         onClick={() => setVisible((v) => !v)}
-        className="absolute inset-y-0 right-0 flex w-7 items-center justify-center text-muted-foreground transition-colors hover:text-[color:var(--fg-icon)] disabled:pointer-events-none disabled:opacity-50"
+        className="absolute inset-y-0 right-0 flex w-8 items-center justify-center text-muted-foreground transition-colors hover:text-[color:var(--fg-icon)] disabled:pointer-events-none disabled:opacity-50"
       >
         {visible ? <EyeOff className="size-3.5" /> : <Eye className="size-3.5" />}
       </button>

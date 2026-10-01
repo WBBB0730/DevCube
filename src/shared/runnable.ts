@@ -11,6 +11,7 @@ export function scriptKey(projectPath: string, source: DiscoverSource, scriptNam
   return `${projectPath}${SEP}${source}${SEP}${scriptName}`
 }
 
+/** 配置的会话键：引用型同其探测脚本（见上）；命令型（本机、服务器上与数据源上）为 `cmd\0<id>`。 */
 export function configKey(config: RunConfig): string {
   return config.kind === 'referenced'
     ? scriptKey(config.projectPath, config.source, config.scriptName)
@@ -47,7 +48,25 @@ export function isStatusTabKey(key: string): boolean {
   return key.startsWith('status:')
 }
 
-/** 常驻非会话 Tab（Git / Files / Status）：Cmd+W / closeTab 均为 no-op。 */
+// Data Source 条目常驻的 Data Source Tab 键，排在它的 Tab 栏最前（见 docs/prd/database.md）。
+// entryKey 即 `datasource:<id>`，键形如 `db:datasource:<id>`。
+export function residentDataSourceTabKey(entryKey: string): string {
+  return `db:${entryKey}`
+}
+
+export function isResidentDataSourceTabKey(key: string): boolean {
+  return key.startsWith('db:')
+}
+
+// 另开的 Data Source Tab（数据源条目「+」、项目里「连接到数据源」等）的键，形如 `db-tab:<uuid>`：与终端同组，
+// 可关闭、按条目持久化。前缀与常驻的 `db:` 不重叠，isResidentDataSourceTabKey / isResidentTabKey 都认不到它。
+export function newDataSourceTabKey(): string {
+  return `db-tab:${crypto.randomUUID()}`
+}
+
+/** 常驻非会话 Tab（Git / Files / Status / Data Source 的常驻 Tab）：Cmd+W / closeTab 均为 no-op。 */
 export function isResidentTabKey(key: string): boolean {
-  return isGitTabKey(key) || isFilesTabKey(key) || isStatusTabKey(key)
+  return (
+    isGitTabKey(key) || isFilesTabKey(key) || isStatusTabKey(key) || isResidentDataSourceTabKey(key)
+  )
 }

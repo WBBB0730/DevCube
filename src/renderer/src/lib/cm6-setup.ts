@@ -91,6 +91,7 @@ import {
   type ViewUpdate
 } from '@codemirror/view'
 import { tags as t } from '@lezer/highlight'
+import type { StyleSpec } from 'style-mod'
 import type { ThemeMode } from '@shared/theme'
 import { filesLineNumbers } from './cm6-git-gutter'
 import { filesSelectionLayer } from './cm6-selection-layer'
@@ -177,6 +178,27 @@ const LIGHT_SCHEME: EditorScheme = {
   htmlTagName: '#0033B3' // 代码级 fallback：HTML_TAG_NAME → DEFAULT_KEYWORD
 }
 
+/**
+ * 浮层（补全列表等；主编辑器与栏里的单行编辑器共用）：底色 LOOKUP_COLOR。候选右侧的说明（如列的类型）用附属信息灰字
+ * `--fg-info`，与候选本身区分开（同 WebStorm 补全列表的灰字）；选中行的底色深，说明随候选同色。
+ */
+function tooltipTheme(ICLS: EditorScheme): Record<string, StyleSpec> {
+  return {
+    '.cm-tooltip': {
+      backgroundColor: ICLS.lookupBg,
+      border: `1px solid ${ICLS.indentGuide}`,
+      color: ICLS.fg,
+      borderRadius: '0'
+    },
+    '.cm-completionDetail': {
+      color: 'var(--fg-info)'
+    },
+    '.cm-tooltip-autocomplete ul li[aria-selected] .cm-completionDetail': {
+      color: 'inherit'
+    }
+  }
+}
+
 /** 编辑器 chrome：背景 / 光标 / 选区 / 行号 / 活动行。 */
 function buildEditorTheme(ICLS: EditorScheme, dark: boolean): Extension {
   return EditorView.theme(
@@ -258,12 +280,7 @@ function buildEditorTheme(ICLS: EditorScheme, dark: boolean): Extension {
       '.cm-searchMatch.cm-searchMatch-selected': {
         backgroundColor: ICLS.searchSelected
       },
-      '.cm-tooltip': {
-        backgroundColor: ICLS.lookupBg,
-        border: `1px solid ${ICLS.indentGuide}`,
-        color: ICLS.fg,
-        borderRadius: '0'
-      },
+      ...tooltipTheme(ICLS),
       '.cm-panels': {
         backgroundColor: ICLS.lookupBg,
         color: ICLS.fg
@@ -278,6 +295,45 @@ function buildEditorTheme(ICLS: EditorScheme, dark: boolean): Extension {
         fontStyle: 'normal',
         textDecoration: 'underline'
       }
+    },
+    { dark }
+  )
+}
+
+/**
+ * 栏里的单行编辑器（表数据顶栏的 WHERE / ORDER BY，见 database/BarCodeInput）：外观同 BarInput 的等宽输入——透明底、字色随
+ * 所在的框、13px 等宽、没有内边距（与框前标签正好隔一个字符宽）；超出框宽时横向滚动、不出滚动条。光标色与补全浮层同
+ * 上面的编辑器。
+ */
+function buildBarEditorTheme(ICLS: EditorScheme, dark: boolean): Extension {
+  return EditorView.theme(
+    {
+      '&': {
+        fontSize: '13px',
+        color: 'inherit',
+        backgroundColor: 'transparent'
+      },
+      '&.cm-focused': {
+        outline: 'none'
+      },
+      '.cm-scroller': {
+        fontFamily: 'var(--font-mono)',
+        lineHeight: '1.5',
+        scrollbarWidth: 'none'
+      },
+      '.cm-content': {
+        caretColor: ICLS.caret,
+        padding: '0'
+      },
+      '.cm-line': {
+        padding: '0'
+      },
+      // 行首没有内边距：光标不左移半个线宽，免得在行首被滚动区切掉一半
+      '&.cm-focused .cm-cursor, .cm-cursor': {
+        borderLeftColor: ICLS.caret,
+        marginLeft: '0'
+      },
+      ...tooltipTheme(ICLS)
     },
     { dark }
   )
@@ -379,6 +435,12 @@ export const filesEditorTheme: Record<ThemeMode, Extension> = {
   light: buildEditorTheme(LIGHT_SCHEME, false)
 }
 
+/** 栏里的单行编辑器的外观（见 buildBarEditorTheme），按主题取用。 */
+export const barEditorTheme: Record<ThemeMode, Extension> = {
+  dark: buildBarEditorTheme(DARK_SCHEME, true),
+  light: buildBarEditorTheme(LIGHT_SCHEME, false)
+}
+
 const HIGHLIGHT_STYLES: Record<ThemeMode, Extension> = {
   dark: buildHighlighting(DARK_SCHEME, true),
   light: buildHighlighting(LIGHT_SCHEME, false)
@@ -392,6 +454,15 @@ const HIGHLIGHT_STYLES: Record<ThemeMode, Extension> = {
 export const filesHighlightStyle: Record<ThemeMode, HighlightStyle> = {
   dark: HighlightStyle.define(highlightSpecs(DARK_SCHEME)),
   light: HighlightStyle.define(highlightSpecs(LIGHT_SCHEME))
+}
+
+/**
+ * 关键字色（DEFAULT_KEYWORD，同上面高亮里的关键字）：编辑器外要与编辑器里的 SQL 关键字同色处用（表数据顶栏框里有字时的
+ * WHERE / ORDER BY 标签）。
+ */
+export const filesKeywordColor: Record<ThemeMode, string> = {
+  dark: DARK_SCHEME.keyword,
+  light: LIGHT_SCHEME.keyword
 }
 
 /** tab 宽 + 自绘选区层（整行高 / 换行格 / 圆角，见 cm6-selection-layer）。 */

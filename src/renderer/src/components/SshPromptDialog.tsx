@@ -2,12 +2,14 @@
 // 首行 muted 写明正在连接哪台主机（经跳板机时为那一跳）。主机未知：核对指纹后「连接」；主机密钥已更改：醒目警告，
 // 「更新并连接」为危险样式；密码与私钥口令为遮挡输入，可勾「记住密码」/「记住口令」；服务器的交互式提问逐项作答。
 // 它可能叠在别的对话框上（如服务器对话框里测试连接时）：Esc 在捕获阶段先由它收下，只取消这一次提问；
-// 点遮罩不收口，只认明确的按钮。
-import { useCallback, useEffect, useState } from 'react'
-import { Checkbox } from '@renderer/components/ui/checkbox'
+// 点遮罩不收口，只认明确的按钮；答完把焦点还给打开前的地方。
+import { useCallback, useState } from 'react'
+import { CHOICE_ROW, Checkbox } from '@renderer/components/ui/checkbox'
 import { FormDialogShell } from '@renderer/components/ui/form-dialog'
 import { Input } from '@renderer/components/ui/input'
 import { PasswordInput } from '@renderer/components/ui/password-input'
+import { useRestoreFocus } from '@renderer/lib/use-restore-focus'
+import { useStackedEscape } from '@renderer/lib/use-stacked-escape'
 import { useApp } from '@renderer/store'
 import type { SshPrompt, SshPromptRequest } from '@shared/ssh-connect'
 
@@ -20,15 +22,8 @@ export function SshPromptDialog({ request }: { request: SshPromptRequest }): Rea
     () => answer({ id: request.id, answers: null, remember: false }),
     [answer, request.id]
   )
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape') return
-      e.stopImmediatePropagation()
-      cancel()
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [cancel])
+  useStackedEscape(cancel)
+  useRestoreFocus()
 
   const respond = (answers: string[], remember = false): void =>
     answer({ id: request.id, answers, remember })
@@ -138,7 +133,7 @@ function SecretForm({
       )}
       <PasswordInput value={value} autoFocus onChange={(e) => setValue(e.target.value)} />
       {prompt.canRemember && (
-        <label className="flex cursor-pointer select-none items-center gap-2 text-[13px] text-foreground">
+        <label className={CHOICE_ROW}>
           <Checkbox checked={remember} onCheckedChange={setRemember} />
           <span>{password ? '记住密码' : '记住口令'}</span>
         </label>

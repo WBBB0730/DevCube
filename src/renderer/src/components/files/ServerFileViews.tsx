@@ -1,9 +1,10 @@
 // 服务器上的文件在正文区的几样东西（docs/prd/server-files.md）：打开时的下载进度（可取消）；
 // 不在此打开的占位——较大的文件（图片、PDF 等可「仍然打开」）与不能预览的二进制；文本文件的保存栏（手动保存）。
-import { useEffect, useState } from 'react'
 import { LoaderCircle } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
+import { LoadingHint } from '@renderer/components/ui/centered-hint'
 import { shortcutTitle } from '@renderer/lib/shortcut-label'
+import { useShowAfter } from '@renderer/lib/use-show-after'
 import { formatBytes } from '@shared/server-status'
 import { SHORTCUT } from '@shared/shortcut-label'
 
@@ -25,20 +26,10 @@ export function ServerOpenProgress({
   progress: { doneBytes: number; totalBytes: number } | null
   onCancel: () => void
 }): React.JSX.Element | null {
-  const [shown, setShown] = useState(false)
-  useEffect(() => {
-    const timer = setTimeout(() => setShown(true), OPENING_DELAY_MS)
-    return () => clearTimeout(timer)
-  }, [])
+  const shown = useShowAfter(OPENING_DELAY_MS)
   if (!shown) return null
-  if (progress === null) {
-    return (
-      <div className="absolute inset-0 z-10 flex items-center justify-center gap-1.5 bg-deepest text-sm text-muted-foreground">
-        <LoaderCircle className="size-3.5 animate-spin" />
-        正在加载…
-      </div>
-    )
-  }
+  if (progress === null)
+    return <LoadingHint delay={0} className="absolute inset-0 z-10 bg-deepest" />
   const { doneBytes, totalBytes } = progress
   const name = path.slice(path.lastIndexOf('/') + 1)
   const ratio = totalBytes > 0 ? Math.min(1, doneBytes / totalBytes) : 0

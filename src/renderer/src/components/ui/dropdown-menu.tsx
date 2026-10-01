@@ -161,6 +161,11 @@ function DropdownMenuSubContent({
   )
 }
 
+/** 菜单里的一行说明（不可选）：读取中、读不出来的原因、没有可选的。 */
+function DropdownMenuHint({ children }: { children?: React.ReactNode }): React.JSX.Element {
+  return <div className="px-2 py-1.5 text-[13px] text-muted-foreground">{children}</div>
+}
+
 function DropdownMenuSeparator(): React.JSX.Element {
   return <div className="mx-1.5 my-1 h-px bg-[var(--border-input)]" role="separator" />
 }
@@ -171,6 +176,7 @@ export {
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuCheckboxItem,
+  DropdownMenuHint,
   DropdownMenuSeparator,
   DropdownMenuSub,
   DropdownMenuSubTrigger,

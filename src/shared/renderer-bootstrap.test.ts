@@ -34,6 +34,7 @@ describe('workspaceSliceFromBootstrap', () => {
         }
       ],
       servers: [],
+      dataSources: [],
       sessions: [],
       terminals: [],
       projectSortPrefs: DEFAULT_PROJECT_SORT_PREFS,
@@ -67,6 +68,7 @@ describe('workspaceSliceFromBootstrap', () => {
           configs: []
         }
       ],
+      dataSources: [],
       sessions: [],
       terminals: [],
       projectSortPrefs: DEFAULT_PROJECT_SORT_PREFS,
@@ -101,6 +103,7 @@ describe('workspaceSliceFromBootstrap', () => {
           configs: [{ id: 'r1', kind: 'remote', serverId: 's1', name: 'logs', command: 'ls' }]
         }
       ],
+      dataSources: [],
       sessions: [],
       terminals: [],
       projectSortPrefs: DEFAULT_PROJECT_SORT_PREFS,
@@ -113,10 +116,54 @@ describe('workspaceSliceFromBootstrap', () => {
     expect(slice.selectedKey).toBe(`cmd${SEP}r1`)
   })
 
+  it('数据源下选中的配置：当前条目是它所属的数据源时保留，否则清掉', () => {
+    const boot = (currentEntryKey: string): Parameters<typeof workspaceSliceFromBootstrap>[0] => ({
+      tree: [],
+      servers: [],
+      dataSources: [
+        {
+          dataSource: {
+            id: 'd1',
+            name: 'shop',
+            target: { kind: 'sqlite', file: '/data/shop.db' },
+            addedAt: 1,
+            lastOpenedAt: null,
+            pinned: false,
+            order: 0
+          },
+          hasPassword: false,
+          configs: [
+            { id: 'q1', kind: 'dataSource', dataSourceId: 'd1', name: 'clean', script: 'x' }
+          ]
+        },
+        {
+          dataSource: {
+            id: 'd2',
+            name: 'logs',
+            target: { kind: 'sqlite', file: '/data/logs.db' },
+            addedAt: 1,
+            lastOpenedAt: null,
+            pinned: false,
+            order: 1
+          },
+          hasPassword: false,
+          configs: []
+        }
+      ],
+      sessions: [],
+      terminals: [],
+      projectSortPrefs: DEFAULT_PROJECT_SORT_PREFS,
+      workspace: { ...DEFAULT_WORKSPACE_UI, currentEntryKey, selectedKey: `cmd${SEP}q1` }
+    })
+    expect(workspaceSliceFromBootstrap(boot('datasource:d1')).selectedKey).toBe(`cmd${SEP}q1`)
+    expect(workspaceSliceFromBootstrap(boot('datasource:d2')).selectedKey).toBeNull()
+  })
+
   it('工作台指向已删除项目时清空当前项', () => {
     const slice = workspaceSliceFromBootstrap({
       tree: [],
       servers: [],
+      dataSources: [],
       sessions: [],
       terminals: [],
       projectSortPrefs: DEFAULT_PROJECT_SORT_PREFS,

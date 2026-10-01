@@ -435,6 +435,8 @@ async function detectKind(
     size === 0 ? new Uint8Array(0) : await client.readHead(remotePath, Math.min(size, HEAD_BYTES))
   const mime = await detectMime(head)
   const fromMime = mime === null ? null : filesOpenKindFromMime(mime, name)
+  // 服务器上的 SQLite 文件不直接打开（要先整个下载下来），按其余文件占位
+  if (fromMime === 'sqlite') return 'other'
   if (fromMime !== null) return fromMime
   if (mime === null && byName === 'other' && sniffTextBuffer(head)) return 'text'
   return byName

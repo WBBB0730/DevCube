@@ -18,7 +18,7 @@ import {
   useRef,
   useState
 } from 'react'
-import { GalleryHorizontal, GalleryVertical, LoaderCircle, Scan } from 'lucide-react'
+import { GalleryHorizontal, GalleryVertical, Scan } from 'lucide-react'
 import { useApp } from '@renderer/store'
 import { editableTarget, overlayOpen } from '@renderer/lib/files-key-guards'
 import { cn } from '@renderer/lib/utils'
@@ -40,9 +40,10 @@ import {
   type MediaCamera,
   type MediaFitMode
 } from '@renderer/lib/files-media-zoom'
+import { LoadingHint } from '@renderer/components/ui/centered-hint'
+import { TOOLBAR_BTN } from '@renderer/components/ui/toolbar'
 import { FilesMediaTiles, type MediaTilesHandle } from './FilesMediaTiles'
 import { FilesPreviewError } from './FilesPreviewError'
-import { TOOLBAR_BTN } from './FilesToolbar'
 
 /** 缩放停手多久后提交尺寸（重新栅格化）。短于 FlowVision 的 400ms。 */
 export const MEDIA_SETTLE_MS = 100
@@ -535,7 +536,7 @@ export function FilesMediaPreview({
       }
       if (editableTarget(e.target) || overlayOpen()) return
       const app = useApp.getState()
-      if (app.contentSearchOpen || app.dialog.open) return
+      if (app.contentSearchOpen || app.dialog !== null) return
       if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') onPrev?.()
       else onNext?.()
       e.preventDefault()
@@ -582,7 +583,7 @@ export function FilesMediaPreview({
       if (!zoomIn && !zoomOut && !reset) return
       if (editableTarget(e.target) || overlayOpen()) return
       const app = useApp.getState()
-      if (app.contentSearchOpen || app.dialog.open) return
+      if (app.contentSearchOpen || app.dialog !== null) return
       e.preventDefault()
       e.stopPropagation()
       if (reset) fit('window')
@@ -670,12 +671,7 @@ export function FilesMediaPreview({
         </div>
       )}
       {/* 盖住旧图与尺寸标注：错位的旧图比空着更让人困惑 */}
-      {status === 'loading' && (
-        <div className="absolute inset-0 flex items-center justify-center gap-1.5 bg-deepest text-sm text-muted-foreground">
-          <LoaderCircle className="size-3.5 animate-spin" />
-          正在加载…
-        </div>
-      )}
+      {status === 'loading' && <LoadingHint delay={0} className="absolute inset-0 bg-deepest" />}
       {status === 'failed' && (
         <FilesPreviewError
           title="无法预览此图片"

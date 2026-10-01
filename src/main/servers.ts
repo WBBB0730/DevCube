@@ -6,23 +6,22 @@ import { globSync, readFileSync } from 'node:fs'
 import { homedir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { LineType, parse, type Line } from 'ssh-config'
+import type { ConnectionTestResult, PasswordChange } from '../shared/connection'
 import {
   connectableHostAliases,
-  sameServerTarget,
   serverTargetLabel,
   sshArgs,
-  type PasswordChange,
   type Server,
   type ServerInput,
   type ServerNode,
   type ServerTarget,
   type ServerTestInput,
-  type ServerTestResult,
   type SshConfigHost
 } from '../shared/server'
 import { parseSshConfigHost } from '../shared/ssh-config'
 import type { RemoteRunConfig } from '../shared/types'
-import { forgetPassword, hasSavedPassword, savePassword } from './server-secrets'
+import { createConnectionTester } from './connection-test'
+import { applyServerPassword, hasSavedPassword } from './server-secrets'
 import { connectSsh, resolveSsh, sshConfigOutput } from './ssh-connect'
 import { getConfigs, getServers, setServers } from './store'
 import { headOrder } from './tree-order'
@@ -42,29 +41,15 @@ export function findServer(id: string): Server | null {
   return getServers().find((s) => s.id === id) ?? null
 }
 
-function applyPassword(serverId: string, password: PasswordChange): void {
-  if (password === undefined) return
-  if (password === null) forgetPassword(serverId)
-  else savePassword(serverId, password)
-}
-
 /**
- * 登记服务器，返回应聚焦的 id（按输入顺序）。连接目标与已登记的相同则不重复登记、直接命中。
- * 新登记的按输入顺序整体插到左树自定义序最前。
+ * 登记服务器，返回新登记的 id（按输入顺序），按输入顺序整体插到左树自定义序最前。连接目标与已登记的相同也照样登记
+ * （允许重复，对话框里提交前已确认过）。
  */
 export function addServers(inputs: ServerInput[]): string[] {
   const servers = getServers()
   const now = Date.now()
   const created: { server: Server; password: PasswordChange }[] = []
-  const focusIds: string[] = []
   for (const input of inputs) {
-    const existing = [...servers, ...created.map((c) => c.server)].find((s) =>
-      sameServerTarget(s.target, input.target)
-    )
-    if (existing) {
-      focusIds.push(existing.id)
-      continue
-    }
     const server: Server = {
       id: randomUUID(),
       name: input.name.trim() || serverTargetLabel(input.target),
@@ -76,13 +61,12 @@ export function addServers(inputs: ServerInput[]): string[] {
       direct: input.direct
     }
     created.push({ server, password: input.password })
-    focusIds.push(server.id)
   }
   const base = headOrder() - created.length
   created.forEach(({ server }, i) => (server.order = base + i))
   setServers([...created.map((c) => c.server), ...servers])
-  for (const { server, password } of created) applyPassword(server.id, password)
-  return focusIds
+  for (const { server, password } of created) applyServerPassword(server.id, password)
+  return created.map(({ server }) => server.id)
 }
 
 export function updateServer(id: string, input: ServerInput): void {
@@ -98,12 +82,12 @@ export function updateServer(id: string, input: ServerInput): void {
         : s
     )
   )
-  applyPassword(id, input.password)
+  applyServerPassword(id, input.password)
 }
 
 export function removeServer(id: string): void {
   setServers(getServers().filter((s) => s.id !== id))
-  forgetPassword(id)
+  applyServerPassword(id, null)
 }
 
 export function touchServer(id: string): void {
@@ -188,43 +172,31 @@ export async function listSshConfigHosts(): Promise<SshConfigHost[]> {
 
 // —— 测试连接 ——
 
-/** 测试连接的总时限：含用户回答提问（确认指纹、输口令）的时间。 */
-const TEST_TIMEOUT_MS = 120_000
-
-/** 进行中的测试连接；进函数即登记，准备阶段被取消也不会漏。 */
-let activeTest: AbortController | null = null
+const serverTester = createConnectionTester()
 
 /**
  * 测试连接：用表单当前的连接目标经内置连接登录（ADR-0041），认证通过即断开。
  * 只检验表单里的内容：密码只用表单里填的（或记住的）答一次，不弹给用户、也不记住；
- * 其余提问（主机指纹、私钥口令、验证码）照常弹窗。同一时刻只测一个：新测试会取消旧的，旧的以 canceled 收口。
+ * 其余提问（主机指纹、私钥口令、验证码）照常弹窗。同一时刻只测一个、有总时限（见 createConnectionTester）。
  */
-export async function testServerConnection(input: ServerTestInput): Promise<ServerTestResult> {
-  activeTest?.abort()
-  const controller = new AbortController()
-  activeTest = controller
-  const timeout = AbortSignal.timeout(TEST_TIMEOUT_MS)
-  try {
-    const { client } = await connectSsh({
-      target: input.target,
-      direct: input.direct,
-      serverId: input.serverId,
-      password: input.password,
-      testing: true,
-      signal: AbortSignal.any([controller.signal, timeout])
-    })
-    client.end()
-    return { status: 'ok' }
-  } catch (error) {
-    if (controller.signal.aborted) return { status: 'canceled' }
-    if (timeout.aborted) return { status: 'failed', message: '连接超时' }
-    return { status: 'failed', message: error instanceof Error ? error.message : String(error) }
-  } finally {
-    if (activeTest === controller) activeTest = null
-  }
+export function testServerConnection(input: ServerTestInput): Promise<ConnectionTestResult> {
+  return serverTester.run(
+    async (signal) => {
+      const { client } = await connectSsh({
+        target: input.target,
+        direct: input.direct,
+        serverId: input.serverId,
+        password: input.password,
+        testing: true,
+        signal
+      })
+      client.end()
+    },
+    (error) => (error instanceof Error ? error.message : String(error))
+  )
 }
 
 /** 取消进行中的测试连接（对话框关闭时）。 */
 export function cancelServerTest(): void {
-  activeTest?.abort()
+  serverTester.cancel()
 }

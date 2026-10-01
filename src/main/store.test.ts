@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_APP_PREFS } from '../shared/types'
-import { getAppPrefs, initStore, setAppPrefs } from './store'
+import { deleteDataSourceRunParams, getAppPrefs, initStore, setAppPrefs } from './store'
 
 // electron-store 是纯 ESM 且要写盘；这里换成同形状的内存实现，只验读写两侧的归一逻辑。
 const state = new Map<string, unknown>()
@@ -72,5 +72,26 @@ describe('应用主题偏好', () => {
 
   it('theme 在 DEFAULT_APP_PREFS 里有键位，否则落盘时会被 pickKnownKeys 丢掉', () => {
     expect(Object.keys(DEFAULT_APP_PREFS)).toContain('theme')
+  })
+})
+
+describe('按键删除', () => {
+  it('删掉有的几条，其余不动', async () => {
+    await initStore()
+    state.set('dataSourceRunParams', { a: { x: '1' }, b: { y: '2' }, c: {} })
+
+    deleteDataSourceRunParams(['a', 'c', 'missing'])
+
+    expect(state.get('dataSourceRunParams')).toEqual({ b: { y: '2' } })
+  })
+
+  it('一条都没有时不写盘', async () => {
+    await initStore()
+    const stored = { b: { y: '2' } }
+    state.set('dataSourceRunParams', stored)
+
+    deleteDataSourceRunParams(['missing'])
+
+    expect(state.get('dataSourceRunParams')).toBe(stored)
   })
 })

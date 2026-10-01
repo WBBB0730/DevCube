@@ -3,9 +3,10 @@
 // - 用库的 DOM 渲染而非默认的画布渲染（画布不画溢出到邻格的长文字）；在页面线程解析而非后台线程（线程里没有
 //   DOMParser，条件格式 / 表格样式等靠 XML 的结构会丢），所以 Excel 设了大小上限。WebAssembly 经 dc-media 读取。
 // - 表格保持库的浅色（同 PDF / PPT 页面白底），不随应用深色主题翻转。
-// - 工作表标签在底部（只有一张表时不出）；隐藏的工作表不列。
-// - 查找只查当前工作表：格子的显示文字含查询即命中，命中格叠黄、当前命中叠橙（getCellStyle），并选中当前命中、
-//   滚入视口（选中后滚动是补丁给库加的 reveal 选项，同方向键移动选中格，见 patches/ 与 ADR-0034）。
+// - 工作表标签在底部（只有一张表时不出，ui/sheet-tabs）；隐藏的工作表不列。
+// - 查找只查当前工作表（useSheetFind，换工作表即从头找）：格子的显示文字含查询即命中，命中格叠黄、当前命中叠橙
+//   （getCellStyle），并选中当前命中、滚入视口（选中后滚动是补丁给库加的 reveal 选项，同方向键移动选中格，见 patches/
+//   与 ADR-0034）。
 // - 缩放：Cmd/Ctrl+滚轮与捏合按光标、Cmd/Ctrl +/- 按视口中心逐档、Cmd/Ctrl+0 回工作表自带倍率，快捷键与 PDF / PPT
 //   共用（lib/files-paged-preview）；库在 DOM 渲染下不接滚轮缩放，这里自接，锚点换算见 lib/files-sheet。
 // - 方向键归格子（移动选中格），不切上一个 / 下一个文件；选中与复制用库的。
@@ -16,7 +17,6 @@ import {
   setWasmSource,
   useXlsxViewerController,
   XlsxViewer,
-  type XlsxCellAddress,
   type XlsxCellStyleContext,
   type XlsxScrollerRenderProps
 } from '@extend-ai/react-xlsx'
@@ -26,31 +26,25 @@ import {
   FILES_XLSX_PREVIEW_MAX_BYTES,
   FILES_XLSX_WASM
 } from '@shared/files'
-import { cn } from '@renderer/lib/utils'
+import { LoadingHint } from '@renderer/components/ui/centered-hint'
+import { SheetTabs } from '@renderer/components/ui/sheet-tabs'
 import { useCtrlWheelZoom, usePagedPreviewKeys } from '@renderer/lib/files-paged-preview'
 import {
   csvToXlsxBytes,
-  sheetFindMatches,
-  sheetFirstMatchFrom,
   sheetScrollAfterZoom,
   sheetStepZoom,
   sheetWheelZoom,
   type SheetCellText
 } from '@renderer/lib/files-sheet'
+import { useSheetFind } from '@renderer/lib/use-sheet-find'
 import { FilesPreviewError } from './FilesPreviewError'
 import { FindBar } from './FindBar'
 
 setWasmSource(buildFilesAssetUrl(FILES_ASSET_XLSX, FILES_XLSX_WASM))
 
-/** 查找命中的底色：叠在格子原有底色之上的半透明层，命中黄 / 当前橙同 PDF / PPT */
-const FIND_MATCH_LAYER = 'linear-gradient(rgb(252 212 126 / 0.55), rgb(252 212 126 / 0.55))'
-const FIND_CURRENT_LAYER = 'linear-gradient(rgb(196 114 51 / 0.55), rgb(196 114 51 / 0.55))'
-
 /** Excel 给 dc-media 地址与文件大小（超上限不取）；CSV / TSV 给编辑器里的文字（按扩展名分辨 TSV） */
 export type FilesSheetSource =
   { kind: 'xlsx'; src: string; size: number } | { kind: 'csv'; content: string }
-
-const cellKey = (cell: XlsxCellAddress): string => `${cell.row}:${cell.col}`
 
 export function FilesSheetPreview({
   source,
@@ -68,15 +62,6 @@ export function FilesSheetPreview({
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   const [file, setFile] = useState<ArrayBuffer | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const [findOpen, setFindOpen] = useState(false)
-  const [findFocusNonce, setFindFocusNonce] = useState(0)
-  const [findQuery, setFindQuery] = useState('')
-  const [caseSensitive, setCaseSensitive] = useState(false)
-  const [wholeWord, setWholeWord] = useState(false)
-  /** 这次查找从哪一格起（打开查找 / 改查询时的活动格），首个命中取它及之后的第一个，同 PDF / PPT 从当前页起 */
-  const [findFrom, setFindFrom] = useState<XlsxCellAddress | null>(null)
-  /** 上一个 / 下一个选中的命中下标；null = 取 `findFrom` 起的首个 */
-  const [activeMatch, setActiveMatch] = useState<number | null>(null)
 
   const tooLarge = source.kind === 'xlsx' && source.size > FILES_XLSX_PREVIEW_MAX_BYTES
   const kind = source.kind
@@ -235,9 +220,9 @@ export function FilesSheetPreview({
   )
 
   // —— 查找 ——
-  /** 当前工作表里有内容的格子及显示文字（行优先），打开查找时建一次，之后每次输入只在其中搜 */
-  const cellTexts = useMemo<SheetCellText[]>(() => {
-    if (!findOpen || !activeSheet) return []
+  /** 当前工作表里有内容的格子及显示文字（行优先） */
+  const buildCells = useCallback((): SheetCellText[] => {
+    if (!activeSheet) return []
     const hiddenRows = new Set(activeSheet.hiddenRows)
     const hiddenCols = new Set(activeSheet.hiddenCols)
     const cells: SheetCellText[] = []
@@ -250,33 +235,30 @@ export function FilesSheetPreview({
       }
     }
     return cells
-  }, [findOpen, activeSheet, getCellDisplayValue])
-  const matches = useMemo(
-    () => sheetFindMatches(cellTexts, findQuery, { caseSensitive, wholeWord }),
-    [cellTexts, findQuery, caseSensitive, wholeWord]
+  }, [activeSheet, getCellDisplayValue])
+  /** 选中命中的那一格并滚入视口 */
+  const revealCell = useCallback(
+    (cell: { row: number; col: number }) =>
+      selectCell({ row: cell.row, col: cell.col }, { reveal: true }),
+    [selectCell]
   )
-  const current =
-    activeMatch !== null && activeMatch < matches.length
-      ? activeMatch
-      : sheetFirstMatchFrom(matches, findFrom)
-  const currentMatch = current >= 0 ? matches[current] : null
-
-  // 当前命中一变就选中并滚入视口（缩放等重渲染不再动选区与滚动）
-  const selectedFor = useRef<SheetCellText | null>(null)
-  useEffect(() => {
-    if (selectedFor.current === currentMatch) return
-    selectedFor.current = currentMatch
-    if (currentMatch) selectCell({ row: currentMatch.row, col: currentMatch.col }, { reveal: true })
-  }, [currentMatch, selectCell])
+  /** 关查找后焦点回表格 */
+  const focusSheet = useCallback(() => scrollerRef.current?.focus({ preventScroll: true }), [])
+  // 起点为活动格，同 PDF / PPT 从当前页起
+  const find = useSheetFind({
+    buildCells,
+    origin: activeCell,
+    reveal: revealCell,
+    scope: activeTabIndex,
+    onClose: focusSheet
+  })
+  const { layerOf } = find
 
   const getCellStyle = useMemo(() => {
-    if (!findOpen || matches.length === 0) return undefined
-    const all = new Set(matches.map(cellKey))
-    const currentKey = currentMatch ? cellKey(currentMatch) : null
+    if (layerOf === null) return undefined
     return ({ cell, resolvedStyle }: XlsxCellStyleContext): React.CSSProperties | undefined => {
-      const key = cellKey(cell)
-      if (!all.has(key)) return undefined
-      const layer = key === currentKey ? FIND_CURRENT_LAYER : FIND_MATCH_LAYER
+      const layer = layerOf(cell.row, cell.col)
+      if (layer === undefined) return undefined
       // 叠在格子自身的渐变填充之上（有的话），不盖掉
       return {
         backgroundImage: resolvedStyle.backgroundImage
@@ -284,39 +266,14 @@ export function FilesSheetPreview({
           : layer
       }
     }
-  }, [findOpen, matches, currentMatch])
-
-  /** 新一轮查找（打开 / 改查询 / 改选项）：从活动格起找 */
-  const restartFind = (): void => {
-    setActiveMatch(null)
-    setFindFrom(activeCell)
-  }
-
-  const openFind = useCallback(() => {
-    setFindOpen(true)
-    setFindFocusNonce((n) => n + 1)
-    setActiveMatch(null)
-    setFindFrom(activeCell)
-  }, [activeCell])
-
-  const closeFind = useCallback(() => {
-    setFindOpen(false)
-    scrollerRef.current?.focus({ preventScroll: true })
-  }, [])
-
-  /** 换工作表：查找改在新表里从头找 */
-  const selectTab = (index: number): void => {
-    setActiveTabIndex(index)
-    setActiveMatch(null)
-    setFindFrom(null)
-  }
+  }, [layerOf])
 
   usePagedPreviewKeys({
     active,
     rootRef,
-    findOpen,
-    openFind,
-    closeFind,
+    findOpen: find.open,
+    openFind: find.openFind,
+    closeFind: find.closeFind,
     resetZoom,
     stepZoom
   })
@@ -340,39 +297,9 @@ export function FilesSheetPreview({
     [activeTabIndex]
   )
 
-  const countLabel =
-    !findOpen || findQuery === ''
-      ? null
-      : matches.length === 0
-        ? '无结果'
-        : `${current + 1}/${matches.length}`
-
   return (
     <div ref={rootRef} className="flex min-h-0 flex-1 flex-col">
-      {findOpen && (
-        <FindBar
-          query={findQuery}
-          onQueryChange={(q) => {
-            setFindQuery(q)
-            restartFind()
-          }}
-          focusNonce={findFocusNonce}
-          countLabel={countLabel}
-          caseSensitive={caseSensitive}
-          onToggleCaseSensitive={() => {
-            setCaseSensitive((v) => !v)
-            restartFind()
-          }}
-          wholeWord={wholeWord}
-          onToggleWholeWord={() => {
-            setWholeWord((v) => !v)
-            restartFind()
-          }}
-          canNavigate={matches.length > 0}
-          onNavigate={(dir) => setActiveMatch((current + dir + matches.length) % matches.length)}
-          onClose={closeFind}
-        />
-      )}
+      {find.open && <FindBar {...find.bar} />}
       <div ref={wrapRef} className="relative flex min-h-0 flex-1 flex-col bg-deepest">
         {file && !tooLarge && (
           <XlsxViewer
@@ -393,32 +320,16 @@ export function FilesSheetPreview({
         ) : error ? (
           <FilesPreviewError title="无法预览此表格" message={error} path={path} />
         ) : (
-          loading && (
-            <div className="absolute inset-0 flex items-center justify-center bg-deepest text-sm text-muted-foreground">
-              正在加载…
-            </div>
-          )
+          loading && <LoadingHint delay={0} className="absolute inset-0 bg-deepest" />
         )}
       </div>
       {tabs.length > 1 && !error && (
-        <div className="flex h-8 shrink-0 items-center gap-0.5 overflow-x-auto border-t border-[var(--separator)] bg-panel px-2">
-          {tabs.map((tab, index) => (
-            <button
-              key={tab.id}
-              type="button"
-              title={tab.name}
-              className={cn(
-                'h-6 max-w-48 shrink-0 truncate rounded px-2 text-[13px] transition-colors',
-                index === activeTabIndex
-                  ? 'bg-[var(--selection-row)] text-foreground'
-                  : 'text-muted-foreground hover:bg-[var(--bg-row-hover)] hover:text-foreground'
-              )}
-              onClick={() => selectTab(index)}
-            >
-              {tab.name}
-            </button>
-          ))}
-        </div>
+        <SheetTabs
+          className="h-8 shrink-0 overflow-x-auto border-t border-[var(--separator)] bg-panel px-2"
+          items={tabs.map((tab) => ({ value: tab.id, label: tab.name }))}
+          value={tabs[activeTabIndex]?.id ?? ''}
+          onValueChange={(id) => setActiveTabIndex(tabs.findIndex((tab) => tab.id === id))}
+        />
       )}
     </div>
   )

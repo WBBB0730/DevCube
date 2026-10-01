@@ -2,6 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   ChevronDown,
   ChevronUp,
+  Database,
   Eraser,
   FolderOpen,
   GitBranch,
@@ -46,9 +47,17 @@ import {
   gitTabKey,
   isFilesTabKey,
   isGitTabKey,
+  isResidentDataSourceTabKey,
+  isStatusTabKey,
+  residentDataSourceTabKey,
   statusTabKey
 } from '@shared/runnable'
-import { serverEntryKey, serverIdOfEntryKey } from '@shared/tree-entry'
+import {
+  dataSourceEntryKey,
+  dataSourceIdOfEntryKey,
+  serverEntryKey,
+  serverIdOfEntryKey
+} from '@shared/tree-entry'
 import { SHORTCUT, tabAtShortcut } from '@shared/shortcut-label'
 import {
   entryConfigs,
@@ -59,17 +68,20 @@ import {
 } from '@renderer/store'
 import { ServerStatusPane } from '@renderer/components/ServerStatusPane'
 import { ServerFilesPane } from '@renderer/components/ServerFilesPane'
-import { ConnectServerItems } from '@renderer/components/ConnectServerItems'
+import { DataSourcePane } from '@renderer/components/database/DataSourcePane'
+import {
+  DataSourceRunExport,
+  DataSourceRunPane
+} from '@renderer/components/database/DataSourceRunPane'
+import { ConnectSubmenu } from '@renderer/components/ConnectSubmenu'
+import { CenteredHint } from '@renderer/components/ui/centered-hint'
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
-  DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
+import { TOOLBAR_BTN, TOOLBAR_BTN_SM } from '@renderer/components/ui/toolbar'
 import { gitState, useGit } from '@renderer/git-store'
 import { createKeyedSubscription } from '@renderer/lib/keyed-subscription'
 import { isPrimaryModifierEvent, shortcutLabel, shortcutTitle } from '@renderer/lib/shortcut-label'
@@ -89,16 +101,6 @@ const subscribeSessionOutput = createKeyedSubscription(
   (cb: (e: SessionOutput) => void) => window.api.onSessionOutput(cb),
   (e) => e.key
 )
-
-function Placeholder(): React.JSX.Element {
-  return (
-    <div className="flex h-full items-center justify-center gap-1.5 px-6 text-sm text-muted-foreground">
-      <span>点击</span>
-      <Play className="size-4 text-[var(--run-glyph)]" />
-      <span>运行配置</span>
-    </div>
-  )
-}
 
 // 焦点进出终端（任一 xterm，含运行会话）时上报主进程：Win / Linux 上据此把 Ctrl+E 让给 shell（ADR-0013）。
 // 终端 Tab 被切走隐藏时 Chromium 同样派发 focusout（relatedTarget 为 null），状态不会卡在「在终端」。
@@ -130,6 +132,7 @@ export function Console(): React.JSX.Element {
   const currentEntryKey = useApp((s) => s.currentEntryKey)
   const tree = useApp((s) => s.tree)
   const servers = useApp((s) => s.servers)
+  const dataSources = useApp((s) => s.dataSources)
   const sessions = useApp((s) => s.sessions)
   const terminals = useApp((s) => s.terminals)
   const activeTabByEntry = useApp((s) => s.activeTabByEntry)
@@ -138,20 +141,30 @@ export function Console(): React.JSX.Element {
   if (!currentEntryKey) {
     return (
       <div className="flex h-full min-w-0 flex-1 flex-col bg-deepest">
-        <Placeholder />
+        <CenteredHint>
+          <span>点击</span>
+          <Play className="size-4 text-[var(--run-glyph)]" />
+          <span>运行配置</span>
+        </CenteredHint>
       </div>
     )
   }
 
   // 与 cycleTab / 关闭快捷键共用同一解析规则（见 store.resolveTabs）。
-  const { residentKeys, runTabs, termTabs, activeKey } = resolveTabs(
-    { tree, servers, sessions, terminals, activeTabByEntry },
+  const { residentKeys, runTabs, termTabs, termTabsFirst, activeKey } = resolveTabs(
+    { tree, servers, dataSources, sessions, terminals, activeTabByEntry },
     currentEntryKey
   )
 
   // 运行会话面板：全部项目的会话都常驻（与终端一致——切走仅隐藏，切回项目现场保留）。
   const termKeys = new Set(terminals.map((t) => t.key))
   const runSessionKeys = Object.keys(sessions).filter((k) => !termKeys.has(k))
+  // 数据源上的配置的运行会话：正文是结果区而不是终端（见 DataSourceRunPane）
+  const dataSourceRuns = new Map(
+    dataSources.flatMap((node) =>
+      node.configs.map((config) => [configKey(config), { config, node }])
+    )
+  )
 
   // 仅当激活的是运行会话 Tab 时出操作栏（Git / Files / 终端 Tab 不出）。
   const activeRunTab = runTabs.find((t) => t.key === activeKey) ?? null
@@ -163,6 +176,7 @@ export function Console(): React.JSX.Element {
         residentKeys={residentKeys}
         runTabs={runTabs}
         termTabs={termTabs}
+        termTabsFirst={termTabsFirst}
         activeKey={activeKey}
       />
       {activeRunTab && <RunActionBar entryKey={currentEntryKey} tab={activeRunTab} />}
@@ -184,6 +198,16 @@ export function Console(): React.JSX.Element {
           return (
             <div key={fk} className={cn('absolute inset-0', !visible && 'hidden')}>
               <ServerFilesPane serverId={n.server.id} visible={visible} />
+            </div>
+          )
+        })}
+        {/* 数据源的常驻 Data Source Tab：每个数据源一个（切走仅隐藏）。 */}
+        {dataSources.map((n) => {
+          const dk = residentDataSourceTabKey(dataSourceEntryKey(n.dataSource.id))
+          const visible = dk === activeKey
+          return (
+            <div key={dk} className={cn('absolute inset-0', !visible && 'hidden')}>
+              <DataSourcePane tabKey={dk} dataSourceId={n.dataSource.id} visible={visible} />
             </div>
           )
         })}
@@ -209,17 +233,33 @@ export function Console(): React.JSX.Element {
         })}
         {runSessionKeys.map((k) => {
           const visible = k === activeKey
+          const dataSourceRun = dataSourceRuns.get(k)
           return (
             <div key={k} className={cn('absolute inset-0', !visible && 'hidden')}>
-              <TerminalPane paneKey={k} mode="run" visible={visible} />
+              {dataSourceRun === undefined ? (
+                <TerminalPane paneKey={k} mode="run" visible={visible} />
+              ) : (
+                <DataSourceRunPane
+                  sessionKey={k}
+                  entryKey={dataSourceEntryKey(dataSourceRun.node.dataSource.id)}
+                  configId={dataSourceRun.config.id}
+                  node={dataSourceRun.node}
+                  visible={visible}
+                />
+              )}
             </div>
           )
         })}
+        {/* 终端组：本地 Terminal、SSH Terminal 与另开的 Data Source Tab */}
         {terminals.map((t) => {
           const visible = t.key === activeKey
           return (
             <div key={t.key} className={cn('absolute inset-0', !visible && 'hidden')}>
-              <TerminalPane paneKey={t.key} mode="terminal" visible={visible} />
+              {t.dataSourceId === undefined ? (
+                <TerminalPane paneKey={t.key} mode="terminal" visible={visible} />
+              ) : (
+                <DataSourcePane tabKey={t.key} dataSourceId={t.dataSourceId} visible={visible} />
+              )}
             </div>
           )
         })}
@@ -229,7 +269,8 @@ export function Console(): React.JSX.Element {
 }
 
 // 运行会话操作栏：仅在激活运行会话 Tab 时出现（Tab 栏下方）。
-// 仅按钮：运行/重跑、停止、清空；无配置名/状态文案（Tab 已承载）。
+// 仅按钮：运行/重跑、停止、清空；无配置名/状态文案（Tab 已承载）。数据源上的配置的输出是一次执行的结果快照，清空没有
+// 意义，不出「清空」；SQL 类型换成「导出」（同控制台的导出已取回的结果），Redis 没有导出。
 // 高 40px、底 --bg-panel、底边 1px --separator；按钮 size-7、间距 gap-1.5，与左树一致。
 const ACTION_BTN = 'flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors'
 
@@ -237,11 +278,17 @@ function RunActionBar({
   entryKey,
   tab
 }: {
-  /** 配置所属的左树条目（Project 路径或 `server:<id>`） */
+  /** 配置所属的左树条目（Project 路径、`server:<id>` 或 `datasource:<id>`） */
   entryKey: string
   tab: RunTabInfo
 }): React.JSX.Element {
   const config = useApp((s) => entryConfigs(s, entryKey).find((c) => configKey(c) === tab.key))
+  // 数据源上的配置：所在数据源的类型（决定有没有导出）
+  const dataSourceKind = useApp((s) =>
+    config?.kind === 'dataSource'
+      ? s.dataSources.find((n) => n.dataSource.id === config.dataSourceId)?.dataSource.target.kind
+      : undefined
+  )
   const session = useApp((s) => s.sessions[tab.key])
   const run = useApp((s) => s.run)
   const stop = useApp((s) => s.stop)
@@ -282,17 +329,25 @@ function RunActionBar({
       >
         <Square className="size-4" />
       </button>
-      <button
-        type="button"
-        title="清空输出"
-        className={cn(
-          ACTION_BTN,
-          'text-muted-foreground hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
-        )}
-        onClick={() => clearOutput(tab.key)}
-      >
-        <Eraser className="size-4" />
-      </button>
+      {config?.kind === 'dataSource' ? (
+        dataSourceKind !== undefined &&
+        dataSourceKind !== 'redis' && (
+          // 按会话键重建：导出进行中的转圈与失败的错误框是这一个运行会话的，切到别的运行会话 Tab 时不能沿用
+          <DataSourceRunExport key={tab.key} sessionKey={tab.key} kind={dataSourceKind} />
+        )
+      ) : (
+        <button
+          type="button"
+          title="清空输出"
+          className={cn(
+            ACTION_BTN,
+            'text-muted-foreground hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
+          )}
+          onClick={() => clearOutput(tab.key)}
+        >
+          <Eraser className="size-4" />
+        </button>
+      )}
     </div>
   )
 }
@@ -337,20 +392,28 @@ function TabBar({
   residentKeys,
   runTabs,
   termTabs,
+  termTabsFirst,
   activeKey
 }: {
   entryKey: string
-  /** 常驻 Tab 的键（按序）：Project 为 Git、Files；Server 为 Status、Files */
+  /** 常驻 Tab 的键（按序）：Project 为 Git、Files；Server 为 Status、Files；Data Source 为它的 Data Source Tab */
   residentKeys: string[]
   runTabs: RunTabInfo[]
   termTabs: TerminalTab[]
+  /** 终端组排在运行会话之前（Data Source 条目：另开的 Data Source Tab 紧跟常驻 Tab，运行会话在最后） */
+  termTabsFirst: boolean
   activeKey: string | null
 }): React.JSX.Element {
   const newSshTerminal = useApp((s) => s.newSshTerminal)
+  const newDataSourceTab = useApp((s) => s.newDataSourceTab)
   const reorderTerminals = useApp((s) => s.reorderTerminals)
   const serverId = serverIdOfEntryKey(entryKey)
-  // 常驻 Tab 占最前的 ⌘ 序号（两类条目都是 ⌘1 / ⌘2）
+  const dataSourceId = dataSourceIdOfEntryKey(entryKey)
+  // 常驻 Tab 占最前的 ⌘ 序号（Project 与 Server 是 ⌘1 / ⌘2，Data Source 是 ⌘1）；运行会话组与终端组谁在前，
+  // 后一组的序号就接在前一组之后（与 orderedTabKeys 同序）
   const residentCount = residentKeys.length
+  const runStart = residentCount + (termTabsFirst ? termTabs.length : 0)
+  const termStart = residentCount + (termTabsFirst ? 0 : runTabs.length)
   const tabBarRef = useRef<HTMLDivElement>(null)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
@@ -398,6 +461,29 @@ function TabBar({
     reorderTerminals(entryKey, arrayMove(keys, from, to))
   }
 
+  // 终端组的 Tab：组内可拖拽排序（仅水平、不与运行会话组混排）。
+  const termGroup = (
+    <DndContext
+      sensors={sensors}
+      collisionDetection={closestCenter}
+      modifiers={[restrictToHorizontalWithinList]}
+      onDragEnd={handleDragEnd}
+    >
+      <SortableContext items={termTabs.map((t) => t.key)} strategy={horizontalListSortingStrategy}>
+        <div className="flex h-full shrink-0 items-center">
+          {termTabs.map((t, i) => (
+            <TerminalTabItem
+              key={t.key}
+              tab={t}
+              active={t.key === activeKey}
+              tabIndex={termStart + i + 1}
+            />
+          ))}
+        </div>
+      </SortableContext>
+    </DndContext>
+  )
+
   return (
     // 左右溢出渐变用通用滚动渐隐遮罩（main.css）；底边沿用留 1px 不盖
     <div className="scroll-fade-x relative h-10 shrink-0 border-b border-[var(--separator)] bg-panel [--scroll-fade-color:var(--bg-panel)] [--scroll-fade-gutter:1px]">
@@ -406,21 +492,23 @@ function TabBar({
         className="tab-bar-scroll scroll-fade-scroller flex h-full flex-nowrap items-center overflow-x-auto overflow-y-hidden scroll-px-4"
         title={`切换 Tab (${shortcutLabel(SHORTCUT.prevTab)} / ${shortcutLabel(SHORTCUT.nextTab)}，或 ${shortcutLabel(SHORTCUT.cycleTabNext)})`}
       >
-        {/* 常驻 Tab：Project 为 Git（⌘1，ADR-0005）、Files（⌘2）；Server 为状态（⌘1）、Files（⌘2）。不可关闭。 */}
-        {residentKeys.map((key) =>
+        {/* 常驻 Tab：Project 为 Git（⌘1，ADR-0005）、Files（⌘2）；Server 为状态（⌘1）、Files（⌘2）；
+            Data Source 为它的 Data Source Tab（⌘1）。不可关闭。 */}
+        {residentKeys.map((key, i) =>
           isGitTabKey(key) ? (
             <GitTabItem key={key} gitKey={key} projectPath={entryKey} active={key === activeKey} />
-          ) : isFilesTabKey(key) ? (
-            <FilesTabItem key={key} filesKey={key} entryKey={entryKey} active={key === activeKey} />
           ) : (
-            <StatusTabItem
+            <ResidentTabItem
               key={key}
-              statusKey={key}
+              tabKey={key}
               entryKey={entryKey}
               active={key === activeKey}
+              tabIndex={i + 1}
             />
           )
         )}
+        {/* Data Source 条目：另开的 Data Source Tab 紧跟常驻 Tab，运行会话排在最后 */}
+        {termTabsFirst && termGroup}
         {/* 运行会话 Tab：每条有会话的配置一个，顺序跟随树中配置顺序。 */}
         {runTabs.map((t, i) => (
           <RunTabItem
@@ -428,36 +516,13 @@ function TabBar({
             tab={t}
             active={t.key === activeKey}
             entryKey={entryKey}
-            tabIndex={residentCount + i + 1}
+            tabIndex={runStart + i + 1}
           />
         ))}
-        {/* 终端 Tab：组内可拖拽排序（仅水平、不与运行会话组混排）。 */}
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          modifiers={[restrictToHorizontalWithinList]}
-          onDragEnd={handleDragEnd}
-        >
-          <SortableContext
-            items={termTabs.map((t) => t.key)}
-            strategy={horizontalListSortingStrategy}
-          >
-            <div className="flex h-full shrink-0 items-center">
-              {termTabs.map((t, i) => (
-                <TerminalTabItem
-                  key={t.key}
-                  tab={t}
-                  active={t.key === activeKey}
-                  tabIndex={residentCount + runTabs.length + i + 1}
-                />
-              ))}
-            </div>
-          </SortableContext>
-        </DndContext>
-        {/* Server 条目的「+」一点就连它；项目里的「+」点开菜单，可开本地终端或连到某台服务器 */}
-        {serverId === null ? (
-          <NewTerminalMenu projectPath={entryKey} />
-        ) : (
+        {!termTabsFirst && termGroup}
+        {/* Server 条目的「+」一点就开一个连到它的 SSH Terminal；Data Source 条目的「+」再开一个连到它的
+            Data Source Tab；项目里的「+」点开菜单，可开本地终端或连到某台服务器、某个数据源 */}
+        {serverId !== null ? (
           <button
             type="button"
             title={shortcutTitle('新建终端', SHORTCUT.newTerminal)}
@@ -466,6 +531,17 @@ function TabBar({
           >
             <Plus className="size-4" />
           </button>
+        ) : dataSourceId !== null ? (
+          <button
+            type="button"
+            title={shortcutTitle('新建标签页', SHORTCUT.newTerminal)}
+            onClick={() => newDataSourceTab(entryKey, dataSourceId)}
+            className={NEW_TERMINAL_BUTTON}
+          >
+            <Plus className="size-4" />
+          </button>
+        ) : (
+          <NewTerminalMenu projectPath={entryKey} />
         )}
         <span aria-hidden className="w-2 shrink-0" />
       </div>
@@ -474,38 +550,26 @@ function TabBar({
 }
 
 /** Tab 栏末尾的「+」（28px 图标钮）。 */
-const NEW_TERMINAL_BUTTON =
-  'ml-1 flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
+const NEW_TERMINAL_BUTTON = cn(TOOLBAR_BTN, 'ml-1')
 
 /**
  * 项目 Tab 栏末尾的「+」：点开菜单——「新建终端」开本地终端（⌘T 直接执行这一项）；
- * 「连接到服务器」的二级菜单里选一台服务器开 SSH Terminal，或去添加服务器。
+ * 「连接到服务器」的二级菜单里选一台服务器开 SSH Terminal，或去添加服务器；
+ * 「连接到数据源」的二级菜单里选一个数据源开 Data Source Tab，或去添加数据源。
  */
 function NewTerminalMenu({ projectPath }: { projectPath: string }): React.JSX.Element {
-  const hasServers = useApp((s) => s.servers.length > 0)
   const newTerminal = useApp((s) => s.newTerminal)
-  const openServerDialog = useApp((s) => s.openServerDialog)
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger title="新建终端或连接到服务器" className={NEW_TERMINAL_BUTTON}>
+      <DropdownMenuTrigger title="新建终端，或连接到服务器、数据源" className={NEW_TERMINAL_BUTTON}>
         <Plus className="size-4" />
       </DropdownMenuTrigger>
       <DropdownMenuContent align="start">
         <DropdownMenuItem onClick={() => void newTerminal(projectPath)}>
           <TerminalIcon className="size-4" /> 新建终端
         </DropdownMenuItem>
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <ServerIcon className="size-4" /> 连接到服务器
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent>
-            <ConnectServerItems ownerKey={projectPath} />
-            {hasServers && <DropdownMenuSeparator />}
-            <DropdownMenuItem onClick={() => openServerDialog()}>
-              <Plus className="size-4" /> 添加服务器…
-            </DropdownMenuItem>
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
+        <ConnectSubmenu kind="server" ownerKey={projectPath} addable />
+        <ConnectSubmenu kind="dataSource" ownerKey={projectPath} addable />
       </DropdownMenuContent>
     </DropdownMenu>
   )
@@ -553,52 +617,43 @@ function GitTabItem({
   )
 }
 
-// 文件 Tab：Project 常驻第二（紧接 Git），Server 常驻第二（紧接状态），不可关闭。
-function FilesTabItem({
-  filesKey,
+// Git 以外的常驻 Tab：图标 + 名称，不可关闭。文件 Tab 为 Project 与 Server 的第二个（紧接 Git / 状态）；
+// 状态 Tab 为 Server 的第一个（见 docs/prd/server-status.md）；数据源条目的 Data Source Tab 为它的第一个，名称即数据源名
+// （见 docs/prd/database.md）。
+function ResidentTabItem({
+  tabKey,
   entryKey,
-  active
+  active,
+  tabIndex
 }: {
-  filesKey: string
+  tabKey: string
   entryKey: string
   active: boolean
+  /** 栏内 1-based 位序（常驻 Tab 都在最前，恒 ≤9） */
+  tabIndex: number
 }): React.JSX.Element {
   const activateTab = useApp((s) => s.activateTab)
-  return (
-    <div
-      data-tab-key={filesKey}
-      className={cn(TAB, 'pl-3 pr-3')}
-      style={active ? TAB_ACTIVE : undefined}
-      title={shortcutTitle('文件', tabAtShortcut(2))}
-      onClick={() => activateTab(entryKey, filesKey)}
-    >
-      <FolderOpen className="size-3.5 shrink-0 text-muted-foreground" />
-      <span className="text-foreground">文件</span>
-    </div>
+  const dataSourceName = useApp((s) =>
+    isResidentDataSourceTabKey(tabKey)
+      ? (s.dataSources.find((n) => n.dataSource.id === dataSourceIdOfEntryKey(entryKey))?.dataSource
+          .name ?? '')
+      : ''
   )
-}
-
-// 状态 Tab：每台服务器常驻第一个、不可关闭（见 docs/prd/server-status.md）。
-function StatusTabItem({
-  statusKey,
-  entryKey,
-  active
-}: {
-  statusKey: string
-  entryKey: string
-  active: boolean
-}): React.JSX.Element {
-  const activateTab = useApp((s) => s.activateTab)
+  const { icon: Icon, label } = isFilesTabKey(tabKey)
+    ? { icon: FolderOpen, label: '文件' }
+    : isStatusTabKey(tabKey)
+      ? { icon: GlobeCheck, label: '状态' }
+      : { icon: Database, label: dataSourceName }
   return (
     <div
-      data-tab-key={statusKey}
+      data-tab-key={tabKey}
       className={cn(TAB, 'pl-3 pr-3')}
       style={active ? TAB_ACTIVE : undefined}
-      title={shortcutTitle('状态', tabAtShortcut(1))}
-      onClick={() => activateTab(entryKey, statusKey)}
+      title={shortcutTitle(label, tabAtShortcut(tabIndex))}
+      onClick={() => activateTab(entryKey, tabKey)}
     >
-      <GlobeCheck className="size-3.5 shrink-0 text-muted-foreground" />
-      <span className="text-foreground">状态</span>
+      <Icon className="size-3.5 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 truncate text-foreground">{label}</span>
     </div>
   )
 }
@@ -714,11 +769,13 @@ function TerminalTabItem({
         setEditing(true)
       }}
     >
-      {/* SSH Terminal 用服务器图标，与同一 Tab 栏里的本地终端区分 */}
-      {tab.serverId === undefined ? (
-        <TerminalIcon className="size-3.5 shrink-0 text-muted-foreground" />
-      ) : (
+      {/* SSH Terminal 用服务器图标、Data Source Tab 用数据库图标，与同一 Tab 栏里的本地终端区分 */}
+      {tab.dataSourceId !== undefined ? (
+        <Database className="size-3.5 shrink-0 text-muted-foreground" />
+      ) : tab.serverId !== undefined ? (
         <ServerIcon className="size-3.5 shrink-0 text-muted-foreground" />
+      ) : (
+        <TerminalIcon className="size-3.5 shrink-0 text-muted-foreground" />
       )}
       {editing ? (
         <input
@@ -1043,9 +1100,6 @@ function TerminalPane({
     termRef.current?.focus()
   }
 
-  const searchBtn =
-    'flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
-
   const countLabel =
     query === ''
       ? null
@@ -1089,7 +1143,7 @@ function TerminalPane({
             type="button"
             title="上一个 (Shift+Enter)"
             onClick={() => runFind('prev')}
-            className={searchBtn}
+            className={TOOLBAR_BTN_SM}
           >
             <ChevronUp className="size-4" />
           </button>
@@ -1097,11 +1151,11 @@ function TerminalPane({
             type="button"
             title="下一个 (Enter)"
             onClick={() => runFind('next')}
-            className={searchBtn}
+            className={TOOLBAR_BTN_SM}
           >
             <ChevronDown className="size-4" />
           </button>
-          <button type="button" title="关闭 (Esc)" onClick={closeSearch} className={searchBtn}>
+          <button type="button" title="关闭 (Esc)" onClick={closeSearch} className={TOOLBAR_BTN_SM}>
             <X className="size-4" />
           </button>
         </div>

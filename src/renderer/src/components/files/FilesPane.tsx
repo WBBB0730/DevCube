@@ -1,25 +1,13 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import { useVirtualizer } from '@tanstack/react-virtual'
 import CodeMirror from '@uiw/react-codemirror'
-import {
-  ChevronRight,
-  ChevronsDownUp,
-  ChevronsUpDown,
-  CornerDownLeft,
-  Folder,
-  FolderOpen,
-  LoaderCircle,
-  Minus,
-  Search,
-  X
-} from 'lucide-react'
+import { ChevronsDownUp, ChevronsUpDown, Folder, FolderOpen, Minus, Search } from 'lucide-react'
 import {
   FILES_TEXT_MAX_BYTES,
   pushRecentPath,
   type FilesDirEntry,
   type FilesUiState
 } from '@shared/files'
-import { flattenFilesTree } from '@shared/files-tree-flatten'
+import { flattenFilesTree, type FilesTreeRow } from '@shared/files-tree-flatten'
 import type { GitFileStatus } from '@shared/git'
 import {
   childPathPrefix,
@@ -39,7 +27,6 @@ import {
 import { SHORTCUT } from '@shared/shortcut-label'
 import { createKeyedSubscription } from '@renderer/lib/keyed-subscription'
 import { isPrimaryModifierEvent, shortcutTitle } from '@renderer/lib/shortcut-label'
-import { cn } from '@renderer/lib/utils'
 import {
   FILES_BASIC_SETUP,
   filesEditorConfig,
@@ -48,8 +35,8 @@ import {
   filesHighlighting,
   languageExtensionForPath
 } from '@renderer/lib/cm6-setup'
-import { EditorView, keymap } from '@codemirror/view'
-import { filesFindExtension, setFindQuery } from '@renderer/lib/cm6-find'
+import { EditorView } from '@codemirror/view'
+import { useEditorFind } from '@renderer/lib/use-editor-find'
 import { gitDiffGutter, type GitGutterHunkClickPayload } from '@renderer/lib/cm6-git-gutter'
 import { FilesFindWidget } from './FilesFindWidget'
 import {
@@ -78,7 +65,8 @@ import {
 import { FilesPdfPreview } from './FilesPdfPreview'
 import { FilesPptxPreview } from './FilesPptxPreview'
 import { FilesSheetPreview } from './FilesSheetPreview'
-import { FilesToolbar, TOOLBAR_BTN } from './FilesToolbar'
+import { SqliteFileView } from '@renderer/components/database/SqliteFileView'
+import { FilesToolbar } from './FilesToolbar'
 import { FilesContentMenu, type FilesContentMenuTarget } from './FilesContentMenu'
 import { FilesTreeIcon } from './FilesTreeIcon'
 import { arrowDirection, editableTarget, overlayOpen } from '@renderer/lib/files-key-guards'
@@ -91,12 +79,28 @@ import {
   type FilesOpenResult
 } from '@renderer/lib/files-backend'
 import { ipcErrorMessage } from '@renderer/lib/ipc-error'
-import { useSpinUntilRest } from '@renderer/lib/use-spin-until-rest'
+import { typeToInput } from '@renderer/lib/type-to-input'
+import { useTreeVirtualReveal } from '@renderer/lib/use-tree-virtual-reveal'
 import { useFiles } from '@renderer/files-store'
 import { useApp } from '@renderer/store'
-import { RefreshIcon } from '@renderer/components/RefreshIcon'
+import { BAR_INPUT_ICON, BarInput } from '@renderer/components/ui/bar-input'
 import { Button } from '@renderer/components/ui/button'
+import { CenteredHint } from '@renderer/components/ui/centered-hint'
 import { FormDialogShell } from '@renderer/components/ui/form-dialog'
+import { RefreshButton, TOOLBAR_BTN } from '@renderer/components/ui/toolbar'
+import {
+  TREE_ICON,
+  TREE_ROW_H,
+  TreeHint,
+  TreeNoticeRow,
+  TreeRow
+} from '@renderer/components/ui/tree'
+import {
+  TREE_SCROLL,
+  TreePanel,
+  TreePanelBar,
+  TreeRootRow
+} from '@renderer/components/ui/tree-panel'
 import { FILE_STATUS_COLOR, workingTreeStatusByPath } from '@renderer/components/git/git-details'
 import { FilesDownloadContext, FilesLocalContext } from './files-local-context'
 import {
@@ -133,14 +137,9 @@ const subscribeServerReadProgress = createKeyedSubscription(
 
 const IDLE_SAVE_MS = 2000
 const FILTER_DEBOUNCE_MS = 200
-const TREE_W = 280
-/** 树行固定高（h-8）；虚拟滚动按此定位，改行高须同步 ROW。 */
-const TREE_ROW_H = 32
-/** 交互对齐左树（选中色 / hover / transition）；尺寸更紧凑（非左树 h-10/14px）。 */
-const ROW =
-  'flex h-8 w-full cursor-pointer items-center gap-1 rounded px-1.5 text-left text-[13px] text-foreground transition-colors'
-/** 服务器：从本机拖进来时的落点目录行（行底 + 主色描边） */
-const DROP_TARGET = 'bg-[var(--bg-row-hover)] ring-1 ring-inset ring-[color:var(--primary)]'
+
+/** 文件树的行在定位里认的键：路径；提示行不能被定位 */
+const filesRowKey = (row: FilesTreeRow): string | undefined => (row.notice ? undefined : row.path)
 
 type Loaded =
   | ((
@@ -169,6 +168,7 @@ type Loaded =
       | { kind: 'pdf'; path: string; mediaUrl: string }
       | { kind: 'pptx'; path: string; mediaUrl: string }
       | { kind: 'xlsx'; path: string; mediaUrl: string; size: number }
+      | { kind: 'sqlite'; path: string }
       | { kind: 'other'; path: string; size: number }
       /** 服务器上较大的文件：占位，canForce 时可「仍然打开」 */
       | { kind: 'too-large'; path: string; size: number; canForce: boolean }
@@ -304,16 +304,10 @@ export function FilesPane({
   const expandedRef = useRef(expanded)
   const childrenByDirRef = useRef(childrenByDir)
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const treeScrollRef = useRef<HTMLDivElement>(null)
   /** 看图相机：工具栏「适应」钮组驱动 */
   const imageRef = useRef<MediaPreviewHandle>(null)
-  /** 仅「打开文件 / 显式定位」时滚入；点目录改 expanded 不滚。 */
-  const prevSelectedPath = useRef<string | null>(null)
-  const pendingScrollPath = useRef<string | null>(null)
   /** 看图当前所处的档；null = 自由倍率，四颗钮都不亮。 */
   const [imageFit, setImageFit] = useState<MediaFitMode | null>(null)
-  /** 同路径再次「在文件树中显示」时强制重跑滚动。 */
-  const [revealTick, setRevealTick] = useState(0)
   /** 右侧文件树可见性；不持久化，重挂载默认展开。 */
   const [treeVisible, setTreeVisible] = useState(true)
   /** Markdown / SVG / CSV 编辑 ↔ 预览两态；会话内保持，不持久化，默认预览（新建文件时切回编辑）。 */
@@ -350,9 +344,7 @@ export function FilesPane({
   const filterInputRef = useRef<HTMLInputElement>(null)
   // 外部请求只认挂载之后的：服务器面板连上才挂，没连上时按的、断开前按过的都不补
   const filterFocusNonce = useFiles((s) => s.filterFocusNonceByKey[storeKey] ?? 0)
-  const consumedFilterFocusNonce = useRef(filterFocusNonce)
   const recentMenuNonce = useFiles((s) => s.recentMenuNonceByKey[storeKey] ?? 0)
-  const consumedRecentMenuNonce = useRef(recentMenuNonce)
   const filterViewRef = useRef(filterView)
 
   useLayoutEffect(() => {
@@ -406,26 +398,27 @@ export function FilesPane({
     filterView !== null &&
     (filterView.childrenByDir[rootLogical] ?? []).length === 0
 
-  // 首查扫描提示（冷索引才等得到）：延迟 120ms 出现，防索引已热时闪烁（同 diff 加载骨架）
+  // 首查扫描提示（冷索引才等得到）：TreeHint 延迟出现，防索引已热时闪烁（同 diff 加载骨架）
   const filterLoading = filtering && filterScanning && filterView === null
-  const [showFilterLoading, setShowFilterLoading] = useState(false)
-  useEffect(() => {
-    const timer = setTimeout(() => setShowFilterLoading(filterLoading), filterLoading ? 120 : 0)
-    return () => clearTimeout(timer)
-  }, [filterLoading])
 
   // 树行虚拟化：按展开态拍平成行数组，仅渲染视口内行（命中再多渲染成本恒定）
   const flatRows = useMemo(
     () => flattenFilesTree(rootLogical, displayChildren, displayExpanded, dirNotices),
     [rootLogical, displayChildren, displayExpanded, dirNotices]
   )
-  // eslint-disable-next-line react-hooks/incompatible-library -- tanstack virtual 实例天然可变，React Compiler 跳过本组件 memo 是预期行为
-  const rowVirtualizer = useVirtualizer({
-    count: flatRows.length,
-    getScrollElement: () => treeScrollRef.current,
-    estimateSize: () => TREE_ROW_H,
-    overscan: 10,
-    getItemKey: (i) => flatRows[i].path
+  // 选中项一变即定位（打开文件、显式定位；点目录只改展开，不滚）；面板切走或树隐藏时先挂着，目标行尚未进树
+  // （目录加载中）时也挂着，出现即滚到
+  const {
+    scrollRef: treeScrollRef,
+    virtualizer: rowVirtualizer,
+    scrollToRow
+  } = useTreeVirtualReveal({
+    rows: flatRows,
+    rowHeight: TREE_ROW_H,
+    rowKey: filesRowKey,
+    getItemKey: (i) => flatRows[i].path,
+    enabled: visible && treeVisible,
+    follow: selectedPath
   })
 
   const refreshGitStatus = useCallback(async () => {
@@ -478,20 +471,6 @@ export function FilesPane({
       dispose()
     }
   }, [visible, remote, openTextPath, rootPath])
-
-  // 打开文件 / 显式定位后滚入视口；目标行尚未进树（目录加载中）时保持挂起重试
-  useLayoutEffect(() => {
-    if (selectedPath !== prevSelectedPath.current) {
-      prevSelectedPath.current = selectedPath
-      pendingScrollPath.current = selectedPath
-    }
-    if (!visible || !treeVisible || !pendingScrollPath.current) return
-    const index = flatRows.findIndex((r) => r.path === pendingScrollPath.current)
-    if (index < 0) return
-    // 虚拟化后屏外行无 DOM，按下标滚动（align auto ≈ 原 scrollIntoView nearest）
-    rowVirtualizer.scrollToIndex(index)
-    pendingScrollPath.current = null
-  }, [visible, treeVisible, selectedPath, flatRows, revealTick, rowVirtualizer])
 
   /** 落盘 UI 态（项目与服务器）；预览窗口一律不写集中配置存储（由 backend 决定） */
   const setUi = useCallback((patch: Partial<FilesUiState>) => backend.setUi(patch), [backend])
@@ -877,7 +856,7 @@ export function FilesPane({
       if (dir === null) return
       if (editableTarget(e.target) || overlayOpen()) return
       const app = useApp.getState()
-      if (app.contentSearchOpen || app.dialog.open) return
+      if (app.contentSearchOpen || app.dialog !== null) return
       e.preventDefault()
       e.stopPropagation()
       void goAdjacentMedia(dir)
@@ -896,12 +875,16 @@ export function FilesPane({
         ? loaded.path
         : null
 
-  // 服务器上的图要先下载，不预取相邻的
+  // 服务器上的图要先下载，不预取相邻的。进出预取时都清空：渲染期比对上一次是否在预取（React「渲染中调整 state」模式，
+  // 非 effect）；不预取期间旧预取晚到写进来的列表没人用，下次进入预取时在这里清掉
+  const prefetching = !!viewingImagePath && !remote
+  const [seenPrefetching, setSeenPrefetching] = useState(prefetching)
+  if (prefetching !== seenPrefetching) {
+    setSeenPrefetching(prefetching)
+    setPrefetch([])
+  }
   useEffect(() => {
-    if (!viewingImagePath || remote) {
-      setPrefetch([])
-      return
-    }
+    if (!viewingImagePath || remote) return
     let cancelled = false
     const current = viewingImagePath
     void (async () => {
@@ -937,25 +920,24 @@ export function FilesPane({
       setTreeVisible(true)
       const next = await expandToPath(logical, isDirectory)
       setSelectedPath(logical)
-      pendingScrollPath.current = logical
-      setRevealTick((n) => n + 1)
+      // 已是选中项时不会跟随定位，显式再滚一次
+      scrollToRow(logical)
       const openPath = loadedRef.current?.path ?? null
       persistUi(openPath, [...next])
     },
-    [expandToPath, persistUi]
+    [expandToPath, persistUi, scrollToRow]
   )
 
   const openFromRecent = useCallback(
     async (logical: string) => {
       await expandToFile(logical)
       await openFile(logical)
-      // 已是当前文件时 selectedPath 不变，须强制挂起滚动（同「在文件树中显示」）
-      pendingScrollPath.current = logical
-      setRevealTick((n) => n + 1)
+      // 已是当前文件时 selectedPath 不变、不会跟随定位，须显式再滚一次（同「在文件树中显示」）
+      scrollToRow(logical)
       // 焦点进正文：文本进编辑器直接可键入（非文本不渲染编辑器，请求自然落空）
       setEditorJump({ path: logical, nonce: ++editorJumpNonce.current })
     },
-    [expandToFile, openFile]
+    [expandToFile, openFile, scrollToRow]
   )
 
   const updateFilterQuery = useCallback((query: string): void => {
@@ -1090,29 +1072,31 @@ export function FilesPane({
     })()
   }, [ready, pending, storeKey, expandToFile, openFile])
 
-  // ⌥⌘F：切到本 Tab 后聚焦文件树筛选；树隐藏时先展开再等下一拍聚焦。
+  // ⌥⌘F：切到本 Tab 后聚焦文件树筛选，树隐藏时先展开。可见即接下请求：渲染期比对处理过的 nonce（React「渲染中调整
+  // state」模式，非 effect）；聚焦要等树挂上，在 effect 里做
+  const [handledFilterFocusNonce, setHandledFilterFocusNonce] = useState(filterFocusNonce)
+  if (visible && filterFocusNonce !== handledFilterFocusNonce) {
+    setHandledFilterFocusNonce(filterFocusNonce)
+    setTreeVisible(true)
+  }
+  /** 已聚焦过的请求（挂载时的算聚焦过） */
+  const focusedFilterNonce = useRef(handledFilterFocusNonce)
   useEffect(() => {
-    if (!filterFocusNonce || filterFocusNonce === consumedFilterFocusNonce.current) return
-    if (!visible) return
-    if (!treeVisible) {
-      // 外部 nonce 驱动：先展开树，下一拍再聚焦筛选框
-      setTreeVisible(true)
-      return
-    }
-    consumedFilterFocusNonce.current = filterFocusNonce
+    if (handledFilterFocusNonce === focusedFilterNonce.current) return
+    focusedFilterNonce.current = handledFilterFocusNonce
     const input = filterInputRef.current
     if (!input) return
     input.focus()
     input.select()
-  }, [filterFocusNonce, visible, treeVisible])
+  }, [handledFilterFocusNonce])
 
   // ⌘E：切到本 Tab 后弹出「最近打开文件」下拉；等首次恢复完成再弹，免得先出空列表。
-  useEffect(() => {
-    if (!recentMenuNonce || recentMenuNonce === consumedRecentMenuNonce.current) return
-    if (!visible || !ready) return
-    consumedRecentMenuNonce.current = recentMenuNonce
+  // 渲染期比对处理过的 nonce（React「渲染中调整 state」模式，非 effect）
+  const [handledRecentMenuNonce, setHandledRecentMenuNonce] = useState(recentMenuNonce)
+  if (visible && ready && recentMenuNonce !== handledRecentMenuNonce) {
+    setHandledRecentMenuNonce(recentMenuNonce)
     setRecentMenuOpen(true)
-  }, [recentMenuNonce, visible, ready])
+  }
 
   // 离开 Files Tab / 失焦 → 保存（仅本地；服务器上的文件手动保存，见 docs/prd/server-files.md）
   useEffect(() => {
@@ -1305,10 +1289,9 @@ export function FilesPane({
 
   /**
    * 服务器上的刷新要一会儿：进行中「刷新」钮的图标转圈、钮置灰，自动触发的也算；
-   * 结束后图标转回原位才恢复（useSpinUntilRest）
+   * 结束后图标转回原位才恢复（RefreshButton）
    */
   const [refreshing, setRefreshing] = useState(0)
-  const refreshSpin = useSpinUntilRest(refreshing > 0)
   const refreshFromDisk = useCallback(async () => {
     if (!remote) return syncFromDisk()
     setRefreshing((n) => n + 1)
@@ -1433,7 +1416,7 @@ export function FilesPane({
     } catch (e) {
       setGoError(ipcErrorMessage(e))
     }
-  }, [serverId, serverHome, goQuery, changeGoQuery, revealInTree, openFromRecent])
+  }, [serverId, serverHome, goQuery, changeGoQuery, treeScrollRef, revealInTree, openFromRecent])
 
   /** 「断开连接」：有未保存的修改先问「保存 / 不保存 / 取消」，存不上（冲突 / 出错）就不断开。 */
   const disconnect = useCallback(async () => {
@@ -1683,9 +1666,7 @@ export function FilesPane({
                   onRevealInTree={revealInTree}
                   onOpenRecent={openFromRecent}
                 />
-                <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
-                  在右侧选择文件
-                </div>
+                <CenteredHint>在右侧选择文件</CenteredHint>
               </div>
             )}
             {loaded?.kind === 'text' && (
@@ -1876,6 +1857,28 @@ export function FilesPane({
                 />
               </div>
             )}
+            {loaded?.kind === 'sqlite' && (
+              <div className="flex h-full min-h-0 flex-col">
+                <FilesToolbar
+                  path={loaded.path}
+                  projectRoot={rootLogical}
+                  error={null}
+                  recentPaths={recentPaths}
+                  recentMenuOpen={recentMenuOpen}
+                  onRecentMenuOpenChange={setRecentMenuOpen}
+                  fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
+                  treeVisible={treeVisible}
+                  onShowTree={() => setTreeVisible(true)}
+                  onToggleTree={() => setTreeVisible((v) => !v)}
+                  onRevealInTree={revealInTree}
+                  onOpenRecent={openFromRecent}
+                />
+                {/* 打不开时的占位（FilesPreviewError）盖满这一格 */}
+                <div className="relative min-h-0 flex-1">
+                  <SqliteFileView key={loaded.path} rootPath={rootPath} filePath={loaded.path} />
+                </div>
+              </div>
+            )}
             {loaded?.kind === 'other' && (
               <div className="flex h-full min-h-0 flex-col">
                 <FilesToolbar
@@ -1949,93 +1952,35 @@ export function FilesPane({
             )}
           </div>
           {treeVisible && (
-            <div
-              className="flex h-full shrink-0 flex-col border-l border-[var(--separator)] bg-panel"
-              style={{ width: TREE_W }}
+            <TreePanel
               onDragOver={onTreeDragOver}
               onDragLeave={onTreeDragLeave}
               onDrop={onTreeDrop}
             >
-              <div className="flex h-10 shrink-0 items-center gap-1 border-b border-[var(--separator)] px-1.5">
+              <TreePanelBar>
                 {remote ? (
                   // 服务器：「前往路径」（绝对路径或 ~ 开头），回车即前往；没有文件索引，不做筛选
-                  <div
+                  <BarInput
+                    ref={filterInputRef}
+                    value={goQuery}
+                    onChange={changeGoQuery}
+                    onSubmit={() => void goToPath()}
+                    escapeFocusRef={treeScrollRef}
+                    disabled={!connected}
                     title={goHint}
-                    className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded px-1.5 transition-colors focus-within:bg-[var(--bg-row-hover)]"
-                  >
-                    <input
-                      ref={filterInputRef}
-                      value={goQuery}
-                      disabled={!connected}
-                      onChange={(e) => changeGoQuery(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.nativeEvent.isComposing) {
-                          e.preventDefault()
-                          void goToPath()
-                        } else if (e.key === 'Escape') {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          changeGoQuery('')
-                        }
-                      }}
-                      placeholder={goHint}
-                      className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-[color:var(--fg-disabled)]"
-                    />
-                    {/* 两颗钮按下时不抢焦点：点「前往」同回车，「清空」后可接着输入 */}
-                    {goQuery !== '' && connected && (
-                      <>
-                        <button
-                          type="button"
-                          title="前往"
-                          className="flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]"
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => void goToPath()}
-                        >
-                          <CornerDownLeft className="size-3" />
-                        </button>
-                        <button
-                          type="button"
-                          title="清空"
-                          className="flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]"
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => changeGoQuery('')}
-                        >
-                          <X className="size-3" />
-                        </button>
-                      </>
-                    )}
-                  </div>
+                    placeholder={goHint}
+                  />
                 ) : (
-                  <div
+                  <BarInput
+                    ref={filterInputRef}
+                    value={filterQuery}
+                    onChange={updateFilterQuery}
+                    onClear={() => void exitFilter()}
+                    escapeFocusRef={treeScrollRef}
+                    leading={<Search className={BAR_INPUT_ICON} />}
                     title={filterHint}
-                    className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded px-1.5 transition-colors focus-within:bg-[var(--bg-row-hover)]"
-                  >
-                    <Search className="size-3.5 shrink-0 text-[color:var(--fg-disabled)]" />
-                    <input
-                      ref={filterInputRef}
-                      value={filterQuery}
-                      onChange={(e) => updateFilterQuery(e.target.value)}
-                      onKeyDown={(e) => {
-                        if (e.key === 'Escape') {
-                          e.preventDefault()
-                          e.stopPropagation()
-                          void exitFilter()
-                        }
-                      }}
-                      placeholder={filterHint}
-                      className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-[color:var(--fg-disabled)]"
-                    />
-                    {filterQuery !== '' && (
-                      <button
-                        type="button"
-                        title="清空"
-                        className="flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]"
-                        onClick={() => void exitFilter()}
-                      >
-                        <X className="size-3" />
-                      </button>
-                    )}
-                  </div>
+                    placeholder={filterHint}
+                  />
                 )}
                 <div className="flex shrink-0 items-center gap-0.5">
                   {host.kind === 'preview' && (
@@ -2046,18 +1991,12 @@ export function FilesPane({
                   )}
                   {remote ? (
                     // 服务器上不给「全部展开」：从 / 递归展开等于把整台服务器扫一遍
-                    <button
-                      type="button"
+                    <RefreshButton
+                      refreshing={refreshing > 0}
                       title="刷新"
-                      disabled={!connected || refreshSpin.spinning}
-                      className={cn(
-                        TOOLBAR_BTN,
-                        'transition-[color,background-color,opacity] duration-200 disabled:pointer-events-none disabled:opacity-50'
-                      )}
+                      disabled={!connected}
                       onClick={() => void refreshFromDisk()}
-                    >
-                      <RefreshIcon {...refreshSpin} />
-                    </button>
+                    />
                   ) : (
                     <button
                       type="button"
@@ -2085,7 +2024,7 @@ export function FilesPane({
                     <Minus className="size-4" />
                   </button>
                 </div>
-              </div>
+              </TreePanelBar>
               {goError !== null && (
                 <div className="shrink-0 px-3 pt-1.5 text-xs text-[var(--status-failed)]">
                   {goError}
@@ -2093,73 +2032,36 @@ export function FilesPane({
               )}
               {/* 当前根文件夹行：告诉你树的根在哪（预览窗口上翻下钻后不迷路），右键即空白区那份根菜单——
               文件铺满时也永远点得到。固定在列表之上不随滚动走；它是全树的根，图标顶格（不占层级缩进位）。 */}
-              <div
+              <TreeRootRow
                 title={rootLogical}
                 data-drop-dir={remote ? rootLogical : undefined}
-                className={cn(
-                  'mx-1.5 mt-1 flex h-8 shrink-0 cursor-default items-center gap-1 rounded px-1.5 text-[13px] text-foreground transition-colors',
-                  dropDir === rootLogical
-                    ? DROP_TARGET
-                    : treeMenu !== null && treeMenu.path === rootLogical
-                      ? 'bg-[var(--bg-row-hover)]'
-                      : 'hover:bg-[var(--bg-row-hover)]'
-                )}
+                icon={<FolderOpen className={TREE_ICON} />}
+                name={rootLogical.slice(rootLogical.lastIndexOf('/') + 1) || rootLogical}
+                dropTarget={dropDir === rootLogical}
+                menuActive={treeMenu !== null && treeMenu.path === rootLogical}
                 onContextMenu={(e) => openTreeMenu(rootLogical, true, e)}
-              >
-                <FolderOpen className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
-                <span className="min-w-0 flex-1 truncate font-medium">
-                  {rootLogical.slice(rootLogical.lastIndexOf('/') + 1) || rootLogical}
-                </span>
-                {remote && (
-                  <Button
-                    variant="destructiveSoft"
-                    className="h-6 px-2 text-[12px]"
-                    onClick={() => void disconnect()}
-                  >
-                    断开连接
-                  </Button>
-                )}
-              </div>
+                onDisconnect={remote ? () => void disconnect() : undefined}
+              />
               <div
                 ref={treeScrollRef}
                 tabIndex={0}
-                className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5 pt-1 outline-none"
+                className={TREE_SCROLL}
                 onContextMenu={(e) => openTreeMenu(rootLogical, true, e)}
                 onKeyDown={(e) => {
                   // 焦点在树上打字转进树顶输入（项目为筛选，服务器为「前往路径」；没连上时输入停用）
-                  if (e.target instanceof HTMLInputElement || (remote && !connected)) return
-                  const query = remote ? goQuery : filterQuery
-                  const setQuery = remote ? changeGoQuery : updateFilterQuery
-                  if (e.key === 'Escape') {
-                    if (query.trim()) {
-                      e.preventDefault()
-                      if (remote) changeGoQuery('')
-                      else void exitFilter()
-                    }
-                    return
-                  }
-                  if (e.key === 'Backspace' && query) {
-                    e.preventDefault()
-                    setQuery(query.slice(0, -1))
-                    filterInputRef.current?.focus()
-                    return
-                  }
-                  if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
-                    e.preventDefault()
-                    setQuery(query + e.key)
-                    filterInputRef.current?.focus()
-                  }
+                  if (remote && !connected) return
+                  typeToInput(e, {
+                    query: remote ? goQuery : filterQuery,
+                    inputRef: filterInputRef,
+                    onChange: remote ? changeGoQuery : updateFilterQuery,
+                    onClear: remote ? () => changeGoQuery('') : () => void exitFilter()
+                  })
                 }}
               >
-                {filterLoading && showFilterLoading ? (
-                  <div className="flex h-full min-h-full items-center justify-center gap-1.5 px-1.5 text-[13px] text-muted-foreground">
-                    <LoaderCircle className="size-3.5 animate-spin" />
-                    正在扫描…
-                  </div>
+                {filterLoading ? (
+                  <TreeHint loading>正在扫描…</TreeHint>
                 ) : filterEmpty ? (
-                  <div className="flex h-full min-h-full items-center justify-center px-1.5 text-[13px] text-muted-foreground">
-                    无匹配文件
-                  </div>
+                  <TreeHint>无匹配文件</TreeHint>
                 ) : (
                   <div
                     className="relative w-full"
@@ -2177,17 +2079,18 @@ export function FilesPane({
                           data-drop-dir={remote && !row.notice ? uploadTargetDir(row) : undefined}
                         >
                           {row.notice ? (
-                            <FileTreeNoticeRow message={row.name} depth={row.depth} />
+                            <TreeNoticeRow depth={row.depth} message={row.name} />
                           ) : row.isDirectory ? (
-                            <FileTreeDirRow
-                              name={row.name}
+                            <TreeRow
                               depth={row.depth}
-                              isExpanded={displayExpanded.has(row.path)}
+                              expanded={displayExpanded.has(row.path)}
+                              icon={<Folder className={TREE_ICON} />}
+                              name={row.name}
                               selected={selectedPath === row.path}
                               menuActive={menuActive}
                               dropTarget={dropDir === row.path}
-                              onToggle={() => toggleDir(row.path)}
-                              onMenu={(e) => openTreeMenu(row.path, true, e)}
+                              onClick={() => toggleDir(row.path)}
+                              onContextMenu={(e) => openTreeMenu(row.path, true, e)}
                             />
                           ) : (
                             <FileTreeFileRow
@@ -2206,7 +2109,7 @@ export function FilesPane({
                   </div>
                 )}
               </div>
-            </div>
+            </TreePanel>
           )}
 
           {hunkPopup !== null && loaded?.kind === 'text' && (
@@ -2338,21 +2241,8 @@ function FilesTextEditor({
     if (view?.dom.isConnected) view.focus()
   }, [])
 
-  // 编辑器内查找栏（Cmd+F）：keymap 闭包直接引用 findOpen，开关时 extensions 走一次
-  // reconfigure（不重建编辑器状态，成本可忽略），换取无 ref 的直白数据流
-  const [findOpen, setFindOpen] = useState(false)
-  const [findFocusNonce, setFindFocusNonce] = useState(0)
-  const openFind = useCallback(() => {
-    setFindOpen(true)
-    setFindFocusNonce((n) => n + 1)
-  }, [])
-
-  // 关闭查找（含切走预览态卸载编辑器前）统一在此清命中高亮
-  useEffect(() => {
-    if (findOpen) return
-    const view = viewRef.current
-    if (view && view.dom.isConnected) view.dispatch({ effects: setFindQuery.of(null) })
-  }, [findOpen])
+  // 编辑器内查找栏（Cmd+F）
+  const find = useEditorFind(viewRef)
 
   // 跳转须等 CodeMirror 挂载（key=path 换文件重建）；viewNonce 驱动重试。
   // 预览态（Markdown / SVG / CSV）编辑器未挂载，viewRef 可能仍是上个文件的旧实例：留待切回编辑再应用。
@@ -2382,28 +2272,10 @@ function FilesTextEditor({
       filesEditorConfig,
       filesGutters,
       languageExtensionForPath(path),
-      filesFindExtension,
-      // Cmd+F 开自定义查找栏（默认面板已由 FILES_BASIC_SETUP 关掉）；Esc 查找开着时关之
-      keymap.of([
-        {
-          key: 'Mod-f',
-          run: () => {
-            openFind()
-            return true
-          }
-        },
-        {
-          key: 'Escape',
-          run: () => {
-            if (!findOpen) return false
-            setFindOpen(false)
-            return true
-          }
-        }
-      ]),
+      find.extension,
       ...(baseline === null ? [] : [gitDiffGutter(baseline, onHunkClick)])
     ],
-    [theme, path, baseline, onHunkClick, openFind, findOpen]
+    [theme, path, baseline, onHunkClick, find.extension]
   )
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -2452,12 +2324,12 @@ function FilesTextEditor({
         />
       ) : (
         <>
-          {findOpen && (
+          {find.open && (
             <FilesFindWidget
               viewRef={viewRef}
               content={content}
-              focusNonce={findFocusNonce}
-              onClose={() => setFindOpen(false)}
+              focusNonce={find.focusNonce}
+              onClose={find.close}
             />
           )}
           <div className="files-codemirror min-h-0 flex-1 overflow-hidden bg-deepest">
@@ -2482,80 +2354,7 @@ function FilesTextEditor({
   )
 }
 
-/** 内容缩进：行背景全宽，仅左侧占位（对齐左树「背景不缩进」）。 */
-function treeIndent(levels: number): React.JSX.Element | null {
-  return levels > 0 ? <span className="shrink-0" style={{ width: levels * 12 }} /> : null
-}
-
-/** 读不出来的已展开目录（如「没有权限」）：在子级位置的一行提示，不可点。 */
-function FileTreeNoticeRow({
-  message,
-  depth
-}: {
-  message: string
-  depth: number
-}): React.JSX.Element {
-  return (
-    <div className={cn(ROW, 'cursor-default text-muted-foreground')}>
-      {treeIndent(depth)}
-      <span className="size-3.5 shrink-0" />
-      <span className="min-w-0 flex-1 truncate text-[12px]">{message}</span>
-    </div>
-  )
-}
-
-function FileTreeDirRow({
-  name,
-  depth,
-  isExpanded,
-  selected,
-  menuActive,
-  dropTarget = false,
-  onToggle,
-  onMenu
-}: {
-  name: string
-  depth: number
-  isExpanded: boolean
-  selected: boolean
-  /** 右键菜单打开中：保持 hover 行底（指针已移入菜单会丢 :hover） */
-  menuActive: boolean
-  /** 服务器：从本机拖进来的落点就是它 */
-  dropTarget?: boolean
-  onToggle: () => void
-  onMenu: (e: React.MouseEvent) => void
-}): React.JSX.Element {
-  return (
-    <button
-      type="button"
-      className={cn(
-        ROW,
-        dropTarget
-          ? DROP_TARGET
-          : selected
-            ? 'bg-[var(--selection-row)]'
-            : menuActive
-              ? 'bg-[var(--bg-row-hover)]'
-              : 'hover:bg-[var(--bg-row-hover)]'
-      )}
-      onClick={onToggle}
-      onContextMenu={onMenu}
-    >
-      {treeIndent(depth)}
-      <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
-        <ChevronRight className={cn('size-3.5 transition-transform', isExpanded && 'rotate-90')} />
-      </span>
-      <Folder className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
-      <span
-        className="min-w-0 flex-1 truncate transition-colors"
-        style={selected ? { color: 'var(--fg-primary)' } : undefined}
-      >
-        {name}
-      </span>
-    </button>
-  )
-}
-
+/** 文件行：文件名与图标按工作区 Git 状态上色（无状态时图标 `--fg-icon`、名正文色）。 */
 function FileTreeFileRow({
   name,
   depth,
@@ -2576,33 +2375,22 @@ function FileTreeFileRow({
 }): React.JSX.Element {
   const colour = status ? FILE_STATUS_COLOR[status] : undefined
   return (
-    <button
-      type="button"
-      className={cn(
-        ROW,
-        selected
-          ? 'bg-[var(--selection-row)]'
-          : menuActive
-            ? 'bg-[var(--bg-row-hover)]'
-            : 'hover:bg-[var(--bg-row-hover)]'
-      )}
+    <TreeRow
+      depth={depth}
+      icon={
+        <FilesTreeIcon
+          name={name}
+          className="size-3.5 shrink-0"
+          style={{ color: colour ?? 'var(--fg-icon)' }}
+        />
+      }
+      name={name}
+      nameColor={colour}
+      selected={selected}
+      menuActive={menuActive}
       onClick={onOpen}
       onContextMenu={onMenu}
-    >
-      {treeIndent(depth)}
-      <span className="size-3.5 shrink-0" />
-      <FilesTreeIcon
-        name={name}
-        className="size-3.5 shrink-0"
-        style={{ color: colour ?? 'var(--fg-icon)' }}
-      />
-      <span
-        className="min-w-0 flex-1 truncate transition-colors"
-        style={{ color: selected ? 'var(--fg-primary)' : colour }}
-      >
-        {name}
-      </span>
-    </button>
+    />
   )
 }
 

@@ -7,9 +7,13 @@ import { UnsavedChangesDialog } from '@renderer/components/UnsavedChangesDialog'
 import { CloneProjectDialog } from '@renderer/components/CloneProjectDialog'
 import { ConfigDialog } from '@renderer/components/ConfigDialog'
 import { ServerDialog } from '@renderer/components/ServerDialog'
+import { DataSourceDialog } from '@renderer/components/DataSourceDialog'
+import { DataSourceRunParamsDialog } from '@renderer/components/DataSourceRunParamsDialog'
 import { ContentSearchPanel } from '@renderer/components/ContentSearchPanel'
 import { AppTitleBar } from '@renderer/components/AppTitleBar'
 import { SettingsDialog } from '@renderer/components/SettingsDialog'
+import { useDataSourceUi } from '@renderer/data-source-store'
+import { countExecutedStatements } from '@renderer/lib/data-source-completion-usage'
 import { useFiles } from '@renderer/files-store'
 import { orderedTabKeys, resolveTabs, useApp } from '@renderer/store'
 import { gitState, useGit } from '@renderer/git-store'
@@ -19,13 +23,14 @@ import { filterTreeEntries, sortTreeEntries } from '@shared/project-sort'
 import { isResidentTabKey } from '@shared/runnable'
 import {
   buildTreeEntries,
+  dataSourceIdOfEntryKey,
   entryItem,
-  isServerEntryKey,
+  entryKindOfKey,
   serverIdOfEntryKey
 } from '@shared/tree-entry'
 import { GIT_DEFAULTS } from '@shared/git'
 
-// 在当前条目的全部 Tab（Git + Files + 运行会话 + 终端）间循环。dir: +1 下一个 / -1 上一个。
+// 按 Tab 栏顺序在当前条目的全部 Tab（常驻 Tab、运行会话、终端组，见 resolveTabs）间循环。dir: +1 下一个 / -1 上一个。
 function cycleTab(entryKey: string, dir: 1 | -1): void {
   const st = useApp.getState()
   const ordered = orderedTabKeys(st, entryKey)
@@ -49,13 +54,13 @@ function activateTabAt(entryKey: string, index1: number): void {
 }
 
 /**
- * 在左树当前可见序（排序 + 筛选，含 Pin 分区）上切换条目（Project / Server）。
+ * 在左树当前可见序（排序 + 筛选，含 Pin 分区）上切换条目（Project / Server / Data Source）。
  * dir: -1 上一项 / +1 下一项；循环；滚入视口。
  */
 function cycleEntry(dir: 1 | -1): void {
   const st = useApp.getState()
   const entries = filterTreeEntries(
-    sortTreeEntries(buildTreeEntries(st.tree, st.servers), st.projectSortPrefs),
+    sortTreeEntries(buildTreeEntries(st.tree, st.servers, st.dataSources), st.projectSortPrefs),
     st.projectFilter,
     st.projectSortPrefs
   )
@@ -75,21 +80,26 @@ function cycleEntry(dir: 1 | -1): void {
 function handleAppShortcut(shortcut: AppShortcut): void {
   const st = useApp.getState()
   const entry = st.currentEntryKey
-  // 内容搜索只对 Project 有意义；Files Tab 两类条目都有（服务器上 ⌥⌘F 聚焦「前往路径」）
-  const proj = entry !== null && !isServerEntryKey(entry) ? entry : null
+  const kind = entry === null ? null : entryKindOfKey(entry)
+  // 内容搜索只对 Project 有意义；Files Tab 只有 Project 与 Server 有（服务器上 ⌥⌘F 聚焦「前往路径」）
+  const proj = kind === 'project' ? entry : null
+  const filesEntry = kind === 'project' || kind === 'server' ? entry : null
+  const dataSourceEntry = kind === 'dataSource' ? entry : null
 
   switch (shortcut.id) {
     case 'focusProjectFilter':
       st.focusProjectFilter()
       return
     case 'focusFilesFilter':
-      if (entry) useFiles.getState().focusFilesFilter(entry)
+      if (filesEntry) useFiles.getState().focusFilesFilter(filesEntry)
       return
     case 'contentSearch':
       if (proj) st.setContentSearchOpen(true)
       return
     case 'recentFiles':
-      if (entry) useFiles.getState().openRecentMenu(entry)
+      // 项目与服务器为 Files 的最近打开文件；数据源为它的 Data Source Tab 的最近打开对象（Redis 为键）
+      if (filesEntry) useFiles.getState().openRecentMenu(filesEntry)
+      else if (dataSourceEntry) useDataSourceUi.getState().openRecentMenu(dataSourceEntry)
       return
     case 'prevProject':
       cycleEntry(-1)
@@ -108,10 +118,12 @@ function handleAppShortcut(shortcut: AppShortcut): void {
       return
     case 'newTerminal': {
       if (!entry) return
-      // Server 条目的「新建终端」即再开一个连到它的 SSH Terminal
+      // Server 条目的「新建终端」即再开一个连到它的 SSH Terminal；Data Source 条目即再开一个 Data Source Tab（都立即连接）
       const serverId = serverIdOfEntryKey(entry)
-      if (serverId === null) void st.newTerminal(entry)
-      else void st.newSshTerminal(entry, serverId)
+      const dataSourceId = dataSourceIdOfEntryKey(entry)
+      if (serverId !== null) void st.newSshTerminal(entry, serverId)
+      else if (dataSourceId !== null) st.newDataSourceTab(entry, dataSourceId)
+      else void st.newTerminal(entry)
       return
     }
     case 'closeTab': {
@@ -133,15 +145,16 @@ function handleAppShortcut(shortcut: AppShortcut): void {
 function App(): React.JSX.Element {
   const init = useApp((s) => s.init)
   const dialog = useApp((s) => s.dialog)
-  const serverDialog = useApp((s) => s.serverDialog)
+  const connectionDialog = useApp((s) => s.connectionDialog)
   const sshPrompt = useApp((s) => s.sshPromptQueue[0] ?? null)
   const transferConflict = useApp((s) => s.transferConflictQueue[0] ?? null)
   const unsavedPrompt = useApp((s) => s.unsavedPrompt)
+  const runParamsPrompt = useApp((s) => s.runParamsPrompt)
   // 当前条目名（无当前条目 / 暂未找到则为 null）；驱动窗口标题。
   const entryName = useApp((s) => {
     const key = s.currentEntryKey
     if (key === null) return null
-    const entry = buildTreeEntries(s.tree, s.servers).find((e) => e.key === key)
+    const entry = buildTreeEntries(s.tree, s.servers, s.dataSources).find((e) => e.key === key)
     return entry ? entryItem(entry).name : null
   })
 
@@ -154,7 +167,9 @@ function App(): React.JSX.Element {
 
   // 当前条目若是 Project 即其路径（Git 预加载、内容搜索只对 Project）
   const currentProjectPath = useApp((s) =>
-    s.currentEntryKey !== null && !isServerEntryKey(s.currentEntryKey) ? s.currentEntryKey : null
+    s.currentEntryKey !== null && entryKindOfKey(s.currentEntryKey) === 'project'
+      ? s.currentEntryKey
+      : null
   )
   const contentSearchOpen = useApp((s) => s.contentSearchOpen)
   const cloneDialogOpen = useApp((s) => s.cloneDialogOpen)
@@ -166,6 +181,9 @@ function App(): React.JSX.Element {
     const offTree = window.api.onTreeChanged((tree) => useApp.getState().setTree(tree))
     const offServers = window.api.onServersChanged((servers) =>
       useApp.getState().setServers(servers)
+    )
+    const offDataSources = window.api.onDataSourcesChanged((dataSources) =>
+      useApp.getState().setDataSources(dataSources)
     )
     // SSH 的提问（主机指纹、密码、私钥口令、验证码）：排队弹窗；连接已结束的提问随之撤掉。
     const offSshPrompt = window.api.onSshPromptRequest((request) =>
@@ -181,6 +199,10 @@ function App(): React.JSX.Element {
     const offConflictDismiss = window.api.onTransferConflictDismiss((id) =>
       useApp.getState().dismissTransferConflict(id)
     )
+    // 数据源执行成功了语句（控制台与运行配置）：交给补全计数（越常用越靠前）。
+    const offExecuted = window.api.onDataSourceExecuted((event) => {
+      void countExecutedStatements(event)
+    })
     const offStatus = window.api.onSessionStatus((s) => useApp.getState().setSession(s))
     const offRemoved = window.api.onSessionRemoved((key) =>
       useApp.getState().handleSessionRemoved(key)
@@ -201,10 +223,12 @@ function App(): React.JSX.Element {
     return () => {
       offTree()
       offServers()
+      offDataSources()
       offSshPrompt()
       offSshPromptDismiss()
       offConflict()
       offConflictDismiss()
+      offExecuted()
       offStatus()
       offRemoved()
       offGit()
@@ -231,7 +255,7 @@ function App(): React.JSX.Element {
     if (!gitAutoFetch) return
     const timer = setInterval(() => {
       const entryKey = useApp.getState().currentEntryKey
-      if (entryKey !== null && !isServerEntryKey(entryKey)) {
+      if (entryKey !== null && entryKindOfKey(entryKey) === 'project') {
         void useGit.getState().refresh(entryKey, { suppressErrorBox: true })
       }
     }, GIT_DEFAULTS.autoFetchIntervalMs)
@@ -250,10 +274,30 @@ function App(): React.JSX.Element {
         <ProjectTree />
         <Console />
       </div>
-      {dialog.open && <ConfigDialog key={dialog.config?.id ?? 'new'} />}
-      {serverDialog.open && <ServerDialog key={serverDialog.server?.server.id ?? 'new'} />}
+      {dialog && (
+        <ConfigDialog
+          key={dialog.config?.id ?? 'new'}
+          ownerKey={dialog.ownerKey}
+          config={dialog.config}
+        />
+      )}
+      {connectionDialog?.kind === 'server' && (
+        <ServerDialog
+          key={connectionDialog.node?.server.id ?? 'new'}
+          node={connectionDialog.node}
+        />
+      )}
+      {connectionDialog?.kind === 'dataSource' && (
+        <DataSourceDialog
+          key={connectionDialog.node?.dataSource.id ?? 'new'}
+          node={connectionDialog.node}
+        />
+      )}
       {unsavedPrompt && (
         <UnsavedChangesDialog name={unsavedPrompt.name} onChoose={unsavedPrompt.resolve} />
+      )}
+      {runParamsPrompt && (
+        <DataSourceRunParamsDialog key={runParamsPrompt.configId} prompt={runParamsPrompt} />
       )}
       {/* SSH 提问排在同名询问之后渲染，叠在它上面 */}
       {transferConflict && (

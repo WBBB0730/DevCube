@@ -57,6 +57,12 @@ export function logicalParentPath(p: string): string {
   return withSlash === '/' || /^[a-zA-Z]:\/$/.test(withSlash) ? withSlash : withSlash.slice(0, -1)
 }
 
+/** 路径末段（目录名或文件名）；兼容两种分隔符与末尾分隔符。 */
+export function lastPathSegment(p: string): string {
+  const segments = split(p)
+  return segments[segments.length - 1] ?? p
+}
+
 /**
  * 前缀重映射（重命名后同步展开 / 打开 / 最近路径）：
  * p 等于 oldBase 或位于其内时替换前缀为 newBase，否则原样返回。

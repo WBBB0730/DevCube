@@ -1,4 +1,4 @@
-// 左树条目（Project 与 Server 混排）的排序 / 筛选 / Pin / 重排纯函数（可单测，main / renderer 共用）。
+// 左树条目（Project、Server 与 Data Source 混排）的排序 / 筛选 / Pin / 重排纯函数（可单测，main / renderer 共用）。
 
 import { entryItem, type TreeEntry, type TreeEntryItem } from './tree-entry'
 import type { ProjectSortDirection, ProjectSortMode, ProjectSortPrefs } from './types'
@@ -66,15 +66,20 @@ function compareItems(
   return bT - aT
 }
 
-/** 按类型（排序菜单的「项目」「服务器」勾选）与名称（大小写不敏感包含）筛选；空查询不按名称筛。 */
+/** 按类型（排序菜单的「项目」「服务器」「数据源」勾选）与名称（大小写不敏感包含）筛选；空查询不按名称筛。 */
 export function filterTreeEntries(
   entries: TreeEntry[],
   query: string,
-  prefs: Pick<ProjectSortPrefs, 'showProjects' | 'showServers'>
+  prefs: Pick<ProjectSortPrefs, 'showProjects' | 'showServers' | 'showDataSources'>
 ): TreeEntry[] {
   const q = query.trim().toLowerCase()
+  const shown = {
+    project: prefs.showProjects,
+    server: prefs.showServers,
+    dataSource: prefs.showDataSources
+  }
   return entries.filter((e) => {
-    if (e.kind === 'project' ? !prefs.showProjects : !prefs.showServers) return false
+    if (!shown[e.kind]) return false
     return q === '' || entryItem(e).name.toLowerCase().includes(q)
   })
 }

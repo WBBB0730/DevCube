@@ -1,5 +1,6 @@
 /** Files Tab 打开条目时的类型分流（见 docs/prd/files-tab.md）。 */
-export type FilesOpenKind = 'text' | 'image' | 'audio' | 'video' | 'pdf' | 'pptx' | 'xlsx' | 'other'
+export type FilesOpenKind =
+  'text' | 'image' | 'audio' | 'video' | 'pdf' | 'pptx' | 'xlsx' | 'sqlite' | 'other'
 
 const IMAGE_EXT = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.bmp', '.ico'])
 
@@ -224,6 +225,8 @@ export function filesOpenKindFromMime(mime: string, fileName = ''): FilesOpenKin
   if (PPTX_MIME.has(primary)) return 'pptx'
   if (XLSX_MIME.has(primary)) return 'xlsx'
   if (primary === 'application/x-cfb') return /\.xls$/i.test(fileName) ? 'xlsx' : null
+  // SQLite 按文件头认（扩展名 .db 等太杂），见 docs/prd/database.md
+  if (primary === 'application/x-sqlite3') return 'sqlite'
   if (primary.startsWith('audio/')) {
     return PLAYABLE_AUDIO_MIME.has(primary) ? 'audio' : 'other'
   }

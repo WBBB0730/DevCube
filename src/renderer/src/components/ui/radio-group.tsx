@@ -1,5 +1,5 @@
 // Base UI RadioGroup 封装（vendored shadcn 风格）：纵向单选组；圆点 16px，选中态 primary 实心点。
-// 文字标签由调用方用 <label> 包裹 RadioGroupItem。
+// 文字标签由调用方用 <label> 包裹 RadioGroupItem（样式同勾选行，见 ./checkbox 的 CHOICE_ROW）。
 import { RadioGroup as BaseRadioGroup } from '@base-ui-components/react/radio-group'
 import { Radio } from '@base-ui-components/react/radio'
 import { cn } from '@renderer/lib/utils'

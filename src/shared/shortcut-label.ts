@@ -158,6 +158,8 @@ export const SHORTCUT = {
   fitWindow: { mod: true, key: '0' } satisfies ShortcutChord,
   /** 服务器上的文件手动保存（docs/prd/server-files.md）：渲染层自持，不进 matchAppShortcut */
   save: { mod: true, key: 'S' } satisfies ShortcutChord,
+  /** 数据源控制台执行光标所在的语句或选中的部分（docs/prd/database.md）：渲染层自持，不进 matchAppShortcut */
+  runStatement: { mod: true, key: 'Enter' } satisfies ShortcutChord,
   cycleTabNext: { ctrl: true, key: 'Tab' } satisfies ShortcutChord,
   cycleTabPrev: { ctrl: true, shift: true, key: 'Tab' } satisfies ShortcutChord
 } as const

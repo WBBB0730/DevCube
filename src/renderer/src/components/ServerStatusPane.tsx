@@ -1,11 +1,12 @@
 // 服务器的 Status Tab 正文（见 docs/prd/server-status.md）：每台服务器常驻一个，切走仅隐藏。
 // 连上后主进程每 2 秒推一次状态（含最近 5 分钟的曲线），不管 Tab 是否可见；系统卡底部可手动断开。
 // 上半部分四张卡（CPU / 内存 / 系统盘 / 网络）固定两列、分两行，各带自己的曲线；下半部分左进程、右系统信息。
-import { useEffect, useState } from 'react'
-import { ArrowDown, ArrowUp, ChevronDown, LoaderCircle } from 'lucide-react'
+import { useState } from 'react'
+import { ArrowDown, ArrowUp, ChevronDown } from 'lucide-react'
 import { CartesianGrid, LineChart, Line, Tooltip, XAxis, YAxis } from 'recharts'
 import { Button } from '@renderer/components/ui/button'
-import { createKeyedSubscription } from '@renderer/lib/keyed-subscription'
+import { ConnectPlaceholder } from '@renderer/components/ui/connect-placeholder'
+import { createKeyedSubscription, useKeyedPushed } from '@renderer/lib/keyed-subscription'
 import { cn } from '@renderer/lib/utils'
 import { useApp } from '@renderer/store'
 import {
@@ -18,6 +19,7 @@ import {
   withHistoryGaps,
   type ServerDiskUsage,
   type ServerProcess,
+  type ServerStatusEvent,
   type ServerStatusSample,
   type ServerStatusState,
   type ServerSystemInfo,
@@ -33,22 +35,15 @@ const subscribeServerStatus = createKeyedSubscription(
   (event) => event.serverId
 )
 
+const stateOf = (event: ServerStatusEvent): ServerStatusState => event.state
+
+const IDLE: ServerStatusState = { phase: 'idle' }
+
 export function ServerStatusPane({ serverId }: { serverId: string }): React.JSX.Element {
   const name = useApp((s) => s.servers.find((n) => n.server.id === serverId)?.server.name ?? '')
-  const [state, setState] = useState<ServerStatusState>({ phase: 'idle' })
-
-  useEffect(() => {
-    let current = true
-    const unsubscribe = subscribeServerStatus(serverId, (event) => setState(event.state))
-    // 渲染端重载后接上主进程里已有的连接
-    void window.api.getServerStatus(serverId).then((initial) => {
-      if (current) setState(initial)
-    })
-    return () => {
-      current = false
-      unsubscribe()
-    }
-  }, [serverId])
+  // 渲染端重载后接上主进程里已有的连接；尚未得知时按未连接
+  const state =
+    useKeyedPushed(serverId, subscribeServerStatus, window.api.getServerStatus, stateOf) ?? IDLE
 
   const connect = (): void => void window.api.connectServerStatus(serverId)
 
@@ -62,30 +57,27 @@ export function ServerStatusPane({ serverId }: { serverId: string }): React.JSX.
       />
     )
   }
+  if (state.phase === 'connecting') return <ConnectPlaceholder phase="connecting" />
+  if (state.phase === 'unsupported') {
+    return <ConnectPlaceholder phase="idle" message="暂不支持：状态只支持 Linux 服务器" />
+  }
+  if (state.phase === 'disconnected') {
+    return (
+      <ConnectPlaceholder
+        phase="failed"
+        message={state.message}
+        actionLabel="重新连接"
+        onAction={connect}
+      />
+    )
+  }
   return (
-    <div className="flex h-full select-text flex-col items-center justify-center gap-3 px-6 text-sm text-muted-foreground">
-      {state.phase === 'idle' && (
-        <>
-          <span>{name === '' ? '尚未连接' : `尚未连接到 ${name}`}</span>
-          <Button onClick={connect}>连接</Button>
-        </>
-      )}
-      {state.phase === 'connecting' && (
-        <span className="flex items-center gap-2">
-          <LoaderCircle className="size-4 animate-spin" />
-          正在连接…
-        </span>
-      )}
-      {state.phase === 'unsupported' && <span>暂不支持：状态只支持 Linux 服务器</span>}
-      {state.phase === 'disconnected' && (
-        <>
-          <span className="max-w-xl whitespace-pre-wrap break-words text-center">
-            {state.message}
-          </span>
-          <Button onClick={connect}>重新连接</Button>
-        </>
-      )}
-    </div>
+    <ConnectPlaceholder
+      phase="idle"
+      message={name === '' ? '尚未连接' : `尚未连接到 ${name}`}
+      actionLabel="连接"
+      onAction={connect}
+    />
   )
 }
 

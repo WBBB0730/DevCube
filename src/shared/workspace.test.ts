@@ -3,6 +3,7 @@ import {
   mergeTerminalTabs,
   migrateLegacyWorkspaceUi,
   nextNumberedTerminalName,
+  nextTerminalName,
   renamedTerminalName,
   resolvePersistedEntryKey,
   resolvePersistedSelectedKey,
@@ -71,15 +72,25 @@ describe('terminalsToShellsByEntry', () => {
       terminalsToShellsByEntry([
         { key: 'terminal:1', ownerKey: '/a', name: 'A1' },
         { key: 'terminal:2', ownerKey: '/b', name: 'B' },
-        { key: 'ssh:3', ownerKey: '/a', name: 'prod', serverId: 's1' }
+        { key: 'ssh:3', ownerKey: '/a', name: 'prod', serverId: 's1' },
+        { key: 'db-tab:4', ownerKey: '/a', name: 'shop', dataSourceId: 'd1' }
       ])
     ).toEqual({
       '/a': [
         { id: 'terminal:1', name: 'A1' },
-        { id: 'ssh:3', name: 'prod', serverId: 's1' }
+        { id: 'ssh:3', name: 'prod', serverId: 's1' },
+        { id: 'db-tab:4', name: 'shop', dataSourceId: 'd1' }
       ],
       '/b': [{ id: 'terminal:2', name: 'B' }]
     })
+  })
+})
+
+describe('mergeTerminalTabs · Data Source Tab', () => {
+  it('没有活会话的 Data Source Tab 壳按盘上原样恢复', () => {
+    expect(
+      mergeTerminalTabs([], { '/a': [{ id: 'db-tab:1', name: 'shop', dataSourceId: 'd1' }] })
+    ).toEqual([{ key: 'db-tab:1', ownerKey: '/a', name: 'shop', dataSourceId: 'd1' }])
   })
 })
 
@@ -142,6 +153,36 @@ describe('nextNumberedTerminalName', () => {
 
   it('服务器名里的括号与特殊字符按原样处理', () => {
     expect(nextNumberedTerminalName(['a.b (c)'], 'a.b (c)')).toBe('a.b (c) (2)')
+  })
+})
+
+describe('nextTerminalName', () => {
+  const tabs = [
+    { key: 'terminal:1', ownerKey: '/p', name: '终端' },
+    { key: 'ssh:1', ownerKey: '/p', name: 'prod', serverId: 's1' },
+    { key: 'db-tab:1', ownerKey: '/p', name: 'prod', dataSourceId: 'd1' },
+    { key: 'db-tab:2', ownerKey: 'datasource:d1', name: 'prod (2)', dataSourceId: 'd1' }
+  ]
+
+  it('只数同一处、连同一个对象的同系列', () => {
+    expect(nextTerminalName(tabs, { ownerKey: '/p' }, '终端')).toBe('终端 (2)')
+    expect(nextTerminalName(tabs, { ownerKey: '/p', serverId: 's1' }, 'prod')).toBe('prod (2)')
+    expect(nextTerminalName(tabs, { ownerKey: '/p', serverId: 's2' }, 'prod')).toBe('prod')
+    expect(nextTerminalName(tabs, { ownerKey: '/q' }, '终端')).toBe('终端')
+  })
+
+  it('开在项目里的 Data Source Tab 从不带编号的名字起', () => {
+    expect(nextTerminalName([], { ownerKey: '/p', dataSourceId: 'd1' }, 'prod')).toBe('prod')
+    expect(nextTerminalName(tabs, { ownerKey: '/p', dataSourceId: 'd1' }, 'prod')).toBe('prod (2)')
+  })
+
+  it('开在数据源条目自己下面时常驻 Tab 算第 1 个', () => {
+    expect(nextTerminalName([], { ownerKey: 'datasource:d1', dataSourceId: 'd1' }, 'prod')).toBe(
+      'prod (2)'
+    )
+    expect(nextTerminalName(tabs, { ownerKey: 'datasource:d1', dataSourceId: 'd1' }, 'prod')).toBe(
+      'prod (3)'
+    )
   })
 })
 

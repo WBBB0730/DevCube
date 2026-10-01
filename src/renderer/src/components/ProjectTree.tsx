@@ -19,6 +19,7 @@ import {
   ClockArrowUp,
   SquareArrowOutUpRight,
   AppWindow,
+  Database,
   FilePlusCorner,
   Folder,
   FolderGit2,
@@ -29,13 +30,13 @@ import {
   Pin,
   PinOff,
   Play,
+  Plus,
   RotateCw,
   Search,
   Server as ServerIcon,
   Square,
   Terminal,
-  Trash2,
-  X
+  Trash2
 } from 'lucide-react'
 import {
   DndContext,
@@ -64,9 +65,11 @@ import type {
   SessionStatus
 } from '@shared/types'
 import { serverTargetLabel, type ServerNode } from '@shared/server'
+import { dataSourceTargetLabel, type DataSourceNode } from '@shared/data-source'
 import {
   buildTreeEntries,
   configOwnerKey,
+  dataSourceEntryKey,
   entryItem,
   serverEntryKey,
   type TreeEntry
@@ -81,7 +84,9 @@ import { filterTreeEntries, sortTreeEntries } from '@shared/project-sort'
 import { SHORTCUT } from '@shared/shortcut-label'
 import { useDoubleClick } from '@renderer/lib/double-click'
 import { shortcutLabel, shortcutTitle } from '@renderer/lib/shortcut-label'
+import { typeToInput } from '@renderer/lib/type-to-input'
 import { cn } from '@renderer/lib/utils'
+import { BAR_INPUT_ICON, BarInput } from '@renderer/components/ui/bar-input'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
 import {
   ContextMenu,
@@ -101,7 +106,7 @@ import {
 import { OPEN_IN_APP_ICONS } from '@renderer/assets/open-in'
 import { OPEN_IN_APP_IDS, OPEN_IN_APP_LABELS, type OpenInAppStatus } from '@shared/open-in-app'
 import { useApp } from '@renderer/store'
-import { ConnectServerItems } from '@renderer/components/ConnectServerItems'
+import { ConnectSubmenu } from '@renderer/components/ConnectSubmenu'
 
 // 所有行统一固定高 + 圆角。四周内边距 6px：px-1.5 各 6px，
 // h-10(40px) 让 size-7(28px) 按钮上下各留 6px；固定高避免 hover 出按钮时整行跳动。
@@ -173,6 +178,7 @@ const SORT_OPTIONS: { mode: ProjectSortMode; label: string }[] = [
 export function ProjectTree(): React.JSX.Element {
   const tree = useApp((s) => s.tree)
   const servers = useApp((s) => s.servers)
+  const dataSources = useApp((s) => s.dataSources)
   const projectSortPrefs = useApp((s) => s.projectSortPrefs)
   const projectFilter = useApp((s) => s.projectFilter)
   const setProjectFilter = useApp((s) => s.setProjectFilter)
@@ -185,7 +191,7 @@ export function ProjectTree(): React.JSX.Element {
   const addProjectByPath = useApp((s) => s.addProjectByPath)
   const createProject = useApp((s) => s.createProject)
   const setCloneDialogOpen = useApp((s) => s.setCloneDialogOpen)
-  const openServerDialog = useApp((s) => s.openServerDialog)
+  const openConnectionDialog = useApp((s) => s.openConnectionDialog)
 
   // 拖项目时强制全部收起；松手后恢复各行原展开态（由 forceCollapsed 驱动，不改各行本地 open）。
   // 锚点用「所见视口 Y」（getBoundingClientRect，含吸顶卡住）；收起后关掉 sticky。
@@ -210,8 +216,8 @@ export function ProjectTree(): React.JSX.Element {
 
   // 全部条目按当前规则排好（拖拽落盘用：按类型筛掉的条目也要保住相对位置）；可见的再按类型 / 名称筛。
   const sorted = useMemo(
-    () => sortTreeEntries(buildTreeEntries(tree, servers), projectSortPrefs),
-    [tree, servers, projectSortPrefs]
+    () => sortTreeEntries(buildTreeEntries(tree, servers, dataSources), projectSortPrefs),
+    [tree, servers, dataSources, projectSortPrefs]
   )
   const filtered = filterTreeEntries(sorted, projectFilter, projectSortPrefs)
   const pinnedEntries = useMemo(() => filtered.filter((e) => entryItem(e).pinned), [filtered])
@@ -484,8 +490,8 @@ export function ProjectTree(): React.JSX.Element {
   }
 
   const emptyMessage =
-    tree.length === 0 && servers.length === 0
-      ? '拖入文件夹，或点上方 + 新建 / 添加项目或服务器'
+    tree.length === 0 && servers.length === 0 && dataSources.length === 0
+      ? '拖入文件夹，或点上方 + 新建 / 添加项目、服务器或数据源'
       : '无匹配项'
 
   // 当前条目常驻吸顶（滚过自身后钉住，再往下也不走）：
@@ -650,7 +656,7 @@ export function ProjectTree(): React.JSX.Element {
     )
   })
 
-  const filterHint = shortcutTitle('筛选项目和服务器', SHORTCUT.projectFilter)
+  const filterHint = shortcutTitle('按名称筛选', SHORTCUT.projectFilter)
 
   return (
     <div
@@ -665,35 +671,15 @@ export function ProjectTree(): React.JSX.Element {
       }}
     >
       <header className="flex h-10 shrink-0 items-center gap-1 border-b border-[var(--separator)] px-1.5 text-muted-foreground">
-        <div
+        <BarInput
+          ref={filterInputRef}
+          value={projectFilter}
+          onChange={setProjectFilter}
+          escapeFocusRef={listRef}
+          leading={<Search className={BAR_INPUT_ICON} />}
           title={filterHint}
-          className="flex h-7 min-w-0 flex-1 items-center gap-1 rounded px-1.5 transition-colors focus-within:bg-[var(--bg-row-hover)]"
-        >
-          <Search className="size-3.5 shrink-0 text-[color:var(--fg-disabled)]" />
-          <input
-            ref={filterInputRef}
-            value={projectFilter}
-            onChange={(e) => setProjectFilter(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape' && projectFilter) {
-                e.preventDefault()
-                setProjectFilter('')
-              }
-            }}
-            placeholder={filterHint}
-            className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-[color:var(--fg-disabled)]"
-          />
-          {projectFilter !== '' && (
-            <button
-              type="button"
-              title="清空"
-              className="flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]"
-              onClick={() => setProjectFilter('')}
-            >
-              <X className="size-3" />
-            </button>
-          )}
-        </div>
+          placeholder={filterHint}
+        />
         <div className="flex shrink-0 items-center gap-0.5">
           <SortMenu
             prefs={projectSortPrefs}
@@ -702,7 +688,7 @@ export function ProjectTree(): React.JSX.Element {
           />
           <DropdownMenu>
             <DropdownMenuTrigger
-              title="新建 / 添加项目或服务器"
+              title="新建 / 添加项目、服务器或数据源"
               className={cn(
                 BTN,
                 'text-muted-foreground hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
@@ -717,7 +703,12 @@ export function ProjectTree(): React.JSX.Element {
                 从 Git 仓库克隆…
               </DropdownMenuItem>
               <DropdownMenuSeparator />
-              <DropdownMenuItem onClick={() => openServerDialog()}>添加服务器…</DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openConnectionDialog({ kind: 'server' })}>
+                添加服务器…
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => openConnectionDialog({ kind: 'dataSource' })}>
+                添加数据源…
+              </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
@@ -726,30 +717,18 @@ export function ProjectTree(): React.JSX.Element {
       <div
         ref={listRef}
         tabIndex={0}
-        title={`切换项目或服务器 (${shortcutLabel(SHORTCUT.prevProject)} / ${shortcutLabel(SHORTCUT.nextProject)})`}
+        title={`切换项目、服务器或数据源 (${shortcutLabel(SHORTCUT.prevProject)} / ${shortcutLabel(SHORTCUT.nextProject)})`}
         className="min-h-0 flex-1 overflow-auto px-1.5 pb-1.5 outline-none"
         onScroll={forceCollapsed ? handleListScroll : undefined}
-        onKeyDown={(e) => {
-          if (e.target instanceof HTMLInputElement) return
-          if (e.key === 'Escape') {
-            if (projectFilter) {
-              e.preventDefault()
-              setProjectFilter('')
-            }
-            return
-          }
-          if (e.key === 'Backspace' && projectFilter) {
-            e.preventDefault()
-            setProjectFilter(projectFilter.slice(0, -1))
-            filterInputRef.current?.focus()
-            return
-          }
-          if (e.key.length === 1 && !e.metaKey && !e.ctrlKey && !e.altKey) {
-            e.preventDefault()
-            setProjectFilter(projectFilter + e.key)
-            filterInputRef.current?.focus()
-          }
-        }}
+        // 焦点在列表上打字转进顶上的筛选
+        onKeyDown={(e) =>
+          typeToInput(e, {
+            query: projectFilter,
+            inputRef: filterInputRef,
+            onChange: setProjectFilter,
+            onClear: () => setProjectFilter('')
+          })
+        }
       >
         {filtered.length === 0 ? (
           <div className="flex h-full min-h-full items-center justify-center px-3 pb-10 text-[13px] text-muted-foreground">
@@ -798,10 +777,12 @@ function SortMenu({
   prefs: ProjectSortPrefs
   onSelect: (mode: ProjectSortMode) => void
   onPrefsChange: (
-    patch: Partial<Pick<ProjectSortPrefs, 'pinSticky' | 'showProjects' | 'showServers'>>
+    patch: Partial<
+      Pick<ProjectSortPrefs, 'pinSticky' | 'showProjects' | 'showServers' | 'showDataSources'>
+    >
   ) => void
 }): React.JSX.Element {
-  const { mode, direction, pinSticky, showProjects, showServers } = prefs
+  const { mode, direction, pinSticky, showProjects, showServers, showDataSources } = prefs
   // 按类型显示：至少保留一类，剩下的那项不能再取消
   const kinds = [
     {
@@ -813,6 +794,11 @@ function SortMenu({
       label: '服务器',
       checked: showServers,
       toggle: () => onPrefsChange({ showServers: !showServers })
+    },
+    {
+      label: '数据源',
+      checked: showDataSources,
+      toggle: () => onPrefsChange({ showDataSources: !showDataSources })
     }
   ]
   return (
@@ -892,7 +878,7 @@ function SortActiveIcon({
   )
 }
 
-/** 条目是否有可展开的配置区：Project 有配置或检测到的配置，Server 有配置。 */
+/** 条目是否有可展开的配置区：Project 有配置或检测到的配置，Server、Data Source 有配置。 */
 function entryHasBody(entry: TreeEntry): boolean {
   return (
     entry.node.configs.length > 0 || (entry.kind === 'project' && entry.node.discovered.length > 0)
@@ -1035,7 +1021,7 @@ function CurrentUnpinnedEntry({
   )
 }
 
-/** 条目行内容（折叠箭头 / 图标 / 名称 / 角标 / 更多），Project 与 Server 共用。 */
+/** 条目行内容（折叠箭头 / 图标 / 名称 / 角标 / 更多），三类条目共用。 */
 function EntryRowContent({
   entry,
   expanded,
@@ -1069,14 +1055,10 @@ function EntryRowContent({
       >
         <ChevronRight className={cn('size-3.5 transition-transform', expanded && 'rotate-90')} />
       </button>
-      {entry.kind === 'project' ? (
-        <ProjectFolderIcon worktreeOf={entry.node.worktreeOf} />
-      ) : (
-        <ServerIcon className="size-4 shrink-0 text-muted-foreground" />
-      )}
+      <EntryIcon entry={entry} />
       <span
         className={cn('min-w-0 flex-1 truncate', isCurrent && 'font-semibold')}
-        title={entry.kind === 'server' ? serverTargetLabel(entry.node.server.target) : undefined}
+        title={entryTargetLabel(entry)}
       >
         {item.name}
       </span>
@@ -1101,6 +1083,25 @@ function EntryRowContent({
       />
     </>
   )
+}
+
+/** 条目行图标：项目为文件夹（链接工作树换 FolderGit2），服务器为 Server，数据源为 Database。 */
+function EntryIcon({ entry }: { entry: TreeEntry }): React.JSX.Element {
+  switch (entry.kind) {
+    case 'project':
+      return <ProjectFolderIcon worktreeOf={entry.node.worktreeOf} />
+    case 'server':
+      return <ServerIcon className="size-4 shrink-0 text-muted-foreground" />
+    case 'dataSource':
+      return <Database className="size-4 shrink-0 text-muted-foreground" />
+  }
+}
+
+/** 条目名 hover 显示的连接目标（项目不显示）。 */
+function entryTargetLabel(entry: TreeEntry): string | undefined {
+  if (entry.kind === 'server') return serverTargetLabel(entry.node.server.target)
+  if (entry.kind === 'dataSource') return dataSourceTargetLabel(entry.node.dataSource.target)
+  return undefined
 }
 
 /** 置顶区条目行标题；sticky 叠放，须为列表容器的直接子节点。 */
@@ -1378,7 +1379,7 @@ function ProjectFolderIcon({ worktreeOf }: { worktreeOf: string | null }): React
 }
 
 /**
- * 条目下的配置列表（Project 另有「检测到的配置」；Server 只有命令型）；
+ * 条目下的配置列表（Project 另有「检测到的配置」；Server、Data Source 只有命令型）；
  * 配置拖拽父容器不含探测行，限位到配置区边缘。
  */
 function EntryConfigList({ entry }: { entry: TreeEntry }): React.JSX.Element {
@@ -1536,7 +1537,7 @@ function RunnableRow({
   label: string
   rkey: string
   target: RunTarget
-  /** 所属左树条目（Project 路径或 `server:<id>`） */
+  /** 所属左树条目（Project 路径、`server:<id>` 或 `datasource:<id>`） */
   entryKey: string
   config?: RunConfig
   indent?: boolean
@@ -1655,7 +1656,7 @@ function RunnableRow({
   )
 }
 
-/** 配置菜单项：⋮ 与右键共用（编辑仅命令型，本机或服务器上 / 删除）。 */
+/** 配置菜单项：⋮ 与右键共用（编辑仅命令型，本机、服务器上或数据源上 / 删除）。 */
 function ConfigMenuItems({ config }: { config: RunConfig }): React.JSX.Element {
   const openEditDialog = useApp((s) => s.openEditDialog)
   const deleteConfig = useApp((s) => s.deleteConfig)
@@ -1722,9 +1723,7 @@ function ProjectMenuItems({
 }): React.JSX.Element {
   const openCreateDialog = useApp((s) => s.openCreateDialog)
   const newTerminal = useApp((s) => s.newTerminal)
-  const hasServers = useApp((s) => s.servers.length > 0)
   const removeProject = useApp((s) => s.removeProject)
-  const setEntryPinned = useApp((s) => s.setEntryPinned)
   const [openInApps, setOpenInApps] = useState<OpenInAppStatus[] | null>(null)
 
   useEffect(() => {
@@ -1781,31 +1780,13 @@ function ProjectMenuItems({
       <DropdownMenuItem onClick={() => void newTerminal(projectPath)}>
         <Terminal className="size-4" /> 新建终端
       </DropdownMenuItem>
-      {/* 在项目里开一个连到某台服务器的 SSH Terminal（见 docs/prd/ssh-server.md） */}
-      {hasServers && (
-        <DropdownMenuSub>
-          <DropdownMenuSubTrigger>
-            <ServerIcon className="size-4" /> 连接到服务器
-          </DropdownMenuSubTrigger>
-          <DropdownMenuSubContent>
-            <ConnectServerItems ownerKey={projectPath} />
-          </DropdownMenuSubContent>
-        </DropdownMenuSub>
-      )}
+      {/* 在项目里开一个连到某台服务器的 SSH Terminal、连到某个数据源的 Data Source Tab；一个都没有时不出 */}
+      <ConnectSubmenu kind="server" ownerKey={projectPath} />
+      <ConnectSubmenu kind="dataSource" ownerKey={projectPath} />
       <DropdownMenuItem onClick={() => openCreateDialog(projectPath)}>
         <FilePlusCorner className="size-4" /> 新建配置
       </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => void setEntryPinned(projectPath, !pinned)}>
-        {pinned ? (
-          <>
-            <PinOff className="size-4" /> 取消置顶
-          </>
-        ) : (
-          <>
-            <Pin className="size-4" /> 置顶
-          </>
-        )}
-      </DropdownMenuItem>
+      <PinMenuItem entryKey={projectPath} pinned={pinned} />
       <DropdownMenuItem onClick={() => removeProject(projectPath)}>
         <Trash2 className="size-4" /> 移除项目
       </DropdownMenuItem>
@@ -1817,11 +1798,9 @@ function ProjectMenuItems({
 function ServerMenuItems({ node }: { node: ServerNode }): React.JSX.Element {
   const newSshTerminal = useApp((s) => s.newSshTerminal)
   const openCreateDialog = useApp((s) => s.openCreateDialog)
-  const openServerDialog = useApp((s) => s.openServerDialog)
-  const setEntryPinned = useApp((s) => s.setEntryPinned)
+  const openConnectionDialog = useApp((s) => s.openConnectionDialog)
   const removeServer = useApp((s) => s.removeServer)
   const key = serverEntryKey(node.server.id)
-  const pinned = node.server.pinned
   return (
     <>
       <DropdownMenuItem onClick={() => void newSshTerminal(key, node.server.id)}>
@@ -1830,20 +1809,10 @@ function ServerMenuItems({ node }: { node: ServerNode }): React.JSX.Element {
       <DropdownMenuItem onClick={() => openCreateDialog(key)}>
         <FilePlusCorner className="size-4" /> 新建配置
       </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => openServerDialog(node)}>
+      <DropdownMenuItem onClick={() => openConnectionDialog({ kind: 'server', node })}>
         <Pencil className="size-4" /> 编辑
       </DropdownMenuItem>
-      <DropdownMenuItem onClick={() => void setEntryPinned(key, !pinned)}>
-        {pinned ? (
-          <>
-            <PinOff className="size-4" /> 取消置顶
-          </>
-        ) : (
-          <>
-            <Pin className="size-4" /> 置顶
-          </>
-        )}
-      </DropdownMenuItem>
+      <PinMenuItem entryKey={key} pinned={node.server.pinned} />
       <DropdownMenuItem onClick={() => void removeServer(node.server.id)}>
         <Trash2 className="size-4" /> 移除服务器
       </DropdownMenuItem>
@@ -1851,13 +1820,66 @@ function ServerMenuItems({ node }: { node: ServerNode }): React.JSX.Element {
   )
 }
 
-/** 条目菜单项：按条目类型分派到项目菜单或服务器菜单。 */
-function EntryMenuItems({ entry }: { entry: TreeEntry }): React.JSX.Element {
-  return entry.kind === 'project' ? (
-    <ProjectMenuItems projectPath={entry.key} pinned={entry.node.project.pinned} />
-  ) : (
-    <ServerMenuItems node={entry.node} />
+/** 数据源菜单项：⋮ 与右键共用（新建标签页 / 新建配置 / 编辑 / 置顶 / 移除数据源）。 */
+function DataSourceMenuItems({ node }: { node: DataSourceNode }): React.JSX.Element {
+  const newDataSourceTab = useApp((s) => s.newDataSourceTab)
+  const openCreateDialog = useApp((s) => s.openCreateDialog)
+  const openConnectionDialog = useApp((s) => s.openConnectionDialog)
+  const removeDataSource = useApp((s) => s.removeDataSource)
+  const key = dataSourceEntryKey(node.dataSource.id)
+  return (
+    <>
+      <DropdownMenuItem onClick={() => newDataSourceTab(key, node.dataSource.id)}>
+        <Plus className="size-4" /> 新建标签页
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => openCreateDialog(key)}>
+        <FilePlusCorner className="size-4" /> 新建配置
+      </DropdownMenuItem>
+      <DropdownMenuItem onClick={() => openConnectionDialog({ kind: 'dataSource', node })}>
+        <Pencil className="size-4" /> 编辑
+      </DropdownMenuItem>
+      <PinMenuItem entryKey={key} pinned={node.dataSource.pinned} />
+      <DropdownMenuItem onClick={() => void removeDataSource(node.dataSource.id)}>
+        <Trash2 className="size-4" /> 移除数据源
+      </DropdownMenuItem>
+    </>
   )
+}
+
+/** 「置顶 / 取消置顶」菜单项（三类条目的菜单共用）。 */
+function PinMenuItem({
+  entryKey,
+  pinned
+}: {
+  entryKey: string
+  pinned: boolean
+}): React.JSX.Element {
+  const setEntryPinned = useApp((s) => s.setEntryPinned)
+  return (
+    <DropdownMenuItem onClick={() => void setEntryPinned(entryKey, !pinned)}>
+      {pinned ? (
+        <>
+          <PinOff className="size-4" /> 取消置顶
+        </>
+      ) : (
+        <>
+          <Pin className="size-4" /> 置顶
+        </>
+      )}
+    </DropdownMenuItem>
+  )
+}
+
+/** 条目菜单项：按条目类型分派到项目、服务器或数据源菜单。 */
+function EntryMenuItems({ entry }: { entry: TreeEntry }): React.JSX.Element {
+  switch (entry.kind) {
+    case 'project':
+      return <ProjectMenuItems projectPath={entry.key} pinned={entry.node.project.pinned} />
+    case 'server':
+      return <ServerMenuItems node={entry.node} />
+    case 'dataSource':
+      return <DataSourceMenuItems node={entry.node} />
+  }
 }
 
 function EntryMoreMenu({

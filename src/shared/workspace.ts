@@ -1,19 +1,26 @@
 /**
- * 工作台 Tab 现场（每条目激活 Tab、Terminal / SSH Terminal 壳、当前条目与选中）。
- * 条目 = 左树的 Project 或 Server（见 tree-entry.ts）。术语见 CONTEXT.md / ADR-0008。
+ * 工作台 Tab 现场（每条目激活 Tab、终端组的 Tab 壳、当前条目与选中）。
+ * 条目 = 左树的 Project、Server 或 Data Source（见 tree-entry.ts）。术语见 CONTEXT.md / ADR-0008。
  */
 
-/** 落盘的终端壳（无进程）；id 即会话键（`terminal:<uuid>` / `ssh:<uuid>`）。 */
+import { dataSourceEntryKey } from './tree-entry'
+
+/**
+ * 落盘的终端组 Tab 壳（无进程 / 无连接）：本地 Terminal、SSH Terminal 与另开的 Data Source Tab 同组、
+ * 同样按条目持久化与拖拽排序。id 即 Tab 键（`terminal:<uuid>` / `ssh:<uuid>` / `db-tab:<uuid>`）。
+ */
 export interface TerminalShell {
   id: string
   name: string
-  /** SSH Terminal 所连服务器；本地 Terminal 缺省 */
+  /** SSH Terminal 所连服务器 */
   serverId?: string
+  /** Data Source Tab 所连数据源 */
+  dataSourceId?: string
 }
 
 /** 跨重启的工作台 UI 快照。 */
 export interface WorkspaceUiState {
-  /** 当前条目键（Project 路径或 `server:<id>`） */
+  /** 当前条目键（Project 路径、`server:<id>` 或 `datasource:<id>`） */
   currentEntryKey: string | null
   selectedKey: string | null
   /** 每条目激活的 Tab 键；缺省条目走默认激活 */
@@ -35,6 +42,7 @@ export interface TerminalTabLike {
   ownerKey: string
   name: string
   serverId?: string
+  dataSourceId?: string
 }
 
 /** 终端默认名的编号规则：第一个就叫 base，之后「base (2) / base (3) / …」。 */
@@ -59,6 +67,29 @@ export function nextNumberedTerminalName(existingNames: readonly string[], base:
   let max = 0
   for (const name of existingNames) max = Math.max(max, terminalNameSeq(name, base) ?? 0)
   return numberedTerminalName(base, max + 1)
+}
+
+/**
+ * 某条目下终端组新 Tab 的默认名，按同一处（同条目、连同一个对象）的同系列编号：本地终端「终端 / 终端 (2) / …」；
+ * SSH Terminal 以服务器名为底、Data Source Tab 以数据源名为底「prod / prod (2) / …」。
+ * Data Source Tab 开在数据源条目自己下面时，常驻的那个算第 1 个（占着不带编号的名字），另开的从「prod (2)」起。
+ */
+export function nextTerminalName(
+  terminals: readonly TerminalTabLike[],
+  tab: Pick<TerminalTabLike, 'ownerKey' | 'serverId' | 'dataSourceId'>,
+  base: string
+): string {
+  const names = terminals
+    .filter(
+      (t) =>
+        t.ownerKey === tab.ownerKey &&
+        t.serverId === tab.serverId &&
+        t.dataSourceId === tab.dataSourceId
+    )
+    .map((t) => t.name)
+  const underOwnEntry =
+    tab.dataSourceId !== undefined && tab.ownerKey === dataSourceEntryKey(tab.dataSourceId)
+  return nextNumberedTerminalName(underOwnEntry ? [base, ...names] : names, base)
 }
 
 /** 服务器改名时 SSH Terminal 的默认名跟着改（序号保留）；用户改过的名字不动，返回 null。 */
@@ -94,7 +125,7 @@ export function mergeTerminalTabs(
 
     for (const s of shells) {
       seen.add(s.id)
-      out.push(tabOf(s.id, ownerKey, s.name, s.serverId))
+      out.push(tabOf(s.id, ownerKey, s.name, s.serverId, s.dataSourceId))
     }
     let seq = shells.length
     for (const t of liveList) {
@@ -111,8 +142,20 @@ export function mergeTerminalTabs(
   return out
 }
 
-function tabOf(key: string, ownerKey: string, name: string, serverId?: string): TerminalTabLike {
-  return serverId === undefined ? { key, ownerKey, name } : { key, ownerKey, name, serverId }
+function tabOf(
+  key: string,
+  ownerKey: string,
+  name: string,
+  serverId?: string,
+  dataSourceId?: string
+): TerminalTabLike {
+  return {
+    key,
+    ownerKey,
+    name,
+    ...(serverId === undefined ? {} : { serverId }),
+    ...(dataSourceId === undefined ? {} : { dataSourceId })
+  }
 }
 
 /** 从终端 Tab 列表导出落盘壳表（按条目分组、保留相对序）。 */
@@ -122,11 +165,13 @@ export function terminalsToShellsByEntry(
   const out: Record<string, TerminalShell[]> = {}
   for (const t of terminals) {
     const list = out[t.ownerKey] ?? (out[t.ownerKey] = [])
-    list.push(
-      t.serverId === undefined
-        ? { id: t.key, name: t.name }
-        : { id: t.key, name: t.name, serverId: t.serverId }
-    )
+    const { key, name, serverId, dataSourceId } = t
+    list.push({
+      id: key,
+      name,
+      ...(serverId === undefined ? {} : { serverId }),
+      ...(dataSourceId === undefined ? {} : { dataSourceId })
+    })
   }
   return out
 }

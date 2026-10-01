@@ -18,7 +18,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
-import { TOOLBAR_BTN } from './FilesToolbar'
+import { TOOLBAR_BTN } from '@renderer/components/ui/toolbar'
 
 export const FILES_ALL_TYPES: ReadonlySet<FilesTypeCategory> = new Set(FILES_TYPE_CATEGORIES)
 

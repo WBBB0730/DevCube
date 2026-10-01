@@ -39,7 +39,7 @@
 - 包含：常驻「工具箱」Tab、**Terminal**（默认在 `~`）、SSH 终端、命令型 **Run Configuration**（放 `brew upgrade` 这类全局命令）。
 - 不包含：**Git Tab**、**Files Tab**。
 - 显示：排序菜单里加一个「显示无项目」开关；开启时固定显示在最上面、不参与排序，关闭时隐藏。
-- 待确认：这个开关是否并入 SSH 那期新增的「项目」「服务器」类型勾选，成为同一组的第三项。
+- 待确认：这个开关是否并入排序菜单的类型勾选（项目 / 服务器 / 数据源），成为同一组的第四项。
 - 需要在 CONTEXT.md 新增术语，并为「**Project** 恒有 **Git Tab** / **Files Tab**」这条开例外；考虑写一篇 ADR。
 
 ### 工具箱
@@ -61,6 +61,15 @@
 
 - 替代 Beyond Compare / Kaleidoscope。本轮不做，交互以后专门讨论。
 - 已有的想法：**Files Tab**（含 **Preview Window**）右键「与剪贴板比较」和「选为比较对象 → 与已选文件比较」，可以跨项目比较，结果显示在 **Files Tab** 正文区，复用 Git 的 diff 组件；工具箱里放一个「文本对比」；文件夹对比暂不考虑。
+
+### 数据库
+
+- 替代 WebStorm 的数据库插件。
+- 「看 + 查询」、数据源上的运行配置与按上下文的 SQL 补全：已实现，待验收，见 `docs/prd/database.md`、ADR-0042 至 ADR-0047；术语见 CONTEXT.md（**Data Source**、**Data Source Tab**、**Console Context**）。
+- 以后再加：在表格里直接改数据（改动先标色，提交前预览 SQL，整批提交）；改表结构（建表、改列、索引、外键）；经由服务器的 SSH 隧道连接（届时让 **Data Source** 引用一台已登记的 **Server**）；添加 **Data Source** 时从项目里导入连接串（如 `.env` 里的 `DATABASE_URL`）。
+- 以后再加（这一轮明确推迟）：ORDER BY 的叠加排序（按住 Alt 点表头追加一列）与 WHERE / ORDER BY 的输入历史；表格里 JSON 值的「查看值」面板（同 Redis 字符串值那样排版显示）；运行配置的定时运行（参数要由界面问、语句要由界面切好交给主进程，见 ADR-0044）；从控制台存为配置；**Run Session**「在左树中显示」（定位到左树里它的配置）；项目里的 **Data Source Tab** 跳到左树里对应的数据源；控制台里按光标所在的表名定位到目录。
+- 以后再补：Redis 键名含非 UTF-8 字节时的端到端支持。现在列键、看键都把键名当 UTF-8 文字处理，这样的键名解码后已不是原来的键；要按原始字节取回、显示与操作（列键、看键、复制键名、最近打开），显示参照 RedisInsight 的二进制键名显示。
+- 以后再补：SQLite 查询真正立刻中断。`better-sqlite3` 没有 `sqlite3_interrupt`，取消、停止、断开时正在做的一步原生调用要做完才停（见 `docs/prd/database.md`「已知的边界情况」）。可选做法：查询放进 Electron 的 `utilityProcess` 子进程，取消即结束进程；或给 `better-sqlite3` 打补丁，接上 `sqlite3_interrupt`。
 
 ## 不做
 

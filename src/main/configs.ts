@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { discoverRefKey } from '../shared/discover-key'
 import type { DiscoverSource } from '../shared/discover-source'
+import type { DataSourceRunParams } from '../shared/data-source-run'
 import { configOwnerKey } from '../shared/tree-entry'
 import type { EditableRunConfig, EditableRunConfigInput, RunConfig } from '../shared/types'
 import {
@@ -8,7 +9,13 @@ import {
   readFingerprintsForReconcile,
   readScriptsForReconcile
 } from './discovery'
-import { getConfigs, getProjects, setConfigs } from './store'
+import {
+  deleteDataSourceRunParams,
+  getConfigs,
+  getProjects,
+  setConfigs,
+  setDataSourceRunParams
+} from './store'
 
 // —— 纯核心（供测试） ——
 
@@ -76,25 +83,37 @@ export function reconcileConfigs(): RunConfig[] {
   return removed
 }
 
-/** 新建一条命令型配置（本机或服务器上）。 */
+/** 新建一条命令型配置（本机、服务器上或数据源上）。 */
 export function createCommandConfig(input: EditableRunConfigInput): void {
   const config: EditableRunConfig = { ...input, id: randomUUID() }
   setConfigs([...getConfigs(), config])
 }
 
-/** 覆盖更新一条命令型配置（本机或服务器上）。 */
+/** 覆盖更新一条命令型配置（本机、服务器上或数据源上）。 */
 export function updateCommandConfig(config: EditableRunConfig): void {
   setConfigs(getConfigs().map((c) => (c.id === config.id ? config : c)))
 }
 
-/** 按 id 删除任意配置（引用型删除即「取消晋升」，script 会重新回到候补区）。 */
+/**
+ * 按 id 删除任意配置（引用型删除即「取消晋升」，script 会重新回到候补区）；数据源上的配置记住的参数值一并删掉。
+ */
 export function deleteConfig(id: string): void {
   setConfigs(getConfigs().filter((c) => c.id !== id))
+  deleteDataSourceRunParams([id])
 }
 
 /**
- * 重排某左树条目（Project / Server）下的配置顺序。其它条目的配置相对顺序不变
- * （树与服务器列表都按条目过滤，跨条目顺序无关紧要）。
+ * 记下数据源上的配置这次运行填的参数值。配置已不在（参数框关掉之前被删掉）时不记，免得留下没人用的记录。
+ */
+export function saveDataSourceRunParams(configId: string, params: DataSourceRunParams): void {
+  if (getConfigs().some((c) => c.id === configId && c.kind === 'dataSource')) {
+    setDataSourceRunParams(configId, params)
+  }
+}
+
+/**
+ * 重排某左树条目（Project / Server / Data Source）下的配置顺序。其它条目的配置相对顺序不变
+ * （树、服务器与数据源列表都按条目过滤，跨条目顺序无关紧要）。
  */
 export function reorderConfigs(ownerKey: string, orderedIds: string[]): void {
   const configs = getConfigs()
@@ -106,10 +125,16 @@ export function reorderConfigs(ownerKey: string, orderedIds: string[]): void {
   setConfigs([...others, ...reordered])
 }
 
-/** 移除左树条目（Project / Server）时删掉它名下的全部配置；返回被删的配置（供调用方销毁其会话）。 */
+/**
+ * 移除左树条目（Project / Server / Data Source）时删掉它名下的全部配置（数据源上的配置记住的参数值一并删掉）；
+ * 返回被删的配置（供调用方销毁其会话）。
+ */
 export function deleteConfigsOf(ownerKey: string): RunConfig[] {
   const configs = getConfigs()
   const removed = configs.filter((c) => configOwnerKey(c) === ownerKey)
-  if (removed.length) setConfigs(configs.filter((c) => configOwnerKey(c) !== ownerKey))
+  if (removed.length) {
+    setConfigs(configs.filter((c) => configOwnerKey(c) !== ownerKey))
+    deleteDataSourceRunParams(removed.map((c) => c.id))
+  }
   return removed
 }

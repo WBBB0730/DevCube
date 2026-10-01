@@ -14,10 +14,8 @@ import { gitState, useGit } from '@renderer/git-store'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
 import { Checkbox } from '@renderer/components/ui/checkbox'
 import { RadioGroup, RadioGroupItem } from '@renderer/components/ui/radio-group'
+import { TOOLBAR_BTN } from '@renderer/components/ui/toolbar'
 
-// 图标钮：观感对齐工具栏其它图标钮（size-7 圆角 hover 加亮）
-const ICON_BTN =
-  'flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)] disabled:pointer-events-none disabled:opacity-50'
 const ROW =
   'flex h-7 cursor-pointer select-none items-center gap-1.5 rounded px-1.5 text-[13px] text-foreground transition-colors hover:bg-[var(--bg-row-hover)]'
 
@@ -70,7 +68,7 @@ export function GitViewOptions({ projectPath }: { projectPath: string }): React.
 
   return (
     <Popover>
-      <PopoverTrigger className={ICON_BTN} title="视图选项">
+      <PopoverTrigger className={TOOLBAR_BTN} title="视图选项">
         <SlidersHorizontal className="size-4" />
       </PopoverTrigger>
       <PopoverContent className="w-64">

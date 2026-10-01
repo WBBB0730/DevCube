@@ -20,13 +20,8 @@ import {
   type ParsedKey,
   type Prompt
 } from 'ssh2'
-import {
-  sshArgs,
-  sshFailureMessage,
-  supportsSshDirect,
-  type PasswordChange,
-  type ServerTarget
-} from '../shared/server'
+import { CONNECT_TIMEOUT_MS, type PasswordChange } from '../shared/connection'
+import { sshArgs, sshFailureMessage, type ServerTarget } from '../shared/server'
 import {
   expandSshTokens,
   expandTilde,
@@ -62,12 +57,12 @@ import {
   sha256Fingerprint,
   type KnownHostEntry
 } from './known-hosts'
+import { passwordUnavailableReason } from './secrets'
 import {
-  passwordUnavailableReason,
+  applyServerPassword,
   readSavedPassphrase,
   readSavedPassword,
-  savePassphrase,
-  savePassword
+  savePassphrase
 } from './server-secrets'
 import { resolveShellEnvironment } from './shell-env'
 import { directHostOf, resolveDirectRoute, usableIPv4Of } from './ssh-direct'
@@ -77,9 +72,6 @@ import { askSshPrompt, notifyPasswordSaved } from './ssh-prompts'
 const execFileAsync = promisify(execFile)
 
 const SSH_NOT_FOUND = '未找到 ssh，请安装 OpenSSH 客户端或将其加入 PATH'
-
-/** ConnectTimeout 未设置时的连接超时（秒）：地址填错时不必干等系统的一分多钟。 */
-const DEFAULT_CONNECT_TIMEOUT_S = 15
 
 /** ServerAliveInterval 未设置时的保活间隔（秒），与连续无应答次数（ServerAliveCountMax）一起约 45 秒发现断网。 */
 const DEFAULT_KEEPALIVE_S = 15
@@ -189,6 +181,11 @@ export function onSshClosed(client: Client, handler: (reason: string | null) => 
     failure ??= error
   })
   client.once('close', () => handler(failure === null ? null : sshFailureReason(failure)))
+}
+
+/** 连接超时（毫秒）：按 ConnectTimeout（秒），未设置时用共用的 CONNECT_TIMEOUT_MS。 */
+function connectTimeoutMs(config: SshHostConfig): number {
+  return config.connectTimeout === null ? CONNECT_TIMEOUT_MS : config.connectTimeout * 1000
 }
 
 function portSuffix(port: number): string {
@@ -331,17 +328,14 @@ async function connectTcp(hop: Hop): Promise<Duplex> {
       throw new Error(`无法连接到 ${hop.label}：网卡 ${config.bindInterface} 没有可用的地址`)
     }
   }
-  const directHost =
-    hop.isTarget && session.options.direct && supportsSshDirect(process.platform)
-      ? directHostOf(config)
-      : null
-  if (directHost !== null) {
-    const route = await resolveDirectRoute(directHost)
-    if ('failure' in route) throw new Error(route.failure)
+  const directHost = hop.isTarget ? directHostOf(config) : null
+  const route =
+    directHost === null ? null : await resolveDirectRoute(directHost, session.options.direct)
+  if (route !== null) {
+    host = route.host
     localAddress = route.localAddress
-    host = route.realAddress ?? host
   }
-  const timeoutMs = (config.connectTimeout ?? DEFAULT_CONNECT_TIMEOUT_S) * 1000
+  const timeoutMs = connectTimeoutMs(config)
   const { signal } = session
   return new Promise((resolve, reject) => {
     const socket = netConnect({
@@ -408,13 +402,10 @@ function handshake(hop: Hop, transport: Transport, algorithms: Algorithms): Prom
     let ready = false
     // 连接超时管到服务器亮出主机密钥为止；之后是用户回答提问，不计时（服务器自己有登录时限）。
     // 超时与取消都直接断开（destroy）：对方不回话时，end 等不到它关闭。
-    const timer = setTimeout(
-      () => {
-        failure = { code: 'ETIMEDOUT', message: 'timeout' }
-        client.destroy()
-      },
-      (config.connectTimeout ?? DEFAULT_CONNECT_TIMEOUT_S) * 1000
-    )
+    const timer = setTimeout(() => {
+      failure = { code: 'ETIMEDOUT', message: 'timeout' }
+      client.destroy()
+    }, connectTimeoutMs(config))
     const onAbort = (): void => {
       client.destroy()
     }
@@ -604,7 +595,7 @@ class Authenticator {
   succeeded(): void {
     const { serverId, testing } = this.hop.session.options
     if (this.toRemember === null || serverId === null || testing) return
-    savePassword(serverId, this.toRemember)
+    applyServerPassword(serverId, this.toRemember)
     notifyPasswordSaved()
   }
 

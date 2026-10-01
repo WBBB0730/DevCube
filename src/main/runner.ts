@@ -12,6 +12,7 @@ import { resolveWithinProject } from '../shared/files-path'
 import type { QuitGuardSession } from '../shared/quit-guard'
 import type { Server } from '../shared/server'
 import type {
+  DataSourceRunConfig,
   RemoteRunConfig,
   RunTarget,
   SessionBufferSnapshot,
@@ -30,6 +31,14 @@ import {
   withTerminalLocale,
   wrapWithRunHeader
 } from './command'
+import {
+  disposeDataSourceRun,
+  getDataSourceRunStates,
+  isDataSourceRun,
+  runDataSourceConfig,
+  setDataSourceRunSink,
+  stopDataSourceRun
+} from './data-source-runs'
 import { detectPackageManager, readFingerprints } from './discovery'
 import { findServer } from './servers'
 import { connectSsh, onSshClosed } from './ssh-connect'
@@ -37,6 +46,8 @@ import { getAppPrefs, getConfigs } from './store'
 
 /**
  * 会话背后跑着的东西：本机是 PTY 里的进程（node-pty）；服务器上是内置连接（ADR-0041）上一个带伪终端的通道。
+ * 数据源上的配置不在这里：它的结果是表格与语句列表而不是字节流，由 data-source-runs 执行并持有（ADR-0044），
+ * 这里只把运行、停止、关闭转给它；对渲染端仍是同一套会话状态与移除推送。
  */
 interface SessionProcess {
   write(data: string): void
@@ -121,6 +132,12 @@ function post(channel: string, payload: unknown): void {
   if (win && !win.isDestroyed()) win.webContents.send(channel, payload)
 }
 
+setDataSourceRunSink({
+  status: (state) => post(IPC.sessionStatus, state),
+  output: (event) => post(IPC.dataSourceRunOutput, event),
+  removed: (key) => post(IPC.sessionRemoved, key)
+})
+
 /** 本机执行（经登录 shell）的配置 / 探测脚本解析结果。 */
 interface Resolved {
   type: 'local'
@@ -135,6 +152,13 @@ interface ResolvedRemote {
   type: 'remote'
   key: string
   config: RemoteRunConfig
+}
+
+/** 在数据源上执行的配置。 */
+interface ResolvedDataSource {
+  type: 'dataSource'
+  key: string
+  config: DataSourceRunConfig
 }
 
 /** 要在本机 PTY 里启动的进程。 */
@@ -166,7 +190,7 @@ function localLaunch(resolved: Resolved): Launch {
   }
 }
 
-function resolveTarget(target: RunTarget): Resolved | ResolvedRemote | null {
+function resolveTarget(target: RunTarget): Resolved | ResolvedRemote | ResolvedDataSource | null {
   if (target.type === 'script') {
     const command = resolveDiscoveredCommand(
       target.source,
@@ -200,6 +224,7 @@ function resolveTarget(target: RunTarget): Resolved | ResolvedRemote | null {
     }
   }
   if (config.kind === 'remote') return { type: 'remote', key: configKey(config), config }
+  if (config.kind === 'dataSource') return { type: 'dataSource', key: configKey(config), config }
   return {
     type: 'local',
     key: configKey(config),
@@ -341,6 +366,15 @@ async function openRemoteSession(
 export async function run(target: RunTarget): Promise<void> {
   const resolved = resolveTarget(target)
   if (!resolved) return
+  // 数据源上的配置：单实例与重跑由 data-source-runs 负责；连接在后台进行（可能要等密码），不让调用方等
+  if (resolved.type === 'dataSource') {
+    void runDataSourceConfig(
+      resolved.key,
+      resolved.config,
+      target.type === 'config' ? target.dataSource : undefined
+    )
+    return
+  }
   const key = resolved.key
 
   const previous = sessions.get(key)
@@ -618,6 +652,10 @@ async function connectSshTerminal(session: Session): Promise<void> {
 }
 
 export function stop(key: string): void {
+  if (isDataSourceRun(key)) {
+    stopDataSourceRun(key)
+    return
+  }
   const session = sessions.get(key)
   if (!session || session.status !== 'running') return
   killProcess(session, 'SIGTERM')
@@ -684,12 +722,17 @@ export function clearSessionOutput(key: string): void {
 }
 
 export function getSessions(): SessionState[] {
-  return [...sessions.values()].map(snapshot)
+  return [...[...sessions.values()].map(snapshot), ...getDataSourceRunStates()]
 }
 
-/** 退出闸用：含 kind，供区分 Run Session / Terminal / SSH Terminal。 */
+/**
+ * 退出闸用：含 kind，供区分 Run Session / Terminal / SSH Terminal。数据源上的配置的运行（含等密码）也是 Run Session。
+ */
 export function getQuitGuardSessions(): QuitGuardSession[] {
-  return [...sessions.values()].map((s) => ({ kind: s.kind, status: s.status }))
+  return [
+    ...[...sessions.values()].map((s) => ({ kind: s.kind, status: s.status })),
+    ...getDataSourceRunStates().map((s) => ({ kind: 'run' as const, status: s.status }))
+  ]
 }
 
 /**
@@ -697,6 +740,10 @@ export function getQuitGuardSessions(): QuitGuardSession[] {
  * 用于配置被删除 / 对账移除 / 项目移除 —— 区别于用户「停止」（后者保留历史以便回看）。
  */
 export function disposeSession(key: string): void {
+  if (isDataSourceRun(key)) {
+    disposeDataSourceRun(key)
+    return
+  }
   const session = sessions.get(key)
   if (!session) return
   if (session.status === 'running') killProcess(session, 'SIGKILL')
@@ -711,6 +758,10 @@ export function disposeSession(key: string): void {
  * 并立即弃掉会话与输出。区别于 disposeSession 的立杀（那是删除/对账等非用户路径）。
  */
 export function closeSession(key: string): void {
+  if (isDataSourceRun(key)) {
+    disposeDataSourceRun(key)
+    return
+  }
   const session = sessions.get(key)
   if (!session) return
   if (session.status === 'running') {

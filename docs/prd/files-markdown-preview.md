@@ -39,7 +39,7 @@ Markdown 与 SVG 文件的工具栏出现「编辑 ↔ 预览」两态切换：�
 ## Testing Decisions
 
 - 预览是纯渲染（react-markdown / `<img>`），无自研纯逻辑，不配组件单测；路径解析复用已有 `resolveWithinProject`（shared 已有测试覆盖）。
-- 扩展名判定（`isMarkdownPath` / `isSvgPath` / `isPreviewableSourcePath` / `isImagePreviewPath` / `adjacentImagePath`）表驱动单测。
+- 扩展名判定（`isMarkdownPath` / `isSvgPath` / `isPreviewableSourcePath` / `isImagePreviewPath` / `adjacentMediaPath`）表驱动单测。
 - 缩放几何（适配倍率、滚轮倍率、相机锚点、相机 → 瓦片视口映射）表驱动单测。
 - 外部行为（切换、图片、链接、尺寸标注）人工回归。
 

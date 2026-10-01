@@ -60,3 +60,10 @@ export function createAppWindow(opts: {
   }
   return win
 }
+
+/** 推给全部窗口（主窗口与各 Preview Window）。 */
+export function broadcast(channel: string, payload: unknown): void {
+  for (const w of BrowserWindow.getAllWindows()) {
+    if (!w.isDestroyed()) w.webContents.send(channel, payload)
+  }
+}

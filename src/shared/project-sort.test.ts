@@ -5,8 +5,9 @@ import {
   pinnedEntryOrder,
   sortTreeEntries
 } from './project-sort'
+import type { DataSourceNode } from './data-source'
 import type { ServerNode } from './server'
-import { serverEntryKey, type TreeEntry } from './tree-entry'
+import { dataSourceEntryKey, serverEntryKey, type TreeEntry } from './tree-entry'
 import {
   DEFAULT_PROJECT_SORT_PREFS,
   type Project,
@@ -49,6 +50,23 @@ function server(name: string, id: string, order: number, pinned = false): TreeEn
     configs: []
   }
   return { kind: 'server', key: serverEntryKey(id), node: n }
+}
+
+function dataSource(name: string, id: string, order: number, pinned = false): TreeEntry {
+  const n: DataSourceNode = {
+    dataSource: {
+      id,
+      name,
+      target: { kind: 'sqlite', file: `/data/${name}.db` },
+      addedAt: 0,
+      lastOpenedAt: null,
+      pinned,
+      order
+    },
+    hasPassword: false,
+    configs: []
+  }
+  return { kind: 'dataSource', key: dataSourceEntryKey(id), node: n }
 }
 
 function prefs(partial: Partial<ProjectSortPrefs> = {}): ProjectSortPrefs {
@@ -102,13 +120,14 @@ describe('cycleProjectSort', () => {
 })
 
 describe('DEFAULT_PROJECT_SORT_PREFS', () => {
-  it('默认添加时间倒序、开启置顶吸顶、两类都显示', () => {
+  it('默认添加时间倒序、开启置顶吸顶、三类都显示', () => {
     expect(DEFAULT_PROJECT_SORT_PREFS).toEqual({
       mode: 'addedAt',
       direction: 'desc',
       pinSticky: true,
       showProjects: true,
-      showServers: true
+      showServers: true,
+      showDataSources: true
     })
   })
 })
@@ -187,27 +206,76 @@ describe('sortTreeEntries', () => {
       '/web'
     ])
   })
+
+  it('三类按同一条 order 混排；置顶的数据源进置顶分区', () => {
+    const mixed = [
+      node('web', '/web', 1, null, false, 3),
+      dataSource('shop', 'd1', 1),
+      server('prod', 's1', 2),
+      dataSource('cache', 'd2', 4, true)
+    ]
+    expect(keys(sortTreeEntries(mixed, prefs({ mode: 'custom', direction: 'asc' })))).toEqual([
+      dataSourceEntryKey('d2'),
+      dataSourceEntryKey('d1'),
+      serverEntryKey('s1'),
+      '/web'
+    ])
+  })
+
+  it('连接子菜单只列一类时同样按左树的排序与置顶，不受左树的类型筛选影响', () => {
+    const sources = [
+      dataSource('b', 'd1', 2),
+      dataSource('a', 'd2', 1),
+      dataSource('c', 'd3', 3, true)
+    ]
+    const hidden = prefs({ mode: 'custom', direction: 'asc', showDataSources: false })
+    expect(keys(sortTreeEntries(sources, hidden))).toEqual([
+      dataSourceEntryKey('d3'),
+      dataSourceEntryKey('d2'),
+      dataSourceEntryKey('d1')
+    ])
+  })
 })
 
 describe('filterTreeEntries', () => {
-  const both = { showProjects: true, showServers: true }
-  const entries = [node('DevCube', '/a', 1), node('other', '/b', 2), server('dev-box', 's1', 3)]
+  const all = { showProjects: true, showServers: true, showDataSources: true }
+  const entries = [
+    node('DevCube', '/a', 1),
+    node('other', '/b', 2),
+    server('dev-box', 's1', 3),
+    dataSource('dev-db', 'd1', 4)
+  ]
 
   it('空查询只按类型筛', () => {
-    expect(keys(filterTreeEntries(entries, '  ', both))).toEqual(['/a', '/b', 'server:s1'])
+    expect(keys(filterTreeEntries(entries, '  ', all))).toEqual([
+      '/a',
+      '/b',
+      'server:s1',
+      'datasource:d1'
+    ])
   })
 
-  it('名称大小写不敏感包含匹配，两类一起筛', () => {
-    expect(keys(filterTreeEntries(entries, 'dev', both))).toEqual(['/a', 'server:s1'])
+  it('名称大小写不敏感包含匹配，三类一起筛', () => {
+    expect(keys(filterTreeEntries(entries, 'dev', all))).toEqual([
+      '/a',
+      'server:s1',
+      'datasource:d1'
+    ])
   })
 
-  it('只显示服务器 / 只显示项目', () => {
+  it('按类型只显示其中几类', () => {
+    expect(keys(filterTreeEntries(entries, '', { ...all, showProjects: false }))).toEqual([
+      'server:s1',
+      'datasource:d1'
+    ])
+    expect(keys(filterTreeEntries(entries, '', { ...all, showServers: false }))).toEqual([
+      '/a',
+      '/b',
+      'datasource:d1'
+    ])
     expect(
-      keys(filterTreeEntries(entries, '', { showProjects: false, showServers: true }))
-    ).toEqual(['server:s1'])
-    expect(
-      keys(filterTreeEntries(entries, '', { showProjects: true, showServers: false }))
-    ).toEqual(['/a', '/b'])
+      keys(filterTreeEntries(entries, '', { ...all, showProjects: false, showServers: false }))
+    ).toEqual(['datasource:d1'])
   })
 
   it('筛选后仍可再套 Pin 分区排序', () => {
@@ -216,7 +284,7 @@ describe('filterTreeEntries', () => {
       node('alpine', '/p', 2, null, true, 1),
       node('beta', '/b', 3, null, false, 2)
     ]
-    const filtered = filterTreeEntries(mixed, 'al', both)
+    const filtered = filterTreeEntries(mixed, 'al', all)
     expect(keys(sortTreeEntries(filtered, prefs({ mode: 'custom', direction: 'asc' })))).toEqual([
       '/p',
       '/a'

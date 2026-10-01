@@ -3,9 +3,9 @@
 // 失败回到填写态保留输入，成功后由 store 走与其余三条登记路径同一套收尾。
 import { useEffect, useState } from 'react'
 import { FolderOpen } from 'lucide-react'
-import { Checkbox } from '@renderer/components/ui/checkbox'
+import { CHOICE_ROW, Checkbox } from '@renderer/components/ui/checkbox'
 import { FieldRow, FormDialogShell } from '@renderer/components/ui/form-dialog'
-import { Input } from '@renderer/components/ui/input'
+import { INPUT_ICON_BTN, Input } from '@renderer/components/ui/input'
 import { useApp } from '@renderer/store'
 import {
   isCloneDirNameInvalid,
@@ -16,10 +16,6 @@ import {
   type GitCloneProgress,
   type GitCloneTargetState
 } from '@shared/git-clone'
-
-/** 常规图标钮（28px），与 Input（h-7）同行居中；与 ConfigDialog 的目录选择钮同款。 */
-const INPUT_ICON_BTN =
-  'flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
 
 const TARGET_OCCUPIED = '目标目录已存在且非空'
 
@@ -167,7 +163,7 @@ export function CloneProjectDialog(): React.JSX.Element {
           <div className="mt-1 text-[12px] text-[color:var(--destructive)]">{TARGET_OCCUPIED}</div>
         )}
       </FieldRow>
-      <label className="flex cursor-pointer select-none items-center gap-2 text-[13px] text-foreground">
+      <label className={CHOICE_ROW}>
         <Checkbox checked={recurseSubmodules} onCheckedChange={setRecurseSubmodules} />
         <span>包含子模块</span>
       </label>

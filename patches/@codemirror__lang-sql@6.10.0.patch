@@ -1,0 +1,188 @@
+diff --git a/dist/index.cjs b/dist/index.cjs
+index 6575f5f1fb60913c691d702ca21d8f58548f8866..3079759e04c79e63c78da1d6bc050a37fd623dad 100644
+--- a/dist/index.cjs
++++ b/dist/index.cjs
+@@ -141,6 +141,47 @@ function inString(ch, str) {
+     return false;
+ }
+ const Space = " \t\r\n";
++// 在第一个 - 之后：是否为 -- 注释。MySQL / MariaDB（spaceAfterDashes）的第二个 - 之后是空白（空格、制表符、换行）或已到
++// 末尾即可（同 mysql 客户端），不只是空格；否则 mysqldump 里单独一行的 -- 认不出
++function atDashComment(input, d) {
++    return input.next == 45 /* Ch.Dash */ &&
++        (!d.spaceAfterDashes || input.peek(1) < 0 || inString(input.peek(1), Space));
++}
++// 在 /* 的 * 上：是否为 MySQL / MariaDB 的可执行注释（/*!，MariaDB 另有 /*M!）
++function atVersionComment(input, d) {
++    if (!d.versionComments)
++        return false;
++    let bang = d.versionComments == "mariadb" && input.peek(1) == 77 /* Ch.M */ ? 2 : 1;
++    return input.peek(bang) == 33 /* Ch.Bang */;
++}
++// 可执行注释从 /* 之后读到结尾的 */ 之后。照 mysql 客户端，它不是注释：里面的字符串、带引号的名字与注释照常认，其中的
++// */ 不是结尾（mysqldump 写在里面的视图定义可能带这样的字符串）；里面的 /* … */ 同普通注释可以嵌套
++function readVersionComment(input, d) {
++    for (let depth = 0;;) {
++        let cur = input.next;
++        if (cur < 0)
++            return;
++        input.advance();
++        if (cur == 42 /* Ch.Star */ && input.next == 47 /* Ch.Slash */) {
++            input.advance();
++            if (!depth)
++                return;
++            depth--;
++        }
++        else if (cur == 47 /* Ch.Slash */ && input.next == 42 /* Ch.Star */) {
++            input.advance();
++            depth++;
++        }
++        else if (!depth) {
++            if (cur == 39 /* Ch.SingleQuote */ || cur == 34 /* Ch.DoubleQuote */ && d.doubleQuotedStrings)
++                readLiteral(input, cur, d.backslashEscapes);
++            else if (inString(cur, d.identifierQuotes))
++                readLiteral(input, cur == 91 /* Ch.BracketL */ ? 93 /* Ch.BracketR */ : cur, false);
++            else if (cur == 35 /* Ch.Hash */ && d.hashComments || cur == 45 /* Ch.Dash */ && atDashComment(input, d))
++                eol(input);
++        }
++    }
++}
+ function keywords(keywords, types, builtin) {
+     let result = Object.create(null);
+     result["true"] = result["false"] = Bool;
+@@ -169,6 +210,7 @@ const defaults = {
+     treatBitsAsBytes: false,
+     charSetCasts: false,
+     plsqlQuotingMechanism: false,
++    versionComments: false,
+     operatorChars: "*+\-%<>!=&|~^/",
+     specialVar: "?",
+     identifierQuotes: '"',
+@@ -210,11 +252,15 @@ function tokensFor(d) {
+             eol(input);
+             input.acceptToken(LineComment);
+         }
+-        else if (next == 45 /* Ch.Dash */ && input.next == 45 /* Ch.Dash */ &&
+-            (!d.spaceAfterDashes || input.peek(1) == 32 /* Ch.Space */)) {
++        else if (next == 45 /* Ch.Dash */ && atDashComment(input, d)) {
+             eol(input);
+             input.acceptToken(LineComment);
+         }
++        else if (next == 47 /* Ch.Slash */ && input.next == 42 /* Ch.Star */ && atVersionComment(input, d)) {
++            input.advance();
++            readVersionComment(input, d);
++            input.acceptToken(BlockComment);
++        }
+         else if (next == 47 /* Ch.Slash */ && input.next == 42 /* Ch.Star */) {
+             input.advance();
+             for (let depth = 1;;) {
+diff --git a/dist/index.d.cts b/dist/index.d.cts
+index 9a7b9b34ff226d82b3db38439adedfe0d6adba1c..ad0e82ace992d92839f090032752db02305ce74f 100644
+--- a/dist/index.d.cts
++++ b/dist/index.d.cts
+@@ -86,6 +86,11 @@ type SQLDialectSpec = {
+     Defaults to false.
+     */
+     treatBitsAsBytes?: boolean;
++    /**
++    MySQL / MariaDB 的可执行注释（以 `/*!` 开头，`"mariadb"` 另认 `/*M!`）：照 mysql 客户端找它的结尾，里面的字符串、
++    带引号的名字与注释照常认，其中的注释结尾符不算。默认不认（与普通注释相同）。
++    */
++    versionComments?: "mysql" | "mariadb";
+ };
+ /**
+ Represents an SQL dialect.
+diff --git a/dist/index.d.ts b/dist/index.d.ts
+index 9a7b9b34ff226d82b3db38439adedfe0d6adba1c..ad0e82ace992d92839f090032752db02305ce74f 100644
+--- a/dist/index.d.ts
++++ b/dist/index.d.ts
+@@ -86,6 +86,11 @@ type SQLDialectSpec = {
+     Defaults to false.
+     */
+     treatBitsAsBytes?: boolean;
++    /**
++    MySQL / MariaDB 的可执行注释（以 `/*!` 开头，`"mariadb"` 另认 `/*M!`）：照 mysql 客户端找它的结尾，里面的字符串、
++    带引号的名字与注释照常认，其中的注释结尾符不算。默认不认（与普通注释相同）。
++    */
++    versionComments?: "mysql" | "mariadb";
+ };
+ /**
+ Represents an SQL dialect.
+diff --git a/dist/index.js b/dist/index.js
+index 2cf97dab7f078ea917d2f0d2719334bd6e04ed90..2976391291e80acbbb051e4d09e8605462812655 100644
+--- a/dist/index.js
++++ b/dist/index.js
+@@ -139,6 +139,47 @@ function inString(ch, str) {
+     return false;
+ }
+ const Space = " \t\r\n";
++// 在第一个 - 之后：是否为 -- 注释。MySQL / MariaDB（spaceAfterDashes）的第二个 - 之后是空白（空格、制表符、换行）或已到
++// 末尾即可（同 mysql 客户端），不只是空格；否则 mysqldump 里单独一行的 -- 认不出
++function atDashComment(input, d) {
++    return input.next == 45 /* Ch.Dash */ &&
++        (!d.spaceAfterDashes || input.peek(1) < 0 || inString(input.peek(1), Space));
++}
++// 在 /* 的 * 上：是否为 MySQL / MariaDB 的可执行注释（/*!，MariaDB 另有 /*M!）
++function atVersionComment(input, d) {
++    if (!d.versionComments)
++        return false;
++    let bang = d.versionComments == "mariadb" && input.peek(1) == 77 /* Ch.M */ ? 2 : 1;
++    return input.peek(bang) == 33 /* Ch.Bang */;
++}
++// 可执行注释从 /* 之后读到结尾的 */ 之后。照 mysql 客户端，它不是注释：里面的字符串、带引号的名字与注释照常认，其中的
++// */ 不是结尾（mysqldump 写在里面的视图定义可能带这样的字符串）；里面的 /* … */ 同普通注释可以嵌套
++function readVersionComment(input, d) {
++    for (let depth = 0;;) {
++        let cur = input.next;
++        if (cur < 0)
++            return;
++        input.advance();
++        if (cur == 42 /* Ch.Star */ && input.next == 47 /* Ch.Slash */) {
++            input.advance();
++            if (!depth)
++                return;
++            depth--;
++        }
++        else if (cur == 47 /* Ch.Slash */ && input.next == 42 /* Ch.Star */) {
++            input.advance();
++            depth++;
++        }
++        else if (!depth) {
++            if (cur == 39 /* Ch.SingleQuote */ || cur == 34 /* Ch.DoubleQuote */ && d.doubleQuotedStrings)
++                readLiteral(input, cur, d.backslashEscapes);
++            else if (inString(cur, d.identifierQuotes))
++                readLiteral(input, cur == 91 /* Ch.BracketL */ ? 93 /* Ch.BracketR */ : cur, false);
++            else if (cur == 35 /* Ch.Hash */ && d.hashComments || cur == 45 /* Ch.Dash */ && atDashComment(input, d))
++                eol(input);
++        }
++    }
++}
+ function keywords(keywords, types, builtin) {
+     let result = Object.create(null);
+     result["true"] = result["false"] = Bool;
+@@ -167,6 +208,7 @@ const defaults = {
+     treatBitsAsBytes: false,
+     charSetCasts: false,
+     plsqlQuotingMechanism: false,
++    versionComments: false,
+     operatorChars: "*+\-%<>!=&|~^/",
+     specialVar: "?",
+     identifierQuotes: '"',
+@@ -208,11 +250,15 @@ function tokensFor(d) {
+             eol(input);
+             input.acceptToken(LineComment);
+         }
+-        else if (next == 45 /* Ch.Dash */ && input.next == 45 /* Ch.Dash */ &&
+-            (!d.spaceAfterDashes || input.peek(1) == 32 /* Ch.Space */)) {
++        else if (next == 45 /* Ch.Dash */ && atDashComment(input, d)) {
+             eol(input);
+             input.acceptToken(LineComment);
+         }
++        else if (next == 47 /* Ch.Slash */ && input.next == 42 /* Ch.Star */ && atVersionComment(input, d)) {
++            input.advance();
++            readVersionComment(input, d);
++            input.acceptToken(BlockComment);
++        }
+         else if (next == 47 /* Ch.Slash */ && input.next == 42 /* Ch.Star */) {
+             input.advance();
+             for (let depth = 1;;) {

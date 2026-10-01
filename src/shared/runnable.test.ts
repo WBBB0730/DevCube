@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest'
 import { SCRIPT_SOURCE } from './discover-source'
-import { configKey, filesTabKey, isFilesTabKey, isResidentTabKey, scriptKey } from './runnable'
+import {
+  configKey,
+  filesTabKey,
+  isFilesTabKey,
+  isResidentDataSourceTabKey,
+  isResidentTabKey,
+  newDataSourceTabKey,
+  residentDataSourceTabKey,
+  scriptKey
+} from './runnable'
 import type { RunConfig } from './types'
 
 const SEP = String.fromCharCode(0)
@@ -32,11 +41,31 @@ describe('runnable keys', () => {
     expect(configKey(cfg)).toBe(`cmd${SEP}abc`)
   })
 
+  it('数据源上的配置同命令型，按 id 生成 key', () => {
+    const cfg: RunConfig = {
+      id: 'd-1',
+      kind: 'dataSource',
+      dataSourceId: 'd1',
+      name: 'clean',
+      script: 'delete from sessions'
+    }
+    expect(configKey(cfg)).toBe(`cmd${SEP}d-1`)
+  })
+
   it('Files Tab 键与常驻判定', () => {
     expect(filesTabKey('/p')).toBe('files:/p')
     expect(isFilesTabKey('files:/p')).toBe(true)
     expect(isResidentTabKey('files:/p')).toBe(true)
     expect(isResidentTabKey('git:/p')).toBe(true)
     expect(isResidentTabKey('terminal:1')).toBe(false)
+  })
+
+  it('另开的 Data Source Tab 键每次不同，且不算常驻', () => {
+    const key = newDataSourceTabKey()
+    expect(key).toMatch(/^db-tab:/)
+    expect(newDataSourceTabKey()).not.toBe(key)
+    expect(isResidentDataSourceTabKey(key)).toBe(false)
+    expect(isResidentTabKey(key)).toBe(false)
+    expect(isResidentTabKey(residentDataSourceTabKey('datasource:d1'))).toBe(true)
   })
 })

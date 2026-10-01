@@ -11,10 +11,19 @@ describe('条目键', () => {
 })
 
 describe('configOwnerKey', () => {
-  it('服务器上的命令型属于其 Server，其余属于其 Project', () => {
+  it('服务器上的命令型属于其 Server，数据源上的属于其 Data Source，其余属于其 Project', () => {
     expect(
       configOwnerKey({ id: 'c1', kind: 'remote', serverId: 's1', name: 'logs', command: 'ls' })
     ).toBe('server:s1')
+    expect(
+      configOwnerKey({
+        id: 'c3',
+        kind: 'dataSource',
+        dataSourceId: 'd1',
+        name: 'clean',
+        script: 'x'
+      })
+    ).toBe('datasource:d1')
     expect(
       configOwnerKey({ id: 'c2', kind: 'command', projectPath: '/p', name: 'dev', command: 'x' })
     ).toBe('/p')

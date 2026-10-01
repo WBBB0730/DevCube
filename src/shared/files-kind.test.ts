@@ -39,6 +39,13 @@ describe('classifyFilesOpenKind', () => {
   })
 })
 
+describe('filesOpenKindFromMime · SQLite', () => {
+  it('按文件头认出 SQLite，不看扩展名', () => {
+    expect(filesOpenKindFromMime('application/x-sqlite3', 'app.db')).toBe('sqlite')
+    expect(filesOpenKindFromMime('application/x-sqlite3', 'data.bin')).toBe('sqlite')
+  })
+})
+
 describe('filesOpenKindFromMime / primaryMime', () => {
   it('去掉 codecs 参数', () => {
     expect(primaryMime('audio/ogg; codecs=vorbis')).toBe('audio/ogg')

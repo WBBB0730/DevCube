@@ -28,6 +28,7 @@ import {
 } from '../shared/changelog'
 import { IPC } from '../shared/ipc'
 import { resolveReleaseEdition } from '../shared/release-edition'
+import { broadcast } from './app-window'
 
 const STARTUP_JITTER_MAX_MS = 30_000
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
@@ -81,10 +82,7 @@ function buildState(): AppUpdateState {
 
 /** 推给全部窗口：主窗口与 Preview Window 的顶栏 / 设置弹窗共用同一份更新状态。 */
 function emit(): void {
-  const state = buildState()
-  for (const w of BrowserWindow.getAllWindows()) {
-    if (!w.isDestroyed()) w.webContents.send(IPC.appUpdateState, state)
-  }
+  broadcast(IPC.appUpdateState, buildState())
 }
 
 function setPhase(next: AppUpdatePhase): void {

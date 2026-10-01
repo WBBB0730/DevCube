@@ -83,7 +83,8 @@ export function matchAppShortcut(input: ShortcutInput, ctx: ShortcutContext): Ap
     return { id: 'closeTab' }
   }
 
-  // CmdOrCtrl+E：最近打开文件。Ctrl+E 是 shell 的「跳到行尾」，焦点在终端时让给 shell（macOS 用 ⌘ 不冲突）
+  // CmdOrCtrl+E：最近打开文件（数据源条目为最近打开的对象）。Ctrl+E 是 shell 的「跳到行尾」，焦点在终端时让给 shell
+  // （macOS 用 ⌘ 不冲突）
   if (mod && !alt && !shift && (key === 'e' || key === 'E' || code === 'KeyE')) {
     return ctx.terminalFocused && input.control ? null : { id: 'recentFiles' }
   }

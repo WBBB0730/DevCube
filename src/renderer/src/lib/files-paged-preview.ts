@@ -11,7 +11,7 @@ import { isPrimaryModifierEvent } from './shortcut-label'
 /** 应用级弹层 / 内容搜索 / 对话框开着时，预览的全局快捷键一律让路 */
 function appBusy(): boolean {
   const app = useApp.getState()
-  return overlayOpen() || app.contentSearchOpen || app.dialog.open
+  return overlayOpen() || app.contentSearchOpen || app.dialog !== null
 }
 
 /**

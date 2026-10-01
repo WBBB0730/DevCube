@@ -2,6 +2,8 @@
 // 移植自 vscode-git-graph：数据由主进程直接跑 git CLI 产出，渲染端只消费结构化结果。
 // 术语见 CONTEXT.md（Git Tab / Commit Graph / Ref / Commit Details / Diff 面板）。
 
+import { lastPathSegment } from './files-path'
+
 /** 「未提交更改」虚拟提交的 hash 常量（与参考实现一致，真实 hash 不可能是它）。 */
 
 export const UNCOMMITTED = '*'
@@ -97,12 +99,6 @@ export function worktreeHoldingBranch(
 /** 可列出的工作树：裸仓库条目无工作目录、不能登记为项目，不进列表（工具栏据此决定整段显隐）。 */
 export function listedWorktrees(worktrees: readonly GitWorktree[]): GitWorktree[] {
   return worktrees.filter((w) => !w.bare)
-}
-
-/** 路径末段（目录名）；兼容两种分隔符与末尾分隔符（渲染端无 path 模块）。 */
-export function lastPathSegment(path: string): string {
-  const segments = path.split(/[/\\]/).filter((s) => s !== '')
-  return segments[segments.length - 1] ?? path
 }
 
 /** 新工作树的默认名（目录名）：分支名把 `/` 换成 `-`（`feat/x` → `feat-x`）。 */

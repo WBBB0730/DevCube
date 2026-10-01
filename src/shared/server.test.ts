@@ -3,10 +3,10 @@ import {
   connectableHostAliases,
   manualTargetError,
   sameServerTarget,
+  serverConnectionChanged,
   serverTargetLabel,
   sshArgs,
   sshFailureMessage,
-  supportsSshDirect,
   type ServerTarget
 } from './server'
 
@@ -47,14 +47,6 @@ describe('sshArgs', () => {
       '--',
       '10.0.0.8'
     ])
-  })
-})
-
-describe('supportsSshDirect', () => {
-  it('只在 macOS / Windows 提供', () => {
-    expect(supportsSshDirect('darwin')).toBe(true)
-    expect(supportsSshDirect('win32')).toBe(true)
-    expect(supportsSshDirect('linux')).toBe(false)
   })
 })
 
@@ -112,5 +104,25 @@ describe('sameServerTarget', () => {
     expect(sameServerTarget(manual(), manual())).toBe(true)
     expect(sameServerTarget(manual(), manual({ port: 2222 }))).toBe(false)
     expect(sameServerTarget(manual(), manual({ identityFile: '/k' }))).toBe(false)
+  })
+
+  it('地址不分大小写', () => {
+    expect(sameServerTarget(manual({ host: 'example.com' }), manual({ host: 'Example.COM' }))).toBe(
+      true
+    )
+  })
+})
+
+describe('serverConnectionChanged', () => {
+  it('只改名、只改密码不算：比较的只有连接目标与直连开关', () => {
+    const server = { target: manual(), direct: false }
+    expect(serverConnectionChanged(server, { target: manual(), direct: false })).toBe(false)
+    expect(serverConnectionChanged(server, { target: manual({ port: 2222 }), direct: false })).toBe(
+      true
+    )
+    expect(serverConnectionChanged(server, { target: manual(), direct: true })).toBe(true)
+    expect(
+      serverConnectionChanged(server, { target: { kind: 'config', alias: 'a' }, direct: false })
+    ).toBe(true)
   })
 })

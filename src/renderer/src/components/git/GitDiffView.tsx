@@ -14,7 +14,6 @@ import {
   ChevronUp,
   Columns2,
   FolderSymlink,
-  LoaderCircle,
   X
 } from 'lucide-react'
 import { DiffFile, DiffModeEnum, DiffView } from '@git-diff-view/react'
@@ -30,6 +29,7 @@ import { gitState, useGit } from '@renderer/git-store'
 import { useFiles } from '@renderer/files-store'
 import { useApp } from '@renderer/store'
 import { shortcutTitle } from '@renderer/lib/shortcut-label'
+import { CenteredHint, LoadingHint } from '@renderer/components/ui/centered-hint'
 import { abbrevHash } from './git-format'
 import {
   FILE_STATUS_COLOR,
@@ -79,22 +79,13 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
   // 库按 data-theme 挂两套自带变量，主题变了要跟着换；应用侧在 main.css 里对两个 data-theme
   // 都做了覆写，实际取值仍来自应用 token（漏掉哪个，库那套就会接管）。
   const theme = useApp((s) => s.theme)
-  /** 加载骨架延迟 120ms 出现（防快速响应时闪烁，§10.2） */
-  const [showLoading, setShowLoading] = useState(false)
   const bodyRef = useRef<HTMLDivElement>(null)
   const scrollPos = useRef({ key: '', top: 0, left: 0 })
 
-  // 文件身份：端点 + 新路径（换文件时重置加载骨架的计时）。
+  // 文件身份：端点 + 新路径（换文件时重建加载骨架、重新计时）。
   const fileKey = diffView
     ? `${diffView.fromHash}|${diffView.toHash}|${diffView.file.newFilePath}`
     : ''
-
-  const loading = diffView?.loading ?? false
-  useEffect(() => {
-    // setState 只发生在定时回调里（骨架延迟出现 / 结束后异步收回），避免 effect 内同步级联渲染
-    const timer = setTimeout(() => setShowLoading(loading), loading ? 120 : 0)
-    return () => clearTimeout(timer)
-  }, [loading, fileKey])
 
   // 官方 git mode 用法：new DiffFile(旧名, '', 新名, '', [git diff 原文]) → initRaw()。
   // 空串 content = 无全文（语法高亮由库按文件名推断语言、逐行处理）；主题由
@@ -357,16 +348,12 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
         </div>
       ) : file.isDir === true ? (
         // 未跟踪目录整体条目：无单文件 diff（store 已跳过取数），给一句说明占位
-        <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
-          这是一个未跟踪目录，没有差异可查看
-        </div>
+        <CenteredHint>这是一个未跟踪目录，没有差异可查看</CenteredHint>
       ) : file.type === '!' ? (
         // 冲突文件：git diff 对 unmerged 输出 combined diff（diff --cc，hunk 头 @@@）或
         // 「* Unmerged path」，实测 DiffFile.initRaw 均吃不下（Invalid hunk header format），
         // 按二进制同款兜底一句说明，不等数据返回
-        <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
-          文件处于冲突状态，请在编辑器中解决后暂存
-        </div>
+        <CenteredHint>文件处于冲突状态，请在编辑器中解决后暂存</CenteredHint>
       ) : data !== null && data.binary ? (
         // key=文件身份：换文件即重建组件（images 状态自然归零），不在 effect 里手动重置
         <BinaryBody
@@ -377,18 +364,12 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
           toHash={diffView.toHash}
         />
       ) : data === null ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center gap-1.5 text-sm text-muted-foreground">
-          {showLoading && (
-            <>
-              <LoaderCircle className="size-4 animate-spin" />
-              <span>正在加载差异…</span>
-            </>
-          )}
-        </div>
+        // 加载中延迟出现，快的时候不闪（§10.2）；key=文件身份：换文件即重新计时
+        diffView.loading ? (
+          <LoadingHint key={fileKey} label="正在加载差异…" />
+        ) : null
       ) : diffFile === null ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
-          没有差异内容
-        </div>
+        <CenteredHint>没有差异内容</CenteredHint>
       ) : (
         // 滚动收进库的容器内（main.css 高度链），此层只圈定高度不再自滚
         <div ref={bodyRef} className="min-h-0 flex-1 overflow-hidden">
@@ -442,19 +423,9 @@ function BinaryBody({
   }, [projectPath, file, fromHash, toHash, isImage])
 
   if (!isImage || (images !== null && images.oldDataUrl === null && images.newDataUrl === null)) {
-    return (
-      <div className="flex min-h-0 flex-1 items-center justify-center text-sm text-muted-foreground">
-        二进制文件不支持对比
-      </div>
-    )
+    return <CenteredHint>二进制文件不支持对比</CenteredHint>
   }
-  if (images === null) {
-    return (
-      <div className="flex min-h-0 flex-1 items-center justify-center">
-        <LoaderCircle className="size-4 animate-spin text-muted-foreground" />
-      </div>
-    )
-  }
+  if (images === null) return <LoadingHint delay={0} />
   const sides = [
     { label: '旧', url: images.oldDataUrl },
     { label: '新', url: images.newDataUrl }

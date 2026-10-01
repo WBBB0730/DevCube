@@ -2,12 +2,11 @@
 // 编辑器查找栏形态，非悬浮层）；控件样式与终端搜索框 / 内容搜索面板同族。引擎由调用方提供。
 import { useEffect, useRef } from 'react'
 import { CaseSensitive, ChevronDown, ChevronUp, Regex, Search, WholeWord, X } from 'lucide-react'
+import { TOOLBAR_BTN_SM } from '@renderer/components/ui/toolbar'
 import { cn } from '@renderer/lib/utils'
 
-// 方形开关钮（同内容搜索面板）；导航钮同 Git 查找部件
+// 方形开关钮（同内容搜索面板）；导航钮（上 / 下一个、关闭）用工具栏小图标钮，同 Git 查找部件
 const TOGGLE_BTN = 'flex size-6 shrink-0 items-center justify-center rounded transition-colors'
-const NAV_BTN =
-  'flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)] disabled:pointer-events-none disabled:opacity-50'
 
 export function FindBar({
   query,
@@ -122,7 +121,7 @@ export function FindBar({
         title="上一个匹配 (Shift+Enter)"
         disabled={!canNavigate}
         onClick={() => onNavigate(-1)}
-        className={NAV_BTN}
+        className={TOOLBAR_BTN_SM}
       >
         <ChevronUp className="size-4" />
       </button>
@@ -131,11 +130,11 @@ export function FindBar({
         title="下一个匹配 (Enter)"
         disabled={!canNavigate}
         onClick={() => onNavigate(1)}
-        className={NAV_BTN}
+        className={TOOLBAR_BTN_SM}
       >
         <ChevronDown className="size-4" />
       </button>
-      <button type="button" title="关闭 (Esc)" onClick={onClose} className={NAV_BTN}>
+      <button type="button" title="关闭 (Esc)" onClick={onClose} className={TOOLBAR_BTN_SM}>
         <X className="size-4" />
       </button>
     </div>

@@ -6,11 +6,12 @@
 // 未提交普通模式即提交面板（ADR-0006）：左栏 CommitForm、右栏 UncommittedFileSections。
 // Esc 关闭由 GitPane 统一处理。
 import { useMemo, useRef, useState, type ReactNode } from 'react'
-import { ChevronRight, File as FileIcon, Folder, LoaderCircle, X } from 'lucide-react'
+import { ChevronRight, File as FileIcon, Folder, X } from 'lucide-react'
 import { UNCOMMITTED, type GitFileChange } from '@shared/git'
 import { gitState, useGit } from '@renderer/git-store'
 import { useFiles } from '@renderer/files-store'
 import { cn } from '@renderer/lib/utils'
+import { LoadingHint } from '@renderer/components/ui/centered-hint'
 import { abbrevHash, formatDateTime } from './git-format'
 import {
   FILE_STATUS_COLOR,
@@ -169,10 +170,7 @@ export function GitCommitDetails({
         </button>
       </div>
       {exp.loading ? (
-        <div className="flex min-h-0 flex-1 items-center justify-center gap-1.5 text-sm text-muted-foreground">
-          <LoaderCircle className="size-4 animate-spin" />
-          <span>{loadingText}</span>
-        </div>
+        <LoadingHint label={loadingText} delay={0} />
       ) : exp.error !== null ? (
         <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-6">
           <div className="text-sm text-muted-foreground">{errorTitle}</div>

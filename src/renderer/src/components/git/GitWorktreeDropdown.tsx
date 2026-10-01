@@ -12,11 +12,10 @@ import { gitState, useGit } from '@renderer/git-store'
 import { useApp } from '@renderer/store'
 import { cn } from '@renderer/lib/utils'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
+import { TOOLBAR_BTN } from '@renderer/components/ui/toolbar'
 import { abbrevHash } from './git-format'
 
-// 图标钮：观感对齐工具栏其它图标钮（size-7 圆角 hover 加亮）；列表行照分支下拉，hover 底色带过渡（同左树行）
-const ICON_BTN =
-  'flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)] disabled:pointer-events-none disabled:opacity-50'
+// 列表行照分支下拉，hover 底色带过渡（同左树行）
 const ROW =
   'group relative flex h-7 cursor-pointer select-none items-center gap-1.5 rounded px-1.5 text-[13px] transition-colors hover:bg-[var(--bg-row-hover)]'
 // 行尾操作钮：绝对定位盖在行尾，不占布局（分支名平时贴右缘，悬停不被顶开）；行悬停时钮渐显、
@@ -95,7 +94,7 @@ export function GitWorktreeDropdown({
       }}
     >
       <PopoverTrigger
-        className={ICON_BTN}
+        className={TOOLBAR_BTN}
         title={current !== null ? `工作树：${label}\n${current.path}` : '工作树'}
       >
         <FolderGit2 className="size-4" />

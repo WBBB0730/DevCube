@@ -9,6 +9,8 @@ import { bindMainWindow, registerIpcHandlers } from './ipc'
 import { isAppQuitting, isQuitAllowed, markAppQuitting, markQuitAllowed } from './app-shutdown'
 import { killAllSessions } from './runner'
 import { disposeAllServerStatus } from './server-status'
+import { disposeAllDataSourceSessions } from './data-source-sessions'
+import { flushSchemaCaches } from './data-source-schema-cache'
 import {
   disposeAllServerFiles,
   setUnsavedServerFileCount,
@@ -240,7 +242,14 @@ async function runQuitCleanup(): Promise<void> {
   disposeAllServerStatus()
   disposeAllServerFiles()
   clearAllServerFilesCache()
-  await Promise.all([closeAllProjectWatchers(), closeAllPreviewWatchers()])
+  // 数据库连接与 SQLite 查询线程也在这里关掉（含数总行数、导出、连上后读主体结构等临时连接）；还在执行的语句先叫停，
+  // 最多等 2 秒。表结构缓存把待写的写完
+  await Promise.all([
+    closeAllProjectWatchers(),
+    closeAllPreviewWatchers(),
+    disposeAllDataSourceSessions(),
+    flushSchemaCaches()
+  ])
   // 给原生 watcher stop 一点时间收尾，再拆 Node Environment。
   await new Promise<void>((resolve) => setTimeout(resolve, 50))
 }

@@ -4,6 +4,7 @@
 
 import type { AppShortcut } from './app-shortcut'
 import type { AppUpdateState, DevUpdatePreview } from './app-update-state'
+import type { ConnectionTestResult } from './connection'
 import type { ContentSearchEvent, ContentSearchOptions } from './content-search'
 import type { DiscoverSource } from './discover-source'
 import type { FilesDirEntry, FilesReadResult, FilesUiState } from './files'
@@ -28,13 +29,61 @@ import type {
 import type { ServerStatusEvent, ServerStatusState } from './server-status'
 import type { SshPromptRequest, SshPromptResponse } from './ssh-connect'
 import type {
-  Server,
-  ServerInput,
-  ServerNode,
-  ServerTestInput,
-  ServerTestResult,
-  SshConfigHost
-} from './server'
+  DataSource,
+  DataSourceAddResult,
+  DataSourceInput,
+  DataSourceConnectPassword,
+  DataSourceNode,
+  DataSourceSessionEvent,
+  DataSourceSessionState,
+  DataSourceTestInput,
+  SqlKind
+} from './data-source'
+import type {
+  CatalogCachedLayers,
+  CatalogLayersEvent,
+  CatalogPath,
+  CatalogResult
+} from './data-source-catalog'
+import type {
+  DataSourceRunInput,
+  DataSourceRunOutput,
+  DataSourceRunOutputEvent,
+  DataSourceRunParams
+} from './data-source-run'
+import type {
+  RedisCommandResult,
+  RedisDatabasesResult,
+  RedisFailure,
+  RedisKeyList,
+  RedisKeyResult
+} from './redis'
+import type {
+  ConsoleContext,
+  ConsoleContextChange,
+  ConsoleContextEvent,
+  ConsoleContextFailure,
+  SavedConsoleContext
+} from './data-source-context'
+import { DEFAULT_PAGE_SIZE } from './data-source-query'
+import type { ExportFormat } from './data-source-export'
+import type { DataSourceOpened, DataSourceTabUi } from './data-source-ui'
+import type {
+  CompletionSchema,
+  CompletionUsage,
+  ConsoleRun,
+  DataSourceExecutedEvent,
+  ExportResult,
+  ObjectDetail,
+  QueryFailure,
+  ResultSet,
+  TableExportRequest,
+  TableCountResult,
+  TablePageRequest,
+  TablePageResult,
+  TableRef
+} from './data-source-query'
+import type { Server, ServerInput, ServerNode, ServerTestInput, SshConfigHost } from './server'
 import type {
   SystemIntegrationApplyResult,
   SystemIntegrationFeatureId,
@@ -59,7 +108,7 @@ export interface Project {
   lastOpenedAt: number | null
   /** 是否 Pin（置顶）；老档案缺省为 false */
   pinned: boolean
-  /** 左树自定义序（与 Server 共用一条序列，小的在前）；老档案缺省时读取层按数组序补齐 */
+  /** 左树自定义序（与 Server、Data Source 共用一条序列，小的在前）；老档案缺省时读取层按数组序补齐 */
   order: number
 }
 
@@ -75,9 +124,10 @@ export interface ProjectSortPrefs {
   direction: ProjectSortDirection
   /** 已 Pin 项目行是否叠放吸顶；关则置顶/未置顶均按当前段吸顶（视口最上一项）。默认开。 */
   pinSticky: boolean
-  /** 按类型筛选：是否显示 Project / Server；至少保留一类。默认都显示。 */
+  /** 按类型筛选：是否显示 Project / Server / Data Source；至少保留一类。默认都显示。 */
   showProjects: boolean
   showServers: boolean
+  showDataSources: boolean
 }
 
 /** 默认：添加时间倒序（新→旧）。已持久化的偏好不被覆盖。 */
@@ -86,7 +136,8 @@ export const DEFAULT_PROJECT_SORT_PREFS: ProjectSortPrefs = {
   direction: 'desc',
   pinSticky: true,
   showProjects: true,
-  showServers: true
+  showServers: true,
+  showDataSources: true
 }
 
 /** Windows 上 Terminal / Run Session 共用的 shell 偏好。 */
@@ -101,16 +152,22 @@ export interface AppPrefs {
   lastProjectParentDir?: string
   /** 自动获取远程更新：Git Tab 到前台时、以及定时对当前项目做一次「刷新」（fetch + 软重载） */
   gitAutoFetch: boolean
+  /** 数据源表格的每页行数（所有 Data Source Tab 共用，记住上次的选择） */
+  dataPageSize: number
 }
 
 export const WINDOWS_SHELLS: readonly WindowsShell[] = ['git-bash', 'powershell', 'cmd']
 
-/** shell 默认 Git Bash，探测不到时运行时回退 PowerShell（见 ADR-0022）；主题默认深色；自动获取默认开。 */
+/**
+ * shell 默认 Git Bash，探测不到时运行时回退 PowerShell（见 ADR-0022）；主题默认深色；自动获取默认开；
+ * 数据源表格每页 500 行。
+ */
 export const DEFAULT_APP_PREFS: AppPrefs = {
   windowsShell: 'git-bash',
   theme: 'dark',
   lastProjectParentDir: undefined,
-  gitAutoFetch: true
+  gitAutoFetch: true,
+  dataPageSize: DEFAULT_PAGE_SIZE
 }
 
 /** Windows shell 选项及本机是否可用（供设置页置灰不可选项）。 */
@@ -167,13 +224,32 @@ export interface RemoteRunConfig {
   env?: Record<string, string>
 }
 
-export type RunConfig = ReferencedRunConfig | CommandRunConfig | RemoteRunConfig
+/**
+ * 命令型（数据源上）：属于某个 Data Source，内容是一段 SQL（Redis 为一行一条命令），在它的某个库上执行（ADR-0044）。
+ * 数据源改了类型时配置原样保留，运行时按当前类型执行。
+ */
+export interface DataSourceRunConfig {
+  id: string
+  kind: 'dataSource'
+  dataSourceId: string
+  name: string
+  /** SQL：整段，运行时切成多条依次执行、遇错即停；Redis：一行一条命令（写法同 redis-cli） */
+  script: string
+  /**
+   * 在哪个库上执行：PostgreSQL / MySQL / MariaDB 为库名，Redis 为库编号；缺省即数据源的默认库。SQLite 没有这一项
+   */
+  database?: string
+}
 
-/** 用户可编辑的配置（命令型，本机或服务器上）。 */
-export type EditableRunConfig = CommandRunConfig | RemoteRunConfig
+export type RunConfig =
+  ReferencedRunConfig | CommandRunConfig | RemoteRunConfig | DataSourceRunConfig
+
+/** 用户可编辑的配置（命令型：本机、服务器上或数据源上）。 */
+export type EditableRunConfig = CommandRunConfig | RemoteRunConfig | DataSourceRunConfig
 
 /** 新建 / 编辑配置的提交内容（不含 id）。 */
-export type EditableRunConfigInput = Omit<CommandRunConfig, 'id'> | Omit<RemoteRunConfig, 'id'>
+export type EditableRunConfigInput =
+  Omit<CommandRunConfig, 'id'> | Omit<RemoteRunConfig, 'id'> | Omit<DataSourceRunConfig, 'id'>
 
 /** 落盘的持久化状态（存于 electron-store 的 JSON）。 */
 export interface PersistedState {
@@ -184,7 +260,26 @@ export interface PersistedState {
   serverSecrets: Record<string, string>
   /** 记住的私钥口令：键 = 私钥文件的绝对路径，值同 serverSecrets（ADR-0041） */
   keyPassphrases: Record<string, string>
+  /** 已登记的数据源（ADR-0043） */
+  dataSources: DataSource[]
+  /** 记住的数据源密码：键 = 数据源 id，值同 serverSecrets（不下发渲染端） */
+  dataSourceSecrets: Record<string, string>
+  /** 各 Data Source Tab 控制台里写的内容（键 = Tab 键；另存，免得每次输入都重写工作台现场） */
+  dataSourceConsoles: Record<string, string>
+  /** 各 Data Source Tab 记住的界面状态（键 = Tab 键；关 Tab、移除所在项目或数据源时删掉） */
+  dataSourceTabUi: Record<string, DataSourceTabUi>
+  /**
+   * 各 Data Source Tab 记住的控制台上下文（键 = Tab 键；连上后重新应用。关 Tab、移除所在项目或数据源、数据源的连接
+   * 信息被改时删掉）
+   */
+  dataSourceConsoleContexts: Record<string, SavedConsoleContext>
+  /** 各数据源最近打开的对象或键（键 = 数据源 id，新→旧；移除数据源时删掉） */
+  dataSourceRecents: Record<string, DataSourceOpened[]>
+  /** 各数据源补全的使用次数（键 = 数据源 id；移除数据源时删掉） */
+  dataSourceCompletionUsage: Record<string, CompletionUsage>
   configs: RunConfig[]
+  /** 数据源上的配置上次运行时填的参数值（键 = 配置 id；删除配置、移除数据源时删掉） */
+  dataSourceRunParams: Record<string, DataSourceRunParams>
   /** 每项目 git 设置（键 = 项目绝对路径；存的是覆写快照，读取时与默认值合并） */
   gitSettings: Record<string, GitRepoSettings>
   /** 跨项目 git 视图偏好（查找选项、「不再提示」标记） */
@@ -212,13 +307,14 @@ export interface ProjectNode {
   worktreeOf: string | null
 }
 
-/** 左树两类条目的全量快照：改动跨两类的操作（混排重排、Pin）一并返回。 */
+/** 左树三类条目的全量快照：改动跨类的操作（混排重排、Pin）一并返回。 */
 export interface TreeSnapshot {
   tree: ProjectNode[]
   servers: ServerNode[]
+  dataSources: DataSourceNode[]
 }
 
-/** 添加服务器的结果：最新列表 + 新登记（或已存在而命中）的服务器 id，供选中与滚入视口。 */
+/** 添加服务器的结果：最新列表 + 新登记的服务器 id（按输入顺序），供选中与滚入视口。 */
 export interface ServerAddResult {
   servers: ServerNode[]
   focusIds: string[]
@@ -238,10 +334,13 @@ export type ProjectCloneResult =
 
 export type SessionStatus = 'running' | 'exited' | 'failed'
 
-/** 运行目标：一条探测脚本，或一条已保存配置。 */
+/**
+ * 运行目标：一条探测脚本，或一条已保存配置。dataSource 只有数据源上的配置才带：要执行的语句由渲染端切好交来
+ * （见 DataSourceRunInput），所以这类配置只能由渲染端发起运行。
+ */
 export type RunTarget =
   | { type: 'script'; projectPath: string; source: DiscoverSource; name: string }
-  | { type: 'config'; id: string }
+  | { type: 'config'; id: string; dataSource?: DataSourceRunInput }
 
 /** 渲染端看到的会话快照。key 为配置唯一键，同一 script/config 单实例。 */
 export interface SessionState {
@@ -279,7 +378,7 @@ export interface SessionBufferSnapshot {
 export interface TerminalInfo {
   /** 会话唯一键（`terminal:<uuid>` / `ssh:<uuid>`），与 Run Session 共用同一套输出/输入/缓冲通道 */
   key: string
-  /** 所属左树条目的键（Project 路径或 `server:<id>`）—— 决定它归属的 Tab 栏 */
+  /** 所属左树条目的键（Project 路径或 `server:<id>`；Data Source 条目下不开终端）—— 决定它归属的 Tab 栏 */
   ownerKey: string
   /** SSH Terminal 所连服务器；本地 Terminal 缺省 */
   serverId?: string
@@ -306,11 +405,11 @@ export interface RunAPI extends GitAPI {
   checkCloneTarget(parentDir: string, name: string): Promise<GitCloneTargetState>
   onProjectCloneProgress(cb: (progress: GitCloneProgress) => void): () => void
   removeProject(path: string): Promise<ProjectNode[]>
-  /** 重排左树条目（Project 与 Server 混排）的自定义序：按条目键顺序落盘 */
+  /** 重排左树条目（Project、Server 与 Data Source 混排）的自定义序：按条目键顺序落盘 */
   reorderEntries(orderedKeys: string[]): Promise<TreeSnapshot>
   /** 记录「打开」某项目（更新 lastOpenedAt） */
   touchProject(path: string): Promise<ProjectNode[]>
-  /** 设置左树条目（Project / Server）的 Pin；置顶/取消后进入目标区块开头 */
+  /** 设置左树条目（Project / Server / Data Source）的 Pin；置顶/取消后进入目标区块开头 */
   setEntryPinned(key: string, pinned: boolean): Promise<TreeSnapshot>
   getProjectSortPrefs(): Promise<ProjectSortPrefs>
   setProjectSortPrefs(patch: Partial<ProjectSortPrefs>): Promise<ProjectSortPrefs>
@@ -323,24 +422,200 @@ export interface RunAPI extends GitAPI {
   readClipboardText(): Promise<string>
   /** Windows：列出 shell 选项及是否可用（非 win32 仍可调用，git-bash 通常为 false） */
   getWindowsShellOptions(): Promise<WindowsShellOption[]>
+  /** 「记住密码」为什么不可用（没有可用的系统钥匙串）；可用时为 null。服务器与数据源的对话框共用 */
+  getPasswordUnavailableReason(): Promise<string | null>
+
+  // —— 数据源（Data Source，ADR-0043） ——
+  getDataSources(): Promise<DataSourceNode[]>
+  /** 主进程改了数据源列表（如连接时记住或忘掉密码）时推送 */
+  onDataSourcesChanged(cb: (dataSources: DataSourceNode[]) => void): () => void
+  /** 登记数据源：总是新增一个（连接目标与已登记的重复也照样登记，提交前已确认过），返回新登记的 id */
+  addDataSource(input: DataSourceInput): Promise<DataSourceAddResult>
+  updateDataSource(id: string, input: DataSourceInput): Promise<DataSourceNode[]>
+  /** 移除数据源：删除记住的密码 */
+  removeDataSource(id: string): Promise<DataSourceNode[]>
+  /** 记录「打开」某数据源（更新 lastOpenedAt） */
+  touchDataSource(id: string): Promise<DataSourceNode[]>
+  /**
+   * 记下显示的库（目录根行的勾选，这个数据源的各个 Tab 一样）：连着的各个 Tab 在后台把新勾上的库读进表结构缓存
+   */
+  setDataSourceShownDatabases(id: string, databases: string[]): Promise<DataSourceNode[]>
+  /** 选择 SQLite 数据库文件；取消返回 null */
+  pickSqliteFile(): Promise<string | null>
+  /** 测试连接：连上后执行一条最简单的查询即断开；同一时刻只测一个，新测试会取消旧的 */
+  testDataSourceConnection(input: DataSourceTestInput): Promise<ConnectionTestResult>
+  /** 取消进行中的测试连接（对话框关闭时） */
+  cancelDataSourceTest(): Promise<void>
+  /** 某个 Data Source Tab 的连接状态（挂载时取一次，之后靠推送） */
+  getDataSourceSession(tabKey: string): Promise<DataSourceSessionState>
+  /** 点「连接」：password 为未连接页密码框交上来的，没出密码框时为 null（用记住的） */
+  connectDataSourceSession(
+    tabKey: string,
+    dataSourceId: string,
+    password: DataSourceConnectPassword | null
+  ): Promise<void>
+  /** 点「断开」：回到未连接 */
+  disconnectDataSourceSession(tabKey: string): Promise<void>
+  /** Data Source Tab 关闭：断开并忘掉它的连接，删掉控制台里写的内容 */
+  closeDataSourceTab(tabKey: string): Promise<void>
+  onDataSourceSessionChanged(cb: (event: DataSourceSessionEvent) => void): () => void
+  /**
+   * 刷新目录前：SQLite 关掉再重新打开文件（文件被整个替换后也能读到新内容；开着事务时不重开，免得悄悄回滚）；
+   * 其余类型不用
+   */
+  reopenDataSourceSession(tabKey: string): Promise<void>
+  /**
+   * Files 面板里直接打开 SQLite 文件（临时数据源，不登记、不落盘）；关掉用 closeSqliteFileSession，
+   * 所在窗口关闭、页面重载时也一并关掉。打不开（含路径不在授权范围内）即连接断开、显示原因
+   */
+  openSqliteFileSession(tabKey: string, rootPath: string, filePath: string): Promise<void>
+  /** 关掉 Files 面板里直接打开的 SQLite 文件（它没有要删的控制台内容，只断开连接） */
+  closeSqliteFileSession(tabKey: string): Promise<void>
+  /** 读某个 Data Source Tab 目录的一层（现查；登记的数据源读到的写进表结构缓存） */
+  readDataSourceCatalog(tabKey: string, path: CatalogPath): Promise<CatalogResult>
+  /** 目录一层的表结构缓存（不访问数据库，先显示它、同时现查）；没有缓存、不缓存的会话为 null */
+  peekDataSourceCatalog(tabKey: string, path: CatalogPath): Promise<CatalogResult | null>
+  /**
+   * 目录各层的表结构缓存（不访问数据库；按层键，同 catalogLayerKey；Files 面板里直接打开的 SQLite 文件为会话内存里的
+   * 那份），连同一次读完主体结构还在不在进行：目录按名称筛选时连同已读取的各层一起找。没有缓存、不缓存的会话，各层为空
+   */
+  peekDataSourceCatalogLayers(tabKey: string): Promise<CatalogCachedLayers>
+  /** 一次读完主体结构写进了一批、或读取结束了时推送：进行中的目录筛选重取缓存 */
+  onDataSourceCatalogLayersChanged(cb: (event: CatalogLayersEvent) => void): () => void
+  /** 翻表的一页（没点排序时按主键排） */
+  readDataSourceTablePage(tabKey: string, request: TablePageRequest): Promise<TablePageResult>
+  /** 数总行数：另开临时连接；同一个 Tab 新数一次就取消上一次 */
+  countDataSourceTableRows(
+    tabKey: string,
+    table: TableRef,
+    where: string
+  ): Promise<TableCountResult>
+  /** 取消数总行数：叫停服务器上的语句再关掉临时连接 */
+  cancelDataSourceTableCount(tabKey: string): Promise<void>
+  /** 表与视图以外对象的定义或信息表（现查；读到的写进表结构缓存） */
+  readDataSourceObjectDetail(
+    tabKey: string,
+    path: CatalogPath,
+    name: string,
+    detail?: string
+  ): Promise<ObjectDetail>
+  /** 对象定义或信息表的表结构缓存（不访问数据库）；没有为 null */
+  peekDataSourceObjectDetail(
+    tabKey: string,
+    path: CatalogPath,
+    name: string,
+    detail?: string
+  ): Promise<ObjectDetail | null>
+  /** 控制台：依次执行各条语句，遇错即停 */
+  runDataSourceConsole(tabKey: string, statements: string[]): Promise<ConsoleRun | QueryFailure>
+  /** 取消控制台正在执行的语句；叫停失败（如连不上）时交回原因，没在执行或已叫停为 null */
+  cancelDataSourceConsole(tabKey: string): Promise<QueryFailure | null>
+  /** 登记的数据源执行成功了一些 SQL 语句（控制台与运行配置）时推送（只推给主窗口）：交给补全计数 */
+  onDataSourceExecuted(cb: (event: DataSourceExecutedEvent) => void): () => void
+  /**
+   * 补全用的表结构（库、模式、列与类型、函数、外键等；现查，读到的写进表结构缓存）：范围跟着控制台上下文，searchPath
+   * 为控制台连接眼下的。PostgreSQL 给了 database 即读这个库的那份（在它的按库连接上读，searchPath 为那条连接的；表数据的
+   * WHERE / ORDER BY 框用于不在控制台所在的库上的表）
+   */
+  readDataSourceCompletionSchema(
+    tabKey: string,
+    database?: string
+  ): Promise<CompletionSchema | QueryFailure>
+  /**
+   * 补全用的表结构的缓存（不访问数据库；searchPath 按控制台上下文，见 consoleSearchPath）；没有为 null。PostgreSQL 给了
+   * database 即这个库的那份（searchPath 为缓存里的）
+   */
+  peekDataSourceCompletionSchema(
+    tabKey: string,
+    database?: string
+  ): Promise<CompletionSchema | null>
+  /** 数据源补全的使用次数（跨重启保存）；没有为空 */
+  getDataSourceCompletionUsage(dataSourceId: string): Promise<CompletionUsage>
+  /** 记下数据源补全的使用次数（整份替换）；数据源已移除时不记 */
+  setDataSourceCompletionUsage(dataSourceId: string, usage: CompletionUsage): Promise<void>
+  /**
+   * 控制台上下文（在哪个库上执行；Redis 另为键列表所在的库）：连上后应用完记住的才交回；没有（SQLite、没连上、读不出来）
+   * 为 null。之后的变化靠推送
+   */
+  getDataSourceConsoleContext(tabKey: string): Promise<ConsoleContext | null>
+  /** 控制台上下文变了（切换、执行了改它的语句、连上后应用了记住的）时推送 */
+  onDataSourceConsoleContextChanged(cb: (event: ConsoleContextEvent) => void): () => void
+  /**
+   * 切换控制台上下文：先在服务器上执行、再回查并推送（Tab 记住它）；切不过去时交回原因（出错在改 search_path 那一步的
+   * 另记下），上下文不变
+   */
+  switchDataSourceConsoleContext(
+    tabKey: string,
+    change: ConsoleContextChange
+  ): Promise<ConsoleContextFailure | null>
+  /** 运行配置对话框「库」的选项：表结构缓存里目录根这一层的库（不访问数据库）；没有为空 */
+  peekDataSourceDatabases(dataSourceId: string): Promise<string[]>
+  /**
+   * 运行配置对话框里的补全：按「数据源 + 库」取表结构缓存（不依赖 Tab），没有时借一个连着的 Data Source Tab 现查；
+   * database 为空即数据源的默认库。拿不到为 null
+   */
+  readDataSourceCompletionFor(
+    dataSourceId: string,
+    database: string
+  ): Promise<CompletionSchema | null>
+  /** 控制台里写的内容（跨重启保留；Tab 关闭、所在项目或数据源移除时删掉） */
+  getDataSourceConsoleText(tabKey: string): Promise<string>
+  /** 写入控制台里写的内容（空串即删掉）；已删掉内容的 Tab 的写入不再收 */
+  setDataSourceConsoleText(tabKey: string, text: string): Promise<void>
+  /** Tab 记住的界面状态：停在哪一格、上次打开的对象或键、目录的展开（跨重启；同控制台内容随 Tab 删掉） */
+  getDataSourceTabUi(tabKey: string): Promise<DataSourceTabUi>
+  /** 记下界面状态的改动；已删掉的 Tab 的写入不再收 */
+  setDataSourceTabUi(tabKey: string, patch: Partial<DataSourceTabUi>): Promise<void>
+  /** 数据源最近打开的对象或键（新→旧，它的各个 Tab 共用） */
+  getDataSourceRecents(dataSourceId: string): Promise<DataSourceOpened[]>
+  /** 打开了一个对象或键：放到最近打开的最前，交回新的列表 */
+  pushDataSourceRecent(dataSourceId: string, opened: DataSourceOpened): Promise<DataSourceOpened[]>
+  /** 已不在的从最近打开里去掉，交回新的列表 */
+  dropDataSourceRecent(dataSourceId: string, opened: DataSourceOpened): Promise<DataSourceOpened[]>
+  /** 导出前选保存位置：在下载目录弹保存对话框（挂在调用方的窗口上），默认文件名为 fileName 加格式的扩展名；取消为 null */
+  pickDataSourceExportFile(fileName: string, format: ExportFormat): Promise<string | null>
+  /** 导出整张表到已选好的 file：带当前的筛选和排序 */
+  exportDataSourceTable(
+    tabKey: string,
+    request: TableExportRequest,
+    format: ExportFormat,
+    file: string
+  ): Promise<ExportResult>
+  /** Redis：SCAN 列出键（最多 1 万个），pattern 为空即全部 */
+  scanRedisKeys(tabKey: string, pattern: string): Promise<RedisKeyList>
+  /** Redis：一个键的类型、剩余过期时间与值 */
+  readRedisKey(tabKey: string, key: string): Promise<RedisKeyResult>
+  /** Redis：键还在不在（恢复上次的键、点最近打开时核对） */
+  hasRedisKey(tabKey: string, key: string): Promise<boolean | RedisFailure>
+  /** Redis 控制台：依次执行各行命令，遇错即停 */
+  runRedisCommands(tabKey: string, lines: string[]): Promise<RedisCommandResult[] | RedisFailure>
+  /** Redis：库的个数与各库的键数（键列表顶栏的库编号下拉） */
+  readRedisDatabases(tabKey: string): Promise<RedisDatabasesResult>
+  /** Redis 控制台补全用的命令名（服务器的命令表：COMMAND DOCS，Redis 7 以前为 COMMAND；大写、排好序） */
+  readRedisCommands(tabKey: string): Promise<string[] | RedisFailure>
+  /** 导出控制台已取回的结果到已选好的 file */
+  exportDataSourceRows(
+    kind: SqlKind,
+    result: ResultSet,
+    format: ExportFormat,
+    file: string
+  ): Promise<ExportResult>
 
   // —— 服务器（Server，ADR-0038） ——
   getServers(): Promise<ServerNode[]>
   /** `~/.ssh/config`（含 Include）里可直接连接的主机，连接信息按 `ssh -G` 解析 */
   listSshConfigHosts(): Promise<SshConfigHost[]>
-  /** 登记服务器；同一 `~/.ssh/config` 别名不重复登记，命中即返回其 id */
+  /** 登记服务器：每项都新增一台（连接目标与已登记的重复也照样登记，提交前已确认过），返回新登记的 id */
   addServers(inputs: ServerInput[]): Promise<ServerAddResult>
   updateServer(id: string, input: ServerInput): Promise<ServerNode[]>
   /** 移除服务器：关闭连到它的全部 SSH Terminal，删除记住的密码 */
   removeServer(id: string): Promise<ServerNode[]>
   /** 记录「打开」某服务器（更新 lastOpenedAt） */
   touchServer(id: string): Promise<ServerNode[]>
-  /** 「记住密码」为什么不可用（没有可用的系统钥匙串）；可用时为 null */
-  getPasswordUnavailableReason(): Promise<string | null>
   /** 选择私钥文件（默认定位到 `~/.ssh`）；取消返回 null */
   pickSshIdentityFile(): Promise<string | null>
   /** 测试连接：登录后立即退出；同一时刻只测一个，新测试会取消旧的 */
-  testServerConnection(input: ServerTestInput): Promise<ServerTestResult>
+  testServerConnection(input: ServerTestInput): Promise<ConnectionTestResult>
   /** 取消进行中的测试连接（对话框关闭时） */
   cancelServerTest(): Promise<void>
   /** 某台服务器状态连接的当前状态（Status Tab 挂载时取一次，之后靠推送） */
@@ -430,6 +705,14 @@ export interface RunAPI extends GitAPI {
   clearSessionOutput(key: string): Promise<void>
   /** 当前所有活跃/已结束但保留的会话快照 */
   getSessions(): Promise<SessionState[]>
+  /** 数据源上的配置某次运行的结果（运行会话正文挂载时取一次，之后靠推送）；还没有结果时为 null */
+  getDataSourceRunOutput(key: string): Promise<DataSourceRunOutput | null>
+  /** 数据源上的配置的运行结果变了（开始运行时清空、执行完交回完整结果） */
+  onDataSourceRunOutput(cb: (e: DataSourceRunOutputEvent) => void): () => void
+  /** 数据源上的配置上次运行时填的参数值（参数框预填用）；没填过为空对象 */
+  getDataSourceRunParams(configId: string): Promise<DataSourceRunParams>
+  /** 记下这次运行填的参数值（整份替换；配置已不在时不记） */
+  setDataSourceRunParams(configId: string, params: DataSourceRunParams): Promise<void>
 
   // —— 终端（Terminal，自由 shell） ——
   /**
@@ -456,11 +739,11 @@ export interface RunAPI extends GitAPI {
   /** 当前所有活跃 Terminal（供渲染端重建 Tab，如 dev 热重载后） */
   getTerminals(): Promise<TerminalInfo[]>
 
-  // —— 命令型配置（slice 6；本机或服务器上） ——
+  // —— 命令型配置（slice 6；本机、服务器上或数据源上） ——
   createCommandConfig(input: EditableRunConfigInput): Promise<TreeSnapshot>
   updateCommandConfig(config: EditableRunConfig): Promise<TreeSnapshot>
   deleteConfig(id: string): Promise<TreeSnapshot>
-  /** 重排某左树条目（Project / Server）下配置的顺序 */
+  /** 重排某左树条目（Project / Server / Data Source）下配置的顺序 */
   reorderConfigs(ownerKey: string, orderedIds: string[]): Promise<TreeSnapshot>
   /**
    * 为命令型配置挑选工作目录。仅放行已登记项目；

@@ -5,7 +5,6 @@ import {
   defaultWorktreeDirectory,
   imageMimeOf,
   isWorktreeNameInvalid,
-  lastPathSegment,
   listedWorktrees,
   resolveWorktreePath,
   worktreeAnchorPath,
@@ -95,7 +94,7 @@ describe('worktreeAnchorPath', () => {
   })
 })
 
-describe('worktreeNameFromBranch / isWorktreeNameInvalid / lastPathSegment', () => {
+describe('worktreeNameFromBranch / isWorktreeNameInvalid', () => {
   it('分支名斜杠换横线', () => {
     expect(worktreeNameFromBranch('feat/x')).toBe('feat-x')
     expect(worktreeNameFromBranch('a/b/c')).toBe('a-b-c')
@@ -123,11 +122,6 @@ describe('worktreeNameFromBranch / isWorktreeNameInvalid / lastPathSegment', () 
     expect(
       branchesFreeForWorktree(['main', 'feat', 'dev', 'ignored', 'remotes/origin/dev'], list)
     ).toEqual(['dev', 'ignored'])
-  })
-  it('路径末段兼容两种分隔符与末尾分隔符', () => {
-    expect(lastPathSegment('/a/b/c')).toBe('c')
-    expect(lastPathSegment('/a/b/c/')).toBe('c')
-    expect(lastPathSegment('C:\\a\\b')).toBe('b')
   })
 })
 

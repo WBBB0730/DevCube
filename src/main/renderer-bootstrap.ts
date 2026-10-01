@@ -3,6 +3,7 @@ import { IPC } from '../shared/ipc'
 import type { RendererBootstrap } from '../shared/renderer-bootstrap'
 import { getAppPrefs, getProjectSortPrefs, getWorkspaceUi } from './store'
 import { getSessions, getTerminals } from './runner'
+import { listDataSourceNodes } from './data-sources'
 import { listServerNodes } from './servers'
 import { buildTree } from './tree'
 
@@ -10,6 +11,7 @@ export function getRendererBootstrap(): RendererBootstrap {
   return {
     tree: buildTree(),
     servers: listServerNodes(),
+    dataSources: listDataSourceNodes(),
     sessions: getSessions(),
     terminals: getTerminals(),
     projectSortPrefs: getProjectSortPrefs(),

@@ -1,12 +1,14 @@
 // 绕开代理直连（ADR-0039）：连接从实体网卡出去，不进 TUN 代理的虚拟网卡；目标是域名时，向实体网卡
 // 所在网络的 DNS 查真实地址（fake-IP 模式下系统解析出的是代理内部的假地址）。只在 macOS / Windows 提供。
-// 内置连接（ADR-0041）按这里查出的路线建立 TCP 连接：绑定实体网卡的地址、连真实地址，known_hosts 仍按原主机名核对。
+// SSH 的内置连接（ADR-0041）与数据源的连接（ADR-0043）都按这里查出的路线建立 TCP 连接：绑定实体网卡的地址、
+// 连真实地址；known_hosts、TLS 的 SNI 与证书校验仍按原主机名。
 
 import { execFile } from 'node:child_process'
 import { Resolver } from 'node:dns/promises'
 import { isIP, isIPv4 } from 'node:net'
 import { networkInterfaces, type NetworkInterfaceInfo } from 'node:os'
 import { promisify } from 'node:util'
+import { supportsDirectRoute } from '../shared/connection'
 import type { SshHostConfig } from '../shared/ssh-config'
 
 const execFileAsync = promisify(execFile)
@@ -131,22 +133,25 @@ async function resolveRealAddress(host: string, network: PhysicalNetwork): Promi
   }
 }
 
-/** 直连的路线：从实体网卡的 localAddress 出去；目标是域名时 realAddress 为查到的真实地址，是 IP 时为 null。 */
+/** 直连的路线：从实体网卡的 localAddress 出去，连 host（目标是域名时为查到的真实地址，是 IP 时即原样）。 */
 export interface DirectRoute {
+  host: string
   localAddress: string
-  realAddress: string | null
 }
 
-/** 现查直连路线；找不到实体网卡、或查不到真实地址时返回原因，不退回经代理连接。 */
+/**
+ * 按直连开关现查连接 hostName 的路线；没打开直连、或平台不提供（见 supportsDirectRoute）时为 null，交给系统照常连接。
+ * 找不到实体网卡、或查不到真实地址时抛出原因，不退回经代理连接。
+ */
 export async function resolveDirectRoute(
-  hostName: string
-): Promise<DirectRoute | { failure: string }> {
+  hostName: string,
+  direct: boolean
+): Promise<DirectRoute | null> {
+  if (!direct || !supportsDirectRoute(process.platform)) return null
   const network = await physicalNetwork()
-  if (network === null) return { failure: '无法直连：未找到可用的本机网络' }
-  if (isIP(hostName) !== 0) return { localAddress: network.address, realAddress: null }
+  if (network === null) throw new Error('无法直连：未找到可用的本机网络')
+  if (isIP(hostName) !== 0) return { host: hostName, localAddress: network.address }
   const realAddress = await resolveRealAddress(hostName, network)
-  if (realAddress === null) {
-    return { failure: `无法直连：未能解析 ${hostName} 的真实地址` }
-  }
-  return { localAddress: network.address, realAddress }
+  if (realAddress === null) throw new Error(`无法直连：未能解析 ${hostName} 的真实地址`)
+  return { host: realAddress, localAddress: network.address }
 }

@@ -1,5 +1,6 @@
 import { getConfigs, getProjects } from './store'
 import { detectPackageManager, discoverScripts, readFingerprints, readScripts } from './discovery'
+import { configOwnerKey } from '../shared/tree-entry'
 import type { ProjectNode } from '../shared/types'
 
 /**
@@ -31,7 +32,7 @@ export function buildTree(): ProjectNode[] {
       readFingerprints(project.path),
       configs
     ),
-    configs: configs.filter((c) => c.kind !== 'remote' && c.projectPath === project.path),
+    configs: configs.filter((c) => configOwnerKey(c) === project.path),
     worktreeOf: worktreeOfByProject.get(project.path) ?? null
   }))
 }

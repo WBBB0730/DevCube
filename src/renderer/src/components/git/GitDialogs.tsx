@@ -32,6 +32,7 @@ import { configKey } from '@shared/runnable'
 import { useApp } from '@renderer/store'
 import { gitState, useGit } from '@renderer/git-store'
 import { cn } from '@renderer/lib/utils'
+import { AutocompleteInput } from '@renderer/components/ui/autocomplete-input'
 import { Button } from '@renderer/components/ui/button'
 import {
   DialogFooter,
@@ -43,7 +44,7 @@ import {
   InfoIcon
 } from '@renderer/components/ui/form-dialog'
 import { Input } from '@renderer/components/ui/input'
-import { Checkbox } from '@renderer/components/ui/checkbox'
+import { CHOICE_ROW, Checkbox } from '@renderer/components/ui/checkbox'
 import { RadioGroup, RadioGroupItem } from '@renderer/components/ui/radio-group'
 import {
   Select,
@@ -1972,10 +1973,7 @@ function DialogInputRow({
       control = (
         <RadioGroup value={value as string} onValueChange={(v) => setValue(input.key, v)}>
           {input.options.map((o) => (
-            <label
-              key={o.value}
-              className="flex cursor-pointer select-none items-center gap-2 text-[13px] text-foreground"
-            >
+            <label key={o.value} className={CHOICE_ROW}>
               <RadioGroupItem value={o.value} />
               {o.name}
             </label>
@@ -2000,7 +1998,6 @@ function DialogInputRow({
 
 // —— 自定义表单对话框（联动 / combobox / 行内刷新等超出声明式 spec 的表单；pull/push 用） ——
 
-/** 自定义表单的字段行：标签 + 可选 ⓘ + 控件（DialogInputRow 标签包装的可组合版）。 */
 /** 行内刷新钮（分支字段旁）：对所选 remote 静默 fetch，期间转圈禁点；观感对齐输入控件。 */
 function InlineRefreshButton({
   refreshing,
@@ -2037,69 +2034,6 @@ function RefreshErrorLine({ error }: { error: string | null }): React.JSX.Elemen
     </div>
   )
 }
-
-/**
- * 可输可选 combobox（推送对话框「目标远程分支」用）：自由文本输入 + 建议列表（子串过滤，
- * 点击回填）。Escape 在列表展开时只收起列表（stopPropagation 拦下外壳的取消监听）。
- */
-export function DialogCombobox({
-  value,
-  onValueChange,
-  suggestions,
-  placeholder
-}: {
-  value: string
-  onValueChange: (value: string) => void
-  suggestions: readonly string[]
-  placeholder?: string
-}): React.JSX.Element {
-  const [open, setOpen] = useState(false)
-  const matched = suggestions.filter((s) => s.toLowerCase().includes(value.toLowerCase()))
-  const listOpen = open && matched.length > 0
-  return (
-    <div className="relative min-w-0 flex-1">
-      <Input
-        value={value}
-        placeholder={placeholder}
-        className="font-mono"
-        onChange={(e) => {
-          onValueChange(e.target.value)
-          setOpen(true)
-        }}
-        onFocus={() => setOpen(true)}
-        onBlur={() => setOpen(false)}
-        onKeyDown={(e) => {
-          if (e.key === 'Escape' && listOpen) {
-            e.stopPropagation()
-            setOpen(false)
-          }
-        }}
-      />
-      {listOpen && (
-        <div className="absolute inset-x-0 top-full z-10 mt-1 max-h-48 overflow-auto rounded-lg border border-[color:var(--border-input)] bg-elevated p-1.5 shadow-xl">
-          {matched.map((s) => (
-            <button
-              key={s}
-              type="button"
-              className="flex w-full cursor-pointer items-center rounded px-1.5 py-1.5 text-left font-mono text-[13px] text-foreground hover:bg-[var(--bg-row-hover)]"
-              // 防止 blur 先收起列表、吞掉点击
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={() => {
-                onValueChange(s)
-                setOpen(false)
-              }}
-            >
-              {s}
-            </button>
-          ))}
-        </div>
-      )}
-    </div>
-  )
-}
-
-/** 单选 / 勾选行样式（拉取整合方式、推送模式的 radio 行及各自附属勾选行共用）。 */
-const CHOICE_ROW = 'flex cursor-pointer select-none items-center gap-2 text-[13px] text-foreground'
 
 /**
  * D10 拉取当前分支（表单式）：从远程拉取 / 远程分支 / 整合方式三字段。
@@ -2392,11 +2326,12 @@ function PushBranchDialog({
       </FieldRow>
       <FieldRow label="目标远程分支">
         <div className="flex items-center gap-1.5">
-          <DialogCombobox
+          <AutocompleteInput
             value={targetBranch}
-            onValueChange={setEditedTarget}
-            suggestions={remoteBranchesOf(env.remoteBranches, remote)}
+            onChange={setEditedTarget}
+            options={remoteBranchesOf(env.remoteBranches, remote)}
             placeholder="分支名"
+            className="min-w-0 flex-1 font-mono"
           />
           <InlineRefreshButton
             refreshing={refreshing}
@@ -2457,7 +2392,7 @@ function TagDetailsDialog({
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
   }, [onClose])
-  // 取不到详情：改用统一的错误框（Esc 仍由上面的监听关闭）
+  // 取不到详情：改用统一的错误框（Esc 由它自己收下）
   if (info !== null && info.details === null) {
     return (
       <ErrorDialog

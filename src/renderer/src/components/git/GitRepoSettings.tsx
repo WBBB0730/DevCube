@@ -14,6 +14,7 @@ import { gitState, useGit } from '@renderer/git-store'
 import { SettingsModal } from '@renderer/components/SettingsModal'
 import { Button } from '@renderer/components/ui/button'
 import { Input } from '@renderer/components/ui/input'
+import { TOOLBAR_BTN } from '@renderer/components/ui/toolbar'
 import { Checkbox } from '@renderer/components/ui/checkbox'
 import { RadioGroup, RadioGroupItem } from '@renderer/components/ui/radio-group'
 
@@ -35,9 +36,6 @@ interface ConfirmRequest {
   run: () => void
 }
 
-// 行内图标钮（编辑 / 清理 / 删除），观感对齐工具栏图标钮
-const ICON_BTN =
-  'flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
 const HINT = 'text-[12px] text-muted-foreground'
 
 /** 顺序执行一串动作（出错即停，进行中 / 错误呈现由 GitDialogs 统一负责），全部成功后重拉 config。 */
@@ -540,13 +538,18 @@ function RemotesSection({
                 </div>
               )}
             </div>
-            <button type="button" title="编辑远程" className={ICON_BTN} onClick={() => openEdit(r)}>
+            <button
+              type="button"
+              title="编辑远程"
+              className={TOOLBAR_BTN}
+              onClick={() => openEdit(r)}
+            >
               <Pencil className="size-3.5" />
             </button>
             <button
               type="button"
               title="清理此远程已不存在的远程跟踪引用"
-              className={ICON_BTN}
+              className={TOOLBAR_BTN}
               onClick={() => prune(r.name)}
             >
               <Eraser className="size-3.5" />
@@ -554,7 +557,7 @@ function RemotesSection({
             <button
               type="button"
               title="删除远程"
-              className={ICON_BTN}
+              className={TOOLBAR_BTN}
               onClick={() => remove(r.name)}
             >
               <Trash2 className="size-3.5" />

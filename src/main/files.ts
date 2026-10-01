@@ -88,6 +88,11 @@ function within(projectPath: string, candidate: string): string {
   return resolved
 }
 
+/** 授权根下某个文件的系统路径（越界或根未授权即抛错）。 */
+export function filesSysPath(projectPath: string, filePath: string): string {
+  return toSys(within(projectPath, filePath))
+}
+
 export async function listDir(projectPath: string, dirPath: string): Promise<FilesDirEntry[]> {
   const logical = within(projectPath, dirPath || '.')
   const sys = toSys(logical)
@@ -194,6 +199,8 @@ export async function readFileEntry(
     }
   }
 
+  if (kind === 'sqlite') return { kind: 'sqlite', path: logical }
+
   if (kind === 'pdf') {
     return {
       kind: 'pdf',
@@ -255,7 +262,7 @@ export function imagePreviewEntry(
   projectPath: string,
   filePath: string
 ): Promise<FilesImagePreview> {
-  return ensureImagePreview(toSys(within(projectPath, filePath)))
+  return ensureImagePreview(filesSysPath(projectPath, filePath))
 }
 
 /** 超大位图瓦片金字塔（路径限定在项目根内；缓存命中即返）。 */
@@ -263,7 +270,7 @@ export function imagePyramidEntry(
   projectPath: string,
   filePath: string
 ): Promise<FilesImagePyramid> {
-  return ensureImagePyramid(toSys(within(projectPath, filePath)))
+  return ensureImagePyramid(filesSysPath(projectPath, filePath))
 }
 
 /**

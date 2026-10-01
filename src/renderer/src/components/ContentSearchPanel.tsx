@@ -25,6 +25,7 @@ import {
   type ContentSearchOptions
 } from '@shared/content-search'
 import { DialogMask, DialogPanel } from '@renderer/components/ui/form-dialog'
+import { TOOLBAR_BTN_SM } from '@renderer/components/ui/toolbar'
 import {
   filesEditorTheme,
   filesHighlighting,
@@ -450,12 +451,7 @@ export function ContentSearchPanel({
             title="按 glob 收窄文件（如 *.ts；逗号分隔多个）"
             className="h-6 w-28 shrink-0 rounded bg-transparent px-1 text-[12px] text-foreground outline-none transition-colors placeholder:text-[color:var(--fg-disabled)] focus:bg-[var(--bg-row-hover)]"
           />
-          <button
-            type="button"
-            title="关闭 (Esc)"
-            onClick={close}
-            className="flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]"
-          >
+          <button type="button" title="关闭 (Esc)" onClick={close} className={TOOLBAR_BTN_SM}>
             <X className="size-4" />
           </button>
         </div>

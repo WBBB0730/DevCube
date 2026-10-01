@@ -10,10 +10,9 @@
 import { Fragment, useMemo } from 'react'
 import { Check } from 'lucide-react'
 import {
-  ContextMenu,
-  ContextMenuContent,
   ContextMenuItem,
-  ContextMenuSeparator
+  ContextMenuSeparator,
+  PointContextMenu
 } from '@renderer/components/ui/context-menu'
 import {
   GIT_DEFAULTS,
@@ -727,7 +726,7 @@ export function groupMenuItems(items: (GitMenuItem | 'divider')[]): GitMenuItem[
 
 // —— 组件层 ——
 
-/** 右键菜单：读 store 的 contextMenu；多入口共用故用受控 ContextMenu + 虚拟 anchor（非行级 Trigger）。 */
+/** 右键菜单：读 store 的 contextMenu；多入口共用故在鼠标点弹出（PointContextMenu，menus-dialogs §6；非行级 Trigger）。 */
 export function GitContextMenu({ projectPath }: { projectPath: string }): React.JSX.Element | null {
   const menu = useGit((s) => gitState(s, projectPath).contextMenu)
   const commits = useGit((s) => gitState(s, projectPath).commits)
@@ -773,16 +772,7 @@ export function GitContextMenu({ projectPath }: { projectPath: string }): React.
     [projectPath]
   )
 
-  // 虚拟 anchor：鼠标点的 0×0 矩形（menus-dialogs §6），Base UI 负责翻转/贴边
-  const anchor = useMemo(
-    () =>
-      menu === null
-        ? undefined
-        : { getBoundingClientRect: (): DOMRect => new DOMRect(menu.x, menu.y, 0, 0) },
-    [menu]
-  )
-
-  if (menu === null || !anchor) return null
+  if (menu === null) return null
   const groups = groupMenuItems(
     buildMenuItems(menu.target, {
       projectPath,
@@ -803,40 +793,25 @@ export function GitContextMenu({ projectPath }: { projectPath: string }): React.
   const checkedMode = menu.target.kind === 'header'
 
   return (
-    <ContextMenu
-      open
-      onOpenChange={(open) => {
-        if (!open) useGit.getState().closeContextMenu(projectPath)
-      }}
-    >
-      <ContextMenuContent
-        anchor={anchor}
-        side="bottom"
-        align="start"
-        sideOffset={2}
-        collisionPadding={2}
-      >
-        {groups.map((group, gi) => (
-          <Fragment key={gi}>
-            {gi > 0 && <ContextMenuSeparator />}
-            {group.map((item, ii) => (
-              <ContextMenuItem
-                key={ii}
-                disabled={item.disabled === true}
-                title={item.disabled === true ? item.disabledReason : undefined}
-                onClick={item.onClick}
-              >
-                {checkedMode && (
-                  <Check
-                    className={cn('size-3.5 shrink-0', item.checked !== true && 'invisible')}
-                  />
-                )}
-                <span className="whitespace-nowrap">{item.title}</span>
-              </ContextMenuItem>
-            ))}
-          </Fragment>
-        ))}
-      </ContextMenuContent>
-    </ContextMenu>
+    <PointContextMenu at={menu} onClose={() => useGit.getState().closeContextMenu(projectPath)}>
+      {groups.map((group, gi) => (
+        <Fragment key={gi}>
+          {gi > 0 && <ContextMenuSeparator />}
+          {group.map((item, ii) => (
+            <ContextMenuItem
+              key={ii}
+              disabled={item.disabled === true}
+              title={item.disabled === true ? item.disabledReason : undefined}
+              onClick={item.onClick}
+            >
+              {checkedMode && (
+                <Check className={cn('size-3.5 shrink-0', item.checked !== true && 'invisible')} />
+              )}
+              <span className="whitespace-nowrap">{item.title}</span>
+            </ContextMenuItem>
+          ))}
+        </Fragment>
+      ))}
+    </PointContextMenu>
   )
 }

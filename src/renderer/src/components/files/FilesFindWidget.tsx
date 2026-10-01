@@ -1,6 +1,6 @@
-// Files 编辑器查找栏（Cmd+F）：外壳为 FindBar（与 PDF 预览共用）；引擎为 @codemirror/search 的
-// SearchQuery，高亮 / 计数 / 导航经 cm6-find 的积木；命中色走既有 .cm-searchMatch 主题
-//（WebStorm TEXT_SEARCH_RESULT）。
+// 编辑器查找栏（Cmd+F，Files 编辑器与数据源的代码编辑器共用，开关见 lib/use-editor-find）：外壳为
+// FindBar（与 PDF 预览共用）；引擎为 @codemirror/search 的 SearchQuery，高亮 / 计数 / 导航经 cm6-find
+// 的积木；命中色走既有 .cm-searchMatch 主题（WebStorm TEXT_SEARCH_RESULT）。
 import { useEffect, useMemo, useState } from 'react'
 import { SearchQuery } from '@codemirror/search'
 import type { EditorView } from '@codemirror/view'
@@ -49,7 +49,7 @@ export function FilesFindWidget({
     setCurrent(currentFindIndex(view.state, next))
   }, [searchQuery, query, content, viewRef])
 
-  // 关闭 / 卸载时的高亮清理由父级（FilesTextEditor 的 findOpen effect）统一负责
+  // 关闭 / 卸载时的高亮清理由父级的 useEditorFind 统一负责
 
   const navigate = (dir: 1 | -1): void => {
     const view = viewRef.current

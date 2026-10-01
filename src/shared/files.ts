@@ -33,6 +33,8 @@ export type FilesReadResult =
   | { kind: 'pptx'; path: string; mediaUrl: string }
   /** `size` 供渲染层判断是否超过预览上限（表格在页面线程解析，太大会卡住界面） */
   | { kind: 'xlsx'; path: string; mediaUrl: string; size: number }
+  /** SQLite 数据库文件：正文区嵌入 Data Source Tab 的视图（本机的 Files 面板才有） */
+  | { kind: 'sqlite'; path: string }
   | { kind: 'other'; path: string; size: number }
 
 /** Files Tab 媒体预览自定义协议（主进程 stream，渲染层 `<img>` / `<audio>` / `<video>` / 瓦片 / PDF / PPT / Excel）。 */

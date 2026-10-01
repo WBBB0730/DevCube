@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import { ContextMenu as BaseContextMenu } from '@base-ui-components/react/context-menu'
 import { cn } from '@renderer/lib/utils'
 
@@ -62,6 +63,50 @@ function ContextMenuContent({
   )
 }
 
+/**
+ * 在鼠标点弹出的受控右键菜单（Files 树与正文、Git、数据源的树共用；不挂行级 Trigger）：锚在鼠标点的 0×0 矩形上，
+ * 从它的右下方弹出，Base UI 负责翻转 / 贴边。调用方有菜单目标时才渲染它，只写菜单项。
+ */
+function PointContextMenu({
+  at,
+  onClose,
+  finalFocus,
+  children
+}: {
+  /** 鼠标点（视口坐标，即右键事件的 clientX / clientY） */
+  at: { x: number; y: number }
+  /** 菜单关掉（选了菜单项、Esc、点外面等），reason 为关闭原因 */
+  onClose: (reason: BaseContextMenu.Root.ChangeEventReason) => void
+  /** 同 ContextMenuContent */
+  finalFocus?: BaseContextMenu.Popup.Props['finalFocus']
+  children: React.ReactNode
+}): React.JSX.Element {
+  const { x, y } = at
+  const anchor = useMemo(
+    () => ({ getBoundingClientRect: (): DOMRect => new DOMRect(x, y, 0, 0) }),
+    [x, y]
+  )
+  return (
+    <ContextMenu
+      open
+      onOpenChange={(open, details) => {
+        if (!open) onClose(details.reason)
+      }}
+    >
+      <ContextMenuContent
+        anchor={anchor}
+        side="bottom"
+        align="start"
+        sideOffset={2}
+        collisionPadding={2}
+        finalFocus={finalFocus}
+      >
+        {children}
+      </ContextMenuContent>
+    </ContextMenu>
+  )
+}
+
 function ContextMenuItem({
   className,
   children,
@@ -95,6 +140,7 @@ export {
   ContextMenu,
   ContextMenuTrigger,
   ContextMenuContent,
+  PointContextMenu,
   ContextMenuItem,
   ContextMenuSeparator
 }

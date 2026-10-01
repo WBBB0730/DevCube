@@ -1,6 +1,7 @@
 // 服务器（Server）与 SSH 终端（SSH Terminal）的域模型与纯函数；术语见 CONTEXT.md，
 // 连接方式见 ADR-0041（配置由系统 OpenSSH 解析，连接由内置的 ssh2 完成）。
 
+import { portError, type PasswordChange } from './connection'
 import type { RemoteRunConfig } from './types'
 
 /** 连接目标：引用 `~/.ssh/config` 的一个主机别名，或手填的地址 / 用户 / 端口 / 私钥。 */
@@ -27,7 +28,7 @@ export interface Server {
   /** 最近打开时间（epoch ms）；登记时写入，之后每次选中刷新 */
   lastOpenedAt: number | null
   pinned: boolean
-  /** 左树自定义序（与 Project 共用一条序列，小的在前） */
+  /** 左树自定义序（与 Project、Data Source 共用一条序列，小的在前） */
   order: number
   /** 绕开代理直连（ADR-0039）：连接时从实体网卡出去，不经 TUN 代理；只在 macOS / Windows 生效 */
   direct: boolean
@@ -40,12 +41,6 @@ export interface ServerNode {
   /** 在这台服务器上执行的命令型配置（按用户排的顺序） */
   configs: RemoteRunConfig[]
 }
-
-/**
- * 表单对记住的密码的处理（保存与测试连接共用同一种写法）：
- * undefined = 不动，沿用记住的；null = 不要记住的密码（清除）；字符串 = 换成这个。
- */
-export type PasswordChange = string | null | undefined
 
 /** 添加 / 编辑服务器的提交内容。 */
 export interface ServerInput {
@@ -73,9 +68,6 @@ export interface ServerTestInput {
   direct: boolean
 }
 
-export type ServerTestResult =
-  { status: 'ok' } | { status: 'failed'; message: string } | { status: 'canceled' }
-
 export const DEFAULT_SSH_PORT = 22
 
 /** 连接目标的一行说明：别名原样；手填为 `用户@地址` 或 `地址`，非默认端口追加 `:端口`。 */
@@ -83,11 +75,6 @@ export function serverTargetLabel(target: ServerTarget): string {
   if (target.kind === 'config') return target.alias
   const base = target.user === '' ? target.host : `${target.user}@${target.host}`
   return target.port === DEFAULT_SSH_PORT ? base : `${base}:${target.port}`
-}
-
-/** 绕开代理直连只在 macOS / Windows 提供：Linux 按目标地址选路，普通进程绕不开 TUN（ADR-0039）。 */
-export function supportsSshDirect(platform: string): boolean {
-  return platform === 'darwin' || platform === 'win32'
 }
 
 /**
@@ -115,16 +102,27 @@ export function sshFailureMessage(stderr: string, exitCode: number | null): stri
   return exitCode === null ? '连接失败' : `连接失败（退出代码 ${exitCode}）`
 }
 
-/** 两个连接目标是否相同（同一连接目标不重复登记）。 */
+/** 两个连接目标是否相同（允许重复登记，提交前据此二次确认）。 */
 export function sameServerTarget(a: ServerTarget, b: ServerTarget): boolean {
   if (a.kind === 'config') return b.kind === 'config' && a.alias === b.alias
   if (b.kind === 'config') return false
   return (
-    a.host === b.host &&
+    a.host.toLowerCase() === b.host.toLowerCase() &&
     a.user === b.user &&
     a.port === b.port &&
     (a.identityFile ?? '') === (b.identityFile ?? '')
   )
+}
+
+/**
+ * 编辑前后连接信息是否变了（变了才断开已建立的连接）：连接目标与直连开关；只改名、只改记住的密码不算
+ * （已建立的连接不受密码变更影响）。
+ */
+export function serverConnectionChanged(
+  before: Pick<Server, 'target' | 'direct'>,
+  after: Pick<ServerInput, 'target' | 'direct'>
+): boolean {
+  return !sameServerTarget(before.target, after.target) || before.direct !== after.direct
 }
 
 /** 手填目标校验：地址必填且不以 `-` 开头、不含空白与 `@`；用户不含空白与 `@`；端口 1–65535。 */
@@ -134,10 +132,7 @@ export function manualTargetError(
   if (target.host === '') return '请填写地址'
   if (/[\s@]/.test(target.host) || target.host.startsWith('-')) return '地址格式不正确'
   if (/[\s@]/.test(target.user) || target.user.startsWith('-')) return '用户名格式不正确'
-  if (!Number.isInteger(target.port) || target.port < 1 || target.port > 65535) {
-    return '端口应为 1–65535 的整数'
-  }
-  return null
+  return portError(target.port)
 }
 
 /** 从 `~/.ssh/config` 的 Host 模式里挑出可直接连接的别名：跳过含通配符与取反的模式。 */

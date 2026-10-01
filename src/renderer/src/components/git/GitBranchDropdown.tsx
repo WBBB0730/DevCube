@@ -8,6 +8,7 @@ import { Check, ChevronDown } from 'lucide-react'
 import { gitState, useGit } from '@renderer/git-store'
 import { cn } from '@renderer/lib/utils'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
+import { TOOLBAR_SELECT } from '@renderer/components/ui/toolbar'
 
 // —— 纯逻辑（选中语义 §2.5，导出供测试） ——
 
@@ -53,9 +54,8 @@ export function branchFilterLabel(filter: string[] | null): string {
   return `${names.slice(0, -1).join('、')} 和 ${names[names.length - 1]}`
 }
 
-// 触发行：观感对齐 Input（h-7 紧凑高度），宽度随内容、min 138px / max 30vw（§2.3）
-const TRIGGER =
-  'flex h-7 min-w-[138px] max-w-[30vw] items-center gap-1 rounded border border-[color:var(--border-input)] bg-[var(--bg-elevated)] px-2 text-[13px] text-foreground outline-none transition hover:bg-[var(--bg-row-hover)] focus-visible:ring-2 focus-visible:ring-ring'
+// 触发行：共用的显示当前值的下拉钮（TOOLBAR_SELECT），宽度随内容、min 138px / max 30vw（§2.3）
+const TRIGGER = cn(TOOLBAR_SELECT, 'min-w-[138px] max-w-[30vw]')
 const ROW =
   'flex h-7 cursor-pointer select-none items-center gap-1.5 rounded px-1.5 text-[13px] transition-colors hover:bg-[var(--bg-row-hover)]'
 

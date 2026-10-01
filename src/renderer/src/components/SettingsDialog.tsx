@@ -157,17 +157,16 @@ export function SettingsDialog({
   // 偏好全平台可见（主题）；其中「默认终端」仅 Windows。系统集成全平台可见（Linux 只有「文件打开方式」）。
   const sections = SECTIONS
 
-  // Esc 分层关闭：先收更新弹窗 / 错误框，再关设置。
+  // Esc 分层关闭：先收更新弹窗，再关设置（错误框开着时 Esc 由它自己收下，见 ErrorDialog）。
   useEffect(() => {
     const onKey = (e: KeyboardEvent): void => {
       if (e.key !== 'Escape') return
       if (updateDialogOpen) setUpdateDialogOpen(false)
-      else if (integrationError !== null) setIntegrationError(null)
       else onClose()
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [onClose, integrationError, updateDialogOpen])
+  }, [onClose, updateDialogOpen])
 
   // 进入关于自动检查（受主进程 5 分钟冷却；后台 jitter / 周期仍独立）。
   useEffect(() => {

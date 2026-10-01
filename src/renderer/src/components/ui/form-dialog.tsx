@@ -2,9 +2,11 @@
 // Mask 遮罩 + 440px 面板 +「提示语 + 内容 + 底部按钮条（右对齐）」。弹窗内不画分割线，靠留白分区。
 // 无标题栏——13px 提示语即说明；Enter = 主按钮（防输入法合成回车）、Esc = 取消。
 // GitDialogs 与 Files 的弹窗（新建 / 重命名 / 删除 / 磁盘冲突）共用。
-import { useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { CircleAlert, Info } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
+import { useRestoreFocus } from '@renderer/lib/use-restore-focus'
+import { useStackedEscape } from '@renderer/lib/use-stacked-escape'
 import { cn } from '@renderer/lib/utils'
 
 export function DialogMask({
@@ -56,7 +58,8 @@ export function DialogFooter({ children }: { children: React.ReactNode }): React
 /**
  * 错误框（仿 WebStorm 的错误提示）：左侧 32px 红色错误图标；右侧加粗标题（默认「操作失败」）+
  * 普通字体正文（可选中、保留换行、限高滚动）；右下只有「确定」，点遮罩同「确定」。
- * Esc 由调用方按自己的弹层层级处理。
+ * 打开即聚焦「确定」，回车即关闭；Esc 同「确定」，只关它自己（叠在别的对话框上也不连带关掉下层，见 useStackedEscape）。
+ * 关掉后焦点还给打开前的元素（useRestoreFocus）。
  */
 export function ErrorDialog({
   title = '操作失败',
@@ -67,10 +70,20 @@ export function ErrorDialog({
   message: string
   onClose: () => void
 }): React.JSX.Element {
+  useRestoreFocus()
+  // 所在面板可能被隐藏（如切走的 Tab 里的错误框）：看不见时不收 Esc
+  const bodyRef = useRef<HTMLDivElement>(null)
+  useStackedEscape(onClose, bodyRef)
+
+  // 按住不放的连续回车不算（同 FormDialogShell）：免得弹出前按下的一次长按落到刚聚焦的「确定」上，一闪就关
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (e.key === 'Enter' && e.repeat) e.preventDefault()
+  }
+
   return (
     <DialogMask onClick={onClose}>
-      <DialogPanel>
-        <div className="flex items-start gap-3 px-4 py-4">
+      <DialogPanel onKeyDown={onKeyDown}>
+        <div ref={bodyRef} className="flex items-start gap-3 px-4 py-4">
           <CircleAlert className="size-8 shrink-0 text-[color:var(--status-failed)]" />
           <div className="min-w-0 flex-1 space-y-1.5">
             <div className="text-[13px] font-semibold text-foreground">{title}</div>
@@ -80,7 +93,9 @@ export function ErrorDialog({
           </div>
         </div>
         <DialogFooter>
-          <Button onClick={onClose}>确定</Button>
+          <Button autoFocus onClick={onClose}>
+            确定
+          </Button>
         </DialogFooter>
       </DialogPanel>
     </DialogMask>
@@ -125,6 +140,8 @@ export interface FormDialogButton {
   title?: string
   /** 危险操作（删除等不可逆动作）：主按钮用 destructive 变体 */
   destructive?: boolean
+  /** 打开即聚焦（叠在别的对话框上的确认框：焦点移进来，回车才落到它的主按钮上） */
+  autoFocus?: boolean
 }
 
 /**
@@ -170,6 +187,13 @@ export function FormDialogShell({
     // Enter = 主按钮；必须排除输入法合成中的回车（isComposing / keyCode 229）
     if (e.key !== 'Enter') return
     if (e.nativeEvent.isComposing || e.keyCode === 229) return
+    // 按住不放的连续回车不算：免得一次长按在提交之后又落到随即弹出的确认框上
+    if (e.repeat) {
+      e.preventDefault()
+      return
+    }
+    // 焦点在按钮上时回车交给按钮自己：「取消」就是取消、「测试连接」就是测试，不都变成主按钮
+    if (e.target instanceof HTMLButtonElement) return
     const primary = buttons[0]
     if (primary === undefined || primary.disabled === true) return
     e.preventDefault()
@@ -196,6 +220,7 @@ export function FormDialogShell({
               variant={btn.destructive === true ? 'destructive' : 'default'}
               disabled={btn.disabled === true}
               title={btn.title}
+              autoFocus={btn.autoFocus}
               onClick={btn.onClick}
             >
               {btn.label}

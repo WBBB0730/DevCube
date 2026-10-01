@@ -16,15 +16,15 @@ export function formatSelectTabRangeShortcut(platform: string): string {
 }
 
 export const APP_SHORTCUT_LIST: AppShortcutListRow[] = [
-  { label: '聚焦项目和服务器筛选', chord: SHORTCUT.projectFilter },
+  { label: '聚焦项目、服务器和数据源筛选', chord: SHORTCUT.projectFilter },
   { label: '聚焦文件筛选', chord: SHORTCUT.filesFilter },
   { label: '搜索文件内容', chord: SHORTCUT.contentSearch },
-  { label: '最近打开文件', chord: SHORTCUT.recentFiles },
-  { label: '上一个项目或服务器', chord: SHORTCUT.prevProject },
-  { label: '下一个项目或服务器', chord: SHORTCUT.nextProject },
+  { label: '最近打开的文件或数据源对象', chord: SHORTCUT.recentFiles },
+  { label: '上一个项目、服务器或数据源', chord: SHORTCUT.prevProject },
+  { label: '下一个项目、服务器或数据源', chord: SHORTCUT.nextProject },
   { label: '上一个 Tab', chord: SHORTCUT.prevTab },
   { label: '下一个 Tab', chord: SHORTCUT.nextTab },
-  { label: '新建终端', chord: SHORTCUT.newTerminal },
+  { label: '新建终端或数据源标签页', chord: SHORTCUT.newTerminal },
   { label: '关闭 Tab', chord: SHORTCUT.closeTab },
   { label: '循环下一个 Tab', chord: SHORTCUT.cycleTabNext },
   { label: '循环上一个 Tab', chord: SHORTCUT.cycleTabPrev },

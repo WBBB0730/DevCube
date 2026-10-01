@@ -44,7 +44,7 @@
 ## Implementation Decisions
 
 - **数据模型**：`Project` 增加持久布尔字段 `pinned`（域名 **Pin**）。老档案缺省视为 `false`；读取层与既有 `addedAt` / `lastOpenedAt` 补齐同一路径，脏则回写。不另建置顶路径表。
-- **排序**：共享纯函数（现有项目排序模块）先按 `pinned` 分成两区（置顶在前），再在各区内套用当前 `ProjectSortPrefs`（自定义 = 该区内落盘相对序；名称 / 添加时间 / 打开时间 = 既有比较规则）。筛选仍先排后滤，或等价地在过滤结果上保持同分区规则。全局 Alt+CmdOrCtrl+P 聚焦左树项目筛选框并选中已有查询（与 Files Alt+CmdOrCtrl+F 对称；不占用 CmdOrCtrl+F）；title / placeholder 文案走共享 `formatShortcutLabel`（对齐 VS Code UILabel）。全局 Alt+CmdOrCtrl+↑ / ↓：按与左树相同的「先排后滤」可见序循环切换项目并 `scrollToProjectPath`；列表不足两项且已是当前项时 no-op。
+- **排序**：共享纯函数（现有项目排序模块）先按 `pinned` 分成两区（置顶在前），再在各区内套用当前 `ProjectSortPrefs`（自定义 = 该区内落盘相对序；名称 / 添加时间 / 打开时间 = 既有比较规则）。筛选仍先排后滤，或等价地在过滤结果上保持同分区规则。全局 Alt+CmdOrCtrl+P 聚焦左树项目筛选框并选中已有查询（与 Files Alt+CmdOrCtrl+F 对称；不占用 CmdOrCtrl+F）；title / placeholder 文案走共享 `formatShortcutLabel`（对齐 VS Code UILabel）。全局 Alt+CmdOrCtrl+↑ / ↓：按与左树相同的「先排后滤」可见序循环切换项目并滚到它（`scrollToEntryKey`）；列表不足两项且已是当前项时 no-op。
 - **Pin / 取消 Pin 与落盘序**：任意当前排序模式下，开关 Pin 都写 `pinned`，并改写落盘 `projects[]`——置顶则移到「当前所有已置顶」之前（置顶区开头），取消则移到「当前所有未置顶」之前（未置顶区开头）。不因此自动切换排序 mode。
 - **新项目登记**：继续默认不 Pin；插入策略与「未置顶区开头」一致（与现有插到数组头 + 分区排序相容）。
 - **IPC**：渲染↔主增加置顶/取消置顶（或统一 `setProjectPinned(path, pinned)`）；返回更新后的项目树。持久化走既有集中配置存储。

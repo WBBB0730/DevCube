@@ -1,6 +1,7 @@
 // 内置 SSH 连接的决策与提问（docs/prd/ssh-connection.md、ADR-0041）：主机密钥核对结果怎么处理、
 // 交互式认证的提问是不是在问密码、连接失败的中文原因，以及主进程交给用户回答的提问。
 
+import { networkErrorReason } from './connection'
 import type { StrictHostKeyChecking } from './ssh-config'
 
 /** 主机密钥与 known_hosts 核对的结果。 */
@@ -110,18 +111,6 @@ export interface SshFailure {
   message: string
 }
 
-const NETWORK_REASONS: Record<string, string> = {
-  ECONNREFUSED: '连接被拒绝',
-  ETIMEDOUT: '连接超时',
-  ENOTFOUND: '找不到主机',
-  EAI_AGAIN: '找不到主机',
-  EAI_NONAME: '找不到主机',
-  ENETUNREACH: '网络不可达',
-  EHOSTUNREACH: '网络不可达',
-  ECONNRESET: '连接被服务器重置',
-  EPIPE: '连接被服务器重置'
-}
-
 const ALGORITHM_KINDS: [RegExp, string][] = [
   [/key exchange/, '密钥交换'],
   [/host key/, '主机密钥'],
@@ -132,7 +121,7 @@ const ALGORITHM_KINDS: [RegExp, string][] = [
 
 /** 连接失败的原因（中文）；认不出的给原文。 */
 export function sshFailureReason(failure: SshFailure): string {
-  const network = failure.code === undefined ? undefined : NETWORK_REASONS[failure.code]
+  const network = networkErrorReason(failure.code)
   if (network !== undefined) return network
   const { message } = failure
   if (message === 'Keepalive timeout') return '服务器无响应'

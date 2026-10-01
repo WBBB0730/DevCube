@@ -1,11 +1,10 @@
 // Files Tab 工具栏：相对路径可点面包屑 + 右侧钮组（预览切换 / 最近打开 / 在文件树中显示 /
 // 在文件夹中显示 / 在其他应用中打开（仅本机文件）/ 显示文件树）。视觉见 DESIGN.md「Files Tab」。
 // `extra` 给特定正文（如 PDF 的页码与缩放）在钮组最左再加一组；`pathExtra` 给特定正文在面包屑之前领头加钮（如 PDF 缩略图开关）。
-import { useContext, useLayoutEffect, useRef } from 'react'
+import { useContext } from 'react'
 import {
   ChevronRight,
   Eye,
-  FileClock,
   FolderOpen,
   ListTree,
   PanelRight,
@@ -19,21 +18,10 @@ import { useDoubleClick } from '@renderer/lib/double-click'
 import { relPathUnderRoot, toSysPath } from '@renderer/lib/files-paths'
 import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuItem,
-  DropdownMenuTrigger
-} from '@renderer/components/ui/dropdown-menu'
+import { RecentMenu, type RecentMenuItem } from '@renderer/components/ui/recent-menu'
+import { TOOLBAR_BTN, TOOLBAR_SEPARATOR } from '@renderer/components/ui/toolbar'
 import { FILE_STATUS_COLOR } from '@renderer/components/git/git-details'
 import { FilesLocalContext } from './files-local-context'
-
-/** 对齐 GitToolbar ICON_BTN：transition-colors + 钮组 gap-0.5 */
-export const TOOLBAR_BTN =
-  'flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
-
-/** 钮组内分隔：1×12px `--border-input` 竖线 */
-export const TOOLBAR_SEPARATOR = 'mx-0.5 h-3 w-px shrink-0 bg-[var(--border-input)]'
 
 export type FilesToolbarProps = {
   path: string | null
@@ -60,13 +48,7 @@ export type FilesToolbarProps = {
   onFocusContent?: () => void
 }
 
-/**
- * 「最近打开文件」下拉。⌘E 由 FilesPane 受控打开（不经 onOpenChange）时预选第一个不是当前文件的条目，
- * 回车即回到上一个文件；点按钮打开的高亮仍由 Base UI 自管。
- * 关闭后焦点：选中条目、或 ⌘E 打开的菜单被关掉时不回按钮，交给正文——选中由 FilesPane 打开后聚焦编辑器，
- * Esc 由 `onFocusContent` 回到编辑器（预览类正文不提供，焦点落 body，其键盘本就是全局监听）；
- * 点按钮打开后 Esc 仍按常规还给按钮。
- */
+/** 「最近打开文件」下拉（见 ui/recent-menu）：每项为文件名加它在项目里的目录。 */
 function RecentFilesMenu({
   path,
   projectRoot,
@@ -84,81 +66,27 @@ function RecentFilesMenu({
   onOpenRecent: (logical: string) => void | Promise<void>
   onFocusContent?: () => void
 }): React.JSX.Element {
-  // 点按钮打开时 Base UI 先回调 onOpenChange(true)；⌘E 受控打开不经回调
-  const triggerOpening = useRef(false)
-  // 本次打开的来源与关闭原因，供预选与关闭后焦点去向判断
-  const openedBy = useRef<'trigger' | 'shortcut'>('trigger')
-  const closeReason = useRef<string | null>(null)
-  const itemRefs = useRef<(HTMLDivElement | null)[]>([])
-
-  useLayoutEffect(() => {
-    if (!open) return
-    openedBy.current = triggerOpening.current ? 'trigger' : 'shortcut'
-    triggerOpening.current = false
-    closeReason.current = null
-  }, [open])
-
+  const items = recentPaths.map((p): RecentMenuItem => {
+    const rel = relPathUnderRoot(projectRoot, p) || p
+    const slash = rel.lastIndexOf('/')
+    return {
+      key: p,
+      name: slash >= 0 ? rel.slice(slash + 1) : rel,
+      location: slash >= 0 ? rel.slice(0, slash) : '',
+      title: p
+    }
+  })
   return (
-    <DropdownMenu
+    <RecentMenu
+      title={shortcutTitle('最近打开文件', SHORTCUT.recentFiles)}
+      emptyText="暂无最近打开文件"
+      items={items}
+      currentKey={path}
       open={open}
-      onOpenChange={(next, details) => {
-        if (next) {
-          triggerOpening.current = true
-        } else {
-          closeReason.current = details.reason
-          if (details.reason === 'escape-key' && openedBy.current === 'shortcut') onFocusContent?.()
-        }
-        onOpenChange(next)
-      }}
-      onOpenChangeComplete={(next) => {
-        if (!next || openedBy.current !== 'shortcut') return
-        // 焦点落到条目即高亮（菜单的 roving focus）；第一项通常就是当前文件
-        const i = recentPaths.findIndex((p) => p !== path)
-        itemRefs.current[i === -1 ? 0 : i]?.focus()
-      }}
-    >
-      <DropdownMenuTrigger
-        title={shortcutTitle('最近打开文件', SHORTCUT.recentFiles)}
-        className={TOOLBAR_BTN}
-      >
-        <FileClock className="size-4" />
-      </DropdownMenuTrigger>
-      <DropdownMenuContent
-        align="end"
-        className="max-w-2xl"
-        finalFocus={() => openedBy.current !== 'shortcut' && closeReason.current !== 'item-press'}
-      >
-        {recentPaths.length === 0 ? (
-          <div className="px-2 py-1.5 text-[13px] text-muted-foreground">暂无最近打开文件</div>
-        ) : (
-          recentPaths.map((p, i) => {
-            const rel = relPathUnderRoot(projectRoot, p) || p
-            const slash = rel.lastIndexOf('/')
-            const name = slash >= 0 ? rel.slice(slash + 1) : rel
-            const dir = slash >= 0 ? rel.slice(0, slash) : ''
-            return (
-              <DropdownMenuItem
-                key={p}
-                ref={(el) => {
-                  itemRefs.current[i] = el
-                }}
-                className="min-w-0 gap-1.5"
-                onClick={() => void onOpenRecent(p)}
-              >
-                <span className="shrink-0" title={p}>
-                  {name}
-                </span>
-                {dir && (
-                  <span className="min-w-0 truncate text-muted-foreground" title={p}>
-                    {dir}
-                  </span>
-                )}
-              </DropdownMenuItem>
-            )
-          })
-        )}
-      </DropdownMenuContent>
-    </DropdownMenu>
+      onOpenChange={onOpenChange}
+      onPick={(p) => void onOpenRecent(p)}
+      onFocusContent={onFocusContent}
+    />
   )
 }
 

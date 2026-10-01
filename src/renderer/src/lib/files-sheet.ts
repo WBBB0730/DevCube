@@ -1,6 +1,6 @@
 /**
  * Files Tab 表格预览（Excel / CSV）的纯逻辑（docs/prd/files-xlsx-preview.md、ADR-0034）：
- * CSV 转工作簿、查找命中、缩放倍率。倍率是库的整数百分比（100 = 原大），库里每个尺寸都乘同一个倍率。
+ * CSV 转工作簿、查找命中与命中底色（数据源的表格也用）、缩放倍率。倍率是库的整数百分比（100 = 原大），库里每个尺寸都乘同一个倍率。
  */
 import Papa from 'papaparse'
 import { Workbook } from '@dukelib/sheets-wasm'
@@ -80,6 +80,15 @@ export function csvToXlsxBytes(text: string, tsv: boolean): Uint8Array {
 export type SheetCellText = { row: number; col: number; text: string }
 
 export type SheetFindOptions = { caseSensitive: boolean; wholeWord: boolean }
+
+/**
+ * 查找命中的底色（Files 的表格预览与数据源的表格共用）：叠在格子原有底色之上的半透明层，
+ * 命中黄 / 当前橙同 PDF / PPT。是 CSS background-image 值，可与格子自身的渐变填充逗号叠用。
+ */
+export const SHEET_FIND_MATCH_LAYER =
+  'linear-gradient(rgb(252 212 126 / 0.55), rgb(252 212 126 / 0.55))'
+export const SHEET_FIND_CURRENT_LAYER =
+  'linear-gradient(rgb(196 114 51 / 0.55), rgb(196 114 51 / 0.55))'
 
 const WORD_START = /^[\p{L}\p{N}_]/u
 const WORD_END = /[\p{L}\p{N}_]$/u
