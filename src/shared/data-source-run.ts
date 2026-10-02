@@ -1,5 +1,5 @@
-// 数据源上的配置的一次运行（docs/prd/database.md「运行配置」，ADR-0044）：配置里的参数与替换、渲染端交来的运行输入、
-// 主进程持有的结果，以及据此得出的连接目标与结束状态。
+// 数据源上的配置的一次运行（docs/prd/database.md「运行配置」，ADR-0044）：渲染端交来的运行输入、主进程持有的结果，
+// 以及据此得出的连接目标与结束状态。参数见 run-params。
 
 import type { DataSourceConnectPassword, DataSourceTarget } from './data-source'
 import type { ConsoleRun } from './data-source-query'
@@ -27,51 +27,6 @@ export type DataSourceRunOutput =
 export interface DataSourceRunOutputEvent {
   key: string
   output: DataSourceRunOutput | null
-}
-
-/** 运行配置的参数值：参数名 → 填的值。 */
-export type DataSourceRunParams = Record<string, string>
-
-/** 参数花括号里的文字：不跨行、不含花括号。 */
-const RUN_PARAM_BODY = '[^{}\\r\\n]*'
-
-/**
- * 参数的写法 `${…}`（正则的源码，不带捕获组）：格式化 SQL 时据此把参数认作一个整体、原样保留（sql-formatter 默认
- * 遇到它会报错）。与下面认参数的正则同源，两处不会各认各的。
- */
-export const RUN_PARAM_SOURCE = `\\$\\{${RUN_PARAM_BODY}\\}`
-
-/**
- * 运行配置里的参数：`${名称}`，名称为花括号里去掉首尾空白的文字（不跨行、不含花括号）。只认这一种写法，不认 `?` 与
- * `:名称`：免得与 PostgreSQL 的 `::` 类型转换冲突，也免得普通语句误弹参数框。
- */
-const RUN_PARAM = new RegExp(`\\$\\{(${RUN_PARAM_BODY})\\}`, 'g')
-
-/** 参数名：花括号里去掉首尾空白；空的（`${}`、只有空白）不算参数，为 null。 */
-function runParamName(inner: string): string | null {
-  const name = inner.trim()
-  return name === '' ? null : name
-}
-
-/** 配置内容里的参数名：写在哪里都算（含字符串、注释里），去重，按第一次出现的顺序。 */
-export function dataSourceRunParamNames(script: string): string[] {
-  const names = new Set<string>()
-  for (const match of script.matchAll(RUN_PARAM)) {
-    const name = runParamName(match[1]!)
-    if (name !== null) names.add(name)
-  }
-  return [...names]
-}
-
-/**
- * 把参数按文字原样换成填的值（不加引号、不转义）；没给值的参数与不算参数的原样留着。只换一遍，填的值里的 `${…}`
- * 不再展开。
- */
-export function fillDataSourceRunParams(script: string, params: DataSourceRunParams): string {
-  return script.replace(RUN_PARAM, (whole, inner: string) => {
-    const name = runParamName(inner)
-    return name !== null && Object.hasOwn(params, name) ? params[name]! : whole
-  })
 }
 
 /** 运行时的连接目标：配置指定了库就换成那个库（Redis 为库编号），SQLite 与没指定时照数据源的。 */

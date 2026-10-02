@@ -18,24 +18,24 @@ describe('codemirrorDialect', () => {
 })
 
 describe('formatSql', () => {
-  it('认得运行配置的参数 ${…}，原样保留', () => {
+  it('认得运行配置的参数 ${{…}}，原样保留', () => {
     const formatted = formatSql(
-      'select * from users where id=${id} and name = ${ user name }',
+      'select * from users where id=${{id}} and name = ${{ user name }}',
       'postgresql'
     )
-    expect(formatted).toContain('${id}')
-    expect(formatted).toContain('${ user name }')
+    expect(formatted).toContain('${{id}}')
+    expect(formatted).toContain('${{ user name }}')
   })
 
   it('各方言都认，方言自带的参数写法照旧', () => {
-    expect(formatSql('select * from t where a = ${a} and b = $1', 'postgresql')).toContain('$1')
-    expect(formatSql('select * from t where a = ${a} and b = ?', 'mysql')).toContain('${a}')
-    expect(formatSql('select * from t where a = ${a}', 'mariadb')).toContain('${a}')
-    expect(formatSql('select * from t where a = ${a} and b = :b', 'sqlite')).toContain(':b')
+    expect(formatSql('select * from t where a = ${{a}} and b = $1', 'postgresql')).toContain('$1')
+    expect(formatSql('select * from t where a = ${{a}} and b = ?', 'mysql')).toContain('${{a}}')
+    expect(formatSql('select * from t where a = ${{a}}', 'mariadb')).toContain('${{a}}')
+    expect(formatSql('select * from t where a = ${{a}} and b = :b', 'sqlite')).toContain(':b')
   })
 
-  it('字符串里的 ${…} 照旧是字符串', () => {
-    expect(formatSql("select '${a}' as x", 'postgresql')).toContain("'${a}'")
+  it('字符串里的 ${{…}} 照旧是字符串', () => {
+    expect(formatSql("select '${{a}}' as x", 'postgresql')).toContain("'${{a}}'")
   })
 
   it('写得不对的语句抛出', () => {

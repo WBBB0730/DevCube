@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { DEFAULT_APP_PREFS } from '../shared/types'
-import { deleteDataSourceRunParams, getAppPrefs, initStore, setAppPrefs } from './store'
+import { deleteRunParams, getAppPrefs, initStore, setAppPrefs } from './store'
 
 // electron-store 是纯 ESM 且要写盘；这里换成同形状的内存实现，只验读写两侧的归一逻辑。
 const state = new Map<string, unknown>()
@@ -78,20 +78,20 @@ describe('应用主题偏好', () => {
 describe('按键删除', () => {
   it('删掉有的几条，其余不动', async () => {
     await initStore()
-    state.set('dataSourceRunParams', { a: { x: '1' }, b: { y: '2' }, c: {} })
+    state.set('runParams', { a: { x: '1' }, b: { y: '2' }, c: {} })
 
-    deleteDataSourceRunParams(['a', 'c', 'missing'])
+    deleteRunParams(['a', 'c', 'missing'])
 
-    expect(state.get('dataSourceRunParams')).toEqual({ b: { y: '2' } })
+    expect(state.get('runParams')).toEqual({ b: { y: '2' } })
   })
 
   it('一条都没有时不写盘', async () => {
     await initStore()
     const stored = { b: { y: '2' } }
-    state.set('dataSourceRunParams', stored)
+    state.set('runParams', stored)
 
-    deleteDataSourceRunParams(['missing'])
+    deleteRunParams(['missing'])
 
-    expect(state.get('dataSourceRunParams')).toBe(stored)
+    expect(state.get('runParams')).toBe(stored)
   })
 })

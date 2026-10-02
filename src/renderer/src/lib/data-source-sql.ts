@@ -1,5 +1,5 @@
 // 数据源的 SQL 方言：CodeMirror 的高亮与补全、sql-formatter 的格式化（docs/prd/database.md「编辑与执行」）。
-// 格式化控制台与运行配置对话框共用（formatSql），认得运行配置的参数 `${…}`。
+// 格式化控制台与运行配置对话框共用（formatSql），认得运行配置的参数 `${{…}}`。
 import { MariaSQL, MySQL, PostgreSQL, SQLDialect, SQLite } from '@codemirror/lang-sql'
 import type { EditorView } from '@codemirror/view'
 import {
@@ -11,7 +11,7 @@ import {
   type DialectOptions
 } from 'sql-formatter'
 import type { SqlKind } from '@shared/data-source'
-import { RUN_PARAM_SOURCE } from '@shared/data-source-run'
+import { RUN_PARAM_SOURCE } from '@shared/run-params'
 
 /**
  * lang-sql 自带的 MySQL / MariaDB 方言与服务器不符的两处，照它的 spec 另定义一份改上，高亮、切语句、补全切词才与
@@ -56,7 +56,7 @@ function formatterDialect(kind: SqlKind): DialectOptions {
 }
 
 /**
- * 按方言格式化 SQL；格式化不了（语句写得不对）时抛出。运行配置的参数 `${…}` 认作一个参数、原样保留（sql-formatter
+ * 按方言格式化 SQL；格式化不了（语句写得不对）时抛出。运行配置的参数 `${{…}}` 认作一个参数、原样保留（sql-formatter
  * 默认遇到它会报错）：只加这一种自定义参数，方言自带的参数写法（`$1`、`?`、`:名称` 等）照旧。
  */
 export function formatSql(text: string, kind: SqlKind): string {

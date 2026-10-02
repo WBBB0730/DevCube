@@ -20,8 +20,8 @@ import type {
   WindowsShellOption
 } from '../shared/types'
 import type { CatalogPath } from '../shared/data-source-catalog'
-import type { DataSourceRunParams } from '../shared/data-source-run'
 import type { DataSourceOpened, DataSourceTabUi } from '../shared/data-source-ui'
+import type { RunParams } from '../shared/run-params'
 import type { ConsoleContextChange } from '../shared/data-source-context'
 import type {
   CompletionUsage,
@@ -64,7 +64,7 @@ import {
   promoteScript,
   reconcileConfigs,
   reorderConfigs,
-  saveDataSourceRunParams,
+  saveRunParams,
   updateCommandConfig
 } from './configs'
 import { pickDirectory, pickFile, pickPaths, pickSavePath } from './dialogs'
@@ -201,7 +201,7 @@ import {
   getDataSourceTabUi,
   deleteWorkspaceUiForEntry,
   getConfigs,
-  getDataSourceRunParams,
+  getRunParams,
   getFilesUi,
   getGitSettings,
   getGitViewPrefs,
@@ -891,11 +891,9 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   ipcMain.handle(IPC.sessionClear, (_e, key: string) => clearSessionOutput(key))
   ipcMain.handle(IPC.sessions, () => getSessions())
   ipcMain.handle(IPC.dataSourceRunOutputGet, (_e, key: string) => getDataSourceRunOutput(key))
-  ipcMain.handle(IPC.dataSourceRunParamsGet, (_e, configId: string) =>
-    getDataSourceRunParams(configId)
-  )
-  ipcMain.handle(IPC.dataSourceRunParamsSet, (_e, configId: string, params: DataSourceRunParams) =>
-    saveDataSourceRunParams(configId, params)
+  ipcMain.handle(IPC.runParamsGet, (_e, configId: string) => getRunParams(configId))
+  ipcMain.handle(IPC.runParamsSet, (_e, configId: string, params: RunParams) =>
+    saveRunParams(configId, params)
   )
 
   // —— 终端（Terminal，自由 shell）与 Tab 关闭 ——

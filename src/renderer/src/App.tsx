@@ -8,7 +8,7 @@ import { CloneProjectDialog } from '@renderer/components/CloneProjectDialog'
 import { ConfigDialog } from '@renderer/components/ConfigDialog'
 import { ServerDialog } from '@renderer/components/ServerDialog'
 import { DataSourceDialog } from '@renderer/components/DataSourceDialog'
-import { DataSourceRunParamsDialog } from '@renderer/components/DataSourceRunParamsDialog'
+import { RunParamsDialog } from '@renderer/components/RunParamsDialog'
 import { ContentSearchPanel } from '@renderer/components/ContentSearchPanel'
 import { AppTitleBar } from '@renderer/components/AppTitleBar'
 import { SettingsDialog } from '@renderer/components/SettingsDialog'
@@ -297,7 +297,7 @@ function App(): React.JSX.Element {
         <UnsavedChangesDialog name={unsavedPrompt.name} onChoose={unsavedPrompt.resolve} />
       )}
       {runParamsPrompt && (
-        <DataSourceRunParamsDialog key={runParamsPrompt.configId} prompt={runParamsPrompt} />
+        <RunParamsDialog key={runParamsPrompt.configId} prompt={runParamsPrompt} />
       )}
       {/* SSH 提问排在同名询问之后渲染，叠在它上面 */}
       {transferConflict && (

@@ -3,6 +3,7 @@ import { FolderOpen, Plus, Trash2 } from 'lucide-react'
 import { ConfigDialogFrame, Field } from '@renderer/components/ConfigDialogFrame'
 import { DataSourceConfigDialog } from '@renderer/components/DataSourceConfigDialog'
 import { INPUT_ICON_BTN, Input } from '@renderer/components/ui/input'
+import { onParamInputKeyDown } from '@renderer/lib/run-param-autoclose'
 import { useApp } from '@renderer/store'
 import type { CommandRunConfig, EditableRunConfig, RemoteRunConfig } from '@shared/types'
 import { entryKindOfKey, serverIdOfEntryKey } from '@shared/tree-entry'
@@ -84,15 +85,27 @@ function CommandConfigDialog({
     <ConfigDialogFrame
       title={config ? '编辑命令配置' : '新建命令配置'}
       className="w-[440px]"
+      paramExample="--tag ${{tag}}"
       valid={valid}
       onClose={close}
       onSubmit={submit}
     >
       <Field label="名称">
-        <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="配置名称"
+          autoFocus
+        />
       </Field>
       <Field label="命令">
-        <Input value={command} onChange={(e) => setCommand(e.target.value)} className="font-mono" />
+        <Input
+          value={command}
+          onChange={(e) => setCommand(e.target.value)}
+          onKeyDown={onParamInputKeyDown}
+          placeholder="要运行的命令"
+          className="font-mono"
+        />
       </Field>
       <Field label="工作目录">
         {serverId === null ? (
@@ -100,7 +113,8 @@ function CommandConfigDialog({
             <Input
               value={cwd}
               onChange={(e) => setCwd(e.target.value)}
-              placeholder="相对项目根，留空即项目根"
+              onKeyDown={onParamInputKeyDown}
+              placeholder="./"
               className="min-w-0 flex-1 font-mono"
             />
             <button
@@ -120,7 +134,8 @@ function CommandConfigDialog({
           <Input
             value={cwd}
             onChange={(e) => setCwd(e.target.value)}
-            placeholder="服务器上的目录，留空即登录后的目录"
+            onKeyDown={onParamInputKeyDown}
+            placeholder="~"
             className="font-mono"
           />
         )}
@@ -138,6 +153,7 @@ function CommandConfigDialog({
               <Input
                 value={row[1]}
                 onChange={(e) => updateRow(i, 1, e.target.value)}
+                onKeyDown={onParamInputKeyDown}
                 placeholder="value"
                 className="font-mono"
               />

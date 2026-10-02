@@ -2,7 +2,7 @@
 // Redis 为一行一条命令。「库」可输入也可选：选项是表结构缓存里的库（连过这个数据源才有），留空即数据源的默认库。
 // 编辑器同控制台（database/CodeEditor）；SQL 按方言高亮，补全同控制台交给补全引擎，表结构按「数据源 + 库」取（先取表结构
 // 缓存，没有时借连着的 Data Source Tab 现查，都没有只补关键字、内置函数与类型），编辑框右上角的格式化钮同控制台（认得参数
-// `${…}`）。
+// `${{…}}`）。
 import { useEffect, useMemo, useRef, useState } from 'react'
 import type { EditorView } from '@codemirror/view'
 import { WandSparkles } from 'lucide-react'
@@ -15,6 +15,7 @@ import { TOOLBAR_BTN } from '@renderer/components/ui/toolbar'
 import { useCompletionUsage } from '@renderer/lib/data-source-completion-usage'
 import { useConfigCompletion } from '@renderer/lib/data-source-context'
 import { formatSqlInEditor } from '@renderer/lib/data-source-sql'
+import { paramAutoClose } from '@renderer/lib/run-param-autoclose'
 import { sqlLanguage } from '@renderer/lib/sql-completion'
 import { cn } from '@renderer/lib/utils'
 import { useApp } from '@renderer/store'
@@ -78,9 +79,12 @@ function DataSourceConfigForm({
   const schema = useConfigCompletion(id, target, database.trim(), databases)
   const prioritizer = useCompletionUsage(redis ? null : id)
 
-  // SQL 按方言高亮并补全（用得多的排前）；Redis 为纯文本
-  const language = useMemo(
-    () => (kind === 'redis' ? [] : sqlLanguage(kind, { metadata: schema, prioritizer })),
+  // SQL 按方言高亮并补全（用得多的排前）；Redis 为纯文本。输入 `${{` 时补上 `}}`（两种都有）
+  const extensions = useMemo(
+    () => [
+      paramAutoClose,
+      kind === 'redis' ? [] : sqlLanguage(kind, { metadata: schema, prioritizer })
+    ],
     [kind, schema, prioritizer]
   )
 
@@ -112,12 +116,18 @@ function DataSourceConfigForm({
     <ConfigDialogFrame
       title={`${config ? '编辑' : '新建'} ${redis ? 'Redis' : 'SQL'} 配置`}
       className="w-[560px]"
+      paramExample={redis ? 'GET user:${{id}}' : 'WHERE id = ${{id}}'}
       valid={valid}
       onClose={close}
       onSubmit={submit}
     >
       <Field label="名称">
-        <Input value={name} onChange={(e) => setName(e.target.value)} autoFocus />
+        <Input
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          placeholder="配置名称"
+          autoFocus
+        />
       </Field>
       {target.kind !== 'sqlite' && (
         <Field label={redis ? '库编号' : '库'}>
@@ -142,7 +152,7 @@ function DataSourceConfigForm({
             value={script}
             onChange={setScript}
             completion={!redis}
-            extensions={language}
+            extensions={extensions}
           />
           {/* 格式化钮浮在编辑框右上角：让开滚动条（8px）；铺编辑器底色，伸到下面的代码被它遮住而不与图标相叠 */}
           {!redis && (

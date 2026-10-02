@@ -162,9 +162,9 @@ export const IPC = {
   /** 数据源上的配置的运行结果（ADR-0044）：主进程推送、渲染端取回（重载后回填） */
   dataSourceRunOutput: 'data-source-run:output',
   dataSourceRunOutputGet: 'data-source-run:output-get',
-  /** 数据源上的配置上次运行时填的参数值（按配置记住，跨重启保留） */
-  dataSourceRunParamsGet: 'data-source-run:params-get',
-  dataSourceRunParamsSet: 'data-source-run:params-set',
+  /** 命令型配置上次运行时填的参数值（按配置记住，跨重启保留） */
+  runParamsGet: 'run-params:get',
+  runParamsSet: 'run-params:set',
   terminalOpen: 'terminal:open',
   sshTerminalOpen: 'terminal:open-ssh',
   sessionClose: 'session:close',

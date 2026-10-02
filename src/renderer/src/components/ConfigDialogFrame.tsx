@@ -1,14 +1,16 @@
 import { useEffect } from 'react'
+import { Info } from 'lucide-react'
 import { SettingsModal } from '@renderer/components/SettingsModal'
 import { Button } from '@renderer/components/ui/button'
 
 /**
- * 配置对话框的外壳（命令配置与数据源上的配置共用）：SettingsModal、底栏「取消 / 保存」、Esc 关闭。
- * 保存只在 valid 时可点。
+ * 配置对话框的外壳（命令配置与数据源上的配置共用）：SettingsModal、底栏左侧参数说明（hover 看格式与示例，
+ * docs/prd/run-config-params.md）、右侧「取消 / 保存」、Esc 关闭。保存只在 valid 时可点。
  */
 export function ConfigDialogFrame({
   title,
   className,
+  paramExample,
   valid,
   onClose,
   onSubmit,
@@ -17,6 +19,8 @@ export function ConfigDialogFrame({
   title: string
   /** 外框宽度等 */
   className: string
+  /** 参数说明里的示例（按配置的内容写，如命令配置为一个命令行选项） */
+  paramExample: string
   valid: boolean
   onClose: () => void
   onSubmit: () => void
@@ -40,6 +44,13 @@ export function ConfigDialogFrame({
       className={className}
       footer={
         <div className="flex shrink-0 items-center justify-end gap-2 border-t border-[color:var(--separator)] px-4 py-2.5">
+          <span
+            title={'格式：${{名称}}\n示例：' + paramExample}
+            className="mr-auto flex cursor-default items-center gap-1 text-[12px] text-muted-foreground"
+          >
+            <Info className="size-3.5" />
+            使用参数
+          </span>
           <Button type="button" variant="ghost" size="sm" onClick={onClose}>
             取消
           </Button>

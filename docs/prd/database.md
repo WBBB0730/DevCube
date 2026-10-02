@@ -18,7 +18,7 @@
 - **选在哪个库上执行**：控制台工具栏上的「库」选控制台在哪个库上执行（PostgreSQL 另有「模式」），也可以在目录里右键「在控制台中打开」，一步换到那一行所在的库和模式；Redis 在键列表顶栏选库编号；在控制台里写 `use`、`set search_path`、`SELECT n` 切过去，它们同样跟着变。每个 Tab 各自记住（ADR-0046）。
 - **按上下文补全**：控制台、运行配置对话框与 WHERE / ORDER BY 框共用一个补全引擎，按光标所在的子句补表、列、别名、函数和关键字，JOIN 时按外键补出连接条件，这个数据源上用得多的排前；做法照抄 pgcli（ADR-0047）。Redis 控制台补全命令名。
 - **筛选、排序与分页**：表和视图顶上有 WHERE、ORDER BY 两个框，点表头排序也写进 ORDER BY 框；表格用分页器翻页，每页行数可以设置；表和查询结果都能导出为 CSV、JSON 或 SQL INSERT 语句。
-- **运行配置**：在 Data Source 上存几段常跑的 SQL（Redis 为几行命令），像项目、服务器上的配置一样一点就跑，结果显示在它的 Tab 栏里的运行会话里（ADR-0044）；内容里可以留 `${名称}` 参数，每次运行前填值。
+- **运行配置**：在 Data Source 上存几段常跑的 SQL（Redis 为几行命令），像项目、服务器上的配置一样一点就跑，结果显示在它的 Tab 栏里的运行会话里（ADR-0044）；内容里可以留 `${{名称}}` 参数，每次运行前填值（同项目、服务器上的配置，见 `docs/prd/run-config-params.md`）。
 - **连得上**：加密自动处理，不用选；开着 TUN 代理时可以绕开代理直连。
 - **SQLite 文件**：**Files Tab** 里点开 SQLite 文件，正文区直接就是同一套视图。
 - **Redis**：同一种布局，右侧是按 `:` 分组的键，左侧是「当前键」和控制台。
@@ -114,9 +114,9 @@
 
 **运行配置**
 
-51. 作为用户，我想在数据源菜单里「新建配置」：名称、在哪个库上执行（可以输入，也可以从连过这个数据源时读到的库里选；留空即数据源的默认库；Redis 为库编号；SQLite 没有这一项）、内容（SQL 为一段语句，Redis 为一行一条命令）；写 SQL 时同控制台一样按上下文补全，表结构取这个库的（PostgreSQL 不写模式前缀的表按新连接默认的 search_path 补全：配置每次在新连接上跑，控制台里改的 search_path、下拉选的模式都不影响它），也能格式化（`${名称}` 参数原样保留）；可以编辑、删除、拖拽排序，同服务器上的配置。
+51. 作为用户，我想在数据源菜单里「新建配置」：名称、在哪个库上执行（可以输入，也可以从连过这个数据源时读到的库里选；留空即数据源的默认库；Redis 为库编号；SQLite 没有这一项）、内容（SQL 为一段语句，Redis 为一行一条命令）；写 SQL 时同控制台一样按上下文补全，表结构取这个库的（PostgreSQL 不写模式前缀的表按新连接默认的 search_path 补全：配置每次在新连接上跑，控制台里改的 search_path、下拉选的模式都不影响它），也能格式化（`${{名称}}` 参数原样保留）；可以编辑、删除、拖拽排序，同服务器上的配置。
 52. 作为用户，我想在左树的配置行上点 ▶ 运行，在这个数据源的 Tab 栏开一个运行会话 Tab；运行中可以重跑、停止（叫停正在执行的语句），有状态点，⌘W 为停止并关闭。
-53. 作为用户，我想在内容里写 `${名称}` 这样的参数（写在哪里都算，包括字符串和注释里；不认 `?` 与 `:名称`），运行、重跑前弹框让我逐个填值，预填这条配置上次用的值；回车即运行，Esc 取消，取消时什么都不变。填的值按文字原样替换（不加引号）。没有参数时照旧直接运行。
+53. 作为用户，我想在内容里写 `${{名称}}` 这样的参数（写在哪里都算，包括字符串和注释里；不认 `${名称}`、`?` 与 `:名称`），运行、重跑前弹框让我逐个填值，预填这条配置上次用的值；回车即运行，Esc 取消，取消时什么都不变。填的值按文字原样替换（不加引号）。没有参数时照旧直接运行。
 54. 作为用户，我想运行的结果与控制台一样：全部语句依次执行、遇错即停，最后一个结果集分页显示，可以导出；Redis 按 redis-cli 的样子显示；整个没能执行时写明原因（如连不上、「没有要执行的语句」「已取消」）。
 55. 作为用户，没记住密码或密码被拒时，我想在运行会话里直接输入密码（可以勾选记住），交上去即重跑，沿用刚填的参数，不再问一遍；只有等密码期间配置里新加了没填过的参数时才再问，这时取消，这次运行就以「已取消」结束，不会一直停在「正在连接…」。
 56. 作为用户，编辑数据源的连接信息时，我不想打断正在运行的配置，下次运行再用新的连接信息；移除数据源时它的配置一并删除；数据源改了类型，配置照旧保留，按当前类型执行。
@@ -250,7 +250,7 @@ SQLite 类型的 Data Source 同样适用第 66–68 条。
   - ⌘Enter 用 CodeMirror 的 keymap 处理，放在最高优先级（默认 keymap 把它当插入空行），执行中、切换控制台上下文时按了不起作用。
   - 控制台在控制台上下文所在的库上执行（PostgreSQL 在默认库上即 Tab 的连接，在别的库上为那个库的按库连接），先等连上后应用完记住的上下文；各条语句依次执行、遇错即停；再执行时上次的结果留着，新的到了才替换。
   - 方言按类型选：PostgreSQL、MySQL、MariaSQL、SQLite。
-  - 补全见「补全引擎」。格式化用 `sql-formatter`，控制台与运行配置对话框共用 `formatSqlInEditor`（格式化选中的部分或全部，内部调 `formatSql`）：`formatSql` 把运行配置的参数 `${…}` 经 `paramTypes.custom` 认作一个参数、原样保留（正则与认参数的同源，`RUN_PARAM_SOURCE`；不加这条 sql-formatter 会报错），方言自带的参数写法照旧；失败时弹错误框「无法格式化」。
+  - 补全见「补全引擎」。格式化用 `sql-formatter`，控制台与运行配置对话框共用 `formatSqlInEditor`（格式化选中的部分或全部，内部调 `formatSql`）：`formatSql` 把运行配置的参数 `${{…}}` 经 `paramTypes.custom` 认作一个参数、原样保留（正则与认参数的同源，`RUN_PARAM_SOURCE`；不加这条 sql-formatter 会报错），方言自带的参数写法照旧；失败时弹错误框「无法格式化」。
 - **控制台上下文**（ADR-0046，`shared/data-source-context`）：Data Source Tab 的控制台在哪个库上执行。
   - **是什么**：PostgreSQL 为所在的库、`current_schema()` 与原样的 `search_path`；MySQL / MariaDB 为 `database()`（没选库为空）；Redis 为库编号，键列表也列这个库。SQLite、运行会话没有。
   - **以服务器为准**：主进程按 Tab 持有，只推送回查到的（`onDataSourceConsoleContextChanged`），渲染端不自己推算。回查在控制台的连接上：PostgreSQL `select current_database(), current_schema(), current_setting('search_path')`，MySQL / MariaDB `select database()`，Redis `CLIENT INFO`（6.2 起才有；问不到时按执行成功的 `SELECT n` / `RESET` 推算，`redisDatabaseAfter`）。
@@ -291,15 +291,13 @@ SQLite 类型的 Data Source 同样适用第 66–68 条。
   - 叫停本身失败（如叫停用的连接连不上）作为结果交回，控制台弹错误框「无法取消执行」（无权时为「无权取消」）。
 - **运行配置**（ADR-0044）：
   - **模型**：命令型 **Run Configuration** 的第三种归属，`{ kind: 'dataSource', dataSourceId, name, script, database? }`：`script` 为整段 SQL（Redis 为一行一条命令），`database` 为在哪个库上执行（PostgreSQL / MySQL / MariaDB 为库名，Redis 为库编号，缺省即数据源的默认库，SQLite 没有）。存在同一份配置数组里（ADR-0002），顺序即数组顺序；归属键为 `datasource:<id>`，会话键同命令型 `cmd\0<id>`；下发给渲染端时挂在 `DataSourceNode.configs` 上，项目只收 `command` 与 `referenced`。
-  - **对话框**：与命令配置共用外壳（`ConfigDialogFrame`：`SettingsModal`、底栏「取消 / 保存」，Esc 已被编辑器收下时——关补全、关查找栏——不关对话框），按条目种类分派。字段为名称、库（SQLite 不出）、内容，名称与内容去掉首尾空白后都不能为空。
+  - **对话框**：与命令配置共用外壳（`ConfigDialogFrame`：`SettingsModal`、底栏左侧参数说明、右侧「取消 / 保存」，Esc 已被编辑器收下时——关补全、关查找栏——不关对话框），按条目种类分派。字段为名称、库（SQLite 不出）、内容，名称与内容去掉首尾空白后都不能为空。
     - 库：可输入也可选（`AutocompleteInput`），选项为表结构缓存里目录根这一层的库（`peekDataSourceDatabases`，不访问数据库，连过这个数据源才有）；占位只写默认值（数据源的默认库，没设时空着；Redis 为数据源的库编号，没设为 0）。Redis 为库编号，按 `redisDatabaseError` 校验。
-    - 内容：`CodeEditor`，Redis 为纯文本。SQL 按方言高亮，有格式化钮（同控制台，见「编辑与执行」）；补全按「数据源 + 库」取（`readDataSourceCompletionFor`，不依赖 Tab）：先取表结构缓存，没有时借一个连着的 Data Source Tab 现查并写回缓存，都没有就只补关键字、内置函数与类型。PostgreSQL 各库各一份：库留空（即数据源的默认库；连接信息里没写时，取连着的 Tab 连上时服务器给的那个）、是默认库或是选项里的库时才取，输入到一半的库名不去连；MySQL / MariaDB 与 SQLite 只有一份，不写前缀时补全到填的库（留空即数据源的默认库）。
+    - 内容：`CodeEditor`，Redis 为纯文本；输入 `${{` 时补上 `}}`（见 `docs/prd/run-config-params.md`）。SQL 按方言高亮，有格式化钮（同控制台，见「编辑与执行」）；补全按「数据源 + 库」取（`readDataSourceCompletionFor`，不依赖 Tab）：先取表结构缓存，没有时借一个连着的 Data Source Tab 现查并写回缓存，都没有就只补关键字、内置函数与类型。PostgreSQL 各库各一份：库留空（即数据源的默认库；连接信息里没写时，取连着的 Tab 连上时服务器给的那个）、是默认库或是选项里的库时才取，输入到一半的库名不去连；MySQL / MariaDB 与 SQLite 只有一份，不写前缀时补全到填的库（留空即数据源的默认库）。
     - 不加「模式」：要在别的模式上执行，在内容里写 `set search_path`。
   - **参数**：
-    - 写法只认 `${名称}`（参照 DataGrip，它的默认写法也是 `${}`）。名称为花括号里去掉首尾空白的文字；`${}`、只有空白、跨行、含花括号的不算。写在哪里都算，包括字符串与注释里，Redis 命令同样认。不认 `?` 与 `:名称`：免得与 PostgreSQL 的 `::` 类型转换冲突，也免得普通语句误弹参数框。参数名去重，按第一次出现的顺序（`dataSourceRunParamNames`）。
-    - 有参数时，运行、重跑（左树 ▶ 与重跑钮、操作栏运行 / 重跑）都先弹参数框（`DataSourceRunParamsDialog`，store 的 `runParamsPrompt`）；同一时刻只问一个，又有一次运行要问时，前一个当作取消。取消即什么都不动：不选中、不切 Tab、不运行。没有参数时照旧直接运行。
-    - 填的值按文字原样替换（`fillDataSourceRunParams`）：不加引号、不转义，只换一遍，填的值里的 `${…}` 不再展开，没给值的原样留着。先换后切，所以填的值里有分号、换行时，照样按换好的内容切语句（`dataSourceRunStatements`）。
-    - 记住的值按配置存（持久化键 `dataSourceRunParams`：配置 id → 参数值），跨重启保留，用来预填下一次。每次运行整份替换，只留这次用到的参数；配置已不在、或不属于数据源时不记。删除配置、移除数据源时一并删掉（`deleteConfig`、`deleteConfigsOf`）。
+    - 写法、参数框、替换与记住的值同项目、服务器上的配置，见 `docs/prd/run-config-params.md`（ADR-0048）：写作 `${{名称}}`，写在内容里，字符串与注释里也算，Redis 命令同样认。不认 `${名称}`、`?` 与 `:名称`：三处一种写法；也免得与 PostgreSQL 的 `::` 类型转换冲突，免得普通语句误弹参数框。
+    - 先换后切：填的值按文字原样换进内容（`fillRunParams`），再切语句，所以填的值里有分号、换行时，照样按换好的内容切语句（`dataSourceRunStatements`）。
     - 等密码时交上密码的重跑是同一次运行的继续：每个参数在记住的值里都有，就直接沿用、不弹框。只有等密码期间配置里新加了没填过的参数才再弹，这时取消即停止这次运行，以「已取消」结束，不会停在「正在连接…」。
   - **切语句**：运行时由渲染端先换好参数（见「参数」），再按数据源当前的类型切好交给主进程：SQL 用 `allStatements`（同步完整解析，不设时限，与控制台同一套切法，见「编辑与执行」），Redis 用 `redisCommandLines`（去首尾空白、丢空行）。所以这类配置只能由渲染端发起运行，主进程不必带上语言包。
   - **连接**：每次运行在数据源连接会话里开一条自己的连接（键即运行会话键），库按配置覆盖（`dataSourceRunTarget`：PostgreSQL 直接连到那个库，MySQL / MariaDB 作默认库，Redis 作库编号）；先用记住的密码，没记住就不带密码。它不写表结构缓存、不读主体结构。运行结束、被重跑取代时断开并推送未连接。编辑数据源的连接信息不断开它，下次运行才用新的连接信息。
@@ -362,14 +360,14 @@ SQLite 类型的 Data Source 同样适用第 66–68 条。
 - 补全引擎（ADR-0047）：pgcli、mycli、litecli 的补全测试翻译成 vitest，当作验收标准（上下文判断、表 / 别名 / CTE 的提取、匹配与排序；与原测试的差别逐条写在用例旁）；另测切词适配层（期望值由 sqlparse 对同样的文字切出；按位置纠正非保留字）、子查询作用域（照 sqls 的测试）、按子句过滤关键字（照 Tabularis 的规则）、补全源（光标所在的语句、注释与字符串里不补、WHERE / ORDER BY 框的前缀、按使用次数排）；使用次数（取出的次数读回后一样、读回的加到已有的上、按给出的类型计数、表结构换了重建的补全器沿用同一个计数器、MySQL 的关键字补成小写时同样按次数排）。
 - 补全数据：整理成补全引擎要的形状（`buildCompletionSchema`：按模式归组、没有对象的模式也列、列带类型与默认值、布尔值两种写法都认、函数与类型与存储过程归到各自的模式、外键缺项的不要；`pgFunctionOf`；`mysqlRoutinesOf`：函数的参数按行合起来、过程只要名字；`mysqlShowItemsOf`：去掉第一个词、只有一个词的留它自己、空的不要；`sqliteForeignKeysOf`：没写父表列的取父表主键的对应列、补不上的不要）；新连接上的查找次序（`pgDefaultSearchPath`：`"$user"` 换成登录的用户、没写 `pg_catalog` 时补在最前、写了按写的位置、去重）；控制台的查找次序（`consoleSearchPath`：PostgreSQL 为 `pg_catalog`、`current_schema()` 与其余各项，MySQL / MariaDB 为控制台所在的库，Redis 为空）。
 - 控制台上下文：数据源类型对应的类别（`consoleContextKind`）、要记住的部分（`savedConsoleContext`：MySQL 没选库不记）、点的是不是现在那一项（`isCurrentConsoleContext`）、切换要变的各级（`consoleContextChangeLevels`：同库切模式只有模式，跨库切模式库与模式都变，不带模式只有库）、切不过去时没切过去的那一级（`consoleContextFailureLevel`：出错在改 search_path 那一步为模式，在那之前为要变的第一级）、目录里一行在控制台中打开要切到的（`catalogConsoleContextChange`：PostgreSQL 模式及其下的行换库与模式，库及库下不属于模式的行只换库；MySQL 库及其下的行换库；根行与根下的角色、用户不换）；search_path 拆成各项（`searchPathItems`：引号里的逗号不切）与各项的模式名（`searchPathItemName`：带引号的去引号并还原 `""`，不带的折成小写）、选中的模式放到最前（`prependSearchPath`：原来就有的挪到最前不重复、模式名里的双引号加倍、原来为空）；执行后要不要回查（`changesConsoleContext`：PostgreSQL 改 search_path、换角色、改结构、结束事务的语句算，含注释开头、大小写不同，别的 SET 与查询不算；MySQL / MariaDB 为 USE 与删库；SQLite 一律不算。`recheckRedisDatabase`：执行成功的 SELECT、RESET、EXEC、DISCARD 算，出错的 SELECT 不算、出错的 EXEC 算，排队的 SELECT 不算，执行完还在事务里时不回查（接着执行前的事务状态算，与 `redisInTransactionAfter` 同一套规则））；推算库编号（`redisDatabaseAfter`：事务里排着的 SELECT 到 EXEC 执行了事务才算）；`CLIENT INFO`、`CONFIG GET databases`、`INFO keyspace` 的解析；下拉列出的库编号（`redisDatabaseIndexes`：0 到个数 − 1，补上有键的与当前所在的）。
-- 格式化：认得运行配置的参数（`formatSql`：`${…}` 原样保留、各方言都认、方言自带的参数写法照旧、字符串里的 `${…}` 照旧是字符串、写错的语句抛出；`RUN_PARAM_SOURCE` 与认参数的规则一致）；JSON 排版（`formatJsonText`：2 个空格缩进、空对象与空数组不拆开；大整数、数字写法、转义与字符串里的标点原样；已排过版的按统一的缩进重排；较大的输入与 `jsonc-parser` 的 `applyEdits` 逐条应用的结果一致；不是对象或数组的为 null）。
+- 格式化：认得运行配置的参数（`formatSql`：`${{…}}` 原样保留、各方言都认、方言自带的参数写法照旧、字符串里的 `${{…}}` 照旧是字符串、写错的语句抛出；`RUN_PARAM_SOURCE` 与认参数的规则一致）；JSON 排版（`formatJsonText`：2 个空格缩进、空对象与空数组不拆开；大整数、数字写法、转义与字符串里的标点原样；已排过版的按统一的缩进重排；较大的输入与 `jsonc-parser` 的 `applyEdits` 逐条应用的结果一致；不是对象或数组的为 null）。
 - 翻页查询的拼装：WHERE / ORDER BY 原样拼接与之后的换行（末尾带行注释，各方言）、主键追加（多列主键顺序、ORDER BY 为空时只按主键、没有主键不追加、主键名里的引号加倍）、页码与每页行数；点表头的排序文字、从文字认出表头排序、点表头后的下一个状态。
 - 控制台结果：一条语句的结果说明（`statementOutcomeText`）、一次执行的摘要（`consoleRunSummary`）、结果区显示什么（`consoleRunResult`：无错、出错、已取消）。
 - 格子里显示的文字：NULL、二进制、长文本。
 - 导出：CSV（BOM、转义）、JSON（数字、布尔、NULL、大整数）、SQL INSERT（各方言的标识符、字符串与二进制写法，生成列不写而 CSV、JSON 照写；MySQL / MariaDB 按版本认生成列的条件；写了总是自动生成的标识列时加 `OVERRIDING SYSTEM VALUE`，没有或没写它时不加）；选区复制成 TSV 时的转义；默认文件名（普通表名、路径分隔符、Windows 不能用的字符与控制字符、处理后为空、保留设备名及其大小写 / 上标 / 扩展名，不是保留名的不动）。
 - SQLite 文件按文件头识别。
 - Redis：一行命令拆成参数（引号与转义；`\xHH` 拼出的不是 UTF-8 时为字节，是 UTF-8 时为文字）、切行（CRLF、空行、首尾空白）、摘要、回复按 redis-cli 显示（状态回复原样、字符串加引号、分数是字符串、嵌套数组、数组里的错误带 `(error)`；按原样输出的几条分行显示，`redisRawOutput` 的清单与参数个数）、控制台不执行的命令（`redisConsoleRefusal`：含 `HELLO 3`，`HELLO` 与 `HELLO 2` 照常）、键按 `:` 分组成树与按展开状态拍平、剩余过期时间的说明；`SCAN` 的回复（`parseRedisScanReply`：事务里的 `QUEUED`、项数不对、键不是字符串为格式不对）；执行完是否还在事务里（`redisInTransactionAfter`：成功的 `MULTI` 开始，`EXEC`、`DISCARD`、`RESET` 结束，不分大小写，跨几次执行接着算）；命令表（`parseRedisCommandDocs`、`parseRedisCommandTable`：大写、去重、排序，取不到为空）与补命令名的位置（`redisCommandWordBefore`：光标在行首的第一个词里，在参数里不补）。
-- 运行配置的参数：认出参数名（`dataSourceRunParamNames`：只认 `${名称}`，去重、按第一次出现的顺序；字符串、注释里也算，名称去掉首尾空白；不认 `?` 与 `:名称`，`::` 不受影响；空的、跨行的、带花括号的不算；Redis 命令同样认）；替换（`fillDataSourceRunParams`：原样替换、同名都换；不加引号、不转义，空值即换成空；没给值的与不算参数的原样留着；只换一遍；只认自己的键，不认原型上的）。
+- 运行配置的参数：见 `docs/prd/run-config-params.md`「Testing Decisions」。
 - 记住与最近打开：认同一个对象或键（`openedKey`：分组不同、重载说明不同都算两个；键按库编号与键名；对象与键不会撞上）、放到最前与去重截断（`pushRecentOpened`）、去掉（`dropRecentOpened`）、位置文字（`openedLocation`：对象为「库.模式」，键为所在的库，库编号未知时记下的为空）；对象在不在它那一层里（`catalogHasObject`：同名而说明不同、同名的库不算）；Redis 键在键列表里的名字（`redisKeyName`，与键树一致）。
 - 运行配置：运行的连接目标（`dataSourceRunTarget`：SQLite 原样、库为空时原样、各类型覆盖库）、成功判定（全部成功、中途出错、已取消、停在中途、什么都没执行、整个没能执行）；配置的归属键与会话键；首屏保留上次选中的数据源配置；启动时清理引用型配置时保留服务器上与数据源上的配置。
 
@@ -388,7 +386,7 @@ SQLite 类型的 Data Source 同样适用第 66–68 条。
 - SQLite 控制台里 `begin; insert …; create table t(a);`：自动重读后事务仍开着（再执行 `commit` 照常提交，insert 与新表都在）；事务开着时手动刷新目录同样不回滚。
 - 记住与最近打开：重启后连上回到上次的对象、格子与展开，对象被删后安静地空着；两个同库 Tab 的「最近打开」一致；⌘E 在数据源条目弹出最近打开、在项目里仍是 Files 的最近打开文件。
 - 控制台上下文：PostgreSQL 从「库」换库、从「模式」换模式后执行不写前缀的查询，两个列表的筛选与键盘操作（打字后回车选中第一个匹配项，↑↓、回车，Esc 只收起列表），列表开着时点「执行」只收起列表，切换中只有被切的钮转圈；控制台里 `set search_path`、`set role`、`create schema` 之后下拉跟上；事务里 `set local search_path` 后提交、回滚；控制台在别的库上时取消执行；重启后连上回到记住的库与 search_path，库被删后回到默认库；MySQL 的 `use`、`drop database`；Redis 下拉切库、控制台里 `select 1` 与 `multi` / `select 1` / `exec`，Redis 6.2 以前的版本（没有 `CLIENT INFO`），禁用了 `CONFIG` 的托管 Redis；目录右键「在控制台中打开」（四种 SQL 数据库的各类行与根行，从「当前对象」一格和停在控制台时点，焦点都进编辑器；执行中置灰；刚连上还不知道控制台在哪个库上时，库里的行置灰、根行照常；PostgreSQL 右键别的库里的模式时「库」「模式」都转圈；切不过去的错误框，其中跨库切模式时连不上那个库与设不了 search_path 的标题不同）。
-- 运行配置对话框：「库」的选项；补全（有缓存、借连着的 Tab 现查、都没有只补关键字、内置函数与类型；PostgreSQL 不写模式前缀时按新连接默认的 search_path，控制台里 `set search_path` 之后不受影响）；格式化带 `${…}` 的 SQL。
+- 运行配置对话框：「库」的选项；补全（有缓存、借连着的 Tab 现查、都没有只补关键字、内置函数与类型；PostgreSQL 不写模式前缀时按新连接默认的 search_path，控制台里 `set search_path` 之后不受影响）；格式化带 `${{…}}` 的 SQL。
 - 补全：控制台、运行配置对话框与 WHERE / ORDER BY 框里的各种位置（FROM、JOIN 与 ON 条件、别名、CTE、子查询、函数、类型，MySQL 的枚举值），四种 SQL 数据库各试一遍；MySQL / MariaDB 在 `CHARACTER SET`、`COLLATE`、`SHOW` 之后与补用户名的位置（含无权读 `mysql` 库的账号）；执行过的语句里用得多的名字与关键字排前（MySQL / MariaDB / SQLite 小写输入时同样），重启后仍在；PostgreSQL 打开别的库里的表时 WHERE / ORDER BY 框补那个库的列，打开别的库里的函数、序列时不读那个库的补全；控制台里改了表结构后 WHERE / ORDER BY 框马上补出新列；控制台里内容很长、刚打开就补全时不卡；上千张表、上万个列时补全的速度。
 - Redis：命令名补全（Redis 7 与更早的版本）；`MULTI` 之后用下拉切库、刷新键列表、看键、点最近打开；最近打开里别的库的键；切库后「当前键」清空；重启后所在的库对得上才回到上次的键。
 - Redis 字符串是几百 KB 以上的 JSON 时，打开与排版不卡。

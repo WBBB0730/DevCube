@@ -48,9 +48,9 @@ import type {
 import type {
   DataSourceRunInput,
   DataSourceRunOutput,
-  DataSourceRunOutputEvent,
-  DataSourceRunParams
+  DataSourceRunOutputEvent
 } from './data-source-run'
+import type { RunParams } from './run-params'
 import type {
   RedisCommandResult,
   RedisDatabasesResult,
@@ -278,8 +278,8 @@ export interface PersistedState {
   /** 各数据源补全的使用次数（键 = 数据源 id；移除数据源时删掉） */
   dataSourceCompletionUsage: Record<string, CompletionUsage>
   configs: RunConfig[]
-  /** 数据源上的配置上次运行时填的参数值（键 = 配置 id；删除配置、移除数据源时删掉） */
-  dataSourceRunParams: Record<string, DataSourceRunParams>
+  /** 命令型配置上次运行时填的参数值（键 = 配置 id；删除配置、移除所在条目时删掉） */
+  runParams: Record<string, RunParams>
   /** 每项目 git 设置（键 = 项目绝对路径；存的是覆写快照，读取时与默认值合并） */
   gitSettings: Record<string, GitRepoSettings>
   /** 跨项目 git 视图偏好（查找选项、「不再提示」标记） */
@@ -335,12 +335,13 @@ export type ProjectCloneResult =
 export type SessionStatus = 'running' | 'exited' | 'failed'
 
 /**
- * 运行目标：一条探测脚本，或一条已保存配置。dataSource 只有数据源上的配置才带：要执行的语句由渲染端切好交来
- * （见 DataSourceRunInput），所以这类配置只能由渲染端发起运行。
+ * 运行目标：一条探测脚本，或一条已保存配置。params 只有本机、服务器上的配置才带：渲染端问好的参数值，主进程换进
+ * 配置再执行（ADR-0048）。dataSource 只有数据源上的配置才带：要执行的语句由渲染端换好参数、切好交来（见
+ * DataSourceRunInput），所以这类配置只能由渲染端发起运行。
  */
 export type RunTarget =
   | { type: 'script'; projectPath: string; source: DiscoverSource; name: string }
-  | { type: 'config'; id: string; dataSource?: DataSourceRunInput }
+  | { type: 'config'; id: string; params?: RunParams; dataSource?: DataSourceRunInput }
 
 /** 渲染端看到的会话快照。key 为配置唯一键，同一 script/config 单实例。 */
 export interface SessionState {
@@ -709,10 +710,10 @@ export interface RunAPI extends GitAPI {
   getDataSourceRunOutput(key: string): Promise<DataSourceRunOutput | null>
   /** 数据源上的配置的运行结果变了（开始运行时清空、执行完交回完整结果） */
   onDataSourceRunOutput(cb: (e: DataSourceRunOutputEvent) => void): () => void
-  /** 数据源上的配置上次运行时填的参数值（参数框预填用）；没填过为空对象 */
-  getDataSourceRunParams(configId: string): Promise<DataSourceRunParams>
+  /** 命令型配置上次运行时填的参数值（参数框预填用）；没填过为空对象 */
+  getRunParams(configId: string): Promise<RunParams>
   /** 记下这次运行填的参数值（整份替换；配置已不在时不记） */
-  setDataSourceRunParams(configId: string, params: DataSourceRunParams): Promise<void>
+  setRunParams(configId: string, params: RunParams): Promise<void>
 
   // —— 终端（Terminal，自由 shell） ——
   /**

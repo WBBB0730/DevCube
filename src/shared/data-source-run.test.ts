@@ -2,11 +2,8 @@ import { describe, expect, it } from 'vitest'
 import type { DataSourceTarget } from './data-source'
 import type { ConsoleStatementResult } from './data-source-query'
 import {
-  dataSourceRunParamNames,
   dataSourceRunSucceeded,
   dataSourceRunTarget,
-  fillDataSourceRunParams,
-  RUN_PARAM_SOURCE,
   type DataSourceRunOutput
 } from './data-source-run'
 import type { RedisCommandResult } from './redis'
@@ -37,69 +34,6 @@ const reply = (command: string, error = false): RedisCommandResult => ({
   ms: 2,
   reply: error ? '(error) ERR' : '"OK"',
   error
-})
-
-describe('dataSourceRunParamNames', () => {
-  it('只认 ${名称}：去重，按第一次出现的顺序', () => {
-    expect(
-      dataSourceRunParamNames(
-        'SELECT * FROM t WHERE a = ${id} AND b > ${min} OR a = ${id};\nDELETE FROM u WHERE c = ${名称}'
-      )
-    ).toEqual(['id', 'min', '名称'])
-  })
-
-  it('写在字符串、注释里也算；名称去掉首尾空白', () => {
-    expect(dataSourceRunParamNames("SELECT '${ tag }' -- ${note}\nSELECT ${tag}")).toEqual([
-      'tag',
-      'note'
-    ])
-  })
-
-  it('不认 ? 与 :名称，PostgreSQL 的 :: 不受影响', () => {
-    expect(dataSourceRunParamNames('SELECT ?::int, :name, created::date FROM t')).toEqual([])
-  })
-
-  it('空的、跨行的、带花括号的不算参数', () => {
-    expect(dataSourceRunParamNames('SELECT ${}, ${  }, ${a\nb}, ${{x}}, $x, {y}')).toEqual([])
-  })
-
-  it('Redis 命令同样认', () => {
-    expect(dataSourceRunParamNames('GET user:${id}\nEXPIRE user:${id} ${ttl}')).toEqual([
-      'id',
-      'ttl'
-    ])
-  })
-})
-
-describe('fillDataSourceRunParams', () => {
-  it('按文字原样替换，写在哪里都换（含字符串里），同名的都换', () => {
-    expect(
-      fillDataSourceRunParams("SELECT * FROM t WHERE a = ${id} AND b = '${ id }-${tag}'", {
-        id: '42',
-        tag: 'x y'
-      })
-    ).toBe("SELECT * FROM t WHERE a = 42 AND b = '42-x y'")
-  })
-
-  it('值不加引号、不转义；空值即换成空', () => {
-    expect(fillDataSourceRunParams('SET k ${v}\nGET ${key}', { v: '"a b"', key: '' })).toBe(
-      'SET k "a b"\nGET '
-    )
-  })
-
-  it('没给值的参数与不算参数的原样留着', () => {
-    expect(fillDataSourceRunParams('SELECT ${a}, ${b}, ${}', { a: '1' })).toBe(
-      'SELECT 1, ${b}, ${}'
-    )
-  })
-
-  it('只换一遍：填的值里的 ${…} 不再展开', () => {
-    expect(fillDataSourceRunParams('SELECT ${a}', { a: '${b}', b: '2' })).toBe('SELECT ${b}')
-  })
-
-  it('只认自己的键，不认原型上的', () => {
-    expect(fillDataSourceRunParams('SELECT ${constructor}', {})).toBe('SELECT ${constructor}')
-  })
 })
 
 describe('dataSourceRunTarget', () => {
@@ -156,17 +90,5 @@ describe('dataSourceRunSucceeded', () => {
     expect(dataSourceRunSucceeded(sql(), 0)).toBe(false)
     expect(dataSourceRunSucceeded({ kind: 'redis', results: [] }, 0)).toBe(false)
     expect(dataSourceRunSucceeded({ kind: 'error', message: '已取消' }, 1)).toBe(false)
-  })
-})
-
-describe('RUN_PARAM_SOURCE', () => {
-  it('与认参数的规则一致：整个 ${…} 算一个，不跨行、不含花括号', () => {
-    const pattern = new RegExp(`^${RUN_PARAM_SOURCE}$`)
-    expect(pattern.test('${id}')).toBe(true)
-    expect(pattern.test('${ user name }')).toBe(true)
-    expect(pattern.test('${}')).toBe(true)
-    expect(pattern.test('${a\nb}')).toBe(false)
-    expect(pattern.test('${a{b}}')).toBe(false)
-    expect(pattern.test('$id')).toBe(false)
   })
 })

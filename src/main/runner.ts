@@ -10,6 +10,7 @@ import { IPC } from '../shared/ipc'
 import { configKey, scriptKey } from '../shared/runnable'
 import { resolveWithinProject } from '../shared/files-path'
 import type { QuitGuardSession } from '../shared/quit-guard'
+import { fillRunConfigParams } from '../shared/run-params'
 import type { Server } from '../shared/server'
 import type {
   DataSourceRunConfig,
@@ -223,14 +224,19 @@ function resolveTarget(target: RunTarget): Resolved | ResolvedRemote | ResolvedD
       cwd: config.projectPath
     }
   }
-  if (config.kind === 'remote') return { type: 'remote', key: configKey(config), config }
   if (config.kind === 'dataSource') return { type: 'dataSource', key: configKey(config), config }
+  // 本机、服务器上的配置：先把渲染端问来的参数值换进去（ADR-0048）
+  const params = target.params ?? {}
+  if (config.kind === 'remote') {
+    return { type: 'remote', key: configKey(config), config: fillRunConfigParams(config, params) }
+  }
+  const filled = fillRunConfigParams(config, params)
   return {
     type: 'local',
     key: configKey(config),
-    command: config.command,
-    cwd: resolveCwd(config.projectPath, config.cwd),
-    env: config.env
+    command: filled.command,
+    cwd: resolveCwd(filled.projectPath, filled.cwd),
+    env: filled.env
   }
 }
 

@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto'
 import { discoverRefKey } from '../shared/discover-key'
 import type { DiscoverSource } from '../shared/discover-source'
-import type { DataSourceRunParams } from '../shared/data-source-run'
+import type { RunParams } from '../shared/run-params'
 import { configOwnerKey } from '../shared/tree-entry'
 import type { EditableRunConfig, EditableRunConfigInput, RunConfig } from '../shared/types'
 import {
@@ -9,13 +9,7 @@ import {
   readFingerprintsForReconcile,
   readScriptsForReconcile
 } from './discovery'
-import {
-  deleteDataSourceRunParams,
-  getConfigs,
-  getProjects,
-  setConfigs,
-  setDataSourceRunParams
-} from './store'
+import { deleteRunParams, getConfigs, getProjects, setConfigs, setRunParams } from './store'
 
 // —— 纯核心（供测试） ——
 
@@ -95,19 +89,19 @@ export function updateCommandConfig(config: EditableRunConfig): void {
 }
 
 /**
- * 按 id 删除任意配置（引用型删除即「取消晋升」，script 会重新回到候补区）；数据源上的配置记住的参数值一并删掉。
+ * 按 id 删除任意配置（引用型删除即「取消晋升」，script 会重新回到候补区）；命令型配置记住的参数值一并删掉。
  */
 export function deleteConfig(id: string): void {
   setConfigs(getConfigs().filter((c) => c.id !== id))
-  deleteDataSourceRunParams([id])
+  deleteRunParams([id])
 }
 
 /**
- * 记下数据源上的配置这次运行填的参数值。配置已不在（参数框关掉之前被删掉）时不记，免得留下没人用的记录。
+ * 记下命令型配置这次运行填的参数值。配置已不在（参数框关掉之前被删掉）或是引用型时不记，免得留下没人用的记录。
  */
-export function saveDataSourceRunParams(configId: string, params: DataSourceRunParams): void {
-  if (getConfigs().some((c) => c.id === configId && c.kind === 'dataSource')) {
-    setDataSourceRunParams(configId, params)
+export function saveRunParams(configId: string, params: RunParams): void {
+  if (getConfigs().some((c) => c.id === configId && c.kind !== 'referenced')) {
+    setRunParams(configId, params)
   }
 }
 
@@ -126,7 +120,7 @@ export function reorderConfigs(ownerKey: string, orderedIds: string[]): void {
 }
 
 /**
- * 移除左树条目（Project / Server / Data Source）时删掉它名下的全部配置（数据源上的配置记住的参数值一并删掉）；
+ * 移除左树条目（Project / Server / Data Source）时删掉它名下的全部配置（记住的参数值一并删掉）；
  * 返回被删的配置（供调用方销毁其会话）。
  */
 export function deleteConfigsOf(ownerKey: string): RunConfig[] {
@@ -134,7 +128,7 @@ export function deleteConfigsOf(ownerKey: string): RunConfig[] {
   const removed = configs.filter((c) => configOwnerKey(c) === ownerKey)
   if (removed.length) {
     setConfigs(configs.filter((c) => configOwnerKey(c) !== ownerKey))
-    deleteDataSourceRunParams(removed.map((c) => c.id))
+    deleteRunParams(removed.map((c) => c.id))
   }
   return removed
 }

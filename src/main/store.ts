@@ -14,13 +14,13 @@ import { THEME_MODES, type ThemeMode } from '../shared/theme'
 import type { Server } from '../shared/server'
 import type { DataSource } from '../shared/data-source'
 import type { SavedConsoleContext } from '../shared/data-source-context'
-import type { DataSourceRunParams } from '../shared/data-source-run'
 import {
   DEFAULT_DATA_SOURCE_TAB_UI,
   type DataSourceOpened,
   type DataSourceTabUi
 } from '../shared/data-source-ui'
 import { isPageSize, type CompletionUsage } from '../shared/data-source-query'
+import type { RunParams } from '../shared/run-params'
 import type { TerminalShell, WorkspaceUiState } from '../shared/workspace'
 import { DEFAULT_WORKSPACE_UI, migrateLegacyWorkspaceUi } from '../shared/workspace'
 import {
@@ -50,7 +50,7 @@ export async function initStore(): Promise<void> {
       dataSourceRecents: {},
       dataSourceCompletionUsage: {},
       configs: [],
-      dataSourceRunParams: {},
+      runParams: {},
       gitSettings: {},
       gitViewPrefs: DEFAULT_GIT_VIEW_PREFS,
       projectSortPrefs: DEFAULT_PROJECT_SORT_PREFS,
@@ -112,7 +112,7 @@ type KeyedField =
   | 'dataSourceConsoleContexts'
   | 'dataSourceRecents'
   | 'dataSourceCompletionUsage'
-  | 'dataSourceRunParams'
+  | 'runParams'
   | 'gitSettings'
   | 'filesUi'
 
@@ -282,19 +282,19 @@ export function setConfigs(configs: RunConfig[]): void {
   store.set('configs', configs)
 }
 
-/** 数据源上的配置上次运行时填的参数值；没填过为空对象。 */
-export function getDataSourceRunParams(configId: string): DataSourceRunParams {
-  return store.get('dataSourceRunParams')[configId] ?? {}
+/** 命令型配置上次运行时填的参数值；没填过为空对象。 */
+export function getRunParams(configId: string): RunParams {
+  return store.get('runParams')[configId] ?? {}
 }
 
 /** 记下这次运行填的参数值（整份替换：只留这次用到的参数）。 */
-export function setDataSourceRunParams(configId: string, params: DataSourceRunParams): void {
-  store.set('dataSourceRunParams', { ...store.get('dataSourceRunParams'), [configId]: params })
+export function setRunParams(configId: string, params: RunParams): void {
+  store.set('runParams', { ...store.get('runParams'), [configId]: params })
 }
 
-/** 配置被删掉（删除配置、移除它所在的数据源）时删掉它记住的参数值。 */
-export function deleteDataSourceRunParams(configIds: string[]): void {
-  deleteEntries('dataSourceRunParams', configIds)
+/** 配置被删掉（删除配置、移除它所在的条目）时删掉它记住的参数值。 */
+export function deleteRunParams(configIds: string[]): void {
+  deleteEntries('runParams', configIds)
 }
 
 // —— Git 设置（每项目）与视图偏好 ——

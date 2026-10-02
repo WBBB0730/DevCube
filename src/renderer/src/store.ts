@@ -1,7 +1,6 @@
 import { create } from 'zustand'
 import type {
   AppPrefs,
-  DataSourceRunConfig,
   DiscoverSource,
   EditableRunConfig,
   EditableRunConfigInput,
@@ -22,7 +21,7 @@ import type {
   DataSourceInput,
   DataSourceNode
 } from '@shared/data-source'
-import { dataSourceRunParamNames, type DataSourceRunParams } from '@shared/data-source-run'
+import { runConfigParamNames, type RunParams } from '@shared/run-params'
 import { serverConnectionChanged, type ServerInput, type ServerNode } from '@shared/server'
 import type { SshPromptRequest, SshPromptResponse } from '@shared/ssh-connect'
 import type { TransferConflictRequest, TransferConflictResponse } from '@shared/server-files'
@@ -239,27 +238,29 @@ export function entryConfigs(
   }
 }
 
-/** 运行目标若是数据源上的配置即那条配置；其余目标（含已不在的配置）为 undefined。 */
-function dataSourceConfigOf(
+/** 运行目标若是命令型配置即那条配置；其余目标（探测脚本、引用型、已不在的配置）为 undefined。 */
+function editableConfigOf(
   s: Pick<AppState, 'tree' | 'servers' | 'dataSources'>,
   target: RunTarget,
   entryKey: string
-): DataSourceRunConfig | undefined {
+): EditableRunConfig | undefined {
   if (target.type !== 'config') return undefined
   const config = entryConfigs(s, entryKey).find((c) => c.id === target.id)
-  return config?.kind === 'dataSource' ? config : undefined
+  return config === undefined || config.kind === 'referenced' ? undefined : config
 }
 
 /**
- * 数据源上的配置交给主进程的运行目标：带上换好参数、按数据源当前类型切好的各条语句（Redis 为各行命令），以及运行会话
- * 正文的密码框交上来的密码（没出密码框时为 null）。数据源已不在时不带这些，由主进程说明无法运行。
+ * 命令型配置交给主进程的运行目标。本机、服务器上的配置带上填的参数值，由主进程换进配置（ADR-0048）。数据源上的配置
+ * 带上换好参数、按数据源当前类型切好的各条语句（Redis 为各行命令），以及运行会话正文的密码框交上来的密码（没出密码框
+ * 时为 null）；数据源已不在时不带这些，由主进程说明无法运行。
  */
 function runTargetOf(
   s: Pick<AppState, 'dataSources'>,
-  config: DataSourceRunConfig,
-  params: DataSourceRunParams,
+  config: EditableRunConfig,
+  params: RunParams,
   password?: DataSourceConnectPassword
 ): RunTarget {
+  if (config.kind !== 'dataSource') return { type: 'config', id: config.id, params }
   const node = s.dataSources.find((n) => n.dataSource.id === config.dataSourceId)
   if (node === undefined) return { type: 'config', id: config.id }
   return {
@@ -349,7 +350,7 @@ interface AppState {
   unsavedServerFiles: Record<string, UnsavedServerFile>
   /** 等用户选「保存 / 不保存 / 取消」的未保存提示（同一时刻一个） */
   unsavedPrompt: { name: string; resolve: (choice: UnsavedChoice) => void } | null
-  /** 等用户填的运行参数（数据源上的配置有参数时，运行前弹参数框；同一时刻一个） */
+  /** 等用户填的运行参数（命令型配置有参数时，运行前弹参数框；同一时刻一个） */
   runParamsPrompt: RunParamsPrompt | null
   /** 左树排序偏好（落盘） */
   projectSortPrefs: ProjectSortPrefs
@@ -428,7 +429,7 @@ interface AppState {
   setCloneDialogOpen: (open: boolean) => void
   clearScrollToEntryKey: () => void
   /**
-   * 运行（运行、重跑都经这里）：数据源上的配置有参数时先弹参数框，取消即不运行。password：数据源上的配置等密码时，
+   * 运行（运行、重跑都经这里）：命令型配置有参数时先弹参数框，取消即不运行。password：数据源上的配置等密码时，
    * 运行会话正文的密码框交上来的（带着它重跑）；这时取消参数框即停止这次运行
    */
   run: (
@@ -488,7 +489,7 @@ interface AppState {
 /** 未保存提示的选择。 */
 export type UnsavedChoice = 'save' | 'discard' | 'cancel'
 
-/** 数据源上的配置运行前的参数框：每个参数一行，预填这条配置上次用的值。 */
+/** 命令型配置运行前的参数框：每个参数一行，预填这条配置上次用的值。 */
 export interface RunParamsPrompt {
   configId: string
   /** 配置名（提示语里用） */
@@ -496,9 +497,9 @@ export interface RunParamsPrompt {
   /** 参数名：去重，按第一次出现的顺序 */
   names: string[]
   /** 预填的值：这条配置上次运行时填的（没填过的参数为空） */
-  initial: DataSourceRunParams
+  initial: RunParams
   /** 填好了交上各参数的值；取消为 null */
-  resolve: (params: DataSourceRunParams | null) => void
+  resolve: (params: RunParams | null) => void
 }
 
 /** 服务器上一个有未保存修改的文件：名字用于提示，save 存成返回 true。 */
@@ -685,21 +686,21 @@ async function removeConnection(
 }
 
 /**
- * 数据源上的配置有参数，运行前先问：弹参数框，交上来即记下（按配置记，跨重启保留）；取消为 null。
- * 密码框交上来的重跑是同一次运行的继续：刚填的值都还在就沿用，不再问。
+ * 命令型配置有参数，运行前先问：弹参数框，交上来即记下（按配置记，跨重启保留）；取消为 null。
+ * 数据源上的配置等密码时，密码框交上来的重跑是同一次运行的继续：刚填的值都还在就沿用，不再问。
  */
 async function askRunParams(
   set: SetApp,
   get: () => AppState,
-  config: DataSourceRunConfig,
+  config: EditableRunConfig,
   names: string[],
   password: DataSourceConnectPassword | undefined
-): Promise<DataSourceRunParams | null> {
-  const last = await window.api.getDataSourceRunParams(config.id)
+): Promise<RunParams | null> {
+  const last = await window.api.getRunParams(config.id)
   if (password !== undefined && names.every((name) => Object.hasOwn(last, name))) return last
   // 同一时刻只问一次：还有没答的就当取消
   get().runParamsPrompt?.resolve(null)
-  const params = await new Promise<DataSourceRunParams | null>((resolve) =>
+  const params = await new Promise<RunParams | null>((resolve) =>
     set({
       runParamsPrompt: {
         configId: config.id,
@@ -713,7 +714,7 @@ async function askRunParams(
       }
     })
   )
-  if (params !== null) await window.api.setDataSourceRunParams(config.id, params)
+  if (params !== null) await window.api.setRunParams(config.id, params)
   return params
 }
 
@@ -924,10 +925,10 @@ export const useApp = create<AppState>((set, get) => ({
   setContentSearchOpen: (open) => set({ contentSearchOpen: open }),
   setCloneDialogOpen: (open) => set({ cloneDialogOpen: open }),
   run: async (target, key, entryKey, password) => {
-    // 数据源上的配置有参数：先填参数，取消即什么都不动；没有参数照旧直接运行
-    const config = dataSourceConfigOf(get(), target, entryKey)
-    const names = config === undefined ? [] : dataSourceRunParamNames(config.script)
-    let params: DataSourceRunParams = {}
+    // 命令型配置有参数：先填参数，取消即什么都不动；没有参数照旧直接运行
+    const config = editableConfigOf(get(), target, entryKey)
+    const names = config === undefined ? [] : runConfigParamNames(config)
+    let params: RunParams = {}
     if (config !== undefined && names.length > 0) {
       const answer = await askRunParams(set, get, config, names, password)
       if (answer === null) {
@@ -947,7 +948,7 @@ export const useApp = create<AppState>((set, get) => ({
     }))
     persistWorkspace(get)
     if (switched) void touchEntry(set, entryKey)
-    // 语句取自问参数时的同一份配置（参数框开着时配置可能被推送更新）
+    // 数据源上的配置的语句取自问参数时的同一份配置（参数框开着时配置可能被推送更新）
     await window.api.run(
       config === undefined ? target : runTargetOf(get(), config, params, password)
     )

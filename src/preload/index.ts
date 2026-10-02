@@ -186,9 +186,8 @@ const api: RunAPI = {
   getSessions: () => ipcRenderer.invoke(IPC.sessions),
   getDataSourceRunOutput: (key) => ipcRenderer.invoke(IPC.dataSourceRunOutputGet, key),
   onDataSourceRunOutput: (cb) => subscribe(IPC.dataSourceRunOutput, cb),
-  getDataSourceRunParams: (configId) => ipcRenderer.invoke(IPC.dataSourceRunParamsGet, configId),
-  setDataSourceRunParams: (configId, params) =>
-    ipcRenderer.invoke(IPC.dataSourceRunParamsSet, configId, params),
+  getRunParams: (configId) => ipcRenderer.invoke(IPC.runParamsGet, configId),
+  setRunParams: (configId, params) => ipcRenderer.invoke(IPC.runParamsSet, configId, params),
 
   openTerminal: (projectPath, key, cwd) =>
     ipcRenderer.invoke(IPC.terminalOpen, projectPath, key, cwd),

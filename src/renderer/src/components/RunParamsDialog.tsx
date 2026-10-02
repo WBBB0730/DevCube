@@ -1,4 +1,4 @@
-// 数据源上的配置运行前的参数框（docs/prd/database.md「运行配置」）：配置里写了 `${名称}` 时，运行、重跑前先弹出，
+// 命令型配置运行前的参数框（docs/prd/run-config-params.md）：配置里写了 `${{名称}}` 时，运行、重跑前先弹出，
 // 每个参数一行（名称 + 等宽输入框，同 WHERE / ORDER BY 的「13px 等宽灰色标签 + 等宽输入」），预填这条配置上次用的值；
 // 回车即运行，Esc 即取消。填的值按文字原样替换进内容，不加引号。
 import { Fragment, useId, useState } from 'react'
@@ -6,11 +6,7 @@ import { FormDialogShell } from '@renderer/components/ui/form-dialog'
 import { Input } from '@renderer/components/ui/input'
 import type { RunParamsPrompt } from '@renderer/store'
 
-export function DataSourceRunParamsDialog({
-  prompt
-}: {
-  prompt: RunParamsPrompt
-}): React.JSX.Element {
+export function RunParamsDialog({ prompt }: { prompt: RunParamsPrompt }): React.JSX.Element {
   const id = useId()
   const [values, setValues] = useState(() =>
     prompt.names.map((name) => (Object.hasOwn(prompt.initial, name) ? prompt.initial[name]! : ''))
