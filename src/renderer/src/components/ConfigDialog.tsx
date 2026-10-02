@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { FolderOpen, Plus, Trash2 } from 'lucide-react'
 import { ConfigDialogFrame, Field } from '@renderer/components/ConfigDialogFrame'
 import { DataSourceConfigDialog } from '@renderer/components/DataSourceConfigDialog'
+import { RemoteDirPickerDialog } from '@renderer/components/RemoteDirPickerDialog'
 import { INPUT_ICON_BTN, Input } from '@renderer/components/ui/input'
 import { onParamInputKeyDown } from '@renderer/lib/run-param-autoclose'
 import { useApp } from '@renderer/store'
@@ -46,8 +47,12 @@ function CommandConfigDialog({
 }): React.JSX.Element {
   const close = useApp((s) => s.closeDialog)
   const save = useApp((s) => s.saveCommandConfig)
-  // 服务器上的命令型：在服务器上执行，工作目录是服务器上的目录（不能用本机的目录选择器）
+  // 服务器上的命令型：在服务器上执行，工作目录是服务器上的目录（选目录用自己的对话框，不用本机的目录选择器）
   const serverId = serverIdOfEntryKey(ownerKey)
+  const serverName = useApp(
+    (s) => s.servers.find((n) => n.server.id === serverId)?.server.name ?? ''
+  )
+  const [pickingRemoteCwd, setPickingRemoteCwd] = useState(false)
 
   const [name, setName] = useState(config?.name ?? '')
   const [command, setCommand] = useState(config?.command ?? '')
@@ -131,13 +136,23 @@ function CommandConfigDialog({
             </button>
           </div>
         ) : (
-          <Input
-            value={cwd}
-            onChange={(e) => setCwd(e.target.value)}
-            onKeyDown={onParamInputKeyDown}
-            placeholder="~"
-            className="font-mono"
-          />
+          <div className="flex items-center gap-1.5">
+            <Input
+              value={cwd}
+              onChange={(e) => setCwd(e.target.value)}
+              onKeyDown={onParamInputKeyDown}
+              placeholder="~"
+              className="min-w-0 flex-1 font-mono"
+            />
+            <button
+              type="button"
+              title="选择目录"
+              className={INPUT_ICON_BTN}
+              onClick={() => setPickingRemoteCwd(true)}
+            >
+              <FolderOpen className="size-4" />
+            </button>
+          </div>
         )}
       </Field>
       <Field label="环境变量">
@@ -176,6 +191,15 @@ function CommandConfigDialog({
           </button>
         </div>
       </Field>
+      {serverId !== null && pickingRemoteCwd && (
+        <RemoteDirPickerDialog
+          serverId={serverId}
+          serverName={serverName}
+          value={cwd.trim()}
+          onPick={setCwd}
+          onClose={() => setPickingRemoteCwd(false)}
+        />
+      )}
     </ConfigDialogFrame>
   )
 }

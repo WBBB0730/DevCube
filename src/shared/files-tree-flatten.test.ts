@@ -87,4 +87,40 @@ describe('flattenFilesTree 提示行', () => {
     const rows = flattenFilesTree(root, childrenByDir, new Set(), { [`${root}/src`]: '没有权限' })
     expect(rows.some((r) => r.notice)).toBe(false)
   })
+
+  it('正在读、还没读到的已展开目录，在子级位置出一条「正在读取…」', () => {
+    const dir = `${root}/lib`
+    const children = {
+      ...childrenByDir,
+      [root]: [...childrenByDir[root]!, entry('lib', 'lib', true)]
+    }
+    const rows = flattenFilesTree(root, children, new Set([dir]), {}, new Set([dir]))
+    expect(rows.at(-1)).toEqual({
+      path: `${dir}\0notice`,
+      name: '正在读取…',
+      depth: 1,
+      isDirectory: false,
+      notice: true,
+      loading: true
+    })
+  })
+
+  it('已读到的、折叠的、没在读的都不出「正在读取…」', () => {
+    const src = `${root}/src`
+    const loaded = flattenFilesTree(root, childrenByDir, new Set([src]), {}, new Set([src]))
+    expect(loaded.some((r) => r.loading)).toBe(false)
+    const collapsed = flattenFilesTree(root, childrenByDir, new Set(), {}, new Set([`${root}/x`]))
+    expect(collapsed.some((r) => r.loading)).toBe(false)
+    const idle = flattenFilesTree(
+      root,
+      { [root]: [entry('lib', 'lib', true)] },
+      new Set([`${root}/lib`])
+    )
+    expect(idle.map((r) => r.name)).toEqual(['lib'])
+  })
+
+  it('根还没读到时出在第 0 层', () => {
+    const rows = flattenFilesTree(root, {}, new Set(), {}, new Set([root]))
+    expect(rows.map((r) => [r.name, r.depth, r.loading])).toEqual([['正在读取…', 0, true]])
+  })
 })

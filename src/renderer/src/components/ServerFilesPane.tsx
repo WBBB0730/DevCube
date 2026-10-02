@@ -9,31 +9,21 @@ import { ConnectPlaceholder } from '@renderer/components/ui/connect-placeholder'
 import { FormDialogShell } from '@renderer/components/ui/form-dialog'
 import { FilesPane, type FilesPaneHost } from '@renderer/components/files/FilesPane'
 import { createKeyedSubscription, useKeyedPushed } from '@renderer/lib/keyed-subscription'
+import { useServerFilesState } from '@renderer/lib/server-files-state'
 import { cn } from '@renderer/lib/utils'
 import { useApp } from '@renderer/store'
-import type {
-  ServerFilesState,
-  ServerFilesStateEvent,
-  ServerTransfer,
-  ServerTransfersEvent
-} from '@shared/server-files'
+import type { ServerTransfer, ServerTransfersEvent } from '@shared/server-files'
 import { formatBytes } from '@shared/server-status'
 import { serverEntryKey } from '@shared/tree-entry'
 
 // 各台服务器的文件面板共用底层推送监听，按服务器 id 分发
-const subscribeServerFiles = createKeyedSubscription(
-  window.api.onServerFilesStateChanged,
-  (event) => event.serverId
-)
 const subscribeServerTransfers = createKeyedSubscription(
   window.api.onServerTransfersChanged,
   (event) => event.serverId
 )
 
-const stateOf = (event: ServerFilesStateEvent): ServerFilesState => event.state
 const transfersOf = (event: ServerTransfersEvent): ServerTransfer[] => event.transfers
 
-const IDLE: ServerFilesState = { phase: 'idle' }
 const NO_TRANSFERS: ServerTransfer[] = []
 
 export function ServerFilesPane({
@@ -46,8 +36,7 @@ export function ServerFilesPane({
   const entryKey = serverEntryKey(serverId)
   const name = useApp((s) => s.servers.find((n) => n.server.id === serverId)?.server.name ?? '')
   // 渲染端重载后接上主进程里已有的连接与传输；尚未得知时按未连接、没有传输
-  const state =
-    useKeyedPushed(serverId, subscribeServerFiles, window.api.getServerFilesState, stateOf) ?? IDLE
+  const state = useServerFilesState(serverId)
   const transfers =
     useKeyedPushed(
       serverId,

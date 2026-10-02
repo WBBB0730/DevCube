@@ -197,6 +197,18 @@ export function resolveRemoteInput(input: string, home: string): string | null {
   return null
 }
 
+/**
+ * 选目录对话框里选中的目录 → 服务器上的配置的工作目录（同本机的配置：项目根写成空）：家目录写成空（即默认的登录后的
+ * 目录），家目录之下写成 `~/…`，其余为绝对路径。
+ */
+export function remoteCwdFromPicked(home: string, picked: string): string {
+  const base = normalizeRemotePath(home)
+  const target = normalizeRemotePath(picked)
+  if (target === base) return ''
+  const under = base === '/' ? '/' : `${base}/`
+  return target.startsWith(under) ? `~/${target.slice(under.length)}` : target
+}
+
 /** 上传的落点：拖到目录行即该目录，拖到文件行即它所在的目录。 */
 export function uploadTargetDir(target: { path: string; isDirectory: boolean }): string {
   return target.isDirectory ? target.path : logicalParentPath(target.path)

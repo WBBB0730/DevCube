@@ -3,6 +3,7 @@ import {
   SERVER_FILES_PREVIEW_MAX_BYTES,
   createConflictPolicy,
   normalizeRemotePath,
+  remoteCwdFromPicked,
   resolveRemoteInput,
   serverOpenPlan,
   sftpOpenFailureMessage,
@@ -64,6 +65,28 @@ describe('normalizeRemotePath / resolveRemoteInput', () => {
     expect(resolveRemoteInput('', '/home/u')).toBeNull()
     expect(resolveRemoteInput('etc', '/home/u')).toBeNull()
     expect(resolveRemoteInput('~root/x', '/home/u')).toBeNull()
+  })
+})
+
+describe('remoteCwdFromPicked', () => {
+  it('家目录写成空，即默认的登录后的目录', () => {
+    expect(remoteCwdFromPicked('/home/u', '/home/u')).toBe('')
+    expect(remoteCwdFromPicked('/home/u/', '/home/u')).toBe('')
+  })
+
+  it('家目录之下写成 ~/…', () => {
+    expect(remoteCwdFromPicked('/home/u', '/home/u/apps/web')).toBe('~/apps/web')
+  })
+
+  it('其余为绝对路径；同前缀的兄弟目录不算家目录之下', () => {
+    expect(remoteCwdFromPicked('/home/u', '/var/log')).toBe('/var/log')
+    expect(remoteCwdFromPicked('/home/u', '/home/user2')).toBe('/home/user2')
+    expect(remoteCwdFromPicked('/home/u', '/')).toBe('/')
+  })
+
+  it('家目录是根时，其下的都写成 ~/…', () => {
+    expect(remoteCwdFromPicked('/', '/srv')).toBe('~/srv')
+    expect(remoteCwdFromPicked('/', '/')).toBe('')
   })
 })
 
