@@ -5,5 +5,5 @@
 **Consequences**
 
 - 名字命中的**空目录**不再出现在过滤结果里（名单只含文件；目录命中带整支的语义不受影响——子孙路径天然包含目录名）。
-- rg 平台二进制经 optionalDependencies 分发（v1.18 起无 postinstall 下载），需列入 pnpm `onlyBuiltDependencies` 之外无额外安装步骤；electron-builder 须将 `@vscode/ripgrep-*` asarUnpack，运行时 `rgPath` 做 `app.asar → app.asar.unpacked` 映射后才能 spawn。
+- rg 平台二进制经 optionalDependencies 分发（v1.18 起无 postinstall 下载），需在 pnpm `allowBuilds` 中允许构建，此外无额外安装步骤；electron-builder 须将 `@vscode/ripgrep-*` asarUnpack，运行时 `rgPath` 做 `app.asar → app.asar.unpacked` 映射后才能 spawn。
 - 该包为 ESM-only，CJS 主进程依赖 Electron ≥ Node 22.12 的 `require(esm)`（当前 Electron 39 满足）。
