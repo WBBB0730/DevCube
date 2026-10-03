@@ -1,5 +1,13 @@
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  lstatSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  rmSync,
+  symlinkSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
@@ -98,6 +106,26 @@ beforeAll(() => {
   write(join(unzipped, 'a.txt'))
   write(join(unzipped, '__MACOSX', '._a.txt'))
   git(unzipped, ['init', '-q'])
+
+  // 仓库 mods：有子模块 lib，也有未跟踪的嵌套仓库 nested，两者里面都有子文件夹
+  const libSource = join(root, 'lib-source')
+  write(join(libSource, 'src', 'x.ts'))
+  git(libSource, ['init', '-q'])
+  git(libSource, ['add', '.'])
+  git(libSource, ['commit', '-q', '-m', 'init'])
+  const mods = join(root, 'w', 'mods')
+  write(join(mods, 'a.txt'))
+  git(mods, ['init', '-q'])
+  git(mods, ['-c', 'protocol.file.allow=always', 'submodule', 'add', '-q', libSource, 'lib'])
+  git(mods, ['add', 'a.txt'])
+  git(mods, ['commit', '-q', '-m', 'init'])
+  mkdirSync(join(mods, 'lib', 'blank'))
+  const nested = join(mods, 'nested')
+  write(join(nested, '.gitignore'), 'cache/\n')
+  write(join(nested, 'src', 'y.ts'))
+  write(join(nested, 'cache', 'z'))
+  mkdirSync(join(nested, 'blank'))
+  git(nested, ['init', '-q'])
 })
 
 afterAll(() => {
@@ -139,6 +167,29 @@ describe('scanCompressItems', () => {
     ])
     expect(flags).toEqual({ hasRepo: true, hasDotGit: true, hasMacJunk: true })
     // 每个条目只出现一次（目录不会因空文件夹判定被重复加入）
+    expect(new Set(entries.map((e) => e.name)).size).toBe(entries.length)
+  })
+
+  it('子模块与嵌套仓库里的内容只按它自己的规则列，外层不再往里找空文件夹', async () => {
+    const mods = join(root, 'w', 'mods')
+    const { entries } = await scanCompressItems([mods], join(root, 'w'), true, undefined, deps)
+    expect(names(entries).filter((n) => !n.includes('/.git/'))).toEqual([
+      'mods',
+      'mods/.git',
+      'mods/.gitmodules',
+      'mods/a.txt',
+      'mods/lib',
+      'mods/lib/.git',
+      'mods/lib/blank',
+      'mods/lib/src',
+      'mods/lib/src/x.ts',
+      'mods/nested',
+      'mods/nested/.git',
+      'mods/nested/.gitignore',
+      'mods/nested/blank',
+      'mods/nested/src',
+      'mods/nested/src/y.ts'
+    ])
     expect(new Set(entries.map((e) => e.name)).size).toBe(entries.length)
   })
 
@@ -252,6 +303,62 @@ describe('scanCompressItems', () => {
     const kept = filterCompressEntries(entries, { excludeGit: true, excludeMacJunk: false })
     expect(names(kept).some((n) => n === '.git' || n.startsWith('.git/'))).toBe(false)
   })
+
+  it('跨子文件夹多选：只在所选条目里面找空文件夹，没选的文件夹不装', async () => {
+    const web = join(root, 'w', 'web')
+    const { entries } = await scanCompressItems(
+      [join(web, 'fresh', 'index.ts'), join(web, 'notes.md')],
+      web,
+      true,
+      undefined,
+      deps
+    )
+    expect(names(entries)).toEqual(['fresh', 'fresh/index.ts', 'notes.md'])
+  })
+
+  it('git 不认的 .git（指向已不存在的位置）按普通文件夹遍历', async () => {
+    const stale = join(root, 'stale')
+    write(join(stale, 'wt', '.git'), `gitdir: ${join(root, 'gone')}\n`)
+    write(join(stale, 'wt', 'a.txt'))
+    const { entries, flags } = await scanCompressItems([stale], root, true, undefined, deps)
+    expect(names(entries)).toEqual(['stale', 'stale/wt', 'stale/wt/.git', 'stale/wt/a.txt'])
+    expect(flags).toEqual({ hasRepo: false, hasDotGit: true, hasMacJunk: false })
+  })
+
+  it.skipIf(process.platform === 'win32')('FIFO 等特殊文件不装', async () => {
+    const dir = join(root, 'special')
+    write(join(dir, 'a.txt'))
+    spawnSync('mkfifo', [join(dir, 'pipe')])
+    expect(lstatSync(join(dir, 'pipe')).isFIFO()).toBe(true)
+    const { entries } = await scanCompressItems([dir], root, false, undefined, deps)
+    expect(names(entries)).toEqual(['special', 'special/a.txt'])
+  })
+
+  it.skipIf(process.platform !== 'darwin')(
+    'macOS 上分解形式的文件名按 git 的写法比较与判定：不重复，忽略判定准确',
+    async () => {
+      // 磁盘上是分解形式（字母 + 组合附加符号），.gitignore 与期望结果是合成形式
+      const repo = join(root, 'nfd')
+      write(join(repo, '.gitignore'), 'na\u00efve/\n')
+      write(join(repo, 'cafe\u0301', 'a.txt'))
+      mkdirSync(join(repo, 'cafe\u0301', 'empty'))
+      mkdirSync(join(repo, 'nai\u0308ve'))
+      git(repo, ['init', '-q'])
+      const cafe = 'caf\u00e9'
+      const expected = ['.git', '.gitignore', cafe, `${cafe}/a.txt`, `${cafe}/empty`]
+
+      const single = await scanCompressItems([repo], root, true, undefined, deps)
+      expect(names(single.entries).filter((n) => !n.includes('/.git/'))).toEqual([
+        'nfd',
+        ...expected.map((n) => `nfd/${n}`)
+      ])
+
+      // 多选：系统给的所选路径也是磁盘原样
+      const items = readdirSync(repo).map((n) => join(repo, n))
+      const multi = await scanCompressItems(items, repo, true, undefined, deps)
+      expect(names(multi.entries).filter((n) => !n.startsWith('.git/'))).toEqual(expected)
+    }
+  )
 
   it.skipIf(process.platform === 'win32')('符号链接作为链接条目，不跟随', async () => {
     const dir = join(root, 'links')

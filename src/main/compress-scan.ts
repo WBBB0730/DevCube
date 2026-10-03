@@ -130,9 +130,17 @@ function splitNul(stdout: Buffer): string[] {
 }
 
 /**
- * 扫描所选条目。excludeIgnored 为 true 时，仓库里的内容按 Git 的规则列出；否则一律遍历磁盘。
- * 只选一个时它本身总会装进去（明确选了它），排除规则只作用于它里面的内容；多选（如在 Finder 里全选一个文件夹的
- * 内容）等同于压它们所在文件夹的内容，所选条目本身也按规则处理。
+ * 文件名写成 git 输出的形式，才能与 git 列出的路径比较、交给 git 判定：macOS 上 git 把文件名转成合成形式
+ * （core.precomposeUnicode），读目录与系统给的路径则是磁盘上的原样，可能是分解形式。
+ */
+function asGitName(name: string): string {
+  return process.platform === 'darwin' ? name.normalize('NFC') : name
+}
+
+/**
+ * 扫描所选条目（互不包含，见 outermostPaths）。excludeIgnored 为 true 时，仓库里的内容按 Git 的规则列出；
+ * 否则一律遍历磁盘。只选一个时它本身总会装进去（明确选了它），排除规则只作用于它里面的内容；多选（如在 Finder
+ * 里全选一个文件夹的内容）等同于压它们所在文件夹的内容，所选条目本身也按规则处理。
  */
 export async function scanCompressItems(
   items: readonly string[],
@@ -154,8 +162,12 @@ export async function scanCompressItems(
   /** 名字像 Mac 专属文件的条目，扫完后再读文件头确认 */
   const junkCandidates: { entry: CompressEntry; kind: MacJunkFileKind }[] = []
 
-  /** checkJunk：只选一个时它本身不参与 Mac 专属文件的判定（明确选了它，总会装进去） */
+  /**
+   * 只收文件、目录与符号链接：套接字、FIFO 等特殊文件读不了（FIFO 读起来会一直等），git 也不列。
+   * checkJunk：只选一个时它本身不参与 Mac 专属文件的判定（明确选了它，总会装进去）。
+   */
   const add = async (path: string, st: Stats, marks: Marks, checkJunk = true): Promise<void> => {
+    if (!st.isFile() && !st.isDirectory() && !st.isSymbolicLink()) return
     const kind = st.isSymbolicLink() ? 'link' : st.isDirectory() ? 'dir' : 'file'
     const entry: CompressEntry = {
       kind,
@@ -201,11 +213,20 @@ export async function scanCompressItems(
     if (marks.macJunk && !parentMarks.macJunk) flags.hasMacJunk = true
   }
 
-  /** 遍历磁盘；遇到仓库根（有 `.git`）且要排除忽略的文件时，改由 git 列出它的内容。 */
+  const insideWorkTree = async (dir: string): Promise<boolean> => {
+    if (!gitAvailable) return false
+    const result = await deps.git(dir, ['rev-parse', '--is-inside-work-tree'])
+    return result.code === 0 && result.stdout.toString('utf8').trim() === 'true'
+  }
+
+  /**
+   * 遍历磁盘；遇到仓库根且要排除忽略的文件时，改由 git 列出它的内容。有 `.git` 还要 git 认：
+   * 指向已不存在位置的 `.git` 文件（主仓库已删的 worktree、从父仓库拷出来的子模块）按普通文件夹遍历。
+   */
   const walk = async (dir: string, marks: Marks): Promise<void> => {
     checkAborted()
     const names = (await originalFs.readdir(dir)).sort()
-    if (!marks.inGit && names.includes('.git') && gitAvailable) {
+    if (!marks.inGit && names.includes('.git') && (await insideWorkTree(dir))) {
       flags.hasRepo = true
       if (useGit) {
         await listByGit(dir, marks)
@@ -269,6 +290,8 @@ export async function scanCompressItems(
       files = [...listed]
     }
     const added = new Set<string>()
+    /** 嵌套仓库的入口：里面的内容由它自己那一轮列出 */
+    const nestedRepos = new Set<string>()
     /** 补上包内路径的各级上层目录（相对 dir、`/` 分隔），并返回这一路的标记 */
     const ensureDirs = async (rel: string): Promise<Marks> => {
       const segments = rel.split('/')
@@ -307,6 +330,7 @@ export async function scanCompressItems(
           // 嵌套仓库（子模块或未跟踪的仓库）：git 只给出入口，内容按它自己的规则列
           if (added.has(rel)) continue
           added.add(rel)
+          nestedRepos.add(rel)
           await add(path, st, m)
           flags.hasRepo = true
           if ((await lstatOrNull(join(path, '.git'))) !== null) await listByGit(path, m)
@@ -319,7 +343,19 @@ export async function scanCompressItems(
     // 空文件夹：git 不列目录。从已列出内容的目录（含 dir 本身）往下找没列到的子目录，交给
     // `git check-ignore` 判定（-z 只能配合 --stdin，ADR-0009）：没被忽略的是空文件夹（或只剩空文件夹、
     // 被忽略的文件），补上并继续往下找；被忽略的整支跳过，不进去遍历。按层批量判定。
-    let level = selection === undefined ? ['', ...added] : [...added]
+    // 嵌套仓库不进去找：它的空文件夹由它自己那一轮补上；子模块里的路径交给 check-ignore 会直接报错。
+    // 多选时只在所选条目里面找：跨子文件夹多选时为补路径加上的上层目录里，还有没选的内容
+    const aboveSelection = new Set(
+      (selection ?? []).flatMap((rel) =>
+        rel
+          .split('/')
+          .slice(0, -1)
+          .map((_, i, segments) => segments.slice(0, i + 1).join('/'))
+      )
+    )
+    let level = (selection === undefined ? ['', ...added] : [...added]).filter(
+      (rel) => !nestedRepos.has(rel) && !aboveSelection.has(rel)
+    )
     // 多选时，所选的文件夹本身没列到内容（空的，或里面全被忽略）的，同样交给 check-ignore 判定
     let selectedDirs: string[] = []
     if (selection !== undefined) {
@@ -338,7 +374,8 @@ export async function scanCompressItems(
         const children = await originalFs.readdir(abs, { withFileTypes: true }).catch(() => [])
         for (const child of children) {
           if (!child.isDirectory() || child.name === '.git') continue
-          const rel = relDir === '' ? child.name : `${relDir}/${child.name}`
+          const name = asGitName(child.name)
+          const rel = relDir === '' ? name : `${relDir}/${name}`
           if (!added.has(rel)) candidates.push(rel)
         }
       }
@@ -368,12 +405,6 @@ export async function scanCompressItems(
     }
   }
 
-  const insideWorkTree = async (dir: string): Promise<boolean> => {
-    if (!gitAvailable) return false
-    const result = await deps.git(dir, ['rev-parse', '--is-inside-work-tree'])
-    return result.code === 0 && result.stdout.toString('utf8').trim() === 'true'
-  }
-
   /** 所选的一个文件夹：在仓库里且要排除忽略的文件时由 git 列，否则遍历磁盘。 */
   const scanDir = async (dir: string, marks: Marks): Promise<void> => {
     if (!marks.inGit && (await insideWorkTree(dir))) {
@@ -398,7 +429,9 @@ export async function scanCompressItems(
     if (await insideWorkTree(parent)) {
       flags.hasRepo = true
       if (useGit) {
-        const selection = items.map((item) => relative(parent, item).split(sep).join('/'))
+        const selection = items.map((item) =>
+          asGitName(relative(parent, item).split(sep).join('/'))
+        )
         await listByGit(parent, top, selection)
         return
       }

@@ -112,6 +112,23 @@ function isFsRoot(p: string): boolean {
 }
 
 /**
+ * 去掉重复的、被其他所选条目包含的条目：Finder 列表视图里可以同时选中文件夹和它里面的条目，
+ * 选了文件夹就已包含里面的内容。保留原顺序与原写法。
+ */
+export function outermostPaths(paths: readonly string[]): string[] {
+  const unique = [...new Set(paths)]
+  const selected = new Set(unique.map(normalizePath))
+  return unique.filter((p) => {
+    let dir = normalizePath(p)
+    while (logicalParentPath(dir) !== dir) {
+      dir = logicalParentPath(dir)
+      if (selected.has(dir)) return false
+    }
+    return true
+  })
+}
+
+/**
  * 所选条目的共同上层文件夹：单个条目为它所在的文件夹；Finder 列表视图可以跨子文件夹多选，
  * 所以多选取各自所在文件夹的最长公共前缀。也是默认位置与包内路径的起点。
  */

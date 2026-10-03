@@ -12,6 +12,7 @@ import {
   compressSubject,
   defaultArchiveName,
   nextFreeArchiveName,
+  outermostPaths,
   type CompressOptions,
   type CompressResult,
   type CompressScanResponse,
@@ -83,7 +84,7 @@ function sessionOf(sender: WebContents): CompressSession {
  * 切到前台（`open -g`），两个窗口同时出现，不是一前一后。
  */
 export async function openCompressWindow(paths: readonly string[]): Promise<void> {
-  const items = [...new Set(paths)]
+  const items = outermostPaths(paths)
   if (items.length === 0) return
   const logicalParent = commonParentPath(items)
   const parent = toSys(logicalParent)

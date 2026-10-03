@@ -10,9 +10,28 @@ import {
   isMacJunkHeader,
   macJunkFileKind,
   nextFreeArchiveName,
+  outermostPaths,
   parseCompressLaunch,
   visibleCompressOptions
 } from './compress'
+
+describe('outermostPaths', () => {
+  it('去掉重复的与被其他所选条目包含的条目，保留原顺序', () => {
+    expect(outermostPaths(['/w/a/x', '/w/a', '/w/b', '/w/a/x/y.txt', '/w/b'])).toEqual([
+      '/w/a',
+      '/w/b'
+    ])
+    // 名字只是前缀相同的不算包含
+    expect(outermostPaths(['/w/a', '/w/ab', '/w/a b'])).toEqual(['/w/a', '/w/ab', '/w/a b'])
+  })
+
+  it('Windows 路径保留原写法', () => {
+    expect(outermostPaths(['C:\\w\\a', 'C:\\w\\a\\x', 'C:\\w\\b'])).toEqual([
+      'C:\\w\\a',
+      'C:\\w\\b'
+    ])
+  })
+})
 
 describe('commonParentPath', () => {
   it('单个条目取所在文件夹', () => {
