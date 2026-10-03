@@ -11,9 +11,7 @@ import {
   commonParentPath,
   compressSubject,
   defaultArchiveName,
-  effectiveCompressOptions,
   nextFreeArchiveName,
-  visibleCompressOptions,
   type CompressOptions,
   type CompressResult,
   type CompressScanResponse,
@@ -133,11 +131,7 @@ function listingOf(s: CompressSession, excludeIgnored: boolean): Promise<Compres
 }
 
 function applyOptions(listing: CompressListing, options: CompressOptions): CompressListing {
-  const effective = effectiveCompressOptions(
-    options,
-    visibleCompressOptions(listing.flags, process.platform)
-  )
-  return { flags: listing.flags, entries: filterCompressEntries(listing.entries, effective) }
+  return { flags: listing.flags, entries: filterCompressEntries(listing.entries, options) }
 }
 
 /** 预览：按勾选给出内容特征（决定勾选框是否出现）与将装入的文件个数、字节数；读不了时带上原因。 */

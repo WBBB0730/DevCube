@@ -92,6 +92,12 @@ beforeAll(() => {
   write(join(plain, '.gitignore'), '*.txt\n')
   write(join(plain, 'a.txt'))
   write(join(plain, '__MACOSX', '._a.txt'))
+
+  // 仓库里只有 __MACOSX 这一种 Mac 专属文件（git 只列出它里面的文件，文件夹本身由路径补齐）
+  const unzipped = join(root, 'w', 'unzipped')
+  write(join(unzipped, 'a.txt'))
+  write(join(unzipped, '__MACOSX', '._a.txt'))
+  git(unzipped, ['init', '-q'])
 })
 
 afterAll(() => {
@@ -185,6 +191,21 @@ describe('scanCompressItems', () => {
     expect(
       names(filterCompressEntries(entries, { excludeGit: false, excludeMacJunk: true }))
     ).toEqual(['plain', 'plain/.gitignore', 'plain/a.txt'])
+  })
+
+  it('仓库里由 git 列出的 __MACOSX 同样记为内容里有 Mac 专属文件', async () => {
+    const unzipped = join(root, 'w', 'unzipped')
+    const { entries, flags } = await scanCompressItems(
+      [unzipped],
+      join(root, 'w'),
+      true,
+      undefined,
+      deps
+    )
+    expect(flags.hasMacJunk).toBe(true)
+    expect(
+      names(filterCompressEntries(entries, { excludeGit: true, excludeMacJunk: true }))
+    ).toEqual(['unzipped', 'unzipped/a.txt'])
   })
 
   it('仓库的子文件夹：上层的忽略规则照样生效，包内路径相对共同上层', async () => {

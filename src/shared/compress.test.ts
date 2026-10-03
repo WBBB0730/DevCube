@@ -6,7 +6,6 @@ import {
   commonParentPath,
   compressSubject,
   defaultArchiveName,
-  effectiveCompressOptions,
   isMacJunkDirName,
   isMacJunkHeader,
   macJunkFileKind,
@@ -99,28 +98,18 @@ describe('Mac 专属文件', () => {
 describe('勾选框', () => {
   const none = { hasRepo: false, hasDotGit: false, hasMacJunk: false }
 
-  it('出现条件：仓库 / .git / Mac 专属文件（macOS 上总是出现）', () => {
-    expect(visibleCompressOptions(none, 'darwin')).toEqual({
+  it('出现条件：内容在仓库里或含仓库 / 有 .git / 有 Mac 专属文件', () => {
+    expect(visibleCompressOptions(none)).toEqual({
       excludeIgnored: false,
       excludeGit: false,
-      excludeMacJunk: true
+      excludeMacJunk: false
     })
-    expect(visibleCompressOptions(none, 'win32').excludeMacJunk).toBe(false)
-    expect(visibleCompressOptions({ ...none, hasMacJunk: true }, 'linux').excludeMacJunk).toBe(true)
-    expect(
-      visibleCompressOptions({ hasRepo: true, hasDotGit: true, hasMacJunk: false }, 'win32')
-    ).toEqual({ excludeIgnored: true, excludeGit: true, excludeMacJunk: false })
-  })
-
-  it('不出现的勾选框不起作用', () => {
-    const all = { excludeIgnored: true, excludeGit: true, excludeMacJunk: true }
-    expect(
-      effectiveCompressOptions(all, {
-        excludeIgnored: false,
-        excludeGit: true,
-        excludeMacJunk: true
-      })
-    ).toEqual({ excludeIgnored: false, excludeGit: true, excludeMacJunk: true })
+    expect(visibleCompressOptions({ ...none, hasMacJunk: true }).excludeMacJunk).toBe(true)
+    expect(visibleCompressOptions({ hasRepo: true, hasDotGit: true, hasMacJunk: false })).toEqual({
+      excludeIgnored: true,
+      excludeGit: true,
+      excludeMacJunk: false
+    })
   })
 })
 

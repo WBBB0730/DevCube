@@ -1,9 +1,9 @@
-// 压缩窗口（docs/prd/compress.md）：一次压缩一个独立的小窗口。顶栏只有标题（可拖拽）；正文是名称、位置、
-// 按内容出现的勾选框与一行预览；底栏「取消」+「压缩」。点「压缩」后按钮本身显示进度，「取消」与 Esc 都是关窗
+// 压缩窗口（docs/prd/compress.md）：一次压缩一个独立的小窗口。顶栏只有标题（可拖拽）；正文是名称、位置与
+// 按内容出现的勾选框；底栏左侧一行预览，右侧「取消」+「压缩」。点「压缩」后按钮本身显示进度，「取消」与 Esc 都是关窗
 // （关窗即取消，主进程删掉写了一半的临时文件）；成功由主进程关窗，失败弹错误框、窗口回到可编辑状态。
 // 窗口尺寸固定、建好即显示：标题、默认名称与位置由主进程经查询串带来，上次的勾选取启动快照里的偏好。
 // 第一次统计回来之前窗口里只转圈；回来后名称、位置、勾选框、预览、按钮一起出现，不一部分先出、一部分后跳。
-// 勾选框出现过就不再消失（各次统计的内容特征取并集），之后改勾选重新统计时只有预览行转圈。
+// 勾选框随统计结果出现或消失（新结果回来前保持原样），之后改勾选重新统计时只有预览行转圈。
 import { useCallback, useEffect, useState } from 'react'
 import { FolderOpen, LoaderCircle } from 'lucide-react'
 import { AppTitleBar } from '@renderer/components/AppTitleBar'
@@ -20,6 +20,7 @@ import {
   ARCHIVE_EXT,
   archiveNameError,
   visibleCompressOptions,
+  type CompressContentFlags,
   type CompressLaunch,
   type CompressOptionKey,
   type CompressOptions,
@@ -37,6 +38,12 @@ const OPTION_LABELS: { key: CompressOptionKey; label: string; info?: string }[] 
   }
 ]
 
+const NO_CONTENT_FLAGS: CompressContentFlags = {
+  hasRepo: false,
+  hasDotGit: false,
+  hasMacJunk: false
+}
+
 function optionsKey(options: CompressOptions): string {
   return `${options.excludeIgnored}|${options.excludeGit}|${options.excludeMacJunk}`
 }
@@ -48,10 +55,8 @@ export function CompressWindow({ launch }: { launch: CompressLaunch }): React.JS
   const [options, setOptions] = useState<CompressOptions>(
     () => window.api.getBootstrap().appPrefs.compressOptions
   )
-  /** 预览结果连同它对应的勾选——勾选变了旧结果即作废，不会把旧数字当成新的 */
+  /** 最近一次统计成功的结果连同它对应的勾选——勾选变了旧数字不再当预览，勾选框则按它显示到新结果回来 */
   const [scan, setScan] = useState<{ key: string; result: CompressScanResult } | null>(null)
-  /** 各次统计的内容特征取并集：勾选框出现过就不再消失，改勾选重新统计时不忽隐忽现；null = 第一次统计还没回来 */
-  const [flags, setFlags] = useState<CompressScanResult['flags'] | null>(null)
   /** 统计失败的那组勾选（预览行留空，原因在错误框里） */
   const [failedKey, setFailedKey] = useState<string | null>(null)
   const [packing, setPacking] = useState(false)
@@ -74,20 +79,9 @@ export function CompressWindow({ launch }: { launch: CompressLaunch }): React.JS
       if (!response.ok) {
         setFailedKey(key)
         setError({ title: '无法读取', message: response.message })
-        // 第一次就读不了也要让窗口内容出来（可以取消、换勾选重试）
-        setFlags((prev) => prev ?? { hasRepo: false, hasDotGit: false, hasMacJunk: false })
         return
       }
       setScan({ key, result: response })
-      setFlags((prev) =>
-        prev === null
-          ? response.flags
-          : {
-              hasRepo: prev.hasRepo || response.flags.hasRepo,
-              hasDotGit: prev.hasDotGit || response.flags.hasDotGit,
-              hasMacJunk: prev.hasMacJunk || response.flags.hasMacJunk
-            }
-      )
     })
     return () => {
       stale = true
@@ -96,8 +90,10 @@ export function CompressWindow({ launch }: { launch: CompressLaunch }): React.JS
 
   useEffect(() => window.api.onCompressProgress(setPercent), [])
 
+  // 内容特征取最近一次统计成功的结果；第一次就读不了也要让窗口内容出来（可以取消、换勾选重试）
+  const flags = scan !== null ? scan.result.flags : failedKey !== null ? NO_CONTENT_FLAGS : null
   const ready = flags !== null
-  const visible = flags === null ? null : visibleCompressOptions(flags, platform)
+  const visible = flags === null ? null : visibleCompressOptions(flags)
   const currentKey = optionsKey(options)
   const preview = scan !== null && scan.key === currentKey ? scan.result.preview : null
 
@@ -216,7 +212,9 @@ export function CompressWindow({ launch }: { launch: CompressLaunch }): React.JS
             </label>
           ))}
         </div>
-        <div className="flex h-[18px] items-center gap-1.5 text-[12px] text-muted-foreground">
+      </div>
+      <div className="flex justify-end gap-2 px-4 pb-4">
+        <div className="mr-auto flex items-center gap-1.5 text-[12px] text-muted-foreground">
           {preview !== null ? (
             `将装入 ${preview.files.toLocaleString()} 个文件，共 ${formatBytes(preview.bytes)}`
           ) : failedKey === currentKey ? null : (
@@ -226,8 +224,6 @@ export function CompressWindow({ launch }: { launch: CompressLaunch }): React.JS
             </>
           )}
         </div>
-      </div>
-      <div className="flex justify-end gap-2 px-4 pb-4">
         <Button variant="ghost" onClick={() => window.close()}>
           取消
         </Button>

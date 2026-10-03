@@ -274,13 +274,16 @@ export async function scanCompressItems(
       const segments = rel.split('/')
       let m = marks
       for (let i = 0; i < segments.length - 1; i++) {
+        const parentMarksOf = m
         m = childMarks(m, segments[i])
         const relDir = segments.slice(0, i + 1).join('/')
         if (added.has(relDir)) continue
         added.add(relDir)
         const path = join(dir, ...segments.slice(0, i + 1))
         const st = await lstatOrNull(path)
-        if (st !== null) await add(path, st, m)
+        if (st === null) continue
+        noteMarks(parentMarksOf, segments[i], m)
+        await add(path, st, m)
       }
       return m
     }

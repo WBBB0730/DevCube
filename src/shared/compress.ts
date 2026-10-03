@@ -22,10 +22,10 @@ export interface CompressOptions {
 
 export type CompressOptionKey = keyof CompressOptions
 
-/** 首次的默认值：不排除被 Git 忽略的文件、保留 `.git`、排除 Mac 专属文件。 */
+/** 首次的默认值：三项都排除。 */
 export const DEFAULT_COMPRESS_OPTIONS: CompressOptions = {
-  excludeIgnored: false,
-  excludeGit: false,
+  excludeIgnored: true,
+  excludeGit: true,
   excludeMacJunk: true
 }
 
@@ -70,10 +70,10 @@ export type CompressScanResponse =
   ({ ok: true } & CompressScanResult) | { ok: false; message: string }
 
 /**
- * 压缩窗口的尺寸：固定不变——按内容最多时（名称、位置、三个勾选框、预览行、按钮）定好，
+ * 压缩窗口的尺寸：固定不变——按内容最多时（名称、位置、三个勾选框、底栏）定好，
  * 勾选框按内容出现、统计中的加载都在这块地方里进行，窗口建好即显示、之后不再改尺寸。
  */
-export const COMPRESS_WINDOW_SIZE = { width: 480, height: 364 } as const
+export const COMPRESS_WINDOW_SIZE = { width: 480, height: 334 } as const
 
 /** 主进程建窗前算好、经查询串交给压缩窗口的首帧内容（上次的勾选从启动快照的偏好里取）。 */
 export interface CompressLaunch {
@@ -96,27 +96,14 @@ export interface CompressStartRequest {
 export type CompressResult =
   { status: 'done' } | { status: 'canceled' } | { status: 'error'; message: string }
 
-/** 各勾选框是否出现：Mac 专属文件在 macOS 上总是出现，其他平台只在内容里确实有时出现。 */
+/** 各勾选框是否出现：内容里确实有可排除的东西才出现，所以不出现的那项勾不勾都一样。 */
 export function visibleCompressOptions(
-  flags: CompressContentFlags,
-  platform: string
+  flags: CompressContentFlags
 ): Record<CompressOptionKey, boolean> {
   return {
     excludeIgnored: flags.hasRepo,
     excludeGit: flags.hasDotGit,
-    excludeMacJunk: platform === 'darwin' || flags.hasMacJunk
-  }
-}
-
-/** 实际生效的选项：不出现的勾选框不起作用。 */
-export function effectiveCompressOptions(
-  options: CompressOptions,
-  visible: Record<CompressOptionKey, boolean>
-): CompressOptions {
-  return {
-    excludeIgnored: visible.excludeIgnored && options.excludeIgnored,
-    excludeGit: visible.excludeGit && options.excludeGit,
-    excludeMacJunk: visible.excludeMacJunk && options.excludeMacJunk
+    excludeMacJunk: flags.hasMacJunk
   }
 }
 
