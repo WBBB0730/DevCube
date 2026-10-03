@@ -66,3 +66,8 @@ jobs:
 
       - name: Check
         run: pnpm check
+
+      # 压缩右键扩展的 DLL 只在 Windows 打包时编译：这里先编一遍，链接问题在 main 上就暴露，不留到发版
+      - name: Build Windows compress shell extension
+        if: runner.os == 'Windows'
+        run: pnpm build:win-shell

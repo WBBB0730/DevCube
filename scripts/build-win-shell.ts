@@ -65,7 +65,10 @@ try {
     'ole32.lib',
     'shell32.lib',
     'shlwapi.lib',
-    'advapi32.lib'
+    'advapi32.lib',
+    'user32.lib',
+    // WRL 的 Module 用到 RoOriginateError，按微软「用 WRL 创建经典 COM 组件」的要求链接
+    'runtimeobject.lib'
   ].join(' ')
   // execSync 在 Windows 上经 cmd.exe 执行整条命令：先载入 vcvars64 的环境，再在同一个 shell 里调 cl
   execSync(`call "${vcvars}" >nul && ${cl}`, { stdio: 'inherit' })
