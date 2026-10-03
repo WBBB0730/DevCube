@@ -66,7 +66,14 @@ function extList(category: keyof typeof FILES_OPEN_WITH_EXTS): string {
 }
 
 /** 入口行（安装 / 移除），与「文件打开方式」一行同级并列。 */
-const ENTRY_FEATURE_IDS = ['quickAction', 'cliShim', 'codexOpenIn', 'windowsContextMenu'] as const
+const ENTRY_FEATURE_IDS = [
+  'quickAction',
+  'cliShim',
+  'codexOpenIn',
+  'windowsContextMenu',
+  'quickActionCompress',
+  'windowsCompressMenu'
+] as const
 
 /** 一行的文案：名字必有；说明、名字后的 `Info` hover、按钮 hover 各按需。 */
 type IntegrationRowCopy = { label: string; desc?: string; info?: string; buttonHint?: string }
@@ -92,6 +99,10 @@ function integrationCopy(
       label: 'Finder',
       desc: `在 Finder 的「快速操作」中添加「在 ${state.productName} 中打开」`
     },
+    quickActionCompress: {
+      label: '压缩',
+      desc: `在 Finder 的「快速操作」中添加「用 ${state.productName} 压缩」`
+    },
     cliShim: {
       label: 'CLI',
       desc: `在 /usr/local/bin 中安装 ${state.cliName} 命令（可能请求管理员授权）`
@@ -103,6 +114,10 @@ function integrationCopy(
     windowsContextMenu: {
       label: '资源管理器',
       desc: `在资源管理器的右键菜单中添加「在 ${state.productName} 中打开」`
+    },
+    windowsCompressMenu: {
+      label: '压缩',
+      desc: `在资源管理器的右键菜单中添加「用 ${state.productName} 压缩」`
     }
   }
 }

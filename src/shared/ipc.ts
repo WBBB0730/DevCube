@@ -149,6 +149,13 @@ export const IPC = {
   /** 系统集成（设置「系统集成」栏） */
   integrationGet: 'integration:get',
   integrationApply: 'integration:apply',
+  /** 压缩窗口（docs/prd/compress.md）：按勾选预览、探测重名、选位置、开始 / 取消，进度经 progress 事件推送 */
+  compressScan: 'compress:scan',
+  compressTargetExists: 'compress:target-exists',
+  compressPickDir: 'compress:pick-dir',
+  compressStart: 'compress:start',
+  compressCancel: 'compress:cancel',
+  compressProgress: 'compress:progress',
   run: 'session:run',
   stop: 'session:stop',
   stdin: 'session:stdin',
@@ -196,6 +203,8 @@ export const IPC = {
   filesTrash: 'files:trash',
   /** 「复制文件」：把文件 / 文件夹本身放进系统剪贴板（只放行授权根内路径） */
   filesCopyFile: 'files:copy-file',
+  /** 文件树右键「压缩」：为该条目开一个压缩窗口（只放行授权根内路径） */
+  filesCompress: 'files:compress',
   filesGetUi: 'files:ui-get',
   filesSetUi: 'files:ui-set',
   filesChanged: 'files:changed',

@@ -13,3 +13,6 @@ scripts/out
 
 # macOS 设默认小助手编译产物（scripts/build-mac-helper.ts）
 build/mac/default-app-helper
+
+# Windows 压缩右键扩展编译产物（scripts/build-win-shell.ts）
+build/win/compress-menu.dll

@@ -1,5 +1,6 @@
 import { shell } from 'electron'
-import { promises as fs } from 'node:fs'
+// 用户的文件用不带 asar 改装的原版 fs：Electron 改装过的 fs 会把 .asar 文件当成文件夹往里读（ADR-0051）
+import { promises as fs } from 'original-fs'
 import path from 'node:path'
 import { detectAv } from '@file-type/av'
 import { fileTypeFromFile } from 'file-type'

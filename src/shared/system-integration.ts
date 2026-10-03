@@ -2,9 +2,11 @@
 
 export const SYSTEM_INTEGRATION_FEATURE_IDS = [
   'quickAction',
+  'quickActionCompress',
   'cliShim',
   'codexOpenIn',
   'windowsContextMenu',
+  'windowsCompressMenu',
   'openWithImage',
   'openWithPdf',
   'openWithPptx',

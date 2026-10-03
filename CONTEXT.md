@@ -59,7 +59,7 @@ _Avoid_: 工作区行, WIP 行, 暂存行
 **Worktree（工作树）**：同一仓库在磁盘上的另一份检出——共享同一套提交、分支与远程，但各有自己的目录、HEAD 与暂存区。`git worktree list` 首条为**主工作树**，其余为**链接工作树**。DevCube 不把工作树当新实体：要在 DevCube 里使用某个工作树目录，就把它登记为一个 **Project**，与主工作树的 Project 并列；**Git Tab** 负责列出同仓库的全部工作树、新建与删除工作树、标注被其他工作树占用的分支，并提供前往对应 Project 的入口；新建的工作树默认放在主工作树旁的 `<主项目名>.worktrees/` 目录下。
 _Avoid_: 工作区（指工作树时）, 副本, 多检出, Linked checkout
 
-**External Open（外部唤起）**：DevCube 被系统或外部工具带着一个路径拉起 / 聚焦的入口统称（命令行、deep link、系统右键菜单、「打开方式」、其他应用的 Open in 都汇于此）。目录走「添加项目」语义：未登记则登记为 **Project**，已登记则仅聚焦选中；文件则开一个 **Preview Window**。
+**External Open（外部唤起）**：DevCube 被系统或外部工具带着路径拉起 / 聚焦的入口统称（命令行、deep link、系统右键菜单、「打开方式」、其他应用的 Open in 都汇于此），分两种动作。**打开**：目录走「添加项目」语义，未登记则登记为 **Project**，已登记则仅聚焦选中；文件则开一个 **Preview Window**。**压缩**：带一组路径开一个压缩窗口，不聚焦主窗口。
 _Avoid_: 协议唤起, 命令行打开, Deep link（指整个入口时）
 
 **Preview Window（预览窗口）**：DevCube 作为系统「打开方式」被带着一个**文件**拉起时开的独立窗口——就是一个根泛化了的 **Files Tab** 面板（左正文、右文件树、同一套编辑 / 预览 / 快捷键），根默认是文件所在文件夹（落在已登记 **Project** 内则取项目根）、可逐级上翻；一文件一窗、可多开、不是 Project、不是 Tab、不落盘；没有 Git Tab / Terminal / Run Session / Content Search，多一颗「添加为项目」。
@@ -116,7 +116,7 @@ _Avoid_: Release Notes, 发版说明, 更新说明, 提交记录（指日志内�
 - 一个 **Git Tab** 的图谱含 0..1 个 **未提交更改行**（工作区有改动才合成）；它是该项目在 DevCube 内的提交入口。
 - 一次安装恰好属于一个 **Release Edition**；正式版只消费非 Pre-release 的 GitHub Release，Beta 只消费 Pre-release 的 GitHub Release，二者不互相升级。
 - 一个正式版本有 0..1 段 **Changelog**，同号 Beta 与它共用；应用内更新确认前展示「当前版本之后、到新版本为止」的各段（两端都按正式版号比），没写的版本不出现。
-- **External Open** 的系统入口（协议、右键菜单、CLI 名、文件打开方式）随 **Release Edition** 分线注册，双装互不抢注；目录唤起落到既有的「添加项目」语义上，不引入新的登记方式；文件唤起落到 **Preview Window**。
+- **External Open** 的系统入口（协议、右键菜单、CLI 名、文件打开方式）随 **Release Edition** 分线注册，双装互不抢注；目录唤起落到既有的「添加项目」语义上，不引入新的登记方式；文件唤起落到 **Preview Window**；压缩唤起只开压缩窗口，不登记、不打开任何条目。
 - 一个 **Preview Window** 对应一个文件（同一文件复开即聚焦），持有一个可上翻的根；也可从主窗口项目菜单「在新窗口中打开」以某个 **Project** 根开出（无初始文件）；它的根不必是 **Project**，但「添加为项目」可把当前根按 External Open 的目录语义登记 / 聚焦。**Files Tab** 与 Preview Window 共用同一套面板能力；预览窗口的树顶栏另有「按类型筛选」，「上一级文件夹 / 进入此文件夹」在树右键菜单，「添加为项目」在其窗口顶栏与树空白区菜单。
 
 - 一个仓库恒有 1 个主 **Worktree**、0..N 个链接 **Worktree**；每个 Worktree 至多对应一个 **Project**（按目录登记），登记与否不影响它在 git 层面的存在。

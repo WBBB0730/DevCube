@@ -4,6 +4,7 @@
  */
 
 import { dataSourceEntryKey } from './tree-entry'
+import { numberedName } from './numbered-name'
 
 /**
  * 落盘的终端组 Tab 壳（无进程 / 无连接）：本地 Terminal、SSH Terminal 与另开的 Data Source Tab 同组、
@@ -45,11 +46,6 @@ export interface TerminalTabLike {
   dataSourceId?: string
 }
 
-/** 终端默认名的编号规则：第一个就叫 base，之后「base (2) / base (3) / …」。 */
-export function numberedTerminalName(base: string, seq: number): string {
-  return seq === 1 ? base : `${base} (${seq})`
-}
-
 /** 本地终端默认名的底：「终端 / 终端 (2) / …」。 */
 export const LOCAL_TERMINAL_NAME = '终端'
 
@@ -66,7 +62,7 @@ function terminalNameSeq(name: string, base: string): number | null {
 export function nextNumberedTerminalName(existingNames: readonly string[], base: string): string {
   let max = 0
   for (const name of existingNames) max = Math.max(max, terminalNameSeq(name, base) ?? 0)
-  return numberedTerminalName(base, max + 1)
+  return numberedName(base, max + 1)
 }
 
 /**
@@ -95,7 +91,7 @@ export function nextTerminalName(
 /** 服务器改名时 SSH Terminal 的默认名跟着改（序号保留）；用户改过的名字不动，返回 null。 */
 export function renamedTerminalName(name: string, oldBase: string, newBase: string): string | null {
   const seq = terminalNameSeq(name, oldBase)
-  return seq === null ? null : numberedTerminalName(newBase, seq)
+  return seq === null ? null : numberedName(newBase, seq)
 }
 
 /**
@@ -133,8 +129,8 @@ export function mergeTerminalTabs(
       seq += 1
       const name =
         t.serverId === undefined
-          ? numberedTerminalName(LOCAL_TERMINAL_NAME, seq)
-          : (serverName(t.serverId) ?? numberedTerminalName(LOCAL_TERMINAL_NAME, seq))
+          ? numberedName(LOCAL_TERMINAL_NAME, seq)
+          : (serverName(t.serverId) ?? numberedName(LOCAL_TERMINAL_NAME, seq))
       out.push(tabOf(t.key, ownerKey, name, t.serverId))
       seen.add(t.key)
     }

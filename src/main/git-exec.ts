@@ -41,8 +41,16 @@ function gitEnv(shellEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
   return { ...process.env, ...shellEnv, GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true' }
 }
 
-/** spawn 一个进程并收集输出；永不 reject（结束以 close 事件为准，此时 stdio 已收集完）。 */
-async function run(file: string, args: string[], cwd?: string): Promise<GitExecResult> {
+/**
+ * spawn 一个进程并收集输出；永不 reject（结束以 close 事件为准，此时 stdio 已收集完）。
+ * input：写进标准输入后关闭（如 `check-ignore --stdin`）；不给则不碰标准输入（与原先一致）。
+ */
+async function run(
+  file: string,
+  args: string[],
+  cwd?: string,
+  input?: Buffer
+): Promise<GitExecResult> {
   const shellEnv = await resolveShellEnvironment()
   return new Promise((resolve) => {
     const stdoutChunks: Buffer[] = []
@@ -71,6 +79,11 @@ async function run(file: string, args: string[], cwd?: string): Promise<GitExecR
     }
     child.stdout?.on('data', (chunk: Buffer) => stdoutChunks.push(chunk))
     child.stderr?.on('data', (chunk: Buffer) => stderrChunks.push(chunk))
+    if (input !== undefined) {
+      // 进程提前退出时写标准输入会报 EPIPE：结果以退出码为准，这里不另外收口
+      child.stdin?.on('error', () => {})
+      child.stdin?.end(input)
+    }
     child.on('error', (e) => {
       error = e
       // spawn 失败（pid 拿不到）时 close 事件在部分场景不可靠，这里直接收口；settled 卫兵防双收
@@ -138,8 +151,11 @@ export async function findGit(): Promise<GitExecutable | null> {
   return discovering
 }
 
-/** 执行一条 git 命令；永不 throw。ENOENT（git 被卸载/移动）时重新发现一次并重试。 */
-export async function execGit(cwd: string, args: string[]): Promise<GitExecResult> {
+/**
+ * 执行一条 git 命令；永不 throw。ENOENT（git 被卸载/移动）时重新发现一次并重试。
+ * input 写进标准输入（`--stdin` 类命令用）。
+ */
+export async function execGit(cwd: string, args: string[], input?: Buffer): Promise<GitExecResult> {
   const git = await findGit()
   if (!git) {
     return {
@@ -149,12 +165,12 @@ export async function execGit(cwd: string, args: string[]): Promise<GitExecResul
       error: new Error('未找到 git，请安装或将其加入 PATH')
     }
   }
-  const result = await run(git.path, args, cwd)
+  const result = await run(git.path, args, cwd, input)
   if (result.error && (result.error as NodeJS.ErrnoException).code === 'ENOENT') {
     // 缓存的 git 路径已失效：清缓存重新发现，成功则重试一次
     cachedGit = undefined
     const rediscovered = await findGit()
-    if (rediscovered) return run(rediscovered.path, args, cwd)
+    if (rediscovered) return run(rediscovered.path, args, cwd, input)
   }
   return result
 }

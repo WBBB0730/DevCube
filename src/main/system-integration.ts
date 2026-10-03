@@ -33,12 +33,25 @@ import {
   uninstallCliShim,
   type CliShimOptions
 } from './cli-shim'
-import { installQuickAction, isQuickActionInstalled, uninstallQuickAction } from './quick-action'
+import {
+  compressQuickActionShellCommand,
+  installQuickAction,
+  isQuickActionInstalled,
+  quickActionShellCommand,
+  uninstallQuickAction
+} from './quick-action'
 import {
   installWindowsContextMenu,
   isWindowsContextMenuInstalled,
   uninstallWindowsContextMenu
 } from './windows-context-menu'
+import {
+  installWindowsCompressMenu,
+  isCompressMenuDllBundled,
+  isWindowsCompressMenuInstalled,
+  syncWindowsCompressMenu,
+  uninstallWindowsCompressMenu
+} from './windows-compress-menu'
 
 /** 系统集成编排：按平台列出功能、探测状态、执行安装 / 移除。状态全部实时探测不落盘。 */
 
@@ -50,7 +63,9 @@ export type IntegrationProfile = {
   name: string
   /** macOS 唤起：open(1) 参数——打包 `-b <bundleId>`；Dev `-a <electron App 路径>`（运行中的 dev 实例收 open-file；未运行则仅拉起空 Electron） */
   macOpenArgs: string[]
-  /** Windows 唤起命令——打包 [exe]；Dev [electron.exe, 项目入口]（第二实例把路径转发给运行中的 dev 实例） */
+  /** deep link scheme（与主进程 open-url 解析同源：Release Edition 的 name）；Dev 不注册协议，经 open -a 直接投递 */
+  deepLinkScheme: string
+  /** Windows 唤起命令——打包 [exe]（便携版为便携 exe 本身）；Dev [electron.exe, 项目入口]（第二实例把路径转发给运行中的 dev 实例） */
   windowsLaunch: string[]
   /** macOS 文件打开方式的实体 .app：打包 = 正在运行的应用本体；Dev = 数据目录里生成的「DevCube Dev.app」小壳 */
   macAppPath: string
@@ -64,15 +79,17 @@ export type IntegrationProfile = {
 
 function integrationProfile(): IntegrationProfile {
   const macElectronApp = process.platform === 'darwin' ? devElectronAppPath() : process.execPath
+  const edition = resolveReleaseEdition(app.getVersion())
   if (app.isPackaged) {
-    const e = resolveReleaseEdition(app.getVersion())
     return {
-      productName: e.productName,
-      name: e.executableName,
-      macOpenArgs: ['-b', e.appId],
-      windowsLaunch: [process.execPath],
+      productName: edition.productName,
+      name: edition.executableName,
+      macOpenArgs: ['-b', edition.appId],
+      deepLinkScheme: edition.name,
+      // 便携版取便携 exe 本身：运行时解压出的那份在临时目录里，应用退出即删（electron-builder portable.nsi）
+      windowsLaunch: [process.env.PORTABLE_EXECUTABLE_FILE ?? process.execPath],
       macAppPath: macElectronApp,
-      macBundleId: e.appId,
+      macBundleId: edition.appId,
       macElectronApp,
       iconPath: join(process.resourcesPath, 'app.asar.unpacked', 'resources', 'icon.png')
     }
@@ -83,12 +100,20 @@ function integrationProfile(): IntegrationProfile {
     productName: 'DevCube Dev',
     name: 'devcube-dev',
     macOpenArgs: ['-a', macElectronApp],
+    deepLinkScheme: edition.name,
     windowsLaunch: [process.execPath, app.getAppPath()],
     macAppPath: devOpenerAppPath(),
     macBundleId: DEV_OPENER_APP_ID,
     macElectronApp,
     iconPath: join(app.getAppPath(), 'resources', 'icon.png')
   }
+}
+
+/** Windows 压缩右键扩展的 DLL（scripts/build-win-shell.ts 产物）：打包在 resources 下，Dev 在仓库 build/win 下 */
+function compressMenuDll(): string {
+  return app.isPackaged
+    ? join(process.resourcesPath, 'compress-menu.dll')
+    : join(app.getAppPath(), 'build', 'win', 'compress-menu.dll')
 }
 
 function cliShimOptions(profile: IntegrationProfile): CliShimOptions {
@@ -126,8 +151,12 @@ function codexHandlerSpec(profile: IntegrationProfile): CodexHandlerSpec {
 /** 当前平台可呈现的功能列表（linux 只有「文件打开方式」：目录打开方式由 desktop entry 声明、CLI 由 deb 自带）。 */
 function platformFeatureIds(): SystemIntegrationFeatureId[] {
   const openWith = [...OPEN_WITH_FEATURE_IDS]
-  if (process.platform === 'darwin') return ['quickAction', 'cliShim', 'codexOpenIn', ...openWith]
-  if (process.platform === 'win32') return ['windowsContextMenu', 'codexOpenIn', ...openWith]
+  if (process.platform === 'darwin') {
+    return ['quickAction', 'quickActionCompress', 'cliShim', 'codexOpenIn', ...openWith]
+  }
+  if (process.platform === 'win32') {
+    return ['windowsContextMenu', 'windowsCompressMenu', 'codexOpenIn', ...openWith]
+  }
   return openWith
 }
 
@@ -141,7 +170,17 @@ async function probeFeature(
   }
   switch (id) {
     case 'quickAction':
-      return { id, available: true, enabled: await isQuickActionInstalled(profile.productName) }
+      return {
+        id,
+        available: true,
+        enabled: await isQuickActionInstalled('open', profile.productName)
+      }
+    case 'quickActionCompress':
+      return {
+        id,
+        available: true,
+        enabled: await isQuickActionInstalled('compress', profile.productName)
+      }
     case 'cliShim':
       return { id, available: true, enabled: await isCliShimInstalled(cliShimOptions(profile)) }
     case 'windowsContextMenu':
@@ -150,6 +189,17 @@ async function probeFeature(
         available: true,
         enabled: await isWindowsContextMenuInstalled(profile.productName)
       }
+    case 'windowsCompressMenu': {
+      const enabled = await isWindowsCompressMenuInstalled(profile)
+      // 没带上扩展 DLL 的构建（如未编译的开发环境）不能安装；已装的仍可移除
+      const available = enabled || (await isCompressMenuDllBundled(compressMenuDll()))
+      return {
+        id,
+        available,
+        enabled,
+        ...(available ? {} : { unavailableReason: '此构建未包含右键扩展组件' })
+      }
+    }
     case 'codexOpenIn': {
       const installed = await isCodexDesktopInstalled()
       const enabled = hasCodexHandler(await readCodexConfig(), profile.name)
@@ -203,10 +253,23 @@ export async function applySystemIntegration(
     switch (id) {
       case 'quickAction':
         if (enable)
-          await installQuickAction(profile.productName, profile.macOpenArgs, {
-            iconSource: profile.iconPath
-          })
-        else await uninstallQuickAction(profile.productName)
+          await installQuickAction(
+            'open',
+            profile.productName,
+            quickActionShellCommand(profile.macOpenArgs),
+            { iconSource: profile.iconPath }
+          )
+        else await uninstallQuickAction('open', profile.productName)
+        break
+      case 'quickActionCompress':
+        if (enable)
+          await installQuickAction(
+            'compress',
+            profile.productName,
+            compressQuickActionShellCommand(profile.macOpenArgs, profile.deepLinkScheme),
+            { iconSource: profile.iconPath }
+          )
+        else await uninstallQuickAction('compress', profile.productName)
         break
       case 'cliShim':
         if (enable) await installCliShim(cliShimOptions(profile))
@@ -215,6 +278,11 @@ export async function applySystemIntegration(
       case 'windowsContextMenu':
         if (enable) await installWindowsContextMenu(profile.productName, profile.windowsLaunch)
         else await uninstallWindowsContextMenu(profile.productName)
+        break
+      case 'windowsCompressMenu':
+        if (enable) {
+          await installWindowsCompressMenu(profile, compressMenuDll(), profile.windowsLaunch)
+        } else await uninstallWindowsCompressMenu(profile)
         break
       case 'codexOpenIn':
         await applyCodexOpenIn(profile, enable)
@@ -225,4 +293,11 @@ export async function applySystemIntegration(
     const message = err instanceof Error ? err.message : String(err)
     return { ok: false, error: message, state: await getSystemIntegrationState() }
   }
+}
+
+/** 启动时对齐已开启的入口（目前只有 Windows 压缩右键扩展需要：DLL 换了版本或唤起命令变了就重新登记）。 */
+export async function syncSystemIntegration(): Promise<void> {
+  if (process.platform !== 'win32') return
+  const profile = integrationProfile()
+  await syncWindowsCompressMenu(profile, compressMenuDll(), profile.windowsLaunch)
 }

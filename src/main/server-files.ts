@@ -5,7 +5,8 @@
 // 上传 / 下载按服务器排队、一次一个；同名时经渲染端询问。
 
 import { randomUUID } from 'node:crypto'
-import { lstat, mkdir, open, readdir, rm, stat } from 'node:fs/promises'
+// 用户的文件用不带 asar 改装的原版 fs：Electron 改装过的 fs 会把 .asar 文件当成文件夹往里读（ADR-0051）
+import { promises as originalFs } from 'original-fs'
 import path from 'node:path'
 import type { Client } from 'ssh2'
 import { detectAv } from '@file-type/av'
@@ -50,6 +51,8 @@ import { ServerFileCopies, type ServerFileCopy } from './server-files-copies'
 import { findServer } from './servers'
 import { SftpClient, SftpStatusError } from './sftp-client'
 import { connectSsh, onSshClosed } from './ssh-connect'
+
+const { lstat, mkdir, open, readdir, rm, stat } = originalFs
 
 /** 嗅探类型读的文件开头：够 file-type 认出 OOXML（PPT / Excel）这类 zip 容器。 */
 const HEAD_BYTES = 64 * 1024

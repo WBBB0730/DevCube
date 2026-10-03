@@ -8,13 +8,15 @@ import { WINDOW_CHROME } from '../shared/theme'
 import { getAppPrefs } from './store'
 
 /**
- * 主窗口与 Preview Window 共用的窗口壳：无边框标题栏、平台图标、preload；
- * 加载同一渲染入口，`query` 决定渲染层挂工作台还是预览窗口（见 shared/preview-window）。
+ * 主窗口、Preview Window 与压缩窗口共用的窗口壳：无边框标题栏、平台图标、preload；
+ * 加载同一渲染入口，`query` 决定渲染层挂工作台、预览窗口还是压缩窗口（见 shared/preview-window、shared/compress）。
+ * fixedSize：不可调整大小、不可最大化 / 全屏（压缩窗口这类按内容定高的小窗）。
  */
 export function createAppWindow(opts: {
   placement: ResolvedWindowPlacement
   defaults: WindowPlacementDefaults
   query?: Record<string, string>
+  fixedSize?: boolean
 }): BrowserWindow {
   const { placement, defaults } = opts
   const chrome = WINDOW_CHROME[getAppPrefs().theme]
@@ -27,6 +29,9 @@ export function createAppWindow(opts: {
     minWidth: defaults.minWidth,
     minHeight: defaults.minHeight,
     show: false,
+    ...(opts.fixedSize === true
+      ? { resizable: false, maximizable: false, fullscreenable: false }
+      : {}),
     autoHideMenuBar: true,
     backgroundColor: chrome.background,
     titleBarStyle: 'hidden',

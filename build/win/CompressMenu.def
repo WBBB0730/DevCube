@@ -1,0 +1,4 @@
+; 「用 DevCube 压缩」右键扩展的导出（COM 进程内服务器的两个入口）
+EXPORTS
+    DllGetClassObject PRIVATE
+    DllCanUnloadNow PRIVATE

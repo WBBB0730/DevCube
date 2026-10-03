@@ -1,5 +1,6 @@
 import { protocol } from 'electron'
-import { createReadStream, promises as fs } from 'node:fs'
+// 用户的文件用不带 asar 改装的原版 fs：Electron 改装过的 fs 会把 .asar 文件当成文件夹往里读（ADR-0051）
+import { createReadStream, promises as fs } from 'original-fs'
 import path from 'node:path'
 import { Readable } from 'node:stream'
 import { FILES_MEDIA_SCHEME } from '../shared/files'

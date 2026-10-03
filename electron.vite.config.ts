@@ -5,7 +5,9 @@ import tailwindcss from '@tailwindcss/vite'
 
 export default defineConfig({
   main: {
-    plugins: [externalizeDepsPlugin()]
+    plugins: [externalizeDepsPlugin()],
+    // original-fs 是 Electron 内置模块（不带 asar 改装的原版 fs），运行时由 Electron 提供，不参与打包
+    build: { rollupOptions: { external: ['original-fs'] } }
   },
   preload: {
     plugins: [externalizeDepsPlugin()]

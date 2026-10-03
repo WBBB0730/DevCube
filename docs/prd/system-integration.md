@@ -42,7 +42,7 @@ DevCube 目前只能从自己的面板里添加 / 打开 **Project**（选择器
   - 启动参数：跳过 flag，取存在的目录参数（相对路径按第二实例工作目录解析）。
   - 冷启动时项目在渲染层加载前登记，并把 workspace 当前项目预置为该路径（bootstrap 快照直接带出）；运行中则推送 IPC 事件，渲染端复用「添加项目后的统一收尾」（选中 + 滚入视口）。
 - **macOS 快速操作**：生成 `.workflow` bundle（Info.plist `NSServices` 收 `public.folder` + Automator「运行 Shell 脚本」执行 `open -b <bundleId> "$@"`）写入 `~/Library/Services`；移除即删目录。不用 FinderSync（见 ADR-0025）。
-- **Windows 右键菜单**：`HKCU\Software\Classes\Directory\shell\<ProductName>` 与 `Directory\Background\shell\<ProductName>`（command 指当前 exe + `"%V"`），由设置开关经 `reg.exe` 增删——单一机制同时覆盖 NSIS 与 portable，安装器不重复写；NSIS 真卸载（非更新）时兜底清理。
+- **Windows 右键菜单**：`HKCU\Software\Classes\Directory\shell\<ProductName>` 与 `Directory\Background\shell\<ProductName>`（command 指当前 exe + `"%V"`；便携版指便携 exe 本身，而不是运行时解压到临时目录、退出即删的那份），由设置开关经 `reg.exe` 增删——单一机制同时覆盖 NSIS 与 portable，安装器不重复写；NSIS 真卸载（非更新）时兜底清理。
 - **Codex Open In**：外科手术式编辑 `~/.codex/config.toml`——只按表头定位增删 `[desktop.custom_file_handlers.<name>]` 自己的块，其余字节不动；写盘前用 TOML 解析器（smol-toml）校验结果，原文件已损坏或编辑后不合法则拒绝写入。macOS 的 command 用 `/usr/bin/open -b <bundleId>`（无需 CLI 前置），Windows 用当前 exe 绝对路径。
 - **macOS CLI**：`~/Library/Application Support/<edition>/bin/<name>` 生成一行式脚本（`exec /usr/bin/open -b <bundleId> "$@"`，与应用安装位置解耦），软链到 `/usr/local/bin/<name>`；目录不可写时经 @vscode/sudo-prompt 提权执行（VS Code 同款做法）。
 - **Linux**：electron-builder `linux.mimeTypes` 声明 `inode/directory`；deb 自带 `/usr/bin` 符号链接即 CLI，无需额外实现。
@@ -57,7 +57,7 @@ DevCube 目前只能从自己的面板里添加 / 打开 **Project**（选择器
 ## Out of Scope
 
 - Claude 桌面端的 Open In 菜单（硬编码名单，无注册机制，已实证）。
-- macOS FinderSync 一级右键菜单（平台已塌，见 ADR-0025）。
+- macOS FinderSync 一级右键菜单（Apple 定位为同步类应用专用，且有目录与并装限制，见 ADR-0025）。
 - Windows 11 新版一级右键菜单（需 IExplorerCommand COM + 稀疏 MSIX，成本远超收益）。
 - Windows / Linux 的 CLI 安装（Windows 改用户 PATH 风险大且无成熟库；Linux deb 已自带，AppImage / snap 用户自理）。
 - 全局「复制路径」类与产品无关的系统工具。

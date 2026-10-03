@@ -52,10 +52,7 @@
 ### 压缩
 
 - 替代 Finder 自带的压缩。
-- 入口：**Files Tab** 文件树右键「压缩」；Finder 右键「用 DevCube 压缩」（沿用现有的快速操作机制）。
-- zip 按被压缩的文件夹或文件命名，不再叫「归档.zip」；去掉 `__MACOSX`、`.DS_Store` 等 macOS 专属文件。
-- 可选：排除 `node_modules` 和 .gitignore 忽略的内容。
-- 待定：Finder 里多选压缩时 zip 叫什么名字；**Files Tab** 文件树目前不支持多选。
+- 已实现，待验收：见 `docs/prd/compress.md`、ADR-0049（Windows 右键扩展）、ADR-0050（zip 库）。实测清单见该 PRD；Windows 待实测，扩展 DLL 尚未在 Windows 上编译过。
 
 ### 对比
 

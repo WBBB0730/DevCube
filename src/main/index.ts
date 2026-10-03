@@ -33,6 +33,7 @@ import {
   extractOpenTargets,
   parseDeepLink,
   setExternalOpenHandler,
+  targetFromDeepLink,
   type ExternalOpenTarget
 } from './external-open'
 import { openProjectFromExternal } from './ipc'
@@ -41,7 +42,9 @@ import { getAppPrefs, getWorkspaceUi, setWorkspaceUi } from './store'
 import { applyTheme } from './theme'
 import { createAppWindow } from './app-window'
 import { closeAllPreviewWatchers, openPreviewWindow } from './preview-window'
+import { disposeAllCompressJobs, openCompressWindow, setCompressIdleHandler } from './compress'
 import { devElectronAppPath, ensureDevOpenerApp } from './dev-opener-app'
+import { syncSystemIntegration } from './system-integration'
 
 // 必须早于 app.ready、Store 初始化和 Chromium Session 创建，隔离 Stable / Beta / Dev。
 configureUserData(app)
@@ -55,23 +58,25 @@ if (!app.requestSingleInstanceLock()) app.exit(0)
 const deepLinkScheme = resolveReleaseEdition(app.getVersion()).name
 if (app.isPackaged) app.setAsDefaultProtocolClient(deepLinkScheme)
 
-// Finder 快速操作 / 「打开方式」/ `open -b <bundleId> <路径>` 走 open-file：目录 → 项目，文件 → 预览窗口
+// Finder 快速操作「在 DevCube 中打开」/ 「打开方式」/ `open -b <bundleId> <路径>` 走 open-file：目录 → 项目，文件 → 预览窗口
 app.on('open-file', (event, path) => {
   event.preventDefault()
   const target = classifyExternalPath(path)
   if (target) dispatchExternalOpen(target)
 })
+// deep link：打开（同上）与压缩（Finder 快速操作「用 DevCube 压缩」一次带上全部选中项）
 app.on('open-url', (event, url) => {
   event.preventDefault()
-  const path = parseDeepLink(url, deepLinkScheme)
-  const target = path === null ? null : classifyExternalPath(path)
+  const link = parseDeepLink(url, deepLinkScheme)
+  const target = link === null ? null : targetFromDeepLink(link)
   if (target) dispatchExternalOpen(target)
 })
 app.on('second-instance', (_event, argv, workingDirectory) => {
   const args = argv.slice(argvTailStart(app.isPackaged))
   const targets = extractOpenTargets(args, { scheme: deepLinkScheme, cwd: workingDirectory })
-  // 只带文件时不动主窗口（双击文件只多开一个预览窗口）；带目录或空唤起才把主窗口带到前台
-  if (targets.every((t) => t.kind === 'file') && targets.length > 0) {
+  // 只带文件或压缩请求时不动主窗口（双击文件只多开一个预览窗口，压缩只开压缩窗口）；
+  // 带目录或空唤起才把主窗口带到前台
+  if (targets.length > 0 && targets.every((t) => t.kind !== 'dir')) {
     for (const t of targets) dispatchExternalOpen(t)
     return
   }
@@ -94,6 +99,10 @@ const WINDOW_DEFAULTS = {
 } as const
 
 let mainWindow: BrowserWindow | null = null
+/** 本进程开过主窗口（冷启动只为压缩时据此判断压完是否退出） */
+let mainWindowOpened = false
+/** 冷启动只带压缩请求：最后一个压缩窗口关掉、期间也没开过主窗口时退出，像系统压缩一样用完即走 */
+let launchedForCompress = false
 
 function liveMainWindow(): BrowserWindow | null {
   return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
@@ -142,6 +151,7 @@ function openMainWindow(): BrowserWindow {
   if (existing) return existing
   const win = createWindow()
   mainWindow = win
+  mainWindowOpened = true
   bindMainWindow(win)
   return win
 }
@@ -158,13 +168,11 @@ function focusMainWindow(): void {
   win.focus()
 }
 
-/** 运行中的 External Open：目录 → 登记 / 聚焦项目（主窗口不在则建）；文件 → 预览窗口。 */
+/** 运行中的 External Open：目录 → 登记 / 聚焦项目（主窗口不在则建）；文件 → 预览窗口；压缩 → 压缩窗口。 */
 function handleExternalOpen(target: ExternalOpenTarget): void {
-  if (target.kind === 'file') {
-    openPreviewWindow(target.path)
-    return
-  }
-  openProjectFromExternal(target.path)
+  if (target.kind === 'compress') void openCompressWindow(target.paths)
+  else if (target.kind === 'file') openPreviewWindow(target.path)
+  else openProjectFromExternal(target.path)
 }
 
 app.whenReady().then(async () => {
@@ -191,24 +199,37 @@ app.whenReady().then(async () => {
   // IPC handler 只注册一次且早于任何窗口：冷启动可能只开预览窗口而没有主窗口。
   registerIpcHandlers(openMainWindow)
 
-  // 冷启动 External Open（启动参数 / 就绪前已到的 open-file）：目录在开窗前登记并预置
-  // 当前项目（渲染端从 bootstrap 快照直接带出选中，无需事后推送）；文件各开一个预览窗口。
-  // 只带文件时不建主窗口——看一张图不必拉起整个工作台。
+  // 冷启动 External Open（启动参数 / 就绪前已到的 open-file / open-url）：目录在开窗前登记并预置
+  // 当前项目（渲染端从 bootstrap 快照直接带出选中，无需事后推送）；文件各开一个预览窗口；压缩各开一个压缩窗口。
+  // 只带文件或压缩请求时不建主窗口——看一张图、压一个包不必拉起整个工作台。
   const argvTargets = extractOpenTargets(process.argv.slice(argvTailStart(app.isPackaged)), {
     scheme: deepLinkScheme,
     cwd: process.cwd()
   })
   const targets = [...argvTargets, ...drainPendingExternalOpens()]
-  const dirs = targets.filter((t) => t.kind === 'dir')
-  const files = targets.filter((t) => t.kind === 'file')
-  for (const { path } of dirs) {
+  const dirs: string[] = []
+  const files: string[] = []
+  const compressions: string[][] = []
+  for (const t of targets) {
+    if (t.kind === 'compress') compressions.push(t.paths)
+    else if (t.kind === 'dir') dirs.push(t.path)
+    else files.push(t.path)
+  }
+  for (const path of dirs) {
     if (addProjectByPath(path) !== null) {
       setWorkspaceUi({ ...getWorkspaceUi(), currentEntryKey: path, selectedKey: null })
     }
   }
 
-  if (files.length === 0 || dirs.length > 0) openMainWindow()
-  for (const { path } of files) openPreviewWindow(path)
+  if (targets.length === 0 || dirs.length > 0) openMainWindow()
+  for (const path of files) openPreviewWindow(path)
+  launchedForCompress = targets.length > 0 && targets.length === compressions.length
+  setCompressIdleHandler(() => {
+    if (launchedForCompress && !mainWindowOpened && BrowserWindow.getAllWindows().length === 0) {
+      app.quit()
+    }
+  })
+  for (const paths of compressions) void openCompressWindow(paths)
   installTray(openMainWindow)
 
   // Dev 身份的「文件打开方式」实体：启动即同步（打包身份靠 Info.plist 声明，安装即在「打开方式」里），
@@ -218,6 +239,12 @@ app.whenReady().then(async () => {
       console.warn('[dev-opener-app] sync failed', err)
     })
   }
+
+  // 已开启的系统入口与当前构建对齐（Windows 压缩右键扩展：DLL 换了版本或唤起命令变了就重新登记）；
+  // 失败只记日志，不影响启动。
+  syncSystemIntegration().catch((err) => {
+    console.warn('[system-integration] sync failed', err)
+  })
 
   // 运行中的 External Open（第二实例 / open-file / open-url）
   setExternalOpenHandler(handleExternalOpen)
@@ -243,12 +270,13 @@ async function runQuitCleanup(): Promise<void> {
   disposeAllServerFiles()
   clearAllServerFilesCache()
   // 数据库连接与 SQLite 查询线程也在这里关掉（含数总行数、导出、连上后读主体结构等临时连接）；还在执行的语句先叫停，
-  // 最多等 2 秒。表结构缓存把待写的写完
+  // 最多等 2 秒。表结构缓存把待写的写完。进行中的压缩结束线程、删掉写了一半的临时文件
   await Promise.all([
     closeAllProjectWatchers(),
     closeAllPreviewWatchers(),
     disposeAllDataSourceSessions(),
-    flushSchemaCaches()
+    flushSchemaCaches(),
+    disposeAllCompressJobs()
   ])
   // 给原生 watcher stop 一点时间收尾，再拆 Node Environment。
   await new Promise<void>((resolve) => setTimeout(resolve, 50))

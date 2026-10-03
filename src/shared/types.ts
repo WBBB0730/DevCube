@@ -66,6 +66,13 @@ import type {
   SavedConsoleContext
 } from './data-source-context'
 import { DEFAULT_PAGE_SIZE } from './data-source-query'
+import {
+  DEFAULT_COMPRESS_OPTIONS,
+  type CompressOptions,
+  type CompressResult,
+  type CompressScanResponse,
+  type CompressStartRequest
+} from './compress'
 import type { ExportFormat } from './data-source-export'
 import type { DataSourceOpened, DataSourceTabUi } from './data-source-ui'
 import type {
@@ -154,20 +161,23 @@ export interface AppPrefs {
   gitAutoFetch: boolean
   /** 数据源表格的每页行数（所有 Data Source Tab 共用，记住上次的选择） */
   dataPageSize: number
+  /** 压缩窗口的勾选（记住上次的选择，全局；docs/prd/compress.md） */
+  compressOptions: CompressOptions
 }
 
 export const WINDOWS_SHELLS: readonly WindowsShell[] = ['git-bash', 'powershell', 'cmd']
 
 /**
  * shell 默认 Git Bash，探测不到时运行时回退 PowerShell（见 ADR-0022）；主题默认深色；自动获取默认开；
- * 数据源表格每页 500 行。
+ * 数据源表格每页 500 行；压缩窗口的勾选见 DEFAULT_COMPRESS_OPTIONS。
  */
 export const DEFAULT_APP_PREFS: AppPrefs = {
   windowsShell: 'git-bash',
   theme: 'dark',
   lastProjectParentDir: undefined,
   gitAutoFetch: true,
-  dataPageSize: DEFAULT_PAGE_SIZE
+  dataPageSize: DEFAULT_PAGE_SIZE,
+  compressOptions: DEFAULT_COMPRESS_OPTIONS
 }
 
 /** Windows shell 选项及本机是否可用（供设置页置灰不可选项）。 */
@@ -786,6 +796,18 @@ export interface RunAPI extends GitAPI {
     enable: boolean
   ): Promise<SystemIntegrationApplyResult>
 
+  // —— 压缩窗口（docs/prd/compress.md）；只在压缩窗口里调用 ——
+  /** 按勾选预览：内容特征（决定勾选框是否出现）与将装入的文件个数、字节数 */
+  compressScan(options: CompressOptions): Promise<CompressScanResponse>
+  /** 位置里是否已有同名包（name 不含 .zip） */
+  compressTargetExists(dir: string, name: string): Promise<boolean>
+  /** 系统文件夹选择器（挂在压缩窗口上）；取消返回 null */
+  compressPickDir(defaultPath: string): Promise<string | null>
+  /** 开始压缩：结束（完成 / 取消 / 失败）时返回；完成即由主进程关窗 */
+  compressStart(request: CompressStartRequest): Promise<CompressResult>
+  compressCancel(): Promise<void>
+  onCompressProgress(cb: (percent: number) => void): () => void
+
   // —— Files Tab ——
   filesListDir(projectPath: string, dirPath: string): Promise<FilesDirEntry[]>
   filesFilterTree(projectPath: string, query: string): Promise<FilesTreeFilterResult>
@@ -814,6 +836,8 @@ export interface RunAPI extends GitAPI {
   filesTrash(projectPath: string, entryPath: string): Promise<void>
   /** 「复制文件」：把文件 / 文件夹本身放进系统剪贴板（系统路径；只放行授权根内） */
   filesCopyFile(path: string): Promise<void>
+  /** 「压缩」：为该条目开一个压缩窗口（系统路径；只放行授权根内） */
+  filesCompress(path: string): Promise<void>
   filesGetUi(projectPath: string): Promise<FilesUiState>
   filesSetUi(projectPath: string, patch: Partial<FilesUiState>): Promise<FilesUiState>
   /** 项目文件树相关磁盘变化：渲染端应重拉已缓存目录并同步当前打开文件 */

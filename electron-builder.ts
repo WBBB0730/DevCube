@@ -28,6 +28,12 @@ const macHelperResources = existsSync(MAC_HELPER)
   ? [{ from: MAC_HELPER, to: 'default-app-helper' }]
   : []
 
+/** Windows「用 DevCube 压缩」右键扩展（scripts/build-win-shell.ts 产物，ADR-0049）；缺失时不带入，设置里该行显示不可用 */
+const WIN_SHELL = 'build/win/compress-menu.dll'
+const winShellResources = existsSync(WIN_SHELL)
+  ? [{ from: WIN_SHELL, to: 'compress-menu.dll' }]
+  : []
+
 const config: Configuration = {
   appId: edition.appId,
   productName: edition.productName,
@@ -67,7 +73,8 @@ const config: Configuration = {
       from: 'node_modules/@dukelib/sheets-wasm/duke_sheets_wasm_bg.wasm',
       to: 'xlsx/duke_sheets_wasm_bg.wasm'
     },
-    ...macHelperResources
+    ...macHelperResources,
+    ...winShellResources
   ],
   // External Open deep link：scheme 按 Edition 分线（devcube / devcube-beta，ADR-0025）。
   // macOS 写入 Info.plist CFBundleURLTypes；Windows 由运行时 setAsDefaultProtocolClient 注册。

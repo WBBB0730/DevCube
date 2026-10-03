@@ -101,6 +101,10 @@ jobs:
         if: runner.os == 'macOS'
         run: pnpm build:mac-helper
 
+      - name: Build Windows compress shell extension
+        if: runner.os == 'Windows'
+        run: pnpm build:win-shell
+
       - name: Package (macOS)
         if: runner.os == 'macOS'
         shell: bash

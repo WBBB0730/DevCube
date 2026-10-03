@@ -216,6 +216,12 @@ const api: RunAPI = {
   previewSetRoot: (root) => ipcRenderer.invoke(IPC.previewSetRoot, root),
   previewAddProject: (root) => ipcRenderer.invoke(IPC.previewAddProject, root),
   previewOpenRoot: (projectPath) => ipcRenderer.invoke(IPC.previewOpenRoot, projectPath),
+  compressScan: (options) => ipcRenderer.invoke(IPC.compressScan, options),
+  compressTargetExists: (dir, name) => ipcRenderer.invoke(IPC.compressTargetExists, dir, name),
+  compressPickDir: (defaultPath) => ipcRenderer.invoke(IPC.compressPickDir, defaultPath),
+  compressStart: (request) => ipcRenderer.invoke(IPC.compressStart, request),
+  compressCancel: () => ipcRenderer.invoke(IPC.compressCancel),
+  onCompressProgress: (cb) => subscribe(IPC.compressProgress, cb),
   getSystemIntegration: () => ipcRenderer.invoke(IPC.integrationGet),
   applySystemIntegration: (id, enable) => ipcRenderer.invoke(IPC.integrationApply, id, enable),
 
@@ -239,6 +245,7 @@ const api: RunAPI = {
   filesTrash: (projectPath, entryPath) =>
     ipcRenderer.invoke(IPC.filesTrash, projectPath, entryPath),
   filesCopyFile: (path) => ipcRenderer.invoke(IPC.filesCopyFile, path),
+  filesCompress: (path) => ipcRenderer.invoke(IPC.filesCompress, path),
   filesGetUi: (projectPath) => ipcRenderer.invoke(IPC.filesGetUi, projectPath),
   filesSetUi: (projectPath, patch) => ipcRenderer.invoke(IPC.filesSetUi, projectPath, patch),
   onFilesChanged: (cb) => subscribe(IPC.filesChanged, cb),

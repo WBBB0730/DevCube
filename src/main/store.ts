@@ -11,6 +11,7 @@ import type {
 } from '../shared/types'
 import { DEFAULT_APP_PREFS, DEFAULT_PROJECT_SORT_PREFS, WINDOWS_SHELLS } from '../shared/types'
 import { THEME_MODES, type ThemeMode } from '../shared/theme'
+import { normalizeCompressOptions } from '../shared/compress'
 import type { Server } from '../shared/server'
 import type { DataSource } from '../shared/data-source'
 import type { SavedConsoleContext } from '../shared/data-source-context'
@@ -382,7 +383,8 @@ export function getAppPrefs(): AppPrefs {
     ...pickKnownKeys(DEFAULT_APP_PREFS, stored),
     windowsShell: normalizeWindowsShell(stored?.windowsShell ?? DEFAULT_APP_PREFS.windowsShell),
     theme: normalizeTheme(stored?.theme ?? DEFAULT_APP_PREFS.theme),
-    dataPageSize: normalizePageSize(stored?.dataPageSize)
+    dataPageSize: normalizePageSize(stored?.dataPageSize),
+    compressOptions: normalizeCompressOptions(stored?.compressOptions)
   }
 }
 
@@ -393,7 +395,8 @@ export function setAppPrefs(patch: Partial<AppPrefs>): AppPrefs {
     ...patch,
     windowsShell: normalizeWindowsShell(patch.windowsShell ?? current.windowsShell),
     theme: normalizeTheme(patch.theme ?? current.theme),
-    dataPageSize: normalizePageSize(patch.dataPageSize ?? current.dataPageSize)
+    dataPageSize: normalizePageSize(patch.dataPageSize ?? current.dataPageSize),
+    compressOptions: normalizeCompressOptions(patch.compressOptions ?? current.compressOptions)
   }
   store.set('appPrefs', merged)
   return merged

@@ -271,6 +271,14 @@ import { confirmQuitIfNeeded } from './quit-confirm'
 import { markQuitAllowed } from './app-shutdown'
 import { isPathUnderGrantedRoot } from './files-roots'
 import { openPreviewWindowForRoot, setPreviewWindowRoot } from './preview-window'
+import {
+  cancelCompress,
+  compressTargetExists,
+  openCompressWindow,
+  scanForCompress,
+  startCompress
+} from './compress'
+import { normalizeCompressOptions } from '../shared/compress'
 import { copyFileToClipboard } from './clipboard-file'
 import { setTerminalFocused } from './app-shortcuts'
 import { broadcast } from './app-window'
@@ -974,6 +982,10 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   ipcMain.handle(IPC.filesCopyFile, async (_e, path: string) => {
     if (isPathUnderGrantedRoot(path)) await copyFileToClipboard(path)
   })
+  // 「压缩」→ 为该条目开一个压缩窗口；同样只放行授权根内的绝对路径。
+  ipcMain.handle(IPC.filesCompress, async (_e, path: string) => {
+    if (isPathUnderGrantedRoot(path)) await openCompressWindow([path])
+  })
   // —— Preview Window（预览窗口） ——
   ipcMain.handle(IPC.previewSetRoot, (e, root: unknown) => {
     const win = BrowserWindow.fromWebContents(e.sender)
@@ -989,6 +1001,33 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     if (!getProjects().some((p) => p.path === projectPath)) return
     openPreviewWindowForRoot(projectPath)
   })
+  // —— 压缩窗口（docs/prd/compress.md）：会话按发起请求的窗口取 ——
+  ipcMain.handle(IPC.compressScan, (e, options: unknown) =>
+    scanForCompress(e.sender, normalizeCompressOptions(options))
+  )
+  ipcMain.handle(IPC.compressTargetExists, (_e, dir: unknown, name: unknown) =>
+    typeof dir === 'string' && typeof name === 'string' ? compressTargetExists(dir, name) : false
+  )
+  ipcMain.handle(IPC.compressPickDir, (e, defaultPath: unknown) =>
+    pickDirectory(
+      typeof defaultPath === 'string' ? defaultPath : undefined,
+      BrowserWindow.fromWebContents(e.sender)
+    )
+  )
+  ipcMain.handle(
+    IPC.compressStart,
+    (e, request: { dir?: unknown; name?: unknown; options?: unknown }) => {
+      if (typeof request?.dir !== 'string' || typeof request.name !== 'string') {
+        return { status: 'error' as const, message: '无效参数' }
+      }
+      return startCompress(e.sender, {
+        dir: request.dir,
+        name: request.name,
+        options: normalizeCompressOptions(request.options)
+      })
+    }
+  )
+  ipcMain.handle(IPC.compressCancel, (e) => cancelCompress(e.sender))
   // —— 系统集成（设置「系统集成」栏；状态实时探测不落盘） ——
   ipcMain.handle(IPC.integrationGet, () => getSystemIntegrationState())
   ipcMain.handle(IPC.integrationApply, async (_e, id: unknown, enable: unknown) => {
