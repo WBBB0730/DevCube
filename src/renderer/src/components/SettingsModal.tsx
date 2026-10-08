@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import { Button } from '@renderer/components/ui/button'
+import { Dialog } from '@renderer/components/ui/dialog'
 import { cn } from '@renderer/lib/utils'
 
 type Props = {
@@ -11,7 +12,9 @@ type Props = {
    * 传 `null` 可去掉底栏。
    */
   footer?: ReactNode | null
-  /** 外框尺寸等；默认不含宽高，由调用方指定 */
+  /** 点遮罩即关闭：只给没有文本输入的弹层（应用设置） */
+  dismissOnOutsidePress?: boolean
+  /** 外框尺寸等，由调用方指定 */
   className?: string
 }
 
@@ -26,36 +29,30 @@ function DefaultFooter({ onClose }: { onClose: () => void }): React.JSX.Element 
 }
 
 /**
- * 设置类弹层共用外壳：遮罩 + rounded-dialog（10px，对齐 macOS 窗口圆角）面板 + 居中加粗标题 + 底栏。
- * Esc / 点遮罩关闭由调用方自行挂键；点面板不冒泡。
+ * 设置类弹层共用外壳：建在 ui/dialog 上（Esc 关闭，关闭规则见那里）——rounded-dialog（10px，对齐 macOS 窗口圆角）
+ * 面板 + 居中加粗标题 + 底栏。
  */
 export function SettingsModal({
   title,
   onClose,
   children,
   footer,
+  dismissOnOutsidePress = false,
   className
 }: Props): React.JSX.Element {
   const bar = footer === null ? null : (footer ?? <DefaultFooter onClose={onClose} />)
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--mask)]"
-      onClick={onClose}
+    <Dialog
+      onClose={onClose}
+      dismissOnOutsidePress={dismissOnOutsidePress}
+      className={cn('flex flex-col overflow-hidden', className)}
     >
-      <div
-        className={cn(
-          'flex flex-col overflow-hidden rounded-dialog border border-[color:var(--border-input)] bg-elevated shadow-xl',
-          className
-        )}
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="shrink-0 border-b px-4 py-2.5 text-center text-[13px] font-bold text-[color:var(--fg-dialog-title)]">
-          {title}
-        </div>
-        {children}
-        {bar}
+      <div className="shrink-0 border-b px-4 py-2.5 text-center text-[13px] font-bold text-[color:var(--fg-dialog-title)]">
+        {title}
       </div>
-    </div>
+      {children}
+      {bar}
+    </Dialog>
   )
 }

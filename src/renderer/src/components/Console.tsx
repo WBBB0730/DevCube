@@ -75,6 +75,7 @@ import {
 } from '@renderer/components/database/DataSourceRunPane'
 import { ConnectSubmenu } from '@renderer/components/ConnectSubmenu'
 import { CenteredHint } from '@renderer/components/ui/centered-hint'
+import { DialogHostVisibleContext } from '@renderer/components/ui/dialog'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -186,9 +187,9 @@ export function Console(): React.JSX.Element {
           const sk = statusTabKey(serverEntryKey(n.server.id))
           const visible = sk === activeKey
           return (
-            <div key={sk} className={cn('absolute inset-0', !visible && 'hidden')}>
+            <TabPane key={sk} visible={visible}>
               <ServerStatusPane serverId={n.server.id} />
-            </div>
+            </TabPane>
           )
         })}
         {/* 服务器的 Files 面板：每台服务器常驻一个（切走仅隐藏；连接与传输不随之中断，见 ServerFilesPane）。 */}
@@ -196,9 +197,9 @@ export function Console(): React.JSX.Element {
           const fk = filesTabKey(serverEntryKey(n.server.id))
           const visible = fk === activeKey
           return (
-            <div key={fk} className={cn('absolute inset-0', !visible && 'hidden')}>
+            <TabPane key={fk} visible={visible}>
               <ServerFilesPane serverId={n.server.id} visible={visible} />
-            </div>
+            </TabPane>
           )
         })}
         {/* 数据源的常驻 Data Source Tab：每个数据源一个（切走仅隐藏）。 */}
@@ -206,9 +207,9 @@ export function Console(): React.JSX.Element {
           const dk = residentDataSourceTabKey(dataSourceEntryKey(n.dataSource.id))
           const visible = dk === activeKey
           return (
-            <div key={dk} className={cn('absolute inset-0', !visible && 'hidden')}>
+            <TabPane key={dk} visible={visible}>
               <DataSourcePane tabKey={dk} dataSourceId={n.dataSource.id} visible={visible} />
-            </div>
+            </TabPane>
           )
         })}
         {/* Git 面板：每个项目常驻一个（切走仅隐藏；当前项目由 App 预加载，见 GitPane）。 */}
@@ -216,9 +217,9 @@ export function Console(): React.JSX.Element {
           const gk = gitTabKey(n.project.path)
           const visible = gk === activeKey
           return (
-            <div key={gk} className={cn('absolute inset-0', !visible && 'hidden')}>
+            <TabPane key={gk} visible={visible}>
               <GitPane projectPath={n.project.path} visible={visible} />
-            </div>
+            </TabPane>
           )
         })}
         {/* Files 面板：每项目常驻（切走仅隐藏）。 */}
@@ -226,16 +227,16 @@ export function Console(): React.JSX.Element {
           const fk = filesTabKey(n.project.path)
           const visible = fk === activeKey
           return (
-            <div key={fk} className={cn('absolute inset-0', !visible && 'hidden')}>
+            <TabPane key={fk} visible={visible}>
               <FilesPane rootPath={n.project.path} visible={visible} />
-            </div>
+            </TabPane>
           )
         })}
         {runSessionKeys.map((k) => {
           const visible = k === activeKey
           const dataSourceRun = dataSourceRuns.get(k)
           return (
-            <div key={k} className={cn('absolute inset-0', !visible && 'hidden')}>
+            <TabPane key={k} visible={visible}>
               {dataSourceRun === undefined ? (
                 <TerminalPane paneKey={k} mode="run" visible={visible} />
               ) : (
@@ -247,20 +248,20 @@ export function Console(): React.JSX.Element {
                   visible={visible}
                 />
               )}
-            </div>
+            </TabPane>
           )
         })}
         {/* 终端组：本地 Terminal、SSH Terminal 与另开的 Data Source Tab */}
         {terminals.map((t) => {
           const visible = t.key === activeKey
           return (
-            <div key={t.key} className={cn('absolute inset-0', !visible && 'hidden')}>
+            <TabPane key={t.key} visible={visible}>
               {t.dataSourceId === undefined ? (
                 <TerminalPane paneKey={t.key} mode="terminal" visible={visible} />
               ) : (
                 <DataSourcePane tabKey={t.key} dataSourceId={t.dataSourceId} visible={visible} />
               )}
-            </div>
+            </TabPane>
           )
         })}
       </div>
@@ -273,6 +274,23 @@ export function Console(): React.JSX.Element {
 // 意义，不出「清空」；SQL 类型换成「导出」（同控制台的导出已取回的结果），Redis 没有导出。
 // 高 40px、底 --bg-panel、底边 1px --separator；按钮 size-7、间距 gap-1.5，与左树一致。
 const ACTION_BTN = 'flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors'
+
+/** Tab 面板：切走仅隐藏（不卸载）；面板里的弹窗随之收起、切回来再显示（见 ui/dialog）。 */
+function TabPane({
+  visible,
+  children
+}: {
+  visible: boolean
+  children: React.ReactNode
+}): React.JSX.Element {
+  return (
+    <div className={cn('absolute inset-0', !visible && 'hidden')}>
+      <DialogHostVisibleContext.Provider value={visible}>
+        {children}
+      </DialogHostVisibleContext.Provider>
+    </div>
+  )
+}
 
 function RunActionBar({
   entryKey,

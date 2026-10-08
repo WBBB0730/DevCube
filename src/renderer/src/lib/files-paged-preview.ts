@@ -3,16 +3,9 @@
  * 渲染引擎各管各的，这里只把用户操作翻译成回调（docs/prd/files-pdf-preview.md、files-pptx-preview.md、files-xlsx-preview.md）。
  */
 import { useEffect, useRef, useState, type RefObject } from 'react'
-import { useApp } from '@renderer/store'
 import { editableTarget, overlayOpen } from './files-key-guards'
 import { zoomFromWheel } from './files-media-zoom'
 import { isPrimaryModifierEvent } from './shortcut-label'
-
-/** 应用级弹层 / 内容搜索 / 对话框开着时，预览的全局快捷键一律让路 */
-function appBusy(): boolean {
-  const app = useApp.getState()
-  return overlayOpen() || app.contentSearchOpen || app.dialog !== null
-}
 
 /**
  * 预览的全局键盘：
@@ -63,7 +56,7 @@ export function usePagedPreviewKeys({
         inside || (target === document.body && !editableTarget(target))
       const mod = isPrimaryModifierEvent(e)
       if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'f') {
-        if (!focusedHere() || appBusy()) return
+        if (!focusedHere() || overlayOpen()) return
         e.preventDefault()
         e.stopPropagation()
         openFind()
@@ -75,7 +68,7 @@ export function usePagedPreviewKeys({
         const zoomOut = e.code === 'Minus' || e.code === 'NumpadSubtract'
         const reset = e.code === 'Digit0' && !e.shiftKey
         if (zoomIn || zoomOut || reset) {
-          if (!focusedHere() || appBusy()) return
+          if (!focusedHere() || overlayOpen()) return
           e.preventDefault()
           e.stopPropagation()
           if (reset) resetZoom()
@@ -89,7 +82,7 @@ export function usePagedPreviewKeys({
         (e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
         (onPrevFile || onNextFile)
       ) {
-        if (editableTarget(target) || appBusy()) return
+        if (editableTarget(target) || overlayOpen()) return
         e.preventDefault()
         e.stopPropagation()
         if (e.key === 'ArrowLeft') onPrevFile?.()
@@ -97,7 +90,7 @@ export function usePagedPreviewKeys({
         return
       }
       if (plain && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
-        if (!getPage || !goToPage || editableTarget(target) || appBusy()) return
+        if (!getPage || !goToPage || editableTarget(target) || overlayOpen()) return
         const at = getPage()
         if (!at) return
         e.preventDefault()

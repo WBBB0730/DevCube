@@ -24,7 +24,7 @@ import {
   type ContentSearchMatch,
   type ContentSearchOptions
 } from '@shared/content-search'
-import { DialogMask, DialogPanel } from '@renderer/components/ui/form-dialog'
+import { Dialog } from '@renderer/components/ui/dialog'
 import { TOOLBAR_BTN_SM } from '@renderer/components/ui/toolbar'
 import {
   filesEditorTheme,
@@ -164,22 +164,6 @@ export function ContentSearchPanel({
       lastSessionByProject.set(projectPath, sessionRef.current)
     }
   }, [projectPath])
-
-  // 面板键盘交互统一走 window 捕获监听：React onKeyDown 只在焦点位于面板内时收得到
-  // 事件，点过状态行 / 滚动条等不可聚焦区域后焦点落到 body 就会失灵；window 层与焦点
-  // 位置无关（Esc / ↑↓ / Enter 一套规则），capture + preventDefault 也统一压住预览
-  // CodeMirror 的光标移动等默认行为。处理函数经 ref 取每次渲染的最新闭包
-  // （赋值在 moveSelection / openSelected 定义之后，见下文）。
-  const onGlobalKeyRef = useRef<(e: KeyboardEvent) => void>(() => {})
-
-  // 打开即聚焦查询框；键盘监听随面板存在期注册
-  useEffect(() => {
-    inputRef.current?.focus()
-    inputRef.current?.select()
-    const onKey = (e: KeyboardEvent): void => onGlobalKeyRef.current(e)
-    window.addEventListener('keydown', onKey, { capture: true })
-    return () => window.removeEventListener('keydown', onKey, { capture: true })
-  }, [])
 
   // 结果流订阅：按 seq 收敛（旧搜索的迟到事件丢弃）；卸载时终止搜索
   useEffect(() => {
@@ -354,12 +338,11 @@ export function ContentSearchPanel({
     [theme, preview]
   )
 
-  onGlobalKeyRef.current = (e) => {
-    if (e.isComposing) return
-    if (e.key === 'Escape') {
-      e.preventDefault()
-      close()
-    } else if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+  // 面板键盘：↑↓ 选命中、回车打开（Esc 关闭归弹窗外壳）。焦点总在面板内——点状态行等不可聚焦处落在面板本身，
+  // 预览的 CodeMirror 不可编辑、拿不到焦点
+  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    if (e.nativeEvent.isComposing) return
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()
       moveSelection(e.key === 'ArrowDown' ? 1 : -1)
     } else if (e.key === 'Enter') {
@@ -408,225 +391,233 @@ export function ContentSearchPanel({
             (limitHit ? `（已达 ${CONTENT_SEARCH_MAX_MATCHES} 条上限，请细化搜索）` : '')
 
   return (
-    <DialogMask onClick={close}>
-      <DialogPanel className="flex h-[80vh] max-h-[960px] w-[760px] max-w-[90vw] flex-col overflow-hidden">
-        <div className="flex h-10 shrink-0 items-center gap-1 border-b border-[var(--separator)] px-2">
-          <Search className="size-3.5 shrink-0 text-muted-foreground" />
-          <input
-            ref={inputRef}
-            value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            placeholder="在当前项目中搜索"
-            className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-[color:var(--fg-disabled)]"
-          />
-          <button
-            type="button"
-            title="区分大小写"
-            onClick={() => toggle('caseSensitive')}
-            className={toggleCls(options.caseSensitive)}
-          >
-            <CaseSensitive className="size-4" />
-          </button>
-          <button
-            type="button"
-            title="全词匹配"
-            onClick={() => toggle('wholeWord')}
-            className={toggleCls(options.wholeWord)}
-          >
-            <WholeWord className="size-4" />
-          </button>
-          <button
-            type="button"
-            title="使用正则表达式"
-            onClick={() => toggle('regex')}
-            className={toggleCls(options.regex)}
-          >
-            <Regex className="size-4" />
-          </button>
-          <span className="mx-1 h-4 w-px shrink-0 bg-[var(--border-input)]" />
-          <input
-            value={options.fileMask}
-            onChange={(e) => setOptions((o) => ({ ...o, fileMask: e.target.value }))}
-            placeholder="文件掩码"
-            title="按 glob 收窄文件（如 *.ts；逗号分隔多个）"
-            className="h-6 w-28 shrink-0 rounded bg-transparent px-1 text-[12px] text-foreground outline-none transition-colors placeholder:text-[color:var(--fg-disabled)] focus:bg-[var(--bg-row-hover)]"
-          />
-          <button type="button" title="关闭 (Esc)" onClick={close} className={TOOLBAR_BTN_SM}>
-            <X className="size-4" />
-          </button>
-        </div>
+    <Dialog
+      onClose={close}
+      dismissOnOutsidePress
+      // 打开即聚焦查询框并全选（沿用上次的搜索词）
+      initialFocus={() => {
+        inputRef.current?.select()
+        return inputRef.current
+      }}
+      className="flex h-[80vh] max-h-[960px] w-[760px] max-w-[90vw] flex-col overflow-hidden"
+      onKeyDown={onKeyDown}
+    >
+      <div className="flex h-10 shrink-0 items-center gap-1 border-b border-[var(--separator)] px-2">
+        <Search className="size-3.5 shrink-0 text-muted-foreground" />
+        <input
+          ref={inputRef}
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          placeholder="在当前项目中搜索"
+          className="h-full min-w-0 flex-1 bg-transparent text-[13px] text-foreground outline-none placeholder:text-[color:var(--fg-disabled)]"
+        />
+        <button
+          type="button"
+          title="区分大小写"
+          onClick={() => toggle('caseSensitive')}
+          className={toggleCls(options.caseSensitive)}
+        >
+          <CaseSensitive className="size-4" />
+        </button>
+        <button
+          type="button"
+          title="全词匹配"
+          onClick={() => toggle('wholeWord')}
+          className={toggleCls(options.wholeWord)}
+        >
+          <WholeWord className="size-4" />
+        </button>
+        <button
+          type="button"
+          title="使用正则表达式"
+          onClick={() => toggle('regex')}
+          className={toggleCls(options.regex)}
+        >
+          <Regex className="size-4" />
+        </button>
+        <span className="mx-1 h-4 w-px shrink-0 bg-[var(--border-input)]" />
+        <input
+          value={options.fileMask}
+          onChange={(e) => setOptions((o) => ({ ...o, fileMask: e.target.value }))}
+          placeholder="文件掩码"
+          title="按 glob 收窄文件（如 *.ts；逗号分隔多个）"
+          className="h-6 w-28 shrink-0 rounded bg-transparent px-1 text-[12px] text-foreground outline-none transition-colors placeholder:text-[color:var(--fg-disabled)] focus:bg-[var(--bg-row-hover)]"
+        />
+        <button type="button" title="关闭 (Esc)" onClick={close} className={TOOLBAR_BTN_SM}>
+          <X className="size-4" />
+        </button>
+      </div>
 
-        <div ref={splitRef} className="flex min-h-0 flex-1 flex-col">
-          {/* 上半区 = 汇总状态行 + 列表（与下半区「标题栏 + 预览」对称，五五开按整块算） */}
-          <div
-            className="flex min-h-0 flex-col"
-            style={{
-              height:
-                selectedMatch !== null && preview !== null ? `${(1 - previewRatio) * 100}%` : '100%'
-            }}
-          >
-            <div className="flex h-7 shrink-0 items-center gap-1.5 border-b border-[var(--separator)] px-3 text-[12px]">
-              {searching && <LoaderCircle className="size-3 animate-spin text-muted-foreground" />}
-              {error !== null ? (
-                <span className="min-w-0 flex-1 select-text truncate text-[color:var(--status-failed)]">
-                  {error}
-                </span>
-              ) : (
-                <span className="min-w-0 flex-1 truncate text-muted-foreground">{statusText}</span>
-              )}
-              <button
-                type="button"
-                title="按文件分组"
-                onClick={() => setGroupByFile((v) => !v)}
-                className={toggleCls(groupByFile)}
-              >
-                <ListTree className="size-3.5" />
-              </button>
-            </div>
-            <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1">
-              <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
-                {rowVirtualizer.getVirtualItems().map((vi) => {
-                  const row = rows[vi.index]
-                  return (
-                    <div
-                      key={vi.key}
-                      className="absolute left-0 top-0 w-full"
-                      style={{ transform: `translateY(${vi.start}px)` }}
-                    >
-                      {row.kind === 'file' ? (
-                        <div
-                          className="flex h-6 cursor-pointer items-center gap-1.5 px-3 transition-colors hover:bg-[var(--bg-row-hover)]"
-                          title={row.rel}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => toggleFileCollapsed(row.rel)}
-                        >
-                          <FileIcon className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
-                          <span className="shrink-0 text-[13px] text-foreground">
-                            {row.rel.split('/').pop()}
+      <div ref={splitRef} className="flex min-h-0 flex-1 flex-col">
+        {/* 上半区 = 汇总状态行 + 列表（与下半区「标题栏 + 预览」对称，五五开按整块算） */}
+        <div
+          className="flex min-h-0 flex-col"
+          style={{
+            height:
+              selectedMatch !== null && preview !== null ? `${(1 - previewRatio) * 100}%` : '100%'
+          }}
+        >
+          <div className="flex h-7 shrink-0 items-center gap-1.5 border-b border-[var(--separator)] px-3 text-[12px]">
+            {searching && <LoaderCircle className="size-3 animate-spin text-muted-foreground" />}
+            {error !== null ? (
+              <span className="min-w-0 flex-1 select-text truncate text-[color:var(--status-failed)]">
+                {error}
+              </span>
+            ) : (
+              <span className="min-w-0 flex-1 truncate text-muted-foreground">{statusText}</span>
+            )}
+            <button
+              type="button"
+              title="按文件分组"
+              onClick={() => setGroupByFile((v) => !v)}
+              className={toggleCls(groupByFile)}
+            >
+              <ListTree className="size-3.5" />
+            </button>
+          </div>
+          <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1">
+            <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
+              {rowVirtualizer.getVirtualItems().map((vi) => {
+                const row = rows[vi.index]
+                return (
+                  <div
+                    key={vi.key}
+                    className="absolute left-0 top-0 w-full"
+                    style={{ transform: `translateY(${vi.start}px)` }}
+                  >
+                    {row.kind === 'file' ? (
+                      <div
+                        className="flex h-6 cursor-pointer items-center gap-1.5 px-3 transition-colors hover:bg-[var(--bg-row-hover)]"
+                        title={row.rel}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => toggleFileCollapsed(row.rel)}
+                      >
+                        <FileIcon className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
+                        <span className="shrink-0 text-[13px] text-foreground">
+                          {row.rel.split('/').pop()}
+                        </span>
+                        {/* 目录为空（项目根下文件）时不渲染，避免空节点白占一个 gap */}
+                        {row.rel.includes('/') && (
+                          <span className="min-w-0 truncate text-[12px] text-[color:var(--fg-info)]">
+                            {row.rel.slice(0, row.rel.lastIndexOf('/'))}
                           </span>
-                          {/* 目录为空（项目根下文件）时不渲染，避免空节点白占一个 gap */}
-                          {row.rel.includes('/') && (
-                            <span className="min-w-0 truncate text-[12px] text-[color:var(--fg-info)]">
-                              {row.rel.slice(0, row.rel.lastIndexOf('/'))}
-                            </span>
-                          )}
-                          {/* 计数徽标跟随在后（VS Code 搜索侧栏的视觉语言），不与行尾行号同槽 */}
-                          <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-[var(--bg-button-hover)] px-1.5 text-[11px] text-[color:var(--fg-dialog-title)]">
-                            {row.count}
+                        )}
+                        {/* 计数徽标跟随在后（VS Code 搜索侧栏的视觉语言），不与行尾行号同槽 */}
+                        <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-[var(--bg-button-hover)] px-1.5 text-[11px] text-[color:var(--fg-dialog-title)]">
+                          {row.count}
+                        </span>
+                        {/* 开合箭头置最右，树式朝向（展开 ∨ / 收起 ▶，同 VS Code 侧栏分组头的方向逻辑） */}
+                        <span className="ml-auto flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+                          <ChevronRight
+                            className={cn(
+                              'size-3.5 transition-transform',
+                              !collapsedRels.has(row.rel) && 'rotate-90'
+                            )}
+                          />
+                        </span>
+                      </div>
+                    ) : (
+                      <div
+                        className={cn(
+                          'flex h-6 cursor-pointer items-center gap-3 px-3 transition-colors',
+                          groupByFile && 'pl-8',
+                          row.matchIndex === selected
+                            ? 'bg-[var(--selection-row)]'
+                            : 'hover:bg-[var(--bg-row-hover)]'
+                        )}
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => setSelected(row.matchIndex)}
+                        onDoubleClick={() => openSelected(row.match)}
+                      >
+                        <span className="code-line-text min-w-0 flex-1 truncate text-[color:var(--fg-code)]">
+                          <MatchLineText match={row.match} theme={theme} />
+                        </span>
+                        {groupByFile ? (
+                          <span className="shrink-0 text-[12px] text-[color:var(--fg-info)]">
+                            {row.match.line}
                           </span>
-                          {/* 开合箭头置最右，树式朝向（展开 ∨ / 收起 ▶，同 VS Code 侧栏分组头的方向逻辑） */}
-                          <span className="ml-auto flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
-                            <ChevronRight
-                              className={cn(
-                                'size-3.5 transition-transform',
-                                !collapsedRels.has(row.rel) && 'rotate-90'
-                              )}
-                            />
-                          </span>
-                        </div>
-                      ) : (
-                        <div
-                          className={cn(
-                            'flex h-6 cursor-pointer items-center gap-3 px-3 transition-colors',
-                            groupByFile && 'pl-8',
-                            row.matchIndex === selected
-                              ? 'bg-[var(--selection-row)]'
-                              : 'hover:bg-[var(--bg-row-hover)]'
-                          )}
-                          onMouseDown={(e) => e.preventDefault()}
-                          onClick={() => setSelected(row.matchIndex)}
-                          onDoubleClick={() => openSelected(row.match)}
-                        >
-                          <span className="code-line-text min-w-0 flex-1 truncate text-[color:var(--fg-code)]">
-                            <MatchLineText match={row.match} theme={theme} />
-                          </span>
-                          {groupByFile ? (
-                            <span className="shrink-0 text-[12px] text-[color:var(--fg-info)]">
-                              {row.match.line}
-                            </span>
-                          ) : (
-                            // 平铺态对齐弹窗：行尾「文件名 行号」；连续同文件仅文件名淡化表从属
+                        ) : (
+                          // 平铺态对齐弹窗：行尾「文件名 行号」；连续同文件仅文件名淡化表从属
+                          <span
+                            title={row.match.rel}
+                            className="max-w-[45%] shrink-0 truncate text-[12px] text-[color:var(--fg-info)]"
+                          >
                             <span
-                              title={row.match.rel}
-                              className="max-w-[45%] shrink-0 truncate text-[12px] text-[color:var(--fg-info)]"
+                              className={
+                                row.matchIndex > 0 &&
+                                matches[row.matchIndex - 1].rel === row.match.rel
+                                  ? 'opacity-50'
+                                  : undefined
+                              }
                             >
-                              <span
-                                className={
-                                  row.matchIndex > 0 &&
-                                  matches[row.matchIndex - 1].rel === row.match.rel
-                                    ? 'opacity-50'
-                                    : undefined
-                                }
-                              >
-                                {row.match.rel.split('/').pop()}
-                              </span>{' '}
-                              {row.match.line}
-                            </span>
-                          )}
-                        </div>
-                      )}
-                    </div>
-                  )
-                })}
-              </div>
+                              {row.match.rel.split('/').pop()}
+                            </span>{' '}
+                            {row.match.line}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
             </div>
           </div>
-
-          {selectedMatch !== null && preview !== null && (
-            <div className="relative flex min-h-0 flex-1 flex-col border-t border-[var(--separator)]">
-              {/* 分隔线拖拽把手：6px 热区骑在上边框上（OnePixelSplitter 的等价物） */}
-              <div
-                className="absolute -top-[3px] left-0 right-0 z-20 h-[6px] cursor-row-resize"
-                onMouseDown={startPreviewDrag}
-              />
-              {/* 预览标题栏（对齐 WebStorm 弹窗：文件名 + 灰路径） */}
-              <div
-                className="flex h-7 shrink-0 items-center gap-1.5 border-b border-[var(--separator)] px-3"
-                title={selectedMatch.rel}
-              >
-                <span className="shrink-0 text-[13px] text-foreground">
-                  {selectedMatch.rel.split('/').pop()}
-                </span>
-                <span className="min-w-0 truncate text-[12px] text-[color:var(--fg-info)]">
-                  {selectedMatch.rel.includes('/')
-                    ? selectedMatch.rel.slice(0, selectedMatch.rel.lastIndexOf('/'))
-                    : ''}
-                </span>
-              </div>
-              <div className="files-codemirror min-h-0 flex-1 overflow-hidden bg-deepest">
-                {preview.content === null ? (
-                  <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
-                    无法预览此文件
-                  </div>
-                ) : (
-                  <CodeMirror
-                    key={preview.rel}
-                    value={preview.content}
-                    height="100%"
-                    theme="none"
-                    extensions={previewExtensions}
-                    basicSetup={{
-                      lineNumbers: true,
-                      foldGutter: false,
-                      highlightActiveLine: true,
-                      highlightActiveLineGutter: true,
-                      syntaxHighlighting: false
-                    }}
-                    editable={false}
-                    onCreateEditor={(view) => {
-                      previewViewRef.current = view
-                      setPreviewViewNonce((n) => n + 1)
-                    }}
-                    className="h-full [&_.cm-editor]:h-full [&_.cm-editor]:outline-none"
-                  />
-                )}
-              </div>
-            </div>
-          )}
         </div>
-        {/* 拖拽期间的全屏遮罩：保持光标形态并防止误触其它元素 */}
-        {previewDragging && <div className="fixed inset-0 z-50 cursor-row-resize" />}
-      </DialogPanel>
-    </DialogMask>
+
+        {selectedMatch !== null && preview !== null && (
+          <div className="relative flex min-h-0 flex-1 flex-col border-t border-[var(--separator)]">
+            {/* 分隔线拖拽把手：6px 热区骑在上边框上（OnePixelSplitter 的等价物） */}
+            <div
+              className="absolute -top-[3px] left-0 right-0 z-20 h-[6px] cursor-row-resize"
+              onMouseDown={startPreviewDrag}
+            />
+            {/* 预览标题栏（对齐 WebStorm 弹窗：文件名 + 灰路径） */}
+            <div
+              className="flex h-7 shrink-0 items-center gap-1.5 border-b border-[var(--separator)] px-3"
+              title={selectedMatch.rel}
+            >
+              <span className="shrink-0 text-[13px] text-foreground">
+                {selectedMatch.rel.split('/').pop()}
+              </span>
+              <span className="min-w-0 truncate text-[12px] text-[color:var(--fg-info)]">
+                {selectedMatch.rel.includes('/')
+                  ? selectedMatch.rel.slice(0, selectedMatch.rel.lastIndexOf('/'))
+                  : ''}
+              </span>
+            </div>
+            <div className="files-codemirror min-h-0 flex-1 overflow-hidden bg-deepest">
+              {preview.content === null ? (
+                <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
+                  无法预览此文件
+                </div>
+              ) : (
+                <CodeMirror
+                  key={preview.rel}
+                  value={preview.content}
+                  height="100%"
+                  theme="none"
+                  extensions={previewExtensions}
+                  basicSetup={{
+                    lineNumbers: true,
+                    foldGutter: false,
+                    highlightActiveLine: true,
+                    highlightActiveLineGutter: true,
+                    syntaxHighlighting: false
+                  }}
+                  editable={false}
+                  onCreateEditor={(view) => {
+                    previewViewRef.current = view
+                    setPreviewViewNonce((n) => n + 1)
+                  }}
+                  className="h-full [&_.cm-editor]:h-full [&_.cm-editor]:outline-none"
+                />
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+      {/* 拖拽期间的全屏遮罩：保持光标形态并防止误触其它元素 */}
+      {previewDragging && <div className="fixed inset-0 z-50 cursor-row-resize" />}
+    </Dialog>
   )
 }

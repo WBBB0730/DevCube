@@ -1,5 +1,5 @@
-// Git 对话框宿主（menus-dialogs §3）：通用表单渲染器（骨架照 ConfigDialog：fixed 遮罩 +
-// w-[440px] bg-elevated 面板、Esc/点遮罩=取消、Enter=主按钮且排除输入法合成）+ D1–D30 逐个描述。
+// Git 对话框宿主（menus-dialogs §3）：通用表单渲染器（建在小对话框外壳 FormDialogShell 上：Esc = 取消、
+// Enter = 主按钮；有文本输入的点遮罩不关）+ D1–D30 逐个描述。
 // 追问链（重名替换 / 强制删除 / 提交不在远程等）用组件内 chase 状态续弹，不经过 store.dialog。
 // actionRunning 的进行中遮罩与 actionErrors 的错误框也由本组件呈现（§1.3 状态机）。
 // v1 取舍：D6（创建 Pull Request）不做（无 PR 配置契约）；D30 数据加载错误的「重试」在
@@ -34,10 +34,8 @@ import { gitState, useGit } from '@renderer/git-store'
 import { cn } from '@renderer/lib/utils'
 import { AutocompleteInput } from '@renderer/components/ui/autocomplete-input'
 import { Button } from '@renderer/components/ui/button'
+import { Dialog } from '@renderer/components/ui/dialog'
 import {
-  DialogFooter,
-  DialogMask as Mask,
-  DialogPanel,
   ErrorDialog,
   FieldRow,
   FormDialogShell,
@@ -1687,23 +1685,22 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
     )
   }
 
-  // 2. 进行中遮罩：spinner + 文案；「隐藏」只收起提示，动作继续（§1.3）。
+  // 2. 进行中遮罩：spinner + 文案；「隐藏」（Esc 同）只收起提示，动作继续（§1.3）。
   // 以「隐藏时的文案」判断是否收起：新动作（文案不同）自然重新显示；
   // 同文案的连续两个动作会沿用隐藏态，属可接受的边角。
   if (actionRunning !== null) {
     if (hiddenFor === actionRunning) return null
+    const hide = (): void => setHiddenFor(actionRunning)
     return (
-      <Mask>
-        <DialogPanel className="w-[300px]">
-          <div className="flex flex-col items-center gap-3 px-6 py-5">
-            <LoaderCircle className="size-5 animate-spin text-muted-foreground" />
-            <div className="text-[13px] text-foreground">{actionRunning} …</div>
-            <Button variant="ghost" size="sm" onClick={() => setHiddenFor(actionRunning)}>
-              隐藏
-            </Button>
-          </div>
-        </DialogPanel>
-      </Mask>
+      <Dialog onClose={hide} className="w-[300px]">
+        <div className="flex flex-col items-center gap-3 px-6 py-5">
+          <LoaderCircle className="size-5 animate-spin text-muted-foreground" />
+          <div className="text-[13px] text-foreground">{actionRunning} …</div>
+          <Button variant="ghost" size="sm" onClick={hide}>
+            隐藏
+          </Button>
+        </div>
+      </Dialog>
     )
   }
 
@@ -1789,70 +1786,36 @@ function DialogForm({
   )
   const valid = !hasInvalid && !hasEmpty
 
-  // Escape 兜底：焦点在对话框输入控件里时 GitPane 的 capture 监听会让位，这里补一份
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onCancel()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onCancel])
-
-  const submit = (btn: DialogButton): void => {
-    if (!valid) return
-    btn.onClick(values)
-  }
-
-  const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
-    // Enter = 主按钮；必须排除输入法合成中的回车（isComposing / keyCode 229）
-    if (e.key !== 'Enter') return
-    if (e.nativeEvent.isComposing || e.keyCode === 229) return
-    if (spec.buttons.length === 0) return
-    e.preventDefault()
-    submit(spec.buttons[0])
-  }
-
   // 第一个 Text/TextRef 输入自动聚焦（§1.2）
   const autoFocusKey =
     spec.inputs.find((i) => i.type === 'text' || i.type === 'text-ref')?.key ?? null
 
   return (
-    <Mask onClick={onCancel}>
-      <DialogPanel onKeyDown={onKeyDown}>
-        <div className="space-y-3 px-4 py-4">
-          <div className="select-text text-[13px] leading-relaxed text-foreground">
-            {spec.message}
-          </div>
-          {spec.inputs.map((input) => (
-            <DialogInputRow
-              key={input.key}
-              input={input}
-              value={values[input.key]}
-              autoFocusInput={input.key === autoFocusKey}
-              setValue={setValue}
-            />
-          ))}
-        </div>
-        <DialogFooter>
-          {spec.hideCancel !== true && (
-            <Button variant="ghost" onClick={onCancel}>
-              {spec.cancelLabel ?? (spec.messageOnly === true ? '关闭' : '取消')}
-            </Button>
-          )}
-          {spec.buttons.map((btn, i) => (
-            <Button
-              key={i}
-              variant={btn.destructive === true ? 'destructive' : 'default'}
-              disabled={!valid}
-              title={hasInvalid ? `无法${btn.label}，输入包含非法字符` : undefined}
-              onClick={() => submit(btn)}
-            >
-              {btn.label}
-            </Button>
-          ))}
-        </DialogFooter>
-      </DialogPanel>
-    </Mask>
+    <FormDialogShell
+      message={spec.message}
+      buttons={spec.buttons.map((btn) => ({
+        label: btn.label,
+        destructive: btn.destructive,
+        disabled: !valid,
+        title: hasInvalid ? `无法${btn.label}，输入包含非法字符` : undefined,
+        onClick: () => btn.onClick(values)
+      }))}
+      onCancel={onCancel}
+      cancelLabel={spec.cancelLabel ?? (spec.messageOnly === true ? '关闭' : '取消')}
+      hideCancel={spec.hideCancel}
+      // 没有文本输入（确认类）：点遮罩即取消
+      dismissOnOutsidePress={autoFocusKey === null}
+    >
+      {spec.inputs.map((input) => (
+        <DialogInputRow
+          key={input.key}
+          input={input}
+          value={values[input.key]}
+          autoFocusInput={input.key === autoFocusKey}
+          setValue={setValue}
+        />
+      ))}
+    </FormDialogShell>
   )
 }
 
@@ -2384,15 +2347,7 @@ function TagDetailsDialog({
   info: GitTagDetailsResult | null
   onClose: () => void
 }): React.JSX.Element {
-  // Message 型不走 DialogForm，Escape 监听单独补一份
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-  // 取不到详情：改用统一的错误框（Esc 由它自己收下）
+  // 取不到详情：改用统一的错误框
   if (info !== null && info.details === null) {
     return (
       <ErrorDialog
@@ -2405,42 +2360,40 @@ function TagDetailsDialog({
   // 走到这里 details 为 null 只剩加载中
   const details = info?.details ?? null
   return (
-    <Mask onClick={onClose}>
-      <DialogPanel>
-        <div className="space-y-3 px-4 py-4">
-          <div className="text-[13px] font-semibold text-foreground">
-            标签 <Em>{name}</Em>
-          </div>
-          {details === null ? (
-            <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
-              <LoaderCircle className="size-4 animate-spin" />
-              正在获取标签详情 …
-            </div>
-          ) : (
-            <div className="space-y-1 text-[13px]">
-              <TagDetailRow label="对象">
-                <span className="font-mono">{details.hash}</span>
-              </TagDetailRow>
-              <TagDetailRow label="打标签者">
-                {details.taggerName} &lt;{details.taggerEmail}&gt;
-                {details.signed && '（已签名）'}
-              </TagDetailRow>
-              <TagDetailRow label="日期">{formatDateTime(details.taggerDate)}</TagDetailRow>
-              {details.message !== '' && (
-                <pre className="mt-2 select-text whitespace-pre-wrap break-all rounded border border-[color:var(--border-input)] bg-[var(--bg-deepest)] p-2.5 text-[12px] leading-relaxed text-foreground">
-                  {details.message}
-                </pre>
-              )}
-            </div>
+    <FormDialogShell
+      message={
+        <span className="font-semibold">
+          标签 <Em>{name}</Em>
+        </span>
+      }
+      buttons={[]}
+      onCancel={onClose}
+      cancelLabel="关闭"
+      dismissOnOutsidePress
+    >
+      {details === null ? (
+        <div className="flex items-center gap-2 text-[13px] text-muted-foreground">
+          <LoaderCircle className="size-4 animate-spin" />
+          正在获取标签详情 …
+        </div>
+      ) : (
+        <div className="space-y-1 text-[13px]">
+          <TagDetailRow label="对象">
+            <span className="font-mono">{details.hash}</span>
+          </TagDetailRow>
+          <TagDetailRow label="打标签者">
+            {details.taggerName} &lt;{details.taggerEmail}&gt;
+            {details.signed && '（已签名）'}
+          </TagDetailRow>
+          <TagDetailRow label="日期">{formatDateTime(details.taggerDate)}</TagDetailRow>
+          {details.message !== '' && (
+            <pre className="mt-2 select-text whitespace-pre-wrap break-all rounded border border-[color:var(--border-input)] bg-[var(--bg-deepest)] p-2.5 text-[12px] leading-relaxed text-foreground">
+              {details.message}
+            </pre>
           )}
         </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
-            关闭
-          </Button>
-        </DialogFooter>
-      </DialogPanel>
-    </Mask>
+      )}
+    </FormDialogShell>
   )
 }
 

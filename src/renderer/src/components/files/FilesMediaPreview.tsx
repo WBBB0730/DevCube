@@ -19,7 +19,6 @@ import {
   useState
 } from 'react'
 import { GalleryHorizontal, GalleryVertical, Scan } from 'lucide-react'
-import { useApp } from '@renderer/store'
 import { editableTarget, overlayOpen } from '@renderer/lib/files-key-guards'
 import { cn } from '@renderer/lib/utils'
 import { isPrimaryModifierEvent, shortcutTitle } from '@renderer/lib/shortcut-label'
@@ -535,8 +534,6 @@ export function FilesMediaPreview({
         return
       }
       if (editableTarget(e.target) || overlayOpen()) return
-      const app = useApp.getState()
-      if (app.contentSearchOpen || app.dialog !== null) return
       if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') onPrev?.()
       else onNext?.()
       e.preventDefault()
@@ -582,8 +579,6 @@ export function FilesMediaPreview({
       const reset = e.code === 'Digit0' && !e.shiftKey
       if (!zoomIn && !zoomOut && !reset) return
       if (editableTarget(e.target) || overlayOpen()) return
-      const app = useApp.getState()
-      if (app.contentSearchOpen || app.dialog !== null) return
       e.preventDefault()
       e.stopPropagation()
       if (reset) fit('window')

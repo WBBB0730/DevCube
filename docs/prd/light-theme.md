@@ -50,7 +50,7 @@ DevCube 只有深色一套外观。在明亮环境下用、或者跟已经切成
 
 **主进程**：一个 `applyTheme(theme)` 落到原生侧——设 `nativeTheme.themeSource`、给所有窗口 `setBackgroundColor`，非 darwin 再 `setTitleBarOverlay`。调用点两处：store 初始化之后、建窗之前各一次（保证页面加载时 `prefers-color-scheme` 已正确），以及偏好写入带 `theme` 时。原来在模块顶层无条件设深色的那行去掉——它跑在 store 初始化之前，读不到偏好。
 
-**渲染层 CSS**：`:root` 保持深色为基线，新增一个 `@media (prefers-color-scheme: light)` 块，**只列与深色不同的 token**，其余继承。`color-scheme` 从 `dark` 改为 `light dark`。新增 `--bg-elevated`（浮起表面：弹层 / 输入控件 / 按钮）与 `--mask` / `--mask-weak`（遮罩）两组 token；`--bg-elevated` 在深色下与 `--bg-panel` 同值，故深色观感不变。原先用面板色的弹层与控件改用它，大面积容器仍用面板色。
+**渲染层 CSS**：`:root` 保持深色为基线，新增一个 `@media (prefers-color-scheme: light)` 块，**只列与深色不同的 token**，其余继承。`color-scheme` 从 `dark` 改为 `light dark`。新增 `--bg-elevated`（浮起表面：弹层 / 输入控件 / 按钮）与 `--mask`（遮罩）两个 token；`--bg-elevated` 在深色下与 `--bg-panel` 同值，故深色观感不变。原先用面板色的弹层与控件改用它，大面积容器仍用面板色。
 
 **diff 面板**：库按 `data-theme` 挂两套自带变量。应用侧的覆写块选择器必须同时列出两个 `data-theme`——取值本身已随主题翻，但漏掉哪个，库自带的那套（浅色是 GitHub 配色）就会全量接管；降级成不带属性的选择器又压不过库的特异性。
 

@@ -137,6 +137,7 @@ export function ServerFilesPane({
             }
           ]}
           onCancel={() => setConfirmDisconnect(false)}
+          dismissOnOutsidePress
         />
       )}
     </div>

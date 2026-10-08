@@ -1,54 +1,11 @@
-// 通用小对话框外壳（“Git 对话框族”样式的单一定义源，抽取自 GitDialogs）：
-// Mask 遮罩 + 440px 面板 +「提示语 + 内容 + 底部按钮条（右对齐）」。弹窗内不画分割线，靠留白分区。
-// 无标题栏——13px 提示语即说明；Enter = 主按钮（防输入法合成回车）、Esc = 取消。
+// 通用小对话框外壳（“Git 对话框族”样式的单一定义源，抽取自 GitDialogs）：建在 ui/dialog 上，
+// 440px 面板 +「提示语 + 内容 + 底部按钮条（右对齐）」。弹窗内不画分割线，靠留白分区。
+// 无标题栏——13px 提示语即说明；Enter = 主按钮（防输入法合成回车）、Esc = 取消（关闭规则见 ui/dialog）。
 // GitDialogs 与 Files 的弹窗（新建 / 重命名 / 删除 / 磁盘冲突）共用。
-import { useEffect, useRef } from 'react'
+import { useRef } from 'react'
 import { CircleAlert, Info } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
-import { useRestoreFocus } from '@renderer/lib/use-restore-focus'
-import { useStackedEscape } from '@renderer/lib/use-stacked-escape'
-import { cn } from '@renderer/lib/utils'
-
-export function DialogMask({
-  children,
-  onClick
-}: {
-  children: React.ReactNode
-  onClick?: () => void
-}): React.JSX.Element {
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-[color:var(--mask)]"
-      onClick={onClick}
-    >
-      {children}
-    </div>
-  )
-}
-
-/** 对话框面板外壳：440px 宽（ConfigDialog 同款），拦截冒泡防误触遮罩关闭。 */
-export function DialogPanel({
-  children,
-  className,
-  onKeyDown
-}: {
-  children: React.ReactNode
-  className?: string
-  onKeyDown?: (e: React.KeyboardEvent<HTMLDivElement>) => void
-}): React.JSX.Element {
-  return (
-    <div
-      className={cn(
-        'w-[440px] rounded-dialog border border-[color:var(--border-input)] bg-elevated shadow-xl',
-        className
-      )}
-      onClick={(e) => e.stopPropagation()}
-      onKeyDown={onKeyDown}
-    >
-      {children}
-    </div>
-  )
-}
+import { Dialog } from '@renderer/components/ui/dialog'
 
 /** 底部按钮条：右对齐，不画分割线——与正文之间只靠正文的下内边距隔开。 */
 export function DialogFooter({ children }: { children: React.ReactNode }): React.JSX.Element {
@@ -57,9 +14,8 @@ export function DialogFooter({ children }: { children: React.ReactNode }): React
 
 /**
  * 错误框（仿 WebStorm 的错误提示）：左侧 32px 红色错误图标；右侧加粗标题（默认「操作失败」）+
- * 普通字体正文（可选中、保留换行、限高滚动）；右下只有「确定」，点遮罩同「确定」。
- * 打开即聚焦「确定」，回车即关闭；Esc 同「确定」，只关它自己（叠在别的对话框上也不连带关掉下层，见 useStackedEscape）。
- * 关掉后焦点还给打开前的元素（useRestoreFocus）。
+ * 普通字体正文（可选中、保留换行、限高滚动）；右下只有「确定」，点遮罩、Esc 同「确定」。
+ * 打开即聚焦「确定」，回车即关闭。
  */
 export function ErrorDialog({
   title = '操作失败',
@@ -70,10 +26,7 @@ export function ErrorDialog({
   message: string
   onClose: () => void
 }): React.JSX.Element {
-  useRestoreFocus()
-  // 所在面板可能被隐藏（如切走的 Tab 里的错误框）：看不见时不收 Esc
-  const bodyRef = useRef<HTMLDivElement>(null)
-  useStackedEscape(onClose, bodyRef)
+  const okRef = useRef<HTMLButtonElement>(null)
 
   // 按住不放的连续回车不算（同 FormDialogShell）：免得弹出前按下的一次长按落到刚聚焦的「确定」上，一闪就关
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
@@ -81,24 +34,27 @@ export function ErrorDialog({
   }
 
   return (
-    <DialogMask onClick={onClose}>
-      <DialogPanel onKeyDown={onKeyDown}>
-        <div ref={bodyRef} className="flex items-start gap-3 px-4 py-4">
-          <CircleAlert className="size-8 shrink-0 text-[color:var(--status-failed)]" />
-          <div className="min-w-0 flex-1 space-y-1.5">
-            <div className="text-[13px] font-semibold text-foreground">{title}</div>
-            <div className="max-h-64 select-text overflow-auto whitespace-pre-wrap break-words text-[13px] leading-relaxed text-muted-foreground">
-              {message}
-            </div>
+    <Dialog
+      onClose={onClose}
+      dismissOnOutsidePress
+      initialFocus={() => okRef.current}
+      onKeyDown={onKeyDown}
+    >
+      <div className="flex items-start gap-3 px-4 py-4">
+        <CircleAlert className="size-8 shrink-0 text-[color:var(--status-failed)]" />
+        <div className="min-w-0 flex-1 space-y-1.5">
+          <div className="text-[13px] font-semibold text-foreground">{title}</div>
+          <div className="max-h-64 select-text overflow-auto whitespace-pre-wrap break-words text-[13px] leading-relaxed text-muted-foreground">
+            {message}
           </div>
         </div>
-        <DialogFooter>
-          <Button autoFocus onClick={onClose}>
-            确定
-          </Button>
-        </DialogFooter>
-      </DialogPanel>
-    </DialogMask>
+      </div>
+      <DialogFooter>
+        <Button ref={okRef} onClick={onClose}>
+          确定
+        </Button>
+      </DialogFooter>
+    </Dialog>
   )
 }
 
@@ -140,15 +96,16 @@ export interface FormDialogButton {
   title?: string
   /** 危险操作（删除等不可逆动作）：主按钮用 destructive 变体 */
   destructive?: boolean
-  /** 打开即聚焦（叠在别的对话框上的确认框：焦点移进来，回车才落到它的主按钮上） */
-  autoFocus?: boolean
 }
 
 /**
- * 自定义表单对话框外壳：Mask + DialogPanel + 消息 + children（字段自由布局）+ 按钮行。
- * buttons[0] 为主按钮（Enter 触发）；取消钮文案与禁用可定制（忙碌中锁死弹窗）。
+ * 自定义表单对话框外壳：消息 + children（字段自由布局）+ 按钮行。
+ * buttons[0] 为主按钮（Enter 触发）；取消钮文案与禁用可定制（忙碌中锁死弹窗，Esc 随之失效），
+ * hideCancel 不显示取消钮（几颗按钮都是动作；Esc 仍是取消）。
+ * dismissOnOutsidePress：点遮罩即取消，只给没有文本输入的对话框（确认类）。
  * dismissible=false：遮罩点击与 Esc 都不收口（长任务进行中，只认明确点按钮），
  * 与 cancelDisabled 正交——取消钮仍可用。
+ * 叠在它之上的对话框（错误框、确认框）写在 children 里（嵌套对话框，见 ui/dialog）。
  * footerStart：底栏左侧的辅助动作（如「测试连接」），与右侧的取消 / 主按钮分开。
  */
 export function FormDialogShell({
@@ -158,7 +115,10 @@ export function FormDialogShell({
   onCancel,
   cancelLabel = '取消',
   cancelDisabled = false,
+  hideCancel = false,
   dismissible = true,
+  dismissOnOutsidePress = false,
+  initialFocus,
   footerStart,
   className
 }: {
@@ -168,25 +128,21 @@ export function FormDialogShell({
   onCancel: () => void
   cancelLabel?: string
   cancelDisabled?: boolean
+  hideCancel?: boolean
   dismissible?: boolean
+  dismissOnOutsidePress?: boolean
+  /** 打开时聚焦的元素（见 ui/dialog）；缺省为面板本身，回车即主按钮 */
+  initialFocus?: () => HTMLElement | null
   footerStart?: React.ReactNode
   /** 面板尺寸覆盖（默认 440px 宽） */
   className?: string
 }): React.JSX.Element {
-  // Escape 兜底：焦点在对话框输入控件里时外层 capture 监听会让位，这里补一份
-  useEffect(() => {
-    if (!dismissible) return
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key === 'Escape') onCancel()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onCancel, dismissible])
-
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
     // Enter = 主按钮；必须排除输入法合成中的回车（isComposing / keyCode 229）
     if (e.key !== 'Enter') return
     if (e.nativeEvent.isComposing || e.keyCode === 229) return
+    // 叠在上面的对话框冒泡上来的回车归它自己
+    if (!e.currentTarget.contains(e.target as Node)) return
     // 按住不放的连续回车不算：免得一次长按在提交之后又落到随即弹出的确认框上
     if (e.repeat) {
       e.preventDefault()
@@ -201,33 +157,39 @@ export function FormDialogShell({
   }
 
   return (
-    <DialogMask onClick={cancelDisabled || !dismissible ? undefined : onCancel}>
-      <DialogPanel className={className} onKeyDown={onKeyDown}>
-        <div className="space-y-3 px-4 py-4">
-          <div className="select-text text-[13px] leading-relaxed text-foreground">{message}</div>
-          {children}
-        </div>
-        <DialogFooter>
-          {footerStart !== undefined && (
-            <div className="mr-auto flex items-center gap-2">{footerStart}</div>
-          )}
+    <Dialog
+      onClose={onCancel}
+      dismissible={dismissible && !cancelDisabled}
+      dismissOnOutsidePress={dismissOnOutsidePress}
+      initialFocus={initialFocus}
+      className={className}
+      onKeyDown={onKeyDown}
+    >
+      <div className="space-y-3 px-4 py-4">
+        <div className="select-text text-[13px] leading-relaxed text-foreground">{message}</div>
+        {children}
+      </div>
+      <DialogFooter>
+        {footerStart !== undefined && (
+          <div className="mr-auto flex items-center gap-2">{footerStart}</div>
+        )}
+        {!hideCancel && (
           <Button variant="ghost" disabled={cancelDisabled} onClick={onCancel}>
             {cancelLabel}
           </Button>
-          {buttons.map((btn, i) => (
-            <Button
-              key={i}
-              variant={btn.destructive === true ? 'destructive' : 'default'}
-              disabled={btn.disabled === true}
-              title={btn.title}
-              autoFocus={btn.autoFocus}
-              onClick={btn.onClick}
-            >
-              {btn.label}
-            </Button>
-          ))}
-        </DialogFooter>
-      </DialogPanel>
-    </DialogMask>
+        )}
+        {buttons.map((btn, i) => (
+          <Button
+            key={i}
+            variant={btn.destructive === true ? 'destructive' : 'default'}
+            disabled={btn.disabled === true}
+            title={btn.title}
+            onClick={btn.onClick}
+          >
+            {btn.label}
+          </Button>
+        ))}
+      </DialogFooter>
+    </Dialog>
   )
 }

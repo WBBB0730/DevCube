@@ -1,15 +1,12 @@
 // 内置 SSH 连接的提问弹窗（docs/prd/ssh-connection.md「提问弹窗」，ADR-0041）：一次答一个，文案照 WebStorm。
 // 首行 muted 写明正在连接哪台主机（经跳板机时为那一跳）。主机未知：核对指纹后「连接」；主机密钥已更改：醒目警告，
 // 「更新并连接」为危险样式；密码与私钥口令为遮挡输入，可勾「记住密码」/「记住口令」；服务器的交互式提问逐项作答。
-// 它可能叠在别的对话框上（如服务器对话框里测试连接时）：Esc 在捕获阶段先由它收下，只取消这一次提问；
-// 点遮罩不收口，只认明确的按钮；答完把焦点还给打开前的地方。
-import { useCallback, useState } from 'react'
+// 它可能叠在别的对话框上（如服务器对话框里测试连接时）：Esc 只取消这一次提问；点遮罩不收口，只认明确的按钮。
+import { useState } from 'react'
 import { CHOICE_ROW, Checkbox } from '@renderer/components/ui/checkbox'
 import { FormDialogShell } from '@renderer/components/ui/form-dialog'
 import { Input } from '@renderer/components/ui/input'
 import { PasswordInput } from '@renderer/components/ui/password-input'
-import { useRestoreFocus } from '@renderer/lib/use-restore-focus'
-import { useStackedEscape } from '@renderer/lib/use-stacked-escape'
 import { useApp } from '@renderer/store'
 import type { SshPrompt, SshPromptRequest } from '@shared/ssh-connect'
 
@@ -18,13 +15,7 @@ const FINGERPRINT =
 
 export function SshPromptDialog({ request }: { request: SshPromptRequest }): React.JSX.Element {
   const answer = useApp((s) => s.answerSshPrompt)
-  const cancel = useCallback(
-    () => answer({ id: request.id, answers: null, remember: false }),
-    [answer, request.id]
-  )
-  useStackedEscape(cancel)
-  useRestoreFocus()
-
+  const cancel = (): void => answer({ id: request.id, answers: null, remember: false })
   const respond = (answers: string[], remember = false): void =>
     answer({ id: request.id, answers, remember })
   const heading = (
@@ -45,7 +36,6 @@ export function SshPromptDialog({ request }: { request: SshPromptRequest }): Rea
         }
         buttons={[{ label: '连接', onClick: () => respond([]) }]}
         onCancel={cancel}
-        dismissible={false}
         className="w-[520px]"
       >
         <div className={FINGERPRINT}>{prompt.fingerprint}</div>
@@ -69,7 +59,6 @@ export function SshPromptDialog({ request }: { request: SshPromptRequest }): Rea
         }
         buttons={[{ label: '更新并连接', destructive: true, onClick: () => respond([]) }]}
         onCancel={cancel}
-        dismissible={false}
         className="w-[520px]"
       >
         <div className={FINGERPRINT}>{prompt.fingerprint}</div>
@@ -124,7 +113,6 @@ function SecretForm({
         }
       ]}
       onCancel={onCancel}
-      dismissible={false}
     >
       {prompt.rejected && (
         <div className="text-[12px] text-[color:var(--destructive)]">
@@ -167,7 +155,6 @@ function ChallengeForm({
       }
       buttons={[{ label: '确定', onClick: () => onAnswer(values) }]}
       onCancel={onCancel}
-      dismissible={false}
     >
       {instructions !== '' && (
         <div className="max-h-48 select-text overflow-y-auto whitespace-pre-wrap break-words text-[13px] text-foreground">

@@ -7,6 +7,7 @@ import { useEffect, useSyncExternalStore } from 'react'
 import { gitState, useGit } from '@renderer/git-store'
 import { useApp } from '@renderer/store'
 import { isPrimaryModifierEvent } from '@renderer/lib/shortcut-label'
+import { isDialogOpen } from '@renderer/components/ui/dialog'
 import { CenteredHint, LoadingHint } from '@renderer/components/ui/centered-hint'
 import { GitToolbar } from './GitToolbar'
 import { GitOpStatusBar } from './GitOpStatusBar'
@@ -67,7 +68,9 @@ export function GitPane({
   useEffect(() => {
     if (!visible) return
     const onKey = (e: KeyboardEvent): void => {
-      // 焦点在真输入控件（查找框、对话框表单等）时让位：Esc/Enter 由控件所属组件自理。
+      // 有弹窗显示着（Git 对话框、仓库设置、App 级弹窗）：键盘归弹窗，这里一概不管
+      if (isDialogOpen()) return
+      // 焦点在真输入控件（查找框等）时让位：Esc/Enter 由控件所属组件自理。
       const el = e.target as HTMLElement | null
       const editable =
         !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)
@@ -76,13 +79,8 @@ export function GitPane({
       const st = gitState(store, projectPath)
       const mod = isPrimaryModifierEvent(e)
       if (e.key === 'Escape') {
-        // 错误框开着：Esc 由它自己收下（ErrorDialog），这里不处理，免得连带关掉下层。标签详情同理：取不到详情时是
-        // 错误框（开没开着在 GitDialogs 里，这里看不到），否则它自己监听 Esc 关掉
-        if (st.actionErrors !== null || st.dialog?.kind === 'tag-details') return
-        // 分层关闭：一次 Esc 只关最上层（对话框 → diff → 详情 → 菜单 → 查找）。对话框盖在其余各层之上，
-        // 开着时焦点在它的按钮上也只关它，不连带关掉下面的 diff / 详情
-        if (st.dialog) store.closeDialog(projectPath)
-        else if (st.diffView) store.closeDiff(projectPath)
+        // 分层关闭：一次 Esc 只关最上层（diff → 详情 → 菜单 → 查找）
+        if (st.diffView) store.closeDiff(projectPath)
         else if (st.expanded) store.closeDetails(projectPath)
         else if (st.contextMenu) store.closeContextMenu(projectPath)
         else if (st.find?.open) store.setFind(projectPath, { open: false })

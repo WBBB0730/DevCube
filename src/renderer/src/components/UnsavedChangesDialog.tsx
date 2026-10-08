@@ -17,6 +17,7 @@ export function UnsavedChangesDialog({
       message={`“${name}” 有未保存的修改。要先保存到服务器吗？`}
       buttons={[{ label: '保存', onClick: () => onChoose('save') }]}
       onCancel={() => onChoose('cancel')}
+      dismissOnOutsidePress
       footerStart={
         <Button variant="destructiveSoft" onClick={() => onChoose('discard')}>
           不保存

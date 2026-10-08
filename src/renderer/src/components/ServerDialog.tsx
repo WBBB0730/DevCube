@@ -215,57 +215,55 @@ function AddServerForm(): React.JSX.Element {
   }
 
   return (
-    <>
-      <FormDialogShell
-        message="添加服务器："
-        buttons={[
-          {
-            label: '添加',
-            disabled: disabledReason !== null,
-            title: disabledReason ?? undefined,
-            onClick: submit
-          }
+    <FormDialogShell
+      message="添加服务器："
+      buttons={[
+        {
+          label: '添加',
+          disabled: disabledReason !== null,
+          title: disabledReason ?? undefined,
+          onClick: submit
+        }
+      ]}
+      onCancel={close}
+      footerStart={<TestConnection test={test} disabledReason={testDisabledReason} />}
+    >
+      <SegmentedControl
+        value={source}
+        onValueChange={(next) => setSource(next as 'config' | 'manual')}
+        items={[
+          { value: 'config', label: 'SSH 配置' },
+          { value: 'manual', label: '手动填写' }
         ]}
-        onCancel={close}
-        footerStart={<TestConnection test={test} disabledReason={testDisabledReason} />}
-      >
-        <SegmentedControl
-          value={source}
-          onValueChange={(next) => setSource(next as 'config' | 'manual')}
-          items={[
-            { value: 'config', label: 'SSH 配置' },
-            { value: 'manual', label: '手动填写' }
-          ]}
+      />
+      {source === 'config' ? (
+        <SshConfigHostList
+          hosts={hosts}
+          picked={picked}
+          addedAliases={addedAliases}
+          onToggle={toggle}
         />
-        {source === 'config' ? (
-          <SshConfigHostList
-            hosts={hosts}
-            picked={picked}
-            addedAliases={addedAliases}
-            onToggle={toggle}
-          />
-        ) : (
-          <>
-            <FieldRow label="名称">
-              <Input
-                value={name}
-                placeholder={manualTarget.host === '' ? '可选' : serverTargetLabel(manualTarget)}
-                onChange={(e) => setName(e.target.value)}
-              />
-            </FieldRow>
-            <ManualTargetFields fields={fields} onChange={setFields} autoFocus />
-            <PasswordField
-              value={password}
-              onChange={setPassword}
-              remember={remember}
-              onRememberChange={setRemember}
-              unavailableReason={unavailableReason}
-              placeholder="可选"
+      ) : (
+        <>
+          <FieldRow label="名称">
+            <Input
+              value={name}
+              placeholder={manualTarget.host === '' ? '可选' : serverTargetLabel(manualTarget)}
+              onChange={(e) => setName(e.target.value)}
             />
-          </>
-        )}
-        <DirectField checked={direct} onChange={setDirect} />
-      </FormDialogShell>
+          </FieldRow>
+          <ManualTargetFields fields={fields} onChange={setFields} autoFocus />
+          <PasswordField
+            value={password}
+            onChange={setPassword}
+            remember={remember}
+            onRememberChange={setRemember}
+            unavailableReason={unavailableReason}
+            placeholder="可选"
+          />
+        </>
+      )}
+      <DirectField checked={direct} onChange={setDirect} />
       <TestFailureDialog test={test} />
       {confirmingDuplicate && duplicateMessage !== null && (
         <DuplicateTargetConfirm
@@ -278,7 +276,7 @@ function AddServerForm(): React.JSX.Element {
           onCancel={() => setConfirmingDuplicate(false)}
         />
       )}
-    </>
+    </FormDialogShell>
   )
 }
 
@@ -398,47 +396,45 @@ function EditServerForm({ node }: { node: ServerNode }): React.JSX.Element {
   }
 
   return (
-    <>
-      <FormDialogShell
-        message="编辑服务器："
-        buttons={[
-          {
-            label: '保存',
-            disabled: disabledReason !== null,
-            title: disabledReason ?? undefined,
-            onClick: submit
-          }
-        ]}
-        onCancel={close}
-        footerStart={<TestConnection test={test} disabledReason={disabledReason} />}
-      >
-        <FieldRow label="名称">
-          <Input
-            value={name}
-            autoFocus
-            placeholder={serverTargetLabel(target)}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </FieldRow>
-        {server.target.kind === 'config' ? (
-          <FieldRow label="SSH 配置中的主机">
-            <div className="select-text font-mono text-[13px] text-foreground">
-              {server.target.alias}
-            </div>
-          </FieldRow>
-        ) : (
-          <ManualTargetFields fields={fields} onChange={setFields} />
-        )}
-        <PasswordField
-          value={password}
-          onChange={setPassword}
-          remember={remember}
-          onRememberChange={setRemember}
-          unavailableReason={unavailableReason}
-          placeholder={node.hasPassword && remember ? '已记住，留空则不修改' : '可选'}
+    <FormDialogShell
+      message="编辑服务器："
+      buttons={[
+        {
+          label: '保存',
+          disabled: disabledReason !== null,
+          title: disabledReason ?? undefined,
+          onClick: submit
+        }
+      ]}
+      onCancel={close}
+      footerStart={<TestConnection test={test} disabledReason={disabledReason} />}
+    >
+      <FieldRow label="名称">
+        <Input
+          value={name}
+          autoFocus
+          placeholder={serverTargetLabel(target)}
+          onChange={(e) => setName(e.target.value)}
         />
-        <DirectField checked={direct} onChange={setDirect} />
-      </FormDialogShell>
+      </FieldRow>
+      {server.target.kind === 'config' ? (
+        <FieldRow label="SSH 配置中的主机">
+          <div className="select-text font-mono text-[13px] text-foreground">
+            {server.target.alias}
+          </div>
+        </FieldRow>
+      ) : (
+        <ManualTargetFields fields={fields} onChange={setFields} />
+      )}
+      <PasswordField
+        value={password}
+        onChange={setPassword}
+        remember={remember}
+        onRememberChange={setRemember}
+        unavailableReason={unavailableReason}
+        placeholder={node.hasPassword && remember ? '已记住，留空则不修改' : '可选'}
+      />
+      <DirectField checked={direct} onChange={setDirect} />
       <TestFailureDialog test={test} />
       {confirmingDuplicate && duplicateMessage !== null && (
         <DuplicateTargetConfirm
@@ -451,6 +447,6 @@ function EditServerForm({ node }: { node: ServerNode }): React.JSX.Element {
           onCancel={() => setConfirmingDuplicate(false)}
         />
       )}
-    </>
+    </FormDialogShell>
   )
 }

@@ -2,12 +2,14 @@
  * Files 面板各正文（看图 / PDF / 音视频）的全局键盘监听共用的守卫：
  * 不抢输入框与弹层，不要求焦点落在预览内。
  */
+import { isDialogOpen } from '@renderer/components/ui/dialog'
 
-/** 有弹层正开着：居中对话框（设置 / 表单等），或下拉 / 右键菜单（方向键、回车归菜单自己导航） */
+/** 有弹层正开着：弹窗（设置 / 表单 / 内容搜索等），或下拉 / 右键菜单（方向键、回车归菜单自己导航） */
 export function overlayOpen(): boolean {
-  return [
-    ...document.querySelectorAll('.fixed.inset-0.z-50.flex.items-center, [role="menu"]')
-  ].some((el) => el.getClientRects().length > 0)
+  return (
+    isDialogOpen() ||
+    [...document.querySelectorAll('[role="menu"]')].some((el) => el.getClientRects().length > 0)
+  )
 }
 
 /** 事件目标是可输入控件 */

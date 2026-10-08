@@ -255,8 +255,9 @@ export function CompressWindow({ launch }: { launch: CompressLaunch }): React.JS
               已存在，要替换它吗？
             </>
           }
-          buttons={[{ label: '替换', destructive: true, autoFocus: true, onClick: start }]}
+          buttons={[{ label: '替换', destructive: true, onClick: start }]}
           onCancel={() => setConfirmReplace(false)}
+          dismissOnOutsidePress
         />
       )}
       {error !== null && (

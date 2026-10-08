@@ -5,8 +5,6 @@ import { CHOICE_ROW, Checkbox } from '@renderer/components/ui/checkbox'
 import { ErrorDialog, FieldRow, FormDialogShell } from '@renderer/components/ui/form-dialog'
 import { Input } from '@renderer/components/ui/input'
 import { PasswordInput } from '@renderer/components/ui/password-input'
-import { useRestoreFocus } from '@renderer/lib/use-restore-focus'
-import { useStackedEscape } from '@renderer/lib/use-stacked-escape'
 import { supportsDirectRoute } from '@shared/connection'
 import type { useConnectionTest } from '@renderer/lib/connection-test'
 
@@ -155,10 +153,7 @@ export function TestConnection({
   )
 }
 
-/**
- * 测试失败：弹错误框给出连接的报错，关掉即不显示。它叠在表单对话框之上、与之并列渲染（放进对话框里的话，
- * 在「确定」上按回车会冒泡成对话框的主按钮）；Esc 只关错误框（ErrorDialog 自己收下）。
- */
+/** 测试失败：弹错误框给出连接的报错，关掉即不显示。写在表单对话框的 children 里，叠在它之上。 */
 export function TestFailureDialog({
   test
 }: {
@@ -171,7 +166,7 @@ export function TestFailureDialog({
 
 /**
  * 连接目标与已登记的重复：允许（同一个库或同一台服务器可以登记多份），只在提交时再问一次。
- * 叠在表单对话框之上、与之并列渲染；主按钮打开即聚焦，回车即确认；Esc 只关它自己。
+ * 写在表单对话框的 children 里，叠在它之上；回车即确认，Esc、点遮罩只关它自己。
  */
 export function DuplicateTargetConfirm({
   message,
@@ -184,14 +179,12 @@ export function DuplicateTargetConfirm({
   onConfirm: () => void
   onCancel: () => void
 }): React.JSX.Element {
-  useStackedEscape(onCancel)
-  // 关掉后把焦点还给打开前的地方（表单里的输入框），回车照样提交表单；确认后表单随之关闭，那个元素已不在页面上
-  useRestoreFocus()
   return (
     <FormDialogShell
       message={message}
-      buttons={[{ label: confirmLabel, onClick: onConfirm, autoFocus: true }]}
+      buttons={[{ label: confirmLabel, onClick: onConfirm }]}
       onCancel={onCancel}
+      dismissOnOutsidePress
     />
   )
 }

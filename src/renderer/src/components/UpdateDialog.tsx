@@ -87,6 +87,7 @@ export function UpdateDialog({
         { label: action === 'quitAndInstall' ? '重启并更新' : '前往下载', onClick: onConfirm }
       ]}
       onCancel={onCancel}
+      dismissOnOutsidePress
     >
       <ChangelogScroller>
         {changelog.length === 0 ? (

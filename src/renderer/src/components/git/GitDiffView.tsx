@@ -30,6 +30,7 @@ import { useFiles } from '@renderer/files-store'
 import { useApp } from '@renderer/store'
 import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import { CenteredHint, LoadingHint } from '@renderer/components/ui/centered-hint'
+import { isDialogOpen } from '@renderer/components/ui/dialog'
 import { abbrevHash } from './git-format'
 import {
   FILE_STATUS_COLOR,
@@ -173,11 +174,12 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
   )
 
   // 快捷键（对齐 WebStorm）：F7/⇧F7 上下改动块，⌥←/⌥→ 左右文件。仅 diff 打开时监听，
-  // capture 对齐 GitPane 的全局键盘；输入控件聚焦时让位；Esc 仍由 GitPane 统一处理。
+  // capture 对齐 GitPane 的全局键盘；有弹窗显示着、输入控件聚焦时让位；Esc 仍由 GitPane 统一处理。
   const hasDiff = diffView !== null
   useEffect(() => {
     if (!hasDiff) return
     const onKey = (e: KeyboardEvent): void => {
+      if (isDialogOpen()) return
       const el = e.target as HTMLElement | null
       const editable =
         !!el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA' || el.isContentEditable)

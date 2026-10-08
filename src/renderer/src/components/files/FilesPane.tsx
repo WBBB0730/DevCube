@@ -855,8 +855,6 @@ export function FilesPane({
       const dir = arrowDirection(e)
       if (dir === null) return
       if (editableTarget(e.target) || overlayOpen()) return
-      const app = useApp.getState()
-      if (app.contentSearchOpen || app.dialog !== null) return
       e.preventDefault()
       e.stopPropagation()
       void goAdjacentMedia(dir)
@@ -2158,6 +2156,7 @@ export function FilesPane({
               cancelLabel="保留编辑器内容"
               buttons={[{ label: '重载', onClick: reloadFromConflict }]}
               onCancel={keepEditorContent}
+              dismissOnOutsidePress
             />
           )}
         </div>

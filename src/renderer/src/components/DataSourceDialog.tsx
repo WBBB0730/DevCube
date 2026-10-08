@@ -179,139 +179,137 @@ export function DataSourceDialog({ node: editing }: { node?: DataSourceNode }): 
   }
 
   return (
-    <>
-      <FormDialogShell
-        message={editing === undefined ? '添加数据源：' : '编辑数据源：'}
-        buttons={[
-          {
-            label: submitLabel,
-            disabled: disabledReason !== null,
-            title: disabledReason ?? undefined,
-            onClick: submit
-          }
-        ]}
-        onCancel={close}
-        footerStart={<TestConnection test={test} disabledReason={disabledReason} />}
-      >
-        <FieldRow label="连接串">
-          <Input
-            value={url}
-            autoFocus={editing === undefined}
-            placeholder="postgres://…"
-            className="font-mono"
-            onChange={(e) => applyUrl(e.target.value)}
-          />
-          {urlError !== null && (
-            <div className="mt-1 text-[12px] text-[color:var(--status-failed)]">{urlError}</div>
-          )}
-        </FieldRow>
-        <FieldRow label="类型">
-          <Select
-            value={fields.kind}
-            onValueChange={(v) => {
-              if (v != null) setFields((f) => withKind(f, v as DataSourceKind))
-            }}
-            items={DATA_SOURCE_KINDS.map((kind) => ({
-              value: kind,
-              label: DATA_SOURCE_KIND_LABELS[kind]
-            }))}
-          >
-            <SelectTrigger>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {DATA_SOURCE_KINDS.map((kind) => (
-                <SelectItem key={kind} value={kind}>
-                  {DATA_SOURCE_KIND_LABELS[kind]}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        </FieldRow>
-        <FieldRow label="名称">
-          <Input
-            value={name}
-            autoFocus={editing !== undefined}
-            placeholder={disabledReason === null ? defaultDataSourceName(target) : '可选'}
-            onChange={(e) => setName(e.target.value)}
-          />
-        </FieldRow>
-        {fields.kind === 'sqlite' ? (
-          <FieldRow label="文件">
-            <div className="flex items-center gap-1.5">
-              <Input
-                value={fields.file}
-                className="min-w-0 flex-1 font-mono"
-                onChange={(e) => set({ file: e.target.value })}
-              />
-              <button type="button" title="选择文件" className={INPUT_ICON_BTN} onClick={pickFile}>
-                <FolderOpen className="size-4" />
-              </button>
-            </div>
-          </FieldRow>
-        ) : (
-          <>
-            <HostPortFields
-              host={fields.host}
-              port={fields.port}
-              hostPlaceholder="db.example.com 或 127.0.0.1"
-              onChange={set}
-            />
-            <div className="flex gap-2">
-              <div className="min-w-0 flex-1">
-                <FieldRow label="用户名">
-                  <Input
-                    value={fields.user}
-                    placeholder="可选"
-                    className="font-mono"
-                    onChange={(e) => set({ user: e.target.value })}
-                  />
-                </FieldRow>
-              </div>
-              <div className="min-w-0 flex-1">
-                <FieldRow label={fields.kind === 'redis' ? '库编号' : '默认库'}>
-                  <Input
-                    value={fields.database}
-                    placeholder={fields.kind === 'redis' ? '0' : '可选'}
-                    className="font-mono"
-                    onChange={(e) => set({ database: e.target.value })}
-                  />
-                </FieldRow>
-              </div>
-            </div>
-            <PasswordField
-              value={password}
-              onChange={setPassword}
-              remember={remember}
-              onRememberChange={setRemember}
-              unavailableReason={unavailableReason}
-              placeholder={editing?.hasPassword && remember ? '已记住，留空则不修改' : '可选'}
-            />
-            {fields.kind === 'redis' ? (
-              <label className={CHOICE_ROW}>
-                <Checkbox checked={fields.tls} onCheckedChange={(tls) => set({ tls })} />
-                <span>TLS 加密</span>
-              </label>
-            ) : (
-              fields.sslMode !== null && (
-                <FieldRow label="加密要求">
-                  <div className="flex items-center gap-2 text-[13px] text-foreground">
-                    <span title="来自连接串">{SSL_MODE_LABELS[fields.sslMode]}</span>
-                    <button
-                      type="button"
-                      className="text-[color:var(--link)] hover:underline"
-                      onClick={() => set({ sslMode: null })}
-                    >
-                      清除
-                    </button>
-                  </div>
-                </FieldRow>
-              )
-            )}
-            <DirectField checked={fields.direct} onChange={(direct) => set({ direct })} />
-          </>
+    <FormDialogShell
+      message={editing === undefined ? '添加数据源：' : '编辑数据源：'}
+      buttons={[
+        {
+          label: submitLabel,
+          disabled: disabledReason !== null,
+          title: disabledReason ?? undefined,
+          onClick: submit
+        }
+      ]}
+      onCancel={close}
+      footerStart={<TestConnection test={test} disabledReason={disabledReason} />}
+    >
+      <FieldRow label="连接串">
+        <Input
+          value={url}
+          autoFocus={editing === undefined}
+          placeholder="postgres://…"
+          className="font-mono"
+          onChange={(e) => applyUrl(e.target.value)}
+        />
+        {urlError !== null && (
+          <div className="mt-1 text-[12px] text-[color:var(--status-failed)]">{urlError}</div>
         )}
-      </FormDialogShell>
+      </FieldRow>
+      <FieldRow label="类型">
+        <Select
+          value={fields.kind}
+          onValueChange={(v) => {
+            if (v != null) setFields((f) => withKind(f, v as DataSourceKind))
+          }}
+          items={DATA_SOURCE_KINDS.map((kind) => ({
+            value: kind,
+            label: DATA_SOURCE_KIND_LABELS[kind]
+          }))}
+        >
+          <SelectTrigger>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {DATA_SOURCE_KINDS.map((kind) => (
+              <SelectItem key={kind} value={kind}>
+                {DATA_SOURCE_KIND_LABELS[kind]}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </FieldRow>
+      <FieldRow label="名称">
+        <Input
+          value={name}
+          autoFocus={editing !== undefined}
+          placeholder={disabledReason === null ? defaultDataSourceName(target) : '可选'}
+          onChange={(e) => setName(e.target.value)}
+        />
+      </FieldRow>
+      {fields.kind === 'sqlite' ? (
+        <FieldRow label="文件">
+          <div className="flex items-center gap-1.5">
+            <Input
+              value={fields.file}
+              className="min-w-0 flex-1 font-mono"
+              onChange={(e) => set({ file: e.target.value })}
+            />
+            <button type="button" title="选择文件" className={INPUT_ICON_BTN} onClick={pickFile}>
+              <FolderOpen className="size-4" />
+            </button>
+          </div>
+        </FieldRow>
+      ) : (
+        <>
+          <HostPortFields
+            host={fields.host}
+            port={fields.port}
+            hostPlaceholder="db.example.com 或 127.0.0.1"
+            onChange={set}
+          />
+          <div className="flex gap-2">
+            <div className="min-w-0 flex-1">
+              <FieldRow label="用户名">
+                <Input
+                  value={fields.user}
+                  placeholder="可选"
+                  className="font-mono"
+                  onChange={(e) => set({ user: e.target.value })}
+                />
+              </FieldRow>
+            </div>
+            <div className="min-w-0 flex-1">
+              <FieldRow label={fields.kind === 'redis' ? '库编号' : '默认库'}>
+                <Input
+                  value={fields.database}
+                  placeholder={fields.kind === 'redis' ? '0' : '可选'}
+                  className="font-mono"
+                  onChange={(e) => set({ database: e.target.value })}
+                />
+              </FieldRow>
+            </div>
+          </div>
+          <PasswordField
+            value={password}
+            onChange={setPassword}
+            remember={remember}
+            onRememberChange={setRemember}
+            unavailableReason={unavailableReason}
+            placeholder={editing?.hasPassword && remember ? '已记住，留空则不修改' : '可选'}
+          />
+          {fields.kind === 'redis' ? (
+            <label className={CHOICE_ROW}>
+              <Checkbox checked={fields.tls} onCheckedChange={(tls) => set({ tls })} />
+              <span>TLS 加密</span>
+            </label>
+          ) : (
+            fields.sslMode !== null && (
+              <FieldRow label="加密要求">
+                <div className="flex items-center gap-2 text-[13px] text-foreground">
+                  <span title="来自连接串">{SSL_MODE_LABELS[fields.sslMode]}</span>
+                  <button
+                    type="button"
+                    className="text-[color:var(--link)] hover:underline"
+                    onClick={() => set({ sslMode: null })}
+                  >
+                    清除
+                  </button>
+                </div>
+              </FieldRow>
+            )
+          )}
+          <DirectField checked={fields.direct} onChange={(direct) => set({ direct })} />
+        </>
+      )}
       <TestFailureDialog test={test} />
       {confirmingDuplicate && duplicateMessage !== null && (
         <DuplicateTargetConfirm
@@ -324,7 +322,7 @@ export function DataSourceDialog({ node: editing }: { node?: DataSourceNode }): 
           onCancel={() => setConfirmingDuplicate(false)}
         />
       )}
-    </>
+    </FormDialogShell>
   )
 }
 

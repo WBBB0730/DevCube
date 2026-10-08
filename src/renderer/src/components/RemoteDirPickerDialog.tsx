@@ -1,14 +1,16 @@
 // 选择服务器上的目录（服务器上的配置的工作目录，docs/prd/ssh-server.md）：叠在配置对话框上的小对话框。沿用这台服务器的
 // 文件连接（同 Files Tab，docs/prd/server-files.md）：还没连上就开始连接，要回答的提问照常弹出；关掉对话框不断开。
 // 树同 Files 的文件树（根为 `/`，只列目录），顶上是「前往路径」；打开时定位到工作目录里填的目录（没填为家目录）。
-// 点目录即选中并开合，点根行即选中根；「选择」交回选中的目录（写法见 remoteCwdFromPicked）。Esc、点遮罩即取消，只关它自己。
+// 点目录即选中并开合，点根行即选中根；「选择」交回选中的目录（写法见 remoteCwdFromPicked）。Esc 即取消，只关它自己；
+// 有「前往路径」输入，点遮罩不关。
 // 加载态同数据源的目录树：根还没读到时树区居中「正在读取…」，展开的目录还没读到时在子级位置出一行「正在读取…」。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Folder, FolderOpen } from 'lucide-react'
 import { BarInput } from '@renderer/components/ui/bar-input'
 import { Button } from '@renderer/components/ui/button'
 import { ConnectPlaceholder } from '@renderer/components/ui/connect-placeholder'
-import { DialogFooter, DialogMask, DialogPanel } from '@renderer/components/ui/form-dialog'
+import { Dialog } from '@renderer/components/ui/dialog'
+import { DialogFooter } from '@renderer/components/ui/form-dialog'
 import {
   TREE_ICON,
   TREE_ROW_H,
@@ -20,8 +22,6 @@ import { TREE_SCROLL, TreePanelBar, TreeRootRow } from '@renderer/components/ui/
 import { ipcErrorMessage } from '@renderer/lib/ipc-error'
 import { useServerFilesState } from '@renderer/lib/server-files-state'
 import { typeToInput } from '@renderer/lib/type-to-input'
-import { useRestoreFocus } from '@renderer/lib/use-restore-focus'
-import { useStackedEscape } from '@renderer/lib/use-stacked-escape'
 import { useTreeVirtualReveal } from '@renderer/lib/use-tree-virtual-reveal'
 import { cn } from '@renderer/lib/utils'
 import type { FilesDirEntry } from '@shared/files'
@@ -59,9 +59,6 @@ export function RemoteDirPickerDialog({
   onPick: (cwd: string) => void
   onClose: () => void
 }): React.JSX.Element {
-  useRestoreFocus()
-  useStackedEscape(onClose)
-
   const state = useServerFilesState(serverId)
   const home = state.phase === 'connected' ? state.home : null
 
@@ -236,113 +233,111 @@ export function RemoteDirPickerDialog({
   }
 
   return (
-    <DialogMask onClick={onClose}>
-      <DialogPanel>
-        <div className="space-y-3 px-4 py-4">
-          <div className="select-text text-[13px] leading-relaxed text-foreground">
-            选择 “{serverName}” 上的目录：
-          </div>
-          <div className="flex h-80 flex-col overflow-hidden rounded border border-[color:var(--border-input)] bg-panel">
-            {home === null ? (
-              <ConnectPlaceholder
-                phase={state.phase === 'disconnected' ? 'failed' : 'connecting'}
-                message={state.phase === 'disconnected' ? state.message : undefined}
-                actionLabel="重新连接"
-                onAction={() => void window.api.connectServerFiles(serverId)}
+    <Dialog onClose={onClose}>
+      <div className="space-y-3 px-4 py-4">
+        <div className="select-text text-[13px] leading-relaxed text-foreground">
+          选择 “{serverName}” 上的目录：
+        </div>
+        <div className="flex h-80 flex-col overflow-hidden rounded border border-[color:var(--border-input)] bg-panel">
+          {home === null ? (
+            <ConnectPlaceholder
+              phase={state.phase === 'disconnected' ? 'failed' : 'connecting'}
+              message={state.phase === 'disconnected' ? state.message : undefined}
+              actionLabel="重新连接"
+              onAction={() => void window.api.connectServerFiles(serverId)}
+            />
+          ) : (
+            <>
+              <TreePanelBar>
+                <BarInput
+                  ref={inputRef}
+                  value={goQuery}
+                  onChange={changeGoQuery}
+                  onSubmit={() => void goToPath()}
+                  escapeFocusRef={scrollRef}
+                  title="前往路径…"
+                  placeholder="前往路径…"
+                />
+              </TreePanelBar>
+              {goError !== null && (
+                <div className="shrink-0 px-3 pt-1.5 text-xs text-[var(--status-failed)]">
+                  {goError}
+                </div>
+              )}
+              <TreeRootRow
+                title={ROOT}
+                icon={<FolderOpen className={TREE_ICON} />}
+                name={
+                  // 选中时名称转主色，同选中的树行
+                  <span style={{ color: selected === ROOT ? 'var(--fg-primary)' : undefined }}>
+                    {ROOT}
+                  </span>
+                }
+                className={cn('cursor-pointer', selected === ROOT && 'bg-[var(--selection-row)]')}
+                onClick={() => setSelected(ROOT)}
               />
-            ) : (
-              <>
-                <TreePanelBar>
-                  <BarInput
-                    ref={inputRef}
-                    value={goQuery}
-                    onChange={changeGoQuery}
-                    onSubmit={() => void goToPath()}
-                    escapeFocusRef={scrollRef}
-                    title="前往路径…"
-                    placeholder="前往路径…"
-                  />
-                </TreePanelBar>
-                {goError !== null && (
-                  <div className="shrink-0 px-3 pt-1.5 text-xs text-[var(--status-failed)]">
-                    {goError}
+              <div
+                ref={scrollRef}
+                tabIndex={0}
+                className={TREE_SCROLL}
+                onKeyDown={(e) =>
+                  typeToInput(e, {
+                    query: goQuery,
+                    inputRef,
+                    onChange: changeGoQuery,
+                    onClear: () => changeGoQuery('')
+                  })
+                }
+              >
+                {!(ROOT in childrenByDir) ? (
+                  <TreeHint loading>正在读取…</TreeHint>
+                ) : (
+                  <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+                    {virtualizer.getVirtualItems().map((vi) => {
+                      const row = rows[vi.index]
+                      return (
+                        <div
+                          key={vi.key}
+                          className="absolute left-0 top-0 w-full"
+                          style={{ transform: `translateY(${vi.start}px)` }}
+                        >
+                          {row.notice ? (
+                            <TreeNoticeRow
+                              depth={row.depth}
+                              message={row.name}
+                              loading={row.loading}
+                            />
+                          ) : (
+                            <TreeRow
+                              depth={row.depth}
+                              expanded={expanded.has(row.path)}
+                              icon={<Folder className={TREE_ICON} />}
+                              name={row.name}
+                              selected={selected === row.path}
+                              onClick={() => {
+                                setSelected(row.path)
+                                void toggle(row.path)
+                              }}
+                            />
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
                 )}
-                <TreeRootRow
-                  title={ROOT}
-                  icon={<FolderOpen className={TREE_ICON} />}
-                  name={
-                    // 选中时名称转主色，同选中的树行
-                    <span style={{ color: selected === ROOT ? 'var(--fg-primary)' : undefined }}>
-                      {ROOT}
-                    </span>
-                  }
-                  className={cn('cursor-pointer', selected === ROOT && 'bg-[var(--selection-row)]')}
-                  onClick={() => setSelected(ROOT)}
-                />
-                <div
-                  ref={scrollRef}
-                  tabIndex={0}
-                  className={TREE_SCROLL}
-                  onKeyDown={(e) =>
-                    typeToInput(e, {
-                      query: goQuery,
-                      inputRef,
-                      onChange: changeGoQuery,
-                      onClear: () => changeGoQuery('')
-                    })
-                  }
-                >
-                  {!(ROOT in childrenByDir) ? (
-                    <TreeHint loading>正在读取…</TreeHint>
-                  ) : (
-                    <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
-                      {virtualizer.getVirtualItems().map((vi) => {
-                        const row = rows[vi.index]
-                        return (
-                          <div
-                            key={vi.key}
-                            className="absolute left-0 top-0 w-full"
-                            style={{ transform: `translateY(${vi.start}px)` }}
-                          >
-                            {row.notice ? (
-                              <TreeNoticeRow
-                                depth={row.depth}
-                                message={row.name}
-                                loading={row.loading}
-                              />
-                            ) : (
-                              <TreeRow
-                                depth={row.depth}
-                                expanded={expanded.has(row.path)}
-                                icon={<Folder className={TREE_ICON} />}
-                                name={row.name}
-                                selected={selected === row.path}
-                                onClick={() => {
-                                  setSelected(row.path)
-                                  void toggle(row.path)
-                                }}
-                              />
-                            )}
-                          </div>
-                        )
-                      })}
-                    </div>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
+              </div>
+            </>
+          )}
         </div>
-        <DialogFooter>
-          <Button variant="ghost" onClick={onClose}>
-            取消
-          </Button>
-          <Button disabled={home === null || selected === null} onClick={pick}>
-            选择
-          </Button>
-        </DialogFooter>
-      </DialogPanel>
-    </DialogMask>
+      </div>
+      <DialogFooter>
+        <Button variant="ghost" onClick={onClose}>
+          取消
+        </Button>
+        <Button disabled={home === null || selected === null} onClick={pick}>
+          选择
+        </Button>
+      </DialogFooter>
+    </Dialog>
   )
 }

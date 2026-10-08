@@ -1,8 +1,8 @@
-// 仓库设置面板（toolbar-widgets §4）：外壳与应用设置共用 SettingsModal。
+// 仓库设置面板（toolbar-widgets §4）：外壳与应用设置共用 SettingsModal（有内联表单，点遮罩不关）。
 // 四个区块 —— 隐藏的远程、用户信息、远程管理、工作树（三态开关与提交排序已移至工具栏的
 // 视图选项 Popover，见 GitViewOptions）。用户信息与远程 CRUD 走 runAction（进行中遮罩 / 错误框由
 // GitDialogs 统一呈现），成功后重拉 config。控件用 shadcn Checkbox / RadioGroup。
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Eraser, Pencil, Plus, Trash2 } from 'lucide-react'
 import {
   defaultWorktreeDirectory,
@@ -13,6 +13,7 @@ import {
 import { gitState, useGit } from '@renderer/git-store'
 import { SettingsModal } from '@renderer/components/SettingsModal'
 import { Button } from '@renderer/components/ui/button'
+import { FormDialogShell } from '@renderer/components/ui/form-dialog'
 import { Input } from '@renderer/components/ui/input'
 import { TOOLBAR_BTN } from '@renderer/components/ui/toolbar'
 import { Checkbox } from '@renderer/components/ui/checkbox'
@@ -28,7 +29,7 @@ function nextHideRemotes(hideRemotes: string[], remote: string, hidden: boolean)
 
 // —— 私有类型与常量 ——
 
-/** 面板内确认条请求（删除 / 清理 / 移除等操作先确认再执行）。 */
+/** 确认框请求（删除 / 清理 / 移除等操作先确认再执行；叠在面板之上）。 */
 interface ConfirmRequest {
   message: string
   actionLabel: string
@@ -66,13 +67,8 @@ export function GitRepoSettings({
 }): React.JSX.Element | null {
   const loadRepoConfig = useGit((s) => s.loadRepoConfig)
   const [confirm, setConfirm] = useState<ConfirmRequest | null>(null)
-  // Esc 处理需要读最新 confirm，用 ref 镜像避免监听器闭包过期（在 effect 内写，不在渲染期碰 ref）
-  const confirmRef = useRef<ConfirmRequest | null>(null)
-  useEffect(() => {
-    confirmRef.current = confirm
-  }, [confirm])
 
-  // 打开即重拉 config；重开时清掉上次残留的确认条
+  // 打开即重拉 config；重开时清掉上次残留的确认框
   useEffect(() => {
     if (!open) return
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 面板打开是外部驱动的一次性复位，非渲染热路径
@@ -80,23 +76,10 @@ export function GitRepoSettings({
     void loadRepoConfig(projectPath)
   }, [open, projectPath, loadRepoConfig])
 
-  // Esc：先关确认条、再关面板（子表单用各自的取消按钮关闭）。焦点在面板输入控件内时
-  // GitPane 的 capture 监听会让位（editable 检查），此处兜住面板自身的关闭路径。
-  useEffect(() => {
-    if (!open) return
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.key !== 'Escape') return
-      if (confirmRef.current !== null) setConfirm(null)
-      else onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [open, onClose])
-
   if (!open) return null
 
   return (
-    <SettingsModal title="仓库设置" onClose={onClose} className="relative max-h-[85vh] w-[560px]">
+    <SettingsModal title="仓库设置" onClose={onClose} className="max-h-[85vh] w-[560px]">
       <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-3">
         <HiddenRemotesSection projectPath={projectPath} />
         <UserSection projectPath={projectPath} onConfirm={setConfirm} />
@@ -104,33 +87,21 @@ export function GitRepoSettings({
         <WorktreeSection projectPath={projectPath} />
       </div>
       {confirm !== null && (
-        <div
-          className="absolute inset-0 z-10 flex items-center justify-center bg-[color:var(--mask-weak)]"
-          onClick={() => setConfirm(null)}
-        >
-          <div
-            className="w-96 rounded-dialog border border-[color:var(--border-input)] bg-elevated p-4 shadow-xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="select-text text-[13px] text-foreground">{confirm.message}</div>
-            <div className="mt-3 flex justify-end gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setConfirm(null)}>
-                取消
-              </Button>
-              <Button
-                variant={confirm.destructive ? 'destructive' : 'default'}
-                size="sm"
-                onClick={() => {
-                  const run = confirm.run
-                  setConfirm(null)
-                  run()
-                }}
-              >
-                {confirm.actionLabel}
-              </Button>
-            </div>
-          </div>
-        </div>
+        <FormDialogShell
+          message={confirm.message}
+          buttons={[
+            {
+              label: confirm.actionLabel,
+              destructive: confirm.destructive,
+              onClick: () => {
+                setConfirm(null)
+                confirm.run()
+              }
+            }
+          ]}
+          onCancel={() => setConfirm(null)}
+          dismissOnOutsidePress
+        />
       )}
     </SettingsModal>
   )

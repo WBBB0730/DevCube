@@ -1,7 +1,7 @@
 // Files 树条目操作弹窗（新建文件 / 新建文件夹 / 重命名 / 删除确认）：走通用小对话框外壳
 // （ui/form-dialog，与 Git 对话框族同款）——WebStorm 式提示语 + 输入 + 底部按钮条。
 // onSubmit 抛错时弹窗保持打开并就地展示错误；提交中锁死弹窗（含 Esc / 遮罩 / 取消）。
-import { useEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { FormDialogShell } from '@renderer/components/ui/form-dialog'
 import { Input } from '@renderer/components/ui/input'
 import { ipcErrorMessage } from '@renderer/lib/ipc-error'
@@ -61,21 +61,19 @@ export function FilesEntryDialog({
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
-  const mountedRequest = useRef(request)
 
-  // 挂载即聚焦；重命名文件预选中主名（不含扩展名），对齐 WebStorm。调用方按请求 key 重挂载。
-  useEffect(() => {
+  // 打开即聚焦输入框；重命名文件预选中主名（不含扩展名），对齐 WebStorm。调用方按请求 key 重挂载。
+  const focusInput = (): HTMLElement | null => {
     const input = inputRef.current
-    if (!input) return
-    input.focus()
-    const req = mountedRequest.current
-    if (req.kind === 'rename' && !req.isDirectory) {
+    if (input === null) return null
+    if (request.kind === 'rename' && !request.isDirectory) {
       const dot = input.value.lastIndexOf('.')
       input.setSelectionRange(0, dot > 0 ? dot : input.value.length)
     } else {
       input.select()
     }
-  }, [])
+    return input
+  }
 
   const submit = (): void => {
     if (busy) return
@@ -101,6 +99,8 @@ export function FilesEntryDialog({
       ]}
       onCancel={busy ? () => undefined : onClose}
       cancelDisabled={busy}
+      dismissOnOutsidePress={isRemoval}
+      initialFocus={focusInput}
     >
       {!isRemoval && (
         <Input

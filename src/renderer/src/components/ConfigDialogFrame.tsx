@@ -1,11 +1,11 @@
-import { useEffect } from 'react'
 import { Info } from 'lucide-react'
 import { SettingsModal } from '@renderer/components/SettingsModal'
 import { Button } from '@renderer/components/ui/button'
 
 /**
  * 配置对话框的外壳（命令配置与数据源上的配置共用）：SettingsModal、底栏左侧参数说明（hover 看格式与示例，
- * docs/prd/run-config-params.md）、右侧「取消 / 保存」、Esc 关闭。保存只在 valid 时可点。
+ * docs/prd/run-config-params.md）、右侧「取消 / 保存」。Esc 关闭（已被编辑器收下的不算），点遮罩不关。
+ * 保存只在 valid 时可点。
  */
 export function ConfigDialogFrame({
   title,
@@ -27,16 +27,6 @@ export function ConfigDialogFrame({
   /** 各字段（Field） */
   children: React.ReactNode
 }): React.JSX.Element {
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent): void => {
-      // 编辑器里的 Esc 先由它收下（关补全、关查找栏），不关对话框
-      if (e.defaultPrevented) return
-      if (e.key === 'Escape') onClose()
-    }
-    window.addEventListener('keydown', onKey)
-    return () => window.removeEventListener('keydown', onKey)
-  }, [onClose])
-
   return (
     <SettingsModal
       title={title}

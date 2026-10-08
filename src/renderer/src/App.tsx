@@ -12,6 +12,7 @@ import { RunParamsDialog } from '@renderer/components/RunParamsDialog'
 import { ContentSearchPanel } from '@renderer/components/ContentSearchPanel'
 import { AppTitleBar } from '@renderer/components/AppTitleBar'
 import { SettingsDialog } from '@renderer/components/SettingsDialog'
+import { isDialogOpen } from '@renderer/components/ui/dialog'
 import { useDataSourceUi } from '@renderer/data-source-store'
 import { countExecutedStatements } from '@renderer/lib/data-source-completion-usage'
 import { useFiles } from '@renderer/files-store'
@@ -78,6 +79,8 @@ function cycleEntry(dir: 1 | -1): void {
 }
 
 function handleAppShortcut(shortcut: AppShortcut): void {
+  // 弹窗显示着即模态：切 Tab / 切项目等应用快捷键一律不响应（同 WebStorm；主进程已吞掉按键）
+  if (isDialogOpen()) return
   const st = useApp.getState()
   const entry = st.currentEntryKey
   const kind = entry === null ? null : entryKindOfKey(entry)

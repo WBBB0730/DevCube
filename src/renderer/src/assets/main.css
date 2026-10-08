@@ -82,9 +82,8 @@
   --git-line-modified: #375fad;
   --git-line-deleted: #868a91;
 
-  /* —— 弹窗遮罩：--mask 用于全屏弹层，--mask-weak 用于叠在弹层之上的内层确认 —— */
+  /* —— 弹窗遮罩（叠放的弹窗各画一层） —— */
   --mask: rgb(0 0 0 / 0.5);
-  --mask-weak: rgb(0 0 0 / 0.4);
 
   /* —— 滚动条（webkit） —— */
   --scrollbar-thumb: #404043;
@@ -225,7 +224,6 @@
 
     /* —— 弹窗遮罩：浅底压黑要淡得多，否则整屏发灰 —— */
     --mask: rgb(0 0 0 / 0.2);
-    --mask-weak: rgb(0 0 0 / 0.16);
 
     /* —— 滚动条（intellijlaf.theme.json ScrollBar.Mac.*，带 alpha，此处为合成于面板的等效值） —— */
     --scrollbar-thumb: #c6c6c8;
