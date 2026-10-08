@@ -55,7 +55,8 @@ function DropdownMenuItem({
   children,
   onClick,
   disabled,
-  title
+  title,
+  closeOnClick
 }: {
   ref?: React.Ref<HTMLDivElement>
   className?: string
@@ -63,6 +64,8 @@ function DropdownMenuItem({
   onClick?: () => void
   disabled?: boolean
   title?: string
+  /** 点击后是否关闭菜单（缺省关闭），见 Base UI `Menu.Item` */
+  closeOnClick?: boolean
 }): React.JSX.Element {
   return (
     <Menu.Item
@@ -71,6 +74,7 @@ function DropdownMenuItem({
       onClick={onClick}
       disabled={disabled}
       title={title}
+      closeOnClick={closeOnClick}
     >
       {children}
     </Menu.Item>
@@ -82,12 +86,16 @@ function DropdownMenuCheckboxItem({
   className,
   children,
   checked,
-  onCheckedChange
+  onCheckedChange,
+  disabled,
+  title
 }: {
   className?: string
   children?: React.ReactNode
   checked: boolean
   onCheckedChange: (checked: boolean) => void
+  disabled?: boolean
+  title?: string
 }): React.JSX.Element {
   return (
     <Menu.CheckboxItem
@@ -95,6 +103,8 @@ function DropdownMenuCheckboxItem({
       checked={checked}
       onCheckedChange={onCheckedChange}
       closeOnClick={false}
+      disabled={disabled}
+      title={title}
     >
       <span className="flex size-3.5 shrink-0 items-center justify-center">
         <Menu.CheckboxItemIndicator>

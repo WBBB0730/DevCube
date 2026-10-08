@@ -97,6 +97,7 @@ import {
 } from '@renderer/components/ui/context-menu'
 import {
   DropdownMenu,
+  DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuSeparator,
@@ -779,17 +780,17 @@ function SortMenu({
     {
       label: '项目',
       checked: showProjects,
-      toggle: () => onPrefsChange({ showProjects: !showProjects })
+      onCheckedChange: (on: boolean) => onPrefsChange({ showProjects: on })
     },
     {
       label: '服务器',
       checked: showServers,
-      toggle: () => onPrefsChange({ showServers: !showServers })
+      onCheckedChange: (on: boolean) => onPrefsChange({ showServers: on })
     },
     {
       label: '数据源',
       checked: showDataSources,
-      toggle: () => onPrefsChange({ showDataSources: !showDataSources })
+      onCheckedChange: (on: boolean) => onPrefsChange({ showDataSources: on })
     }
   ]
   return (
@@ -806,9 +807,14 @@ function SortMenu({
       <DropdownMenuContent>
         {SORT_OPTIONS.map((opt) => {
           const active = mode === opt.mode
+          // 不关菜单：再点当前项会切换升降序，留着菜单能直接看到方向变化
           return (
-            <DropdownMenuItem key={opt.mode} onClick={() => onSelect(opt.mode)}>
-              <span className="flex size-4 shrink-0 items-center justify-center">
+            <DropdownMenuItem
+              key={opt.mode}
+              closeOnClick={false}
+              onClick={() => onSelect(opt.mode)}
+            >
+              <span className="flex size-3.5 shrink-0 items-center justify-center">
                 {active && <SortActiveIcon mode={opt.mode} direction={direction} />}
               </span>
               <span className="flex-1">{opt.label}</span>
@@ -816,33 +822,31 @@ function SortMenu({
           )
         })}
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => onPrefsChange({ pinSticky: !pinSticky })}>
-          <span className="flex size-4 shrink-0 items-center justify-center">
-            {pinSticky && <Check className="size-3.5" />}
-          </span>
-          <span className="flex-1">固定置顶</span>
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => onPrefsChange({ runningSticky: !runningSticky })}>
-          <span className="flex size-4 shrink-0 items-center justify-center">
-            {runningSticky && <Check className="size-3.5" />}
-          </span>
-          <span className="flex-1">固定运行中</span>
-        </DropdownMenuItem>
+        <DropdownMenuCheckboxItem
+          checked={pinSticky}
+          onCheckedChange={(on) => onPrefsChange({ pinSticky: on })}
+        >
+          固定置顶
+        </DropdownMenuCheckboxItem>
+        <DropdownMenuCheckboxItem
+          checked={runningSticky}
+          onCheckedChange={(on) => onPrefsChange({ runningSticky: on })}
+        >
+          固定运行中
+        </DropdownMenuCheckboxItem>
         <DropdownMenuSeparator />
         {kinds.map((kind) => {
           const last = kind.checked && kinds.filter((k) => k.checked).length === 1
           return (
-            <DropdownMenuItem
+            <DropdownMenuCheckboxItem
               key={kind.label}
+              checked={kind.checked}
+              onCheckedChange={kind.onCheckedChange}
               disabled={last}
               title={last ? '至少显示一类' : undefined}
-              onClick={kind.toggle}
             >
-              <span className="flex size-4 shrink-0 items-center justify-center">
-                {kind.checked && <Check className="size-3.5" />}
-              </span>
-              <span className="flex-1">{kind.label}</span>
-            </DropdownMenuItem>
+              {kind.label}
+            </DropdownMenuCheckboxItem>
           )
         })}
       </DropdownMenuContent>
