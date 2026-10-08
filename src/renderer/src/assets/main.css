@@ -6,6 +6,13 @@
 /* PDF.js viewer 样式放进级联层：未分层的应用样式天然压过分层样式，.files-pdf 覆盖不必再与库比特异性 */
 @import 'pdfjs-dist/legacy/web/pdf_viewer.css' layer(pdfjs);
 
+/* 吸顶中（sticky 元素已被 top 钉住）：钉住的元素自身需 container-type: scroll-state，作用于其后代 */
+@custom-variant stuck {
+  @container scroll-state(stuck: top) {
+    @slot;
+  }
+}
+
 /* 官方完整 JetBrains Mono（含 ⇧⌃⌥⌘）；见 assets/fonts/jetbrains-mono/README.md */
 @font-face {
   font-family: 'JetBrains Mono';

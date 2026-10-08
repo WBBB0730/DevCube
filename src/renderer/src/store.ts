@@ -410,10 +410,13 @@ interface AppState {
   setEntryPinned: (entryKey: string, pinned: boolean) => Promise<void>
   /** 点选排序方式：同项翻转方向，换项取默认方向 */
   cycleSortMode: (mode: ProjectSortPrefs['mode']) => Promise<void>
-  /** 排序偏好里的开关（固定置顶、按类型显示） */
+  /** 排序偏好里的开关（固定置顶、固定运行中、按类型显示） */
   setSortPrefs: (
     patch: Partial<
-      Pick<ProjectSortPrefs, 'pinSticky' | 'showProjects' | 'showServers' | 'showDataSources'>
+      Pick<
+        ProjectSortPrefs,
+        'pinSticky' | 'runningSticky' | 'showProjects' | 'showServers' | 'showDataSources'
+      >
     >
   ) => Promise<void>
   /** 切换主题：本地即时生效，主进程随后同步 themeSource 与窗口色（CSS 由此翻） */

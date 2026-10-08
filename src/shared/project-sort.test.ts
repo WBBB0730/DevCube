@@ -120,11 +120,12 @@ describe('cycleProjectSort', () => {
 })
 
 describe('DEFAULT_PROJECT_SORT_PREFS', () => {
-  it('默认添加时间倒序、开启置顶吸顶、三类都显示', () => {
+  it('默认添加时间倒序、开启置顶吸顶、关闭运行中吸顶、三类都显示', () => {
     expect(DEFAULT_PROJECT_SORT_PREFS).toEqual({
       mode: 'addedAt',
       direction: 'desc',
       pinSticky: true,
+      runningSticky: false,
       showProjects: true,
       showServers: true,
       showDataSources: true

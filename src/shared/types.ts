@@ -131,6 +131,8 @@ export interface ProjectSortPrefs {
   direction: ProjectSortDirection
   /** 已 Pin 项目行是否叠放吸顶；关则置顶/未置顶均按当前段吸顶（视口最上一项）。默认开。 */
   pinSticky: boolean
+  /** 有配置在运行的条目行是否常驻吸顶（同当前条目：滚过后钉住、不被顶走）。默认关。 */
+  runningSticky: boolean
   /** 按类型筛选：是否显示 Project / Server / Data Source；至少保留一类。默认都显示。 */
   showProjects: boolean
   showServers: boolean
@@ -142,6 +144,7 @@ export const DEFAULT_PROJECT_SORT_PREFS: ProjectSortPrefs = {
   mode: 'addedAt',
   direction: 'desc',
   pinSticky: true,
+  runningSticky: false,
   showProjects: true,
   showServers: true,
   showDataSources: true

@@ -62,6 +62,7 @@ import type {
   ProjectSortPrefs,
   RunConfig,
   RunTarget,
+  SessionState,
   SessionStatus
 } from '@shared/types'
 import { serverTargetLabel, type ServerNode } from '@shared/server'
@@ -84,6 +85,7 @@ import { filterTreeEntries, sortTreeEntries } from '@shared/project-sort'
 import { SHORTCUT } from '@shared/shortcut-label'
 import { useDoubleClick } from '@renderer/lib/double-click'
 import { shortcutLabel, shortcutTitle } from '@renderer/lib/shortcut-label'
+import { treeStickyLayout } from '@renderer/lib/tree-sticky'
 import { typeToInput } from '@renderer/lib/type-to-input'
 import { cn } from '@renderer/lib/utils'
 import { BAR_INPUT_ICON, BarInput } from '@renderer/components/ui/bar-input'
@@ -113,22 +115,18 @@ import { ConnectSubmenu } from '@renderer/components/ConnectSubmenu'
 const ROW =
   'group flex h-10 cursor-pointer items-center gap-1.5 rounded px-1.5 text-[14px] transition-colors'
 const BTN = 'flex size-7 shrink-0 items-center justify-center rounded-lg transition-colors'
-/** 条目行高（与 ROW 的 h-10 一致），供 Pin 吸顶叠放 top / scroll-margin。 */
+/** 条目行高（与 ROW 的 h-10 一致），供吸顶叠放 top / scroll-margin。 */
 const PROJECT_ROW_H = 40
-/** 置顶叠放行之间的间隙；须用不透明底填满，避免配置文字从缝里透出。 */
+/** 钉住行之间的间隙；须用不透明底填满，避免配置文字从缝里透出。 */
 const PIN_STICKY_GAP = 1
-const pinStickyTop = (index: number): number => index * (PROJECT_ROW_H + PIN_STICKY_GAP)
-/** 未置顶「当前段」吸顶贴在整叠置顶下方（含置顶间间隙）。 */
-const unpinnedStickyTop = (pinnedCount: number): number =>
-  pinnedCount * (PROJECT_ROW_H + PIN_STICKY_GAP)
-/** 吸顶堆再让一行（当前未置顶项目常驻吸顶时，其它段顶下移）。 */
-const belowStickyRow = (top: number): number => top + PROJECT_ROW_H + PIN_STICKY_GAP
-/** 吸顶时画在行下的 1px 不透明缝（不占布局，配合 pinStickyTop 的空档）。 */
+/** 吸顶位置（treeStickyLayout 的 slot）→ top：其前每个钉住行占一行加间隙。 */
+const stickySlotTop = (slot: number): number => slot * (PROJECT_ROW_H + PIN_STICKY_GAP)
+/** 吸顶时画在行下的 1px 不透明缝（不占布局，配合 stickySlotTop 的空档）。 */
 const PIN_STICKY_SEAM: CSSProperties = {
   boxShadow: `0 ${PIN_STICKY_GAP}px 0 0 var(--bg-panel)`
 }
-/** 当前未置顶项目常驻吸顶 z：低于置顶叠放（20+），高于普通段吸顶（15）。 */
-const CURRENT_STICKY_Z = 19
+/** 常驻吸顶 z：低于置顶叠放（20+），高于普通段吸顶（15）。 */
+const PERSIST_STICKY_Z = 19
 
 /**
  * sticky 标题在视口内时对其 scrollIntoView 不会动（已可见）。
@@ -290,9 +288,10 @@ export function ProjectTree(): React.JSX.Element {
   // 有筛选时禁用拖拽；非自定义也可拖，松手且顺序实质变化后才切到自定义并落盘。
   const canDrag = projectFilter.trim() === '' && filtered.length > 1
   const currentEntryKey = useApp((s) => s.currentEntryKey)
+  const sessions = useApp((s) => s.sessions)
   const scrollToEntryKey = useApp((s) => s.scrollToEntryKey)
   const clearScrollToEntryKey = useApp((s) => s.clearScrollToEntryKey)
-  // 展开态提到父级：置顶供标题/配置区共用；未置顶避免「当前」结构切换时丢折叠。
+  // 展开态提到父级：置顶供标题/配置区共用；未置顶避免常驻与否切换结构时丢折叠。
   const [pinnedOpen, setPinnedOpen] = useState<Record<string, boolean>>({})
   const [unpinnedOpen, setUnpinnedOpen] = useState<Record<string, boolean>>({})
   const isPinnedExpanded = (key: string): boolean => !forceCollapsed && pinnedOpen[key] !== false
@@ -494,50 +493,45 @@ export function ProjectTree(): React.JSX.Element {
       ? '拖入文件夹，或点上方 + 新建 / 添加项目、服务器或数据源'
       : '无匹配项'
 
-  // 当前条目常驻吸顶（滚过自身后钉住，再往下也不走）：
-  // - 未置顶：摊平钉在置顶堆下；仅「排在其后」的未置顶段顶 +1 行（其前仍用原 top，避免空一截）
+  // 常驻吸顶（滚过自身后钉住，再往下也不走）：当前条目，及「固定运行中」开时有配置在运行的条目。
+  // 常驻与否不看展开态：拖拽开始全部收起时结构不变，被拖项才钉得住。
+  // 吸顶位置 = 排在其前的钉住行数（见 treeStickyLayout）：
+  // - 未置顶常驻：摊平钉在其前的钉住行下；仅「排在其后」的段顶随之下移（其前不动，避免空一截）
   // - 已置顶 + 固定置顶开：已在叠放堆里，不再叠
-  // - 已置顶 + 固定置顶关：摊平钉在 top:0；其后置顶段 / 全部未置顶再让一行
-  const currentPinnedIdx = currentEntryKey
-    ? pinnedEntries.findIndex((e) => e.key === currentEntryKey)
-    : -1
-  const currentUnpinnedIdx = currentEntryKey
-    ? unpinnedEntries.findIndex((e) => e.key === currentEntryKey)
-    : -1
-  const currentPinnedPersist = !pinSticky && currentPinnedIdx >= 0
-  const currentUnpinnedPersist = currentUnpinnedIdx >= 0
-  const pinStackCount = pinSticky ? pinnedEntries.length : 0
-  const unpinnedBaseTop = currentPinnedPersist
-    ? belowStickyRow(0)
-    : unpinnedStickyTop(pinStackCount)
+  // - 已置顶 + 固定置顶关：摊平钉住；其后置顶段 / 全部未置顶再让一行
+  const runningSticky = projectSortPrefs.runningSticky
+  const sticky = treeStickyLayout(
+    filtered.map((entry) => ({
+      key: entry.key,
+      pinned: entryItem(entry).pinned,
+      persist:
+        entry.key === currentEntryKey ||
+        (runningSticky && hasRunningConfig(entry.node.configs, sessions))
+    })),
+    pinSticky
+  )
 
   // 固定置顶开：标题摊平为列表直接子节点，才能跨整表叠放吸顶。
   // 关：每项包进段容器，sticky 只在本段内有效，下一段会把上一段顶走（而不是盖住）。
-  // 当前置顶且需常驻时：即使关叠放也摊平。
+  // 置顶且需常驻时：即使关叠放也摊平。
   const pinnedRows = pinnedEntries.map((entry, pinStackIndex) => {
     const path = entry.key
     const expanded = isPinnedExpanded(path)
     const bodyVisible = expanded && entryHasBody(entry)
-    const isCurrentPersist = currentPinnedPersist && pinStackIndex === currentPinnedIdx
-    const flatten = pinSticky || isCurrentPersist
-    const headerStickTop = pinSticky
-      ? pinStickyTop(pinStackIndex)
-      : isCurrentPersist
-        ? 0
-        : currentPinnedPersist && pinStackIndex > currentPinnedIdx
-          ? belowStickyRow(0)
-          : 0
+    const { persist, slot } = sticky.get(path)!
+    const flatten = pinSticky || persist
+    const headerStickTop = stickySlotTop(slot)
     const gapClass = bodyVisible ? undefined : 'mb-3'
     const scrollIntoPlace = (): void => {
       const list = listRef.current
       if (list) scrollEntryIntoView(list, path)
     }
     const headerStick =
-      !pinSticky || isCurrentPersist
+      !pinSticky || persist
         ? {
             stickTop: headerStickTop,
-            stickSeam: isCurrentPersist || pinSticky,
-            stickZIndex: isCurrentPersist ? CURRENT_STICKY_Z : undefined
+            stickSeam: persist || pinSticky,
+            stickZIndex: persist ? PERSIST_STICKY_Z : undefined
           }
         : {}
     const block = (
@@ -574,12 +568,8 @@ export function ProjectTree(): React.JSX.Element {
                   : {
                       position: 'sticky',
                       top: headerStickTop,
-                      zIndex: isCurrentPersist
-                        ? CURRENT_STICKY_Z
-                        : pinSticky
-                          ? 20 + pinStackIndex
-                          : 15,
-                      ...(isCurrentPersist || pinSticky ? PIN_STICKY_SEAM : {})
+                      zIndex: persist ? PERSIST_STICKY_Z : pinSticky ? 20 + pinStackIndex : 15,
+                      ...(persist || pinSticky ? PIN_STICKY_SEAM : {})
                     }
                 : undefined
             }
@@ -604,7 +594,7 @@ export function ProjectTree(): React.JSX.Element {
     )
   })
 
-  const unpinnedRows = unpinnedEntries.map((entry, index) => {
+  const unpinnedRows = unpinnedEntries.map((entry) => {
     const path = entry.key
     const scrollIntoPlace = (): void => {
       const list = listRef.current
@@ -612,13 +602,15 @@ export function ProjectTree(): React.JSX.Element {
     }
     const open = isUnpinnedOpen(path)
     const onToggleOpen = (): void => toggleUnpinnedOpen(path)
-    if (currentUnpinnedPersist && index === currentUnpinnedIdx) {
+    const { persist, slot } = sticky.get(path)!
+    const stickyTop = stickySlotTop(slot)
+    if (persist) {
       return (
-        <CurrentUnpinnedEntry
+        <PersistentUnpinnedEntry
           key={path}
           entry={entry}
           forceCollapsed={forceCollapsed}
-          stickTop={unpinnedBaseTop}
+          stickTop={stickyTop}
           canDrag={canDrag}
           open={open}
           onToggleOpen={onToggleOpen}
@@ -626,11 +618,6 @@ export function ProjectTree(): React.JSX.Element {
         />
       )
     }
-    // 仅当前之后的未置顶让一行；当前之前保持原 top，避免上方空一截。
-    const stickyTop =
-      currentUnpinnedPersist && index > currentUnpinnedIdx
-        ? belowStickyRow(unpinnedBaseTop)
-        : unpinnedBaseTop
     return canDrag ? (
       <SortableEntryRow
         key={path}
@@ -778,11 +765,15 @@ function SortMenu({
   onSelect: (mode: ProjectSortMode) => void
   onPrefsChange: (
     patch: Partial<
-      Pick<ProjectSortPrefs, 'pinSticky' | 'showProjects' | 'showServers' | 'showDataSources'>
+      Pick<
+        ProjectSortPrefs,
+        'pinSticky' | 'runningSticky' | 'showProjects' | 'showServers' | 'showDataSources'
+      >
     >
   ) => void
 }): React.JSX.Element {
-  const { mode, direction, pinSticky, showProjects, showServers, showDataSources } = prefs
+  const { mode, direction, pinSticky, runningSticky, showProjects, showServers, showDataSources } =
+    prefs
   // 按类型显示：至少保留一类，剩下的那项不能再取消
   const kinds = [
     {
@@ -831,6 +822,12 @@ function SortMenu({
           </span>
           <span className="flex-1">固定置顶</span>
         </DropdownMenuItem>
+        <DropdownMenuItem onClick={() => onPrefsChange({ runningSticky: !runningSticky })}>
+          <span className="flex size-4 shrink-0 items-center justify-center">
+            {runningSticky && <Check className="size-3.5" />}
+          </span>
+          <span className="flex-1">固定运行中</span>
+        </DropdownMenuItem>
         <DropdownMenuSeparator />
         {kinds.map((kind) => {
           const last = kind.checked && kinds.filter((k) => k.checked).length === 1
@@ -878,6 +875,11 @@ function SortActiveIcon({
   )
 }
 
+/** 条目下是否有配置在运行。 */
+function hasRunningConfig(configs: RunConfig[], sessions: Record<string, SessionState>): boolean {
+  return configs.some((c) => sessions[configKey(c)]?.status === 'running')
+}
+
 /** 条目是否有可展开的配置区：Project 有配置或检测到的配置，Server、Data Source 有配置。 */
 function entryHasBody(entry: TreeEntry): boolean {
   return (
@@ -904,7 +906,7 @@ function SortableEntryHeader({
   /** 拖拽收起补偿期间关掉 sticky，避免与 padding 补偿抢位置 */
   forceCollapsed: boolean
   pinSticky: boolean
-  /** 覆盖默认 top（段吸顶 / 当前条目常驻）。 */
+  /** 覆盖默认 top（段吸顶 / 常驻）。 */
   stickTop?: number
   stickSeam?: boolean
   stickZIndex?: number
@@ -934,7 +936,7 @@ function SortableEntryHeader({
             ...(stickSeam ? PIN_STICKY_SEAM : {})
           }
         : pinSticky
-          ? { position: 'sticky', top: pinStickyTop(pinStackIndex), ...PIN_STICKY_SEAM }
+          ? { position: 'sticky', top: stickySlotTop(pinStackIndex), ...PIN_STICKY_SEAM }
           : { position: 'sticky', top: 0 }
       : { position: 'relative' })
   }
@@ -957,10 +959,10 @@ function SortableEntryHeader({
 }
 
 /**
- * 当前未置顶条目：标题摊平为列表直接子节点，钉在置顶堆下，滚过其它条目仍保持可见。
+ * 常驻的未置顶条目：标题摊平为列表直接子节点，钉在其前的钉住行下，滚过其它条目仍保持可见。
  * 写法对齐固定置顶（Header + Body 兄弟，勿包进段容器）。展开态由父级托管。
  */
-function CurrentUnpinnedEntry({
+function PersistentUnpinnedEntry({
   entry,
   forceCollapsed,
   stickTop,
@@ -983,7 +985,7 @@ function CurrentUnpinnedEntry({
   const headerStyle: CSSProperties = {
     position: 'sticky',
     top: stickTop,
-    zIndex: CURRENT_STICKY_Z,
+    zIndex: PERSIST_STICKY_Z,
     ...PIN_STICKY_SEAM
   }
 
@@ -999,7 +1001,7 @@ function CurrentUnpinnedEntry({
           pinSticky={false}
           stickTop={stickTop}
           stickSeam
-          stickZIndex={CURRENT_STICKY_Z}
+          stickZIndex={PERSIST_STICKY_Z}
           className={gapClass}
           onScrollIntoPlace={onScrollIntoPlace}
           onToggleExpand={onToggleOpen}
@@ -1042,6 +1044,7 @@ function EntryRowContent({
   onMoreOpenChange: (open: boolean) => void
 }): React.JSX.Element {
   const item = entryItem(entry)
+  const hasRunning = useApp((s) => hasRunningConfig(entry.node.configs, s.sessions))
   return (
     <>
       <button
@@ -1061,6 +1064,18 @@ function EntryRowContent({
         title={entryTargetLabel(entry)}
       >
         {item.name}
+      </span>
+      {/* 有配置在运行（与配置行同款状态点）：仅吸顶中显示（配置已滚走），hover 与角标同样让位；
+          进出淡入淡出（display 离散过渡 + 起始样式）。放在角标之前，出现 / 消失不推动角标。 */}
+      <span
+        className={cn(
+          'hidden shrink-0 opacity-0 transition-[opacity,display] transition-discrete',
+          hasRunning &&
+            !rowHoverLike &&
+            'stuck:not-group-hover:flex stuck:not-group-hover:opacity-100 stuck:not-group-hover:starting:opacity-0'
+        )}
+      >
+        <StatusDot status="running" />
       </span>
       {entry.kind === 'project' &&
         entry.node.packageManager &&
@@ -1143,7 +1158,7 @@ function EntryHeader({
   const isDoubleClick = useDoubleClick()
   const stickyStyle: CSSProperties = style ?? {
     position: 'sticky',
-    top: pinSticky ? pinStickyTop(pinStackIndex) : 0,
+    top: pinSticky ? stickySlotTop(pinStackIndex) : 0,
     zIndex: pinSticky ? 20 + pinStackIndex : 15,
     ...(pinSticky ? PIN_STICKY_SEAM : {})
   }
@@ -1158,7 +1173,7 @@ function EntryHeader({
         {...(isDragging ? { 'data-dragging-entry': '' } : {})}
         className={cn(
           ROW,
-          'select-none bg-panel text-foreground',
+          'select-none bg-panel text-foreground [container-type:scroll-state]',
           selected
             ? 'bg-[var(--selection-row)]'
             : rowHoverLike || isCurrent
@@ -1222,7 +1237,7 @@ function SortableEntryRow({
 }: {
   entry: TreeEntry
   forceCollapsed: boolean
-  /** 未置顶当前段吸顶 top（置顶堆下方）；拖拽/收起补偿期间关掉。 */
+  /** 未置顶段吸顶 top（其前的钉住行下方）；拖拽/收起补偿期间关掉。 */
   stickyTop: number
   open: boolean
   onToggleOpen: () => void
@@ -1277,9 +1292,9 @@ function EntryRow({
 }: {
   entry: TreeEntry
   forceCollapsed: boolean
-  /** 非 null 时条目行在本块内吸顶（贴在置顶堆下）。 */
+  /** 非 null 时条目行在本块内吸顶（贴在其前的钉住行下）。 */
   stickyTop?: number | null
-  /** 由父级托管，避免与当前条目摊平结构切换时丢折叠。 */
+  /** 由父级托管，避免与常驻摊平结构切换时丢折叠。 */
   open: boolean
   onToggleOpen: () => void
   className?: string
@@ -1321,7 +1336,7 @@ function EntryRow({
           style={headerSticky}
           className={cn(
             ROW,
-            'select-none bg-panel text-foreground',
+            'select-none bg-panel text-foreground [container-type:scroll-state]',
             selected
               ? 'bg-[var(--selection-row)]'
               : rowHoverLike || isCurrent
