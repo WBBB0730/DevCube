@@ -29,7 +29,11 @@ import {
   type MediaFitAxis,
   type MediaFitMode
 } from '@renderer/lib/files-media-zoom'
-import { PAGE_THUMB_W } from '@renderer/lib/files-page-thumbnails'
+import {
+  pageThumbScale,
+  pageThumbSize,
+  type PageThumbSize
+} from '@renderer/lib/files-page-thumbnails'
 import {
   useCtrlWheelZoom,
   usePagedPreviewKeys,
@@ -554,11 +558,11 @@ export function FilesPptxPreview({
     containerRef.current?.focus({ preventScroll: true })
   }
 
-  const thumbHeights = useMemo(
+  const thumbSizes = useMemo(
     () =>
       doc
-        ? Array<number>(doc.presentation.slides.length).fill(
-            Math.round((PAGE_THUMB_W * doc.slide.height) / doc.slide.width)
+        ? Array<PageThumbSize>(doc.presentation.slides.length).fill(
+            pageThumbSize(doc.slide.width, doc.slide.height)
           )
         : null,
     [doc]
@@ -626,12 +630,16 @@ export function FilesPptxPreview({
         {thumbnails && !error && (
           <FilesPageThumbnails
             key={src}
-            heights={thumbHeights}
+            sizes={thumbSizes}
             page={page}
             onSelect={selectThumbnail}
             renderThumb={(n) =>
               doc && (
-                <PptxSlideView doc={doc} index={n - 1} scale={PAGE_THUMB_W / doc.slide.width} />
+                <PptxSlideView
+                  doc={doc}
+                  index={n - 1}
+                  scale={pageThumbScale(doc.slide.width, doc.slide.height)}
+                />
               )
             }
           />

@@ -5,7 +5,11 @@
 import { useEffect, useRef } from 'react'
 import { useVirtualizer } from '@tanstack/react-virtual'
 import { cn } from '@renderer/lib/utils'
-import { PAGE_THUMB_W, type ThumbnailWindow } from '@renderer/lib/files-page-thumbnails'
+import {
+  PAGE_THUMB_W,
+  type PageThumbSize,
+  type ThumbnailWindow
+} from '@renderer/lib/files-page-thumbnails'
 
 /** 统一留白：侧栏内边距、格子内边距、小图到页码、页码到底边、格子之间，全部同值 */
 const GAP = 8
@@ -18,14 +22,14 @@ const CELL_CHROME = 4 * GAP + 16
 
 function ThumbCell({
   page,
-  height,
+  size,
   selected,
   onSelect,
   children
 }: {
   page: number
-  /** 小图高（CSS px），按该页真实宽高比算出 */
-  height: number
+  /** 小图尺寸，按该页真实宽高比装进小图框；比框窄时在格内居中 */
+  size: PageThumbSize
   selected: boolean
   onSelect: (page: number) => void
   /** 小图内容；还没有时为空，格子就是一张白页占位 */
@@ -46,7 +50,7 @@ function ThumbCell({
       {/* 白底 + 阴影同正文页面；内容不接指针，整格都是一颗钮 */}
       <div
         className="pointer-events-none overflow-hidden bg-white shadow-[0_1px_4px_rgb(0_0_0/0.35)]"
-        style={{ width: PAGE_THUMB_W, height }}
+        style={size}
       >
         {children}
       </div>
@@ -63,14 +67,14 @@ function ThumbCell({
 }
 
 export function FilesPageThumbnails({
-  heights,
+  sizes,
   page,
   onSelect,
   renderThumb,
   onWindowChange
 }: {
-  /** 每页小图高（CSS px）；null = 文档尚在加载，只出侧栏空壳以免正文宽度来回跳 */
-  heights: readonly number[] | null
+  /** 每页小图尺寸；null = 文档尚在加载，只出侧栏空壳以免正文宽度来回跳 */
+  sizes: readonly PageThumbSize[] | null
   /** 正文当前页（1 起） */
   page: number
   onSelect: (page: number) => void
@@ -84,9 +88,9 @@ export function FilesPageThumbnails({
   // 尺寸是一次性算好的（组件按文档 key 重挂），count 从 0 变 N 时虚拟器整表重算，estimateSize 不必再触发 measure
   // eslint-disable-next-line react-hooks/incompatible-library -- tanstack virtual 实例天然可变，React Compiler 跳过本组件 memo 是预期行为
   const virtualizer = useVirtualizer({
-    count: heights?.length ?? 0,
+    count: sizes?.length ?? 0,
     getScrollElement: () => scrollRef.current,
-    estimateSize: (i) => (heights?.[i] ?? 0) + CELL_CHROME,
+    estimateSize: (i) => (sizes?.[i].height ?? 0) + CELL_CHROME,
     overscan: 2
   })
 
@@ -106,9 +110,9 @@ export function FilesPageThumbnails({
 
   // 正文翻页：当前格不在视口内才滚（align auto），点缩略图跳页时它本就可见、不动
   useEffect(() => {
-    if (!heights) return
+    if (!sizes) return
     virtualizer.scrollToIndex(page - 1, { align: 'auto' })
-  }, [page, heights, virtualizer])
+  }, [page, sizes, virtualizer])
 
   return (
     <div
@@ -116,7 +120,7 @@ export function FilesPageThumbnails({
       className="h-full shrink-0 overflow-y-auto border-r border-[var(--separator)] bg-deepest [scrollbar-gutter:stable]"
       style={{ width: STRIP_W, padding: GAP }}
     >
-      {heights && (
+      {sizes && (
         <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
           {virtualizer.getVirtualItems().map((vi) => (
             <div
@@ -126,7 +130,7 @@ export function FilesPageThumbnails({
             >
               <ThumbCell
                 page={vi.index + 1}
-                height={heights[vi.index]}
+                size={sizes[vi.index]}
                 selected={vi.index + 1 === page}
                 onSelect={onSelect}
               >

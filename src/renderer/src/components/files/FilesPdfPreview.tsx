@@ -163,7 +163,7 @@ function PdfThumbnails({
   )
   return (
     <FilesPageThumbnails
-      heights={renderer?.heights ?? null}
+      sizes={renderer?.sizes ?? null}
       page={page}
       onSelect={onSelect}
       onWindowChange={onWindowChange}

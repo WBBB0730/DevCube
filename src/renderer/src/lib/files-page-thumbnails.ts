@@ -3,8 +3,30 @@
  *（PDF 渲染器一次只画一张，靠它决定下一张画哪页；PPT 的小图随格子挂载即画，不排队）。
  */
 
-/** 小图宽（CSS px），高按每页真实宽高比 */
+/** 小图框宽（CSS px），即侧栏能给小图的最大宽 */
 export const PAGE_THUMB_W = 128
+/**
+ * 小图框高（CSS px）= A4 竖页比例（1:√2）：A / B 系列与 Letter 用满框宽，最高的一格就是一张 A4；
+ * 更长的页（Legal、竖屏截图、长网页导出）顶住它等比缩窄。取不压窄 A4 的最低值，再低最常见的页也要变窄
+ */
+export const PAGE_THUMB_MAX_H = Math.round(PAGE_THUMB_W * Math.SQRT2)
+
+/** 小图尺寸（CSS px） */
+export type PageThumbSize = { width: number; height: number }
+
+/** 页面（任意单位）缩成小图的倍率：保持宽高比装进小图框，宽页用满框宽、超长页顶住框高 */
+export function pageThumbScale(pageWidth: number, pageHeight: number): number {
+  return Math.min(PAGE_THUMB_W / pageWidth, PAGE_THUMB_MAX_H / pageHeight)
+}
+
+/** 页面（任意单位）的小图尺寸；极端宽高比下短边至少 1px，格子不塌成 0 */
+export function pageThumbSize(pageWidth: number, pageHeight: number): PageThumbSize {
+  const scale = pageThumbScale(pageWidth, pageHeight)
+  return {
+    width: Math.max(1, Math.round(pageWidth * scale)),
+    height: Math.max(1, Math.round(pageHeight * scale))
+  }
+}
 
 export type ThumbnailWindow = {
   /** 侧栏视口内首尾页（1 起，含） */

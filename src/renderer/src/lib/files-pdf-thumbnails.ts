@@ -11,7 +11,13 @@
  */
 import type { PDFDocumentProxy, RenderTask } from 'pdfjs-dist/legacy/build/pdf.mjs'
 import type { EventBus } from 'pdfjs-dist/legacy/web/pdf_viewer.mjs'
-import { nextThumbnailPage, PAGE_THUMB_W, type ThumbnailWindow } from './files-page-thumbnails'
+import {
+  nextThumbnailPage,
+  pageThumbScale,
+  pageThumbSize,
+  type PageThumbSize,
+  type ThumbnailWindow
+} from './files-page-thumbnails'
 
 /** 视口画完后顺着滚动方向预取的屏数，与反方向补的屏数（一屏 = 当前视口内的页数） */
 const AHEAD_SCREENS = 2
@@ -24,8 +30,8 @@ export class PdfThumbnailRenderer {
   readonly #doc: PDFDocumentProxy
   readonly #bus: EventBus
   readonly #ready: Promise<unknown>
-  /** 每页小图高（CSS px）；null = 尺寸尚未取齐 */
-  #heights: number[] | null = null
+  /** 每页小图尺寸；null = 尺寸尚未取齐 */
+  #sizes: PageThumbSize[] | null = null
   #urls = new Map<number, string>()
   /** 画不出来的页：不再重试，格子留白页 */
   #failed = new Set<number>()
@@ -46,9 +52,9 @@ export class PdfThumbnailRenderer {
     Promise.all(Array.from({ length: doc.numPages }, (_, i) => doc.getPage(i + 1)))
       .then((pages) => {
         if (this.#dead) return
-        this.#heights = pages.map((p) => {
+        this.#sizes = pages.map((p) => {
           const v = p.getViewport({ scale: 1 })
-          return Math.round((PAGE_THUMB_W * v.height) / v.width)
+          return pageThumbSize(v.width, v.height)
         })
         this.#emit()
       })
@@ -57,8 +63,8 @@ export class PdfThumbnailRenderer {
       })
   }
 
-  get heights(): number[] | null {
-    return this.#heights
+  get sizes(): PageThumbSize[] | null {
+    return this.#sizes
   }
 
   /** 已画好的小图 URL；未画返回 undefined */
@@ -125,7 +131,7 @@ export class PdfThumbnailRenderer {
       const pdfPage = await this.#doc.getPage(page)
       if (this.#dead) return
       const base = pdfPage.getViewport({ scale: 1 })
-      const viewport = pdfPage.getViewport({ scale: PAGE_THUMB_W / base.width })
+      const viewport = pdfPage.getViewport({ scale: pageThumbScale(base.width, base.height) })
       // 按设备像素比画，2 倍屏清晰（同 PDF.js 自家缩略图的 OutputScale 做法）
       const ratio = window.devicePixelRatio || 1
       const canvas = (this.#canvas ??= document.createElement('canvas'))
