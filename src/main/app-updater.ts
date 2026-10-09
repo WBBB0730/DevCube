@@ -342,11 +342,6 @@ export async function getDevChangelogPreview(): Promise<DevUpdatePreview> {
   }
 }
 
-export function openAppReleasePage(): void {
-  const state = buildState()
-  void shell.openExternal(state.releaseUrl)
-}
-
 /** 正常退出时是否应安装已下载更新（由 before-quit 在清理完成后调用 install）。 */
 export function canInstallUpdateOnQuit(): boolean {
   return phase === 'ready' && canAutoDownload(packaging)

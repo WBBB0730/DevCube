@@ -874,7 +874,6 @@ export interface RunAPI extends GitAPI {
   checkAppUpdates(force?: boolean): Promise<AppUpdateState>
   /** 顶栏更新按钮：安装或打开 Release */
   performAppUpdateAction(): Promise<{ startedInstall: boolean }>
-  openAppReleasePage(): Promise<void>
   onAppUpdateState(cb: (state: AppUpdateState) => void): () => void
   /** 仅未包装开发（顶栏绿色按钮）：读工作区 CHANGELOG.md 生成更新弹窗的本地预览 */
   getDevChangelogPreview(): Promise<DevUpdatePreview>

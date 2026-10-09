@@ -263,7 +263,6 @@ import {
   checkAppUpdates,
   getAppUpdateState,
   getDevChangelogPreview,
-  openAppReleasePage,
   performUpdateButtonAction,
   startAppUpdater
 } from './app-updater'
@@ -1176,9 +1175,6 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   ipcMain.handle(IPC.appUpdateCheck, (_e, force?: boolean) =>
     checkAppUpdates({ force: force === true })
   )
-  ipcMain.handle(IPC.appUpdateOpenRelease, () => {
-    openAppReleasePage()
-  })
   ipcMain.handle(IPC.appUpdatePerform, async () => {
     const state = getAppUpdateState()
     if (!state.showButton) return { startedInstall: false }

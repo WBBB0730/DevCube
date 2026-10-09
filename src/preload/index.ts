@@ -287,7 +287,6 @@ const api: RunAPI = {
   getAppUpdateState: () => ipcRenderer.invoke(IPC.appUpdateGet),
   checkAppUpdates: (force) => ipcRenderer.invoke(IPC.appUpdateCheck, force === true),
   performAppUpdateAction: () => ipcRenderer.invoke(IPC.appUpdatePerform),
-  openAppReleasePage: () => ipcRenderer.invoke(IPC.appUpdateOpenRelease),
   onAppUpdateState: (cb) => subscribe(IPC.appUpdateState, cb),
   getDevChangelogPreview: () => ipcRenderer.invoke(IPC.appUpdateDevPreview)
 }
