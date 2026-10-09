@@ -86,7 +86,12 @@ async function notifyIfNotIgnored(
   paths: string[],
   onGitChange: (projectPath: string) => void
 ): Promise<void> {
-  const result = await execGit(repoRoot, ['check-ignore', '-z', '--', ...paths])
+  // -z 只能配合 --stdin（ADR-0009）：路径经标准输入传入
+  const result = await execGit(
+    repoRoot,
+    ['check-ignore', '--stdin', '-z'],
+    Buffer.from(paths.join('\0') + '\0', 'utf8')
+  )
   if (result.code === 0) {
     const ignored = result.stdout
       .toString('utf8')
