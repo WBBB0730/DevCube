@@ -1,5 +1,5 @@
 // 连上后的 Data Source Tab 的布局（SQL 数据库见 DataSourceView，Redis 见 RedisView；docs/prd/database.md、ADR-0043）：
-// 右侧是树（目录 / 键列表）；左侧顶栏以工作表标签（同 Excel 预览底部，ui/sheet-tabs）在「当前对象 / 当前键」与「控制台」
+// 右侧是树（目录 / 键列表，外框 TreePanel 套在这里，宽度与 Files 文件树共用，可拖）；左侧顶栏以工作表标签（同 Excel 预览底部，ui/sheet-tabs）在「当前对象 / 当前键」与「控制台」
 // 两格间切换，两格各自保留内容——在树里点开别的只换左格，控制台不受影响。顶栏右端：登记的数据源有「最近打开」下拉
 // （同 Files 工具栏的最近打开文件）；点开了对象 / 键、且停在「当前对象 / 当前键」那一格时再出定位钮（「在目录中显示」
 // 「在键列表中显示」，同 Files 工具栏的「在文件树中显示」），切到「控制台」时收起。Tab 里不再分小 Tab。恢复上次打开的、
@@ -7,12 +7,19 @@
 // 编辑器）在这里登记焦点（见 useDataSourceOpened）。
 import { ListTree } from 'lucide-react'
 import { LoadingHint } from '@renderer/components/ui/centered-hint'
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup
+} from '@renderer/components/ui/resizable'
 import { SheetTabs } from '@renderer/components/ui/sheet-tabs'
 import { TOOLBAR_BTN } from '@renderer/components/ui/toolbar'
+import { TreePanel } from '@renderer/components/ui/tree-panel'
 import {
   ContentFocusContext,
   type ContentFocusRegister
 } from '@renderer/lib/data-source-content-focus'
+import { useRememberedPanel } from '@renderer/lib/remembered-panel'
 import type { DataSourceSlot } from '@shared/data-source-ui'
 
 export function DataSourceLayout({
@@ -42,12 +49,13 @@ export function DataSourceLayout({
   /** 「当前对象 / 当前键」一格；还没点开时为 null（空着） */
   currentView: React.ReactNode
   consoleView: React.ReactNode
-  /** 右侧的树 */
+  /** 右侧的树（外框之内的部分） */
   tree: React.ReactNode
 }): React.JSX.Element {
+  const treePanel = useRememberedPanel('treePanel')
   return (
-    <div className="flex h-full min-w-0">
-      <div className="flex min-w-0 flex-1 flex-col">
+    <ResizablePanelGroup {...treePanel.groupProps}>
+      <ResizablePanel className="flex flex-col">
         <div className="flex h-10 shrink-0 items-center gap-1 border-b border-[var(--separator)] bg-panel px-1.5">
           <SheetTabs
             className="min-w-0 flex-1 overflow-x-auto"
@@ -80,9 +88,10 @@ export function DataSourceLayout({
             {consoleView}
           </SlotPane>
         </div>
-      </div>
-      {tree}
-    </div>
+      </ResizablePanel>
+      <ResizableHandle {...treePanel.handleProps} />
+      <TreePanel {...treePanel.panelProps}>{tree}</TreePanel>
+    </ResizablePanelGroup>
   )
 }
 

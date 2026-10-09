@@ -49,12 +49,7 @@ import {
   TreeNoticeRow,
   TreeRow
 } from '@renderer/components/ui/tree'
-import {
-  TREE_SCROLL,
-  TreePanel,
-  TreePanelBar,
-  TreeRootRow
-} from '@renderer/components/ui/tree-panel'
+import { TREE_SCROLL, TreePanelBar, TreeRootRow } from '@renderer/components/ui/tree-panel'
 import {
   collapseFilterView,
   filterCatalog,
@@ -521,8 +516,9 @@ export function CatalogTree({
     })
   }
 
+  // 外框（TreePanel）由 DataSourceLayout 套：面板须是面板组的直接子元素
   return (
-    <TreePanel>
+    <>
       <TreePanelBar>
         <BarInput
           ref={filterInputRef}
@@ -640,7 +636,7 @@ export function CatalogTree({
           onClose={consoleSwitch.dismiss}
         />
       )}
-    </TreePanel>
+    </>
   )
 }
 

@@ -13,7 +13,7 @@ import {
 import { gitState, useGit } from '@renderer/git-store'
 import { SettingsModal } from '@renderer/components/SettingsModal'
 import { Button } from '@renderer/components/ui/button'
-import { FormDialogShell } from '@renderer/components/ui/form-dialog'
+import { ConfirmDialog } from '@renderer/components/ui/form-dialog'
 import { Input } from '@renderer/components/ui/input'
 import { TOOLBAR_BTN } from '@renderer/components/ui/toolbar'
 import { Checkbox } from '@renderer/components/ui/checkbox'
@@ -29,9 +29,10 @@ function nextHideRemotes(hideRemotes: string[], remote: string, hidden: boolean)
 
 // —— 私有类型与常量 ——
 
-/** 确认框请求（删除 / 清理 / 移除等操作先确认再执行；叠在面板之上）。 */
+/** 确认框请求（删除 / 清理 / 移除等操作先确认再执行；叠在面板之上）：问句标题 + 可选的后果说明。 */
 interface ConfirmRequest {
-  message: string
+  title: string
+  message?: string
   actionLabel: string
   destructive: boolean
   run: () => void
@@ -87,7 +88,8 @@ export function GitRepoSettings({
         <WorktreeSection projectPath={projectPath} />
       </div>
       {confirm !== null && (
-        <FormDialogShell
+        <ConfirmDialog
+          title={confirm.title}
           message={confirm.message}
           buttons={[
             {
@@ -100,7 +102,6 @@ export function GitRepoSettings({
             }
           ]}
           onCancel={() => setConfirm(null)}
-          dismissOnOutsidePress
         />
       )}
     </SettingsModal>
@@ -287,7 +288,7 @@ function UserSection({
       steps.push({ action: { kind: 'unset-config', key: 'user.email', location: loc }, label })
     }
     onConfirm({
-      message: `确定要移除${loc === 'local' ? '本仓库' : '全局'}配置的用户名与邮箱吗？`,
+      title: `移除${loc === 'local' ? '本仓库' : '全局'}配置的用户名与邮箱？`,
       actionLabel: '是，移除',
       destructive: true,
       run: () => void runActionsThenReloadConfig(projectPath, steps)
@@ -461,7 +462,7 @@ function RemotesSection({
 
   const remove = (name: string): void =>
     onConfirm({
-      message: `确定要删除远程 “${name}” 吗？`,
+      title: `删除远程 “${name}”？`,
       actionLabel: '是，删除',
       destructive: true,
       run: () =>
@@ -472,7 +473,8 @@ function RemotesSection({
 
   const prune = (name: string): void =>
     onConfirm({
-      message: `确定要清理远程 “${name}” 上已不存在的远程跟踪引用吗？`,
+      title: `清理远程 “${name}” 的跟踪引用？`,
+      message: '远程上已不存在的分支，它们在本地的远程跟踪引用会被删除。',
       actionLabel: '是，清理',
       destructive: false,
       run: () =>

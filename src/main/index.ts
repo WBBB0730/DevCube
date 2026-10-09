@@ -21,7 +21,11 @@ import { closeAllProjectWatchers } from './project-watchers'
 import { resolveReleaseEdition } from '../shared/release-edition'
 import { confirmCloseIfUnsaved, confirmQuitIfNeeded } from './quit-confirm'
 import { canInstallUpdateOnQuit, installDownloadedUpdate } from './app-updater'
-import { rememberWindowPlacement, resolveRememberedWindowPlacement } from './window-placement'
+import {
+  loadLayoutMemory,
+  rememberWindowPlacement,
+  resolveRememberedWindowPlacement
+} from './layout-memory'
 import { registerBootstrapIpc } from './renderer-bootstrap'
 import { disposeTray, installTray } from './tray'
 import { configureUserData } from './user-data'
@@ -41,7 +45,11 @@ import { addProjectByPath } from './projects'
 import { getAppPrefs, getWorkspaceUi, setWorkspaceUi } from './store'
 import { applyTheme } from './theme'
 import { createAppWindow } from './app-window'
-import { closeAllPreviewWatchers, openPreviewWindow } from './preview-window'
+import {
+  closeAllPreviewWatchers,
+  openPreviewWindow,
+  rememberPreviewWindowPlacement
+} from './preview-window'
 import { disposeAllCompressJobs, openCompressWindow, setCompressIdleHandler } from './compress'
 import { devElectronAppPath, ensureDevOpenerApp } from './dev-opener-app'
 import { syncSystemIntegration } from './system-integration'
@@ -112,7 +120,7 @@ function createWindow(): BrowserWindow {
   const placement = resolveRememberedWindowPlacement(WINDOW_DEFAULTS, 'main')
   const win = createAppWindow({ placement, defaults: WINDOW_DEFAULTS })
 
-  // 关窗前写入进程内记忆（macOS 点 Dock 重开时恢复；重启进程则清空）。
+  // 关窗前记下几何（macOS 点 Dock 重开时恢复；「记住窗口和面板布局」开着时同时落盘，重启后恢复）。
   // Windows：点关闭隐藏到托盘，真正退出走托盘「退出」/ before-quit。
   // 其余平台关窗即销毁渲染端：服务器上还有未保存的文件时先确认（退出时已由退出确认问过）。
   let closeConfirmed = false
@@ -134,12 +142,6 @@ function createWindow(): BrowserWindow {
   })
   // 渲染端没了，它登记的未保存文件也随之作废
   win.on('closed', () => setUnsavedServerFileCount(0))
-
-  win.on('ready-to-show', () => {
-    if (placement.isMaximized) win.maximize()
-    if (placement.isFullScreen) win.setFullScreen(true)
-    win.show()
-  })
 
   // 应用快捷键：主进程 before-input-event 优先拦截（见 ADR-0013 / docs）。
   wireAppShortcuts(win)
@@ -188,6 +190,7 @@ app.whenReady().then(async () => {
   })
 
   await initStore()
+  loadLayoutMemory()
   // 必须在建窗之前：themeSource 决定页面加载时 prefers-color-scheme 的取值，样式表解析即定音，首帧不闪。
   applyTheme(getAppPrefs().theme)
   handleFilesMediaProtocol()
@@ -264,6 +267,10 @@ let quitPhase: QuitPhase = 'running'
 
 async function runQuitCleanup(): Promise<void> {
   markAppQuitting()
+  // 退出用 app.exit 直接销毁窗口、不走关窗事件：还开着的窗口在这里记下几何
+  const main = liveMainWindow()
+  if (main) rememberWindowPlacement(main, 'main')
+  rememberPreviewWindowPlacement()
   disposeTray()
   killAllSessions()
   disposeAllServerStatus()

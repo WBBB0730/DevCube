@@ -22,6 +22,7 @@ import type {
 import type { CatalogPath } from '../shared/data-source-catalog'
 import type { DataSourceOpened, DataSourceTabUi } from '../shared/data-source-ui'
 import type { RunParams } from '../shared/run-params'
+import type { PanelSizesPatch } from '../shared/panel-sizes'
 import type { ConsoleContextChange } from '../shared/data-source-context'
 import type {
   CompletionUsage,
@@ -219,6 +220,7 @@ import {
   setWorkspaceUi
 } from './store'
 import { applyTheme } from './theme'
+import { persistLayoutMemory, resetLayoutMemory, updatePanelSizes } from './layout-memory'
 import {
   assertFilesRoot,
   createEntry,
@@ -269,7 +271,11 @@ import {
 import { confirmQuitIfNeeded } from './quit-confirm'
 import { markQuitAllowed } from './app-shutdown'
 import { isPathUnderGrantedRoot } from './files-roots'
-import { openPreviewWindowForRoot, setPreviewWindowRoot } from './preview-window'
+import {
+  openPreviewWindowForRoot,
+  resetPreviewWindowsGeometry,
+  setPreviewWindowRoot
+} from './preview-window'
 import {
   cancelCompress,
   compressTargetExists,
@@ -280,7 +286,7 @@ import {
 import { normalizeCompressOptions } from '../shared/compress'
 import { copyFileToClipboard } from './clipboard-file'
 import { setTerminalFocused } from './app-shortcuts'
-import { broadcast } from './app-window'
+import { broadcast, resetWindowGeometry } from './app-window'
 
 let mainWindow: BrowserWindow | null = null
 /** 没有主窗口时（只开着预览窗口 / macOS 全关）由 index 提供建窗；工作台已预置当前项目 */
@@ -868,9 +874,18 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     const merged = setAppPrefs(patch)
     // 主题改动即时落到原生侧（themeSource 驱动渲染层 prefers-color-scheme，无需重启窗口）。
     if (patch.theme !== undefined) applyTheme(merged.theme)
+    if (patch.rememberLayout !== undefined) persistLayoutMemory(merged.rememberLayout)
     // 推给全部窗口：主窗口与 Preview Window 的设置弹窗都能改，JS 侧读的偏好（自动获取）各窗口同步
     broadcast(IPC.appPrefsChanged, merged)
     return merged
+  })
+  ipcMain.handle(IPC.panelSizesSet, (_e, patch: PanelSizesPatch) => updatePanelSizes(patch))
+  // 恢复默认布局：面板尺寸与记住的窗口几何清空，开着的主窗口、预览窗口回到新开时的样子
+  ipcMain.handle(IPC.layoutReset, () => {
+    resetLayoutMemory()
+    const main = liveMainWindow()
+    if (main) resetWindowGeometry(main)
+    resetPreviewWindowsGeometry()
   })
   ipcMain.handle(IPC.pickDirectory, (_e, defaultPath?: string) =>
     pickDirectory(defaultPath, mainWindow)

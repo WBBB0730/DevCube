@@ -1,28 +1,22 @@
-// 右侧树面板的外壳（Files 文件树、数据源的目录与 Redis 键列表共用）：面板外框（左边线、panel 底、固定宽 TREE_W）、
+// 右侧树面板的外壳（Files 文件树、数据源的目录与 Redis 键列表共用）：面板外框（panel 底的可拖面板，宽度三处共用）、
 // 树顶栏（h-10：筛选 / 前往输入 + 钮组）、当前根行（固定在列表之上不随滚动走）与列表的滚动区样式。行与整树状态见 ./tree。
 import { Button } from '@renderer/components/ui/button'
-import { TREE_DROP_TARGET, TREE_W } from '@renderer/components/ui/tree'
+import { ResizablePanel } from '@renderer/components/ui/resizable'
+import { TREE_DROP_TARGET } from '@renderer/components/ui/tree'
 import { cn } from '@renderer/lib/utils'
 
 /** 树列表的滚动区（在根行之下）：可聚焦（焦点在树上打字转进树顶输入），不画焦点框 */
 export const TREE_SCROLL = 'min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5 pt-1 outline-none'
 
-/** 面板外框：左边线 + panel 底，固定宽 TREE_W（不可拖）；其余属性（如拖放监听）原样给外框 */
+/**
+ * 面板外框：panel 底的可拖面板，放在面板组里、前面隔一条分隔线（ADR-0053）。宽度三处共用一份：面板组的主人用
+ * `useRememberedPanel('treePanel')`，把 panelProps 给这里；其余属性（如拖放监听）原样给面板。
+ */
 export function TreePanel({
   className,
-  style,
   ...props
-}: React.ComponentProps<'div'>): React.JSX.Element {
-  return (
-    <div
-      className={cn(
-        'flex h-full shrink-0 flex-col border-l border-[var(--separator)] bg-panel',
-        className
-      )}
-      style={{ width: TREE_W, ...style }}
-      {...props}
-    />
-  )
+}: React.ComponentProps<typeof ResizablePanel>): React.JSX.Element {
+  return <ResizablePanel className={cn('flex flex-col bg-panel', className)} {...props} />
 }
 
 /** 树顶栏：h-10、底边线；放一个 BarInput 与其后的钮组（钮组 `gap-0.5`） */

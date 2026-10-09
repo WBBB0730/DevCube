@@ -137,6 +137,7 @@
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
     "react-markdown": "^10.1.0",
+    "react-resizable-panels": "^4.14.3",
     "recharts": "^3.10.1",
     "remark-gfm": "^4.0.1",
     "sql-formatter": "^15.9.0",

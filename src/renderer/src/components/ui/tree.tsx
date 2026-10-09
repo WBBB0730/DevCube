@@ -5,8 +5,6 @@ import { LOADING_HINT_DELAY_MS } from '@renderer/components/ui/centered-hint'
 import { useShowAfter } from '@renderer/lib/use-show-after'
 import { cn } from '@renderer/lib/utils'
 
-/** 树面板固定宽（不可拖） */
-export const TREE_W = 280
 /** 树行固定高（h-8）；虚拟滚动按此定位，改行高须同步 TREE_ROW */
 export const TREE_ROW_H = 32
 /** 树行底样（不含状态底色，状态见 TreeRow） */

@@ -6,7 +6,7 @@ import { useMemo, useState } from 'react'
 import { Download, LoaderCircle, Upload, X } from 'lucide-react'
 import { Button } from '@renderer/components/ui/button'
 import { ConnectPlaceholder } from '@renderer/components/ui/connect-placeholder'
-import { FormDialogShell } from '@renderer/components/ui/form-dialog'
+import { ConfirmDialog } from '@renderer/components/ui/form-dialog'
 import { FilesPane, type FilesPaneHost } from '@renderer/components/files/FilesPane'
 import { createKeyedSubscription, useKeyedPushed } from '@renderer/lib/keyed-subscription'
 import { useServerFilesState } from '@renderer/lib/server-files-state'
@@ -125,7 +125,8 @@ export function ServerFilesPane({
       </div>
       <TransferBar serverId={serverId} transfers={transfers} />
       {confirmDisconnect && (
-        <FormDialogShell
+        <ConfirmDialog
+          title="断开连接？"
           message={`还有 ${activeTransfers} 个文件传输未完成，断开连接将中止这些传输。`}
           buttons={[
             {
@@ -137,7 +138,6 @@ export function ServerFilesPane({
             }
           ]}
           onCancel={() => setConfirmDisconnect(false)}
-          dismissOnOutsidePress
         />
       )}
     </div>

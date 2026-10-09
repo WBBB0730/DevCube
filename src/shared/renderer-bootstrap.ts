@@ -1,6 +1,7 @@
 /** 主进程在 preload 阶段同步注入的首屏快照，避免首帧空树。 */
 
 import type { DataSourceNode } from './data-source'
+import type { PanelSizes } from './panel-sizes'
 import type { ServerNode } from './server'
 import { buildTreeEntries, configOwnerKey } from './tree-entry'
 import type { AppPrefs, ProjectNode, ProjectSortPrefs, SessionState, TerminalInfo } from './types'
@@ -22,10 +23,14 @@ export type RendererBootstrap = {
   workspace: WorkspaceUiState
   /** 首帧即需的应用偏好（如自动获取开关：Git Tab 首次到前台就要按它决定是否 fetch） */
   appPrefs: AppPrefs
+  /** 可拖面板的尺寸：首帧即按它摆，不先显示默认再跳 */
+  panelSizes: PanelSizes
 }
 
 /** 由 bootstrap 快照得到工作台首屏字段（与历史 init 对齐）。 */
-export function workspaceSliceFromBootstrap(boot: Omit<RendererBootstrap, 'appPrefs'>): {
+export function workspaceSliceFromBootstrap(
+  boot: Omit<RendererBootstrap, 'appPrefs' | 'panelSizes'>
+): {
   tree: ProjectNode[]
   servers: ServerNode[]
   dataSources: DataSourceNode[]

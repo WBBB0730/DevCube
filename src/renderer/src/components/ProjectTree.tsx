@@ -649,7 +649,7 @@ export function ProjectTree(): React.JSX.Element {
   return (
     <div
       data-project-tree=""
-      className="flex h-full w-[280px] shrink-0 flex-col border-r border-[var(--separator)] bg-panel"
+      className="flex h-full flex-col bg-panel"
       onDragOver={(e) => e.preventDefault()}
       onDrop={async (e) => {
         e.preventDefault()
@@ -1391,7 +1391,7 @@ function ProjectFolderIcon({ worktreeOf }: { worktreeOf: string | null }): React
       .filter((seg) => seg !== '')
       .pop() ?? worktreeOf
   return (
-    <span title={`「${mainName}」的工作树\n${worktreeOf}`} className="flex shrink-0 items-center">
+    <span title={`“${mainName}” 的工作树\n${worktreeOf}`} className="flex shrink-0 items-center">
       <FolderGit2 className="size-4 text-muted-foreground" />
     </span>
   )
@@ -1675,10 +1675,28 @@ function RunnableRow({
   )
 }
 
-/** 配置菜单项：⋮ 与右键共用（编辑仅命令型，本机、服务器上或数据源上 / 删除）。 */
+/**
+ * 配置菜单项：⋮ 与右键共用（编辑仅命令型，本机、服务器上或数据源上 / 删除）。删除命令型先确认（用户自己写的，
+ * 删了就没了）；引用型不问（探测脚本还在，随时能再晋升回来）。
+ */
 function ConfigMenuItems({ config }: { config: RunConfig }): React.JSX.Element {
   const openEditDialog = useApp((s) => s.openEditDialog)
   const deleteConfig = useApp((s) => s.deleteConfig)
+  const askConfirm = useApp((s) => s.askConfirm)
+  const remove = async (): Promise<void> => {
+    if (
+      config.kind !== 'referenced' &&
+      !(await askConfirm({
+        title: `删除运行配置 “${config.name}”？`,
+        message: '删除后无法恢复。',
+        confirmLabel: '删除',
+        destructive: true
+      }))
+    ) {
+      return
+    }
+    await deleteConfig(config.id)
+  }
   return (
     <>
       {config.kind !== 'referenced' && (
@@ -1686,7 +1704,7 @@ function ConfigMenuItems({ config }: { config: RunConfig }): React.JSX.Element {
           <Pencil className="size-4" /> 编辑
         </DropdownMenuItem>
       )}
-      <DropdownMenuItem onClick={() => deleteConfig(config.id)}>
+      <DropdownMenuItem onClick={() => void remove()}>
         <Trash2 className="size-4" /> 删除
       </DropdownMenuItem>
     </>
@@ -1732,17 +1750,32 @@ function MoreMenu({
   )
 }
 
-/** 项目菜单项：⋮ 与右键共用（打开文件夹 / 打开于 / 在新窗口中打开 / 新建终端 / 新建配置 / 置顶 / 移除项目）。 */
+/**
+ * 项目菜单项：⋮ 与右键共用（打开文件夹 / 打开于 / 在新窗口中打开 / 新建终端 / 新建配置 / 置顶 / 移除项目）。
+ * 移除项目先确认：它的运行配置一并删除，运行中的进程与终端会被结束。
+ */
 function ProjectMenuItems({
   projectPath,
+  projectName,
   pinned
 }: {
   projectPath: string
+  projectName: string
   pinned: boolean
 }): React.JSX.Element {
   const openCreateDialog = useApp((s) => s.openCreateDialog)
   const newTerminal = useApp((s) => s.newTerminal)
   const removeProject = useApp((s) => s.removeProject)
+  const askConfirm = useApp((s) => s.askConfirm)
+  const remove = async (): Promise<void> => {
+    const confirmed = await askConfirm({
+      title: `移除项目 “${projectName}”？`,
+      message: '它的运行配置会一并删除，运行中的进程和终端会被结束；磁盘上的文件不受影响。',
+      confirmLabel: '移除',
+      destructive: true
+    })
+    if (confirmed) await removeProject(projectPath)
+  }
   const [openInApps, setOpenInApps] = useState<OpenInAppStatus[] | null>(null)
 
   useEffect(() => {
@@ -1806,7 +1839,7 @@ function ProjectMenuItems({
         <FilePlusCorner className="size-4" /> 新建配置
       </DropdownMenuItem>
       <PinMenuItem entryKey={projectPath} pinned={pinned} />
-      <DropdownMenuItem onClick={() => removeProject(projectPath)}>
+      <DropdownMenuItem onClick={() => void remove()}>
         <Trash2 className="size-4" /> 移除项目
       </DropdownMenuItem>
     </>
@@ -1893,7 +1926,13 @@ function PinMenuItem({
 function EntryMenuItems({ entry }: { entry: TreeEntry }): React.JSX.Element {
   switch (entry.kind) {
     case 'project':
-      return <ProjectMenuItems projectPath={entry.key} pinned={entry.node.project.pinned} />
+      return (
+        <ProjectMenuItems
+          projectPath={entry.key}
+          projectName={entry.node.project.name}
+          pinned={entry.node.project.pinned}
+        />
+      )
     case 'server':
       return <ServerMenuItems node={entry.node} />
     case 'dataSource':

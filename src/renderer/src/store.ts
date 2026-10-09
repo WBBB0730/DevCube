@@ -83,11 +83,15 @@ export function syncThemeWithSystem(): () => void {
   return () => mq.removeEventListener('change', sync)
 }
 
-/** JS 侧读的应用偏好（自动获取开关、数据源表格每页行数）。 */
-type JsAppPrefs = Pick<AppPrefs, 'gitAutoFetch' | 'dataPageSize'>
+/** JS 侧读的应用偏好（自动获取开关、数据源表格每页行数、记住窗口和面板布局）。 */
+type JsAppPrefs = Pick<AppPrefs, 'gitAutoFetch' | 'dataPageSize' | 'rememberLayout'>
 
 function jsAppPrefsOf(prefs: AppPrefs): JsAppPrefs {
-  return { gitAutoFetch: prefs.gitAutoFetch, dataPageSize: prefs.dataPageSize }
+  return {
+    gitAutoFetch: prefs.gitAutoFetch,
+    dataPageSize: prefs.dataPageSize,
+    rememberLayout: prefs.rememberLayout
+  }
 }
 
 /** 首帧的 JS 侧偏好：preload 快照同步带出（如 Git Tab 首次到前台即按真实设置决定是否 fetch）。 */
@@ -350,6 +354,8 @@ interface AppState {
   unsavedServerFiles: Record<string, UnsavedServerFile>
   /** 等用户选「保存 / 不保存 / 取消」的未保存提示（同一时刻一个） */
   unsavedPrompt: { name: string; resolve: (choice: UnsavedChoice) => void } | null
+  /** 从菜单这类点完就关的地方发起的二次确认（弹在 App 根，见 askConfirm） */
+  confirmPrompt: (ConfirmPrompt & { resolve: (confirmed: boolean) => void }) | null
   /** 等用户填的运行参数（命令型配置有参数时，运行前弹参数框；同一时刻一个） */
   runParamsPrompt: RunParamsPrompt | null
   /** 左树排序偏好（落盘） */
@@ -364,6 +370,8 @@ interface AppState {
   gitAutoFetch: boolean
   /** 数据源表格每页行数（落盘，所有 Data Source Tab 共用） */
   dataPageSize: number
+  /** 记住窗口和面板布局（落盘）：开着时布局跨重启保留，由主进程负责记（ADR-0053） */
+  rememberLayout: boolean
   /** 左树名称搜索（纯内存） */
   projectFilter: string
   /** +1 驱动左树聚焦筛选框（⌥⌘P / Ctrl+Alt+P） */
@@ -425,6 +433,8 @@ interface AppState {
   setGitAutoFetch: (enabled: boolean) => Promise<void>
   /** 改数据源表格每页行数：本地即时生效并落盘 */
   setDataPageSize: (size: number) => Promise<void>
+  /** 开关「记住窗口和面板布局」：本地即时生效并落盘（关掉即清掉已存的布局） */
+  setRememberLayout: (enabled: boolean) => Promise<void>
   setProjectFilter: (query: string) => void
   /** 聚焦左树筛选框 */
   focusProjectFilter: () => void
@@ -485,12 +495,22 @@ interface AppState {
   setUnsavedServerFile: (serverId: string, file: UnsavedServerFile | null) => void
   /** 弹「保存 / 不保存 / 取消」，等用户选 */
   askUnsaved: (name: string) => Promise<UnsavedChoice>
+  /** 二次确认：弹确认框，确认为 true，取消为 false */
+  askConfirm: (prompt: ConfirmPrompt) => Promise<boolean>
   /** 某台服务器上有未保存的文件就先问：保存（存成才继续）/ 不保存（继续）/ 取消（不继续）；返回是否继续 */
   resolveServerUnsaved: (serverId: string) => Promise<boolean>
 }
 
 /** 未保存提示的选择。 */
 export type UnsavedChoice = 'save' | 'discard' | 'cancel'
+
+/** 确认框的内容：问句标题、后果说明与主按钮（见 ui/form-dialog 的 ConfirmDialog） */
+export interface ConfirmPrompt {
+  title: string
+  message?: string
+  confirmLabel: string
+  destructive?: boolean
+}
 
 /** 命令型配置运行前的参数框：每个参数一行，预填这条配置上次用的值。 */
 export interface RunParamsPrompt {
@@ -732,6 +752,7 @@ export const useApp = create<AppState>((set, get) => ({
   transferConflictQueue: [],
   unsavedServerFiles: {},
   unsavedPrompt: null,
+  confirmPrompt: null,
   runParamsPrompt: null,
   projectFilter: '',
   projectFilterFocusNonce: 0,
@@ -920,6 +941,10 @@ export const useApp = create<AppState>((set, get) => ({
   setDataPageSize: async (size) => {
     set({ dataPageSize: size })
     await window.api.setAppPrefs({ dataPageSize: size })
+  },
+  setRememberLayout: async (enabled) => {
+    set({ rememberLayout: enabled })
+    await window.api.setAppPrefs({ rememberLayout: enabled })
   },
   setProjectFilter: (query) => set({ projectFilter: query }),
   focusProjectFilter: () =>
@@ -1114,6 +1139,20 @@ export const useApp = create<AppState>((set, get) => ({
           resolve: (choice) => {
             set({ unsavedPrompt: null })
             resolve(choice)
+          }
+        }
+      })
+    }),
+  askConfirm: (prompt) =>
+    new Promise((resolve) => {
+      // 同一时刻只问一件事：还有没答的就当取消
+      get().confirmPrompt?.resolve(false)
+      set({
+        confirmPrompt: {
+          ...prompt,
+          resolve: (confirmed) => {
+            set({ confirmPrompt: null })
+            resolve(confirmed)
           }
         }
       })

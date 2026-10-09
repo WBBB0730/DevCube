@@ -17,7 +17,7 @@ import { SettingsModal } from '@renderer/components/SettingsModal'
 import { UpdateDialog } from '@renderer/components/UpdateDialog'
 import { Button } from '@renderer/components/ui/button'
 import { Checkbox } from '@renderer/components/ui/checkbox'
-import { ErrorDialog } from '@renderer/components/ui/form-dialog'
+import { ConfirmDialog, ErrorDialog } from '@renderer/components/ui/form-dialog'
 import {
   Select,
   SelectContent,
@@ -164,9 +164,12 @@ export function SettingsDialog({
   const [integrationBusy, setIntegrationBusy] = useState<SystemIntegrationFeatureId | null>(null)
   const [integrationError, setIntegrationError] = useState<string | null>(null)
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
+  const [layoutResetConfirm, setLayoutResetConfirm] = useState(false)
   const setTheme = useApp((s) => s.setTheme)
   const gitAutoFetch = useApp((s) => s.gitAutoFetch)
   const setGitAutoFetch = useApp((s) => s.setGitAutoFetch)
+  const rememberLayout = useApp((s) => s.rememberLayout)
+  const setRememberLayout = useApp((s) => s.setRememberLayout)
   const platform = window.electron.process.platform
   const isWin = platform === 'win32'
   // 偏好全平台可见（主题）；其中「默认终端」仅 Windows。系统集成全平台可见（Linux 只有「文件打开方式」）。
@@ -410,6 +413,25 @@ export function SettingsDialog({
                 </label>
               </div>
 
+              <div className="space-y-2">
+                <div className="text-[color:var(--fg-primary)]">窗口</div>
+                <label className="flex cursor-pointer select-none items-center gap-1.5 text-foreground">
+                  <Checkbox
+                    checked={rememberLayout}
+                    onCheckedChange={(checked) => void setRememberLayout(checked)}
+                  />
+                  记住窗口和面板布局
+                </label>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="secondary"
+                  onClick={() => setLayoutResetConfirm(true)}
+                >
+                  恢复默认布局
+                </Button>
+              </div>
+
               {isWin && (
                 <div className="space-y-2">
                   <div className="text-[color:var(--fg-primary)]">默认终端</div>
@@ -517,6 +539,23 @@ export function SettingsDialog({
             onPerformUpdate()
           }}
           onCancel={() => setUpdateDialogOpen(false)}
+        />
+      )}
+
+      {layoutResetConfirm && (
+        <ConfirmDialog
+          title="恢复默认布局？"
+          message="所有面板会回到默认尺寸，窗口会回到默认大小和位置。"
+          buttons={[
+            {
+              label: '恢复',
+              onClick: () => {
+                setLayoutResetConfirm(false)
+                void window.api.resetLayout()
+              }
+            }
+          ]}
+          onCancel={() => setLayoutResetConfirm(false)}
         />
       )}
 

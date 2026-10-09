@@ -24,6 +24,12 @@ import { isPageSize, type CompletionUsage } from '../shared/data-source-query'
 import type { RunParams } from '../shared/run-params'
 import type { TerminalShell, WorkspaceUiState } from '../shared/workspace'
 import { DEFAULT_WORKSPACE_UI, migrateLegacyWorkspaceUi } from '../shared/workspace'
+import { normalizePanelSizes, type PanelSizes } from '../shared/panel-sizes'
+import {
+  normalizeWindowPlacements,
+  type WindowPlacement,
+  type WindowPlacementKey
+} from '../shared/window-placement'
 import {
   DEFAULT_GIT_REPO_SETTINGS,
   DEFAULT_GIT_VIEW_PREFS,
@@ -57,7 +63,9 @@ export async function initStore(): Promise<void> {
       projectSortPrefs: DEFAULT_PROJECT_SORT_PREFS,
       appPrefs: DEFAULT_APP_PREFS,
       filesUi: {},
-      workspaceUi: DEFAULT_WORKSPACE_UI
+      workspaceUi: DEFAULT_WORKSPACE_UI,
+      windowPlacements: {},
+      panelSizes: {}
     }
   })
 }
@@ -400,6 +408,24 @@ export function setAppPrefs(patch: Partial<AppPrefs>): AppPrefs {
   }
   store.set('appPrefs', merged)
   return merged
+}
+
+export function getWindowPlacements(): Partial<Record<WindowPlacementKey, WindowPlacement>> {
+  return normalizeWindowPlacements(store.get('windowPlacements'))
+}
+
+export function setWindowPlacements(
+  placements: Partial<Record<WindowPlacementKey, WindowPlacement>>
+): void {
+  store.set('windowPlacements', placements)
+}
+
+export function getPanelSizes(): PanelSizes {
+  return normalizePanelSizes(store.get('panelSizes'))
+}
+
+export function setPanelSizes(sizes: PanelSizes): void {
+  store.set('panelSizes', sizes)
 }
 
 export function getFilesUi(entryKey: string): FilesUiState {

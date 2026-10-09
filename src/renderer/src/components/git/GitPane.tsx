@@ -4,16 +4,23 @@
 // 全局键盘只在可见时挂 capture 监听：Esc 分层关闭、Cmd/Ctrl+F 打开查找、Cmd/Ctrl+R 刷新
 // （fetch + 软刷新；导航类快捷键改由主进程 before-input-event；F/R 须排除 Alt）。
 import { useEffect, useSyncExternalStore } from 'react'
+import { UNCOMMITTED } from '@shared/git'
 import { gitState, useGit } from '@renderer/git-store'
 import { useApp } from '@renderer/store'
+import { useRememberedPanel } from '@renderer/lib/remembered-panel'
 import { isPrimaryModifierEvent } from '@renderer/lib/shortcut-label'
 import { isDialogOpen } from '@renderer/components/ui/dialog'
 import { CenteredHint, LoadingHint } from '@renderer/components/ui/centered-hint'
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup
+} from '@renderer/components/ui/resizable'
 import { GitToolbar } from './GitToolbar'
 import { GitOpStatusBar } from './GitOpStatusBar'
 import { GitCommitTable } from './GitCommitTable'
 import { GitFindWidget } from './GitFindWidget'
-import { GitCommitDetails } from './GitCommitDetails'
+import { COMMIT_PANEL_HEIGHT, GitCommitDetails } from './GitCommitDetails'
 import { GitDiffView } from './GitDiffView'
 import { GitContextMenu } from './GitContextMenu'
 import { GitDialogs } from './GitDialogs'
@@ -45,6 +52,15 @@ export function GitPane({
   const hasCommits = useGit((s) => gitState(s, projectPath).commits.length > 0)
   const loadError = useGit((s) => gitState(s, projectPath).loadError)
   const hasExpanded = useGit((s) => gitState(s, projectPath).expanded !== null)
+  /** 未提交普通模式 = 提交面板（ADR-0006）：没拖过详情区时，它的默认高比普通详情高一档 */
+  const commitPanelOpen = useGit((s) => {
+    const exp = gitState(s, projectPath).expanded
+    return exp !== null && exp.hash === UNCOMMITTED && exp.compareWith === null
+  })
+  const details = useRememberedPanel(
+    'gitDetailsHeight',
+    commitPanelOpen ? COMMIT_PANEL_HEIGHT : undefined
+  )
   const graphLoading = useGit((s) => gitState(s, projectPath).graphLoading)
   const load = useGit((s) => s.load)
   const gitAutoFetch = useApp((s) => s.gitAutoFetch)
@@ -161,20 +177,27 @@ export function GitPane({
       ) : isEmptyRepo && !hasCommits ? (
         <CenteredHint>此仓库还没有任何提交</CenteredHint>
       ) : (
-        // 内容区做 relative 容器：详情面板吊底（自带高度与上边框）。diff 面板 absolute
-        // 只覆盖图谱表格区（挂在内层 relative 容器里），吊底的详情/文件列表仍可见。
-        <div className="relative flex min-h-0 flex-1 flex-col">
-          <div className="relative min-h-0 flex-1">
-            <GitCommitTable projectPath={projectPath} />
-            <GitFindWidget projectPath={projectPath} />
-            {/* diff 面板：absolute 覆盖本图谱表格区（不盖吊底详情），点文件看 diff 时文件列表仍在 */}
-            <GitDiffView projectPath={projectPath} />
-            {/* 切分支 / 改视图开关时只给图谱区盖半透明 loading，工具栏与详情不受影响 */}
-            {graphLoading && (
-              <LoadingHint delay={0} className="absolute inset-0 z-10 bg-deepest/70" />
+        // 内容区是竖排面板组：详情面板吊底（高度可拖，分隔线即它的上边框）。diff 面板 absolute
+        // 只覆盖图谱表格区（挂在表格面板里），吊底的详情/文件列表仍可见。
+        <div className="min-h-0 flex-1">
+          <ResizablePanelGroup orientation="vertical" {...details.groupProps}>
+            <ResizablePanel className="relative">
+              <GitCommitTable projectPath={projectPath} />
+              <GitFindWidget projectPath={projectPath} />
+              {/* diff 面板：absolute 覆盖本图谱表格区（不盖吊底详情），点文件看 diff 时文件列表仍在 */}
+              <GitDiffView projectPath={projectPath} />
+              {/* 切分支 / 改视图开关时只给图谱区盖半透明 loading，工具栏与详情不受影响 */}
+              {graphLoading && (
+                <LoadingHint delay={0} className="absolute inset-0 z-10 bg-deepest/70" />
+              )}
+            </ResizablePanel>
+            {hasExpanded && (
+              <ResizableHandle className="bg-[var(--border-input)]" {...details.handleProps} />
             )}
-          </div>
-          {hasExpanded && <GitCommitDetails projectPath={projectPath} />}
+            {hasExpanded && (
+              <GitCommitDetails projectPath={projectPath} panel={details.panelProps} />
+            )}
+          </ResizablePanelGroup>
         </div>
       )}
       {/* 右键菜单与对话框自带开合判空（无内容即 null），挂在根级即可 */}

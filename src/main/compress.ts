@@ -97,9 +97,10 @@ export async function openCompressWindow(paths: readonly string[]): Promise<void
     placement: { width, height, isMaximized: false, isFullScreen: false },
     defaults: { width, height, minWidth: width, minHeight: height },
     query: buildCompressQuery({ subject, dir: parent, name }),
-    fixedSize: true
+    fixedSize: true,
+    showNow: true
   })
-  win.setTitle(`压缩「${subject}」`)
+  win.setTitle(`压缩 “${subject}”`)
   const webContentsId = win.webContents.id
   const session: CompressSession = {
     items,
@@ -118,7 +119,6 @@ export async function openCompressWindow(paths: readonly string[]): Promise<void
     sessions.delete(webContentsId)
     if (sessions.size === 0) idleHandler?.()
   })
-  win.show()
 }
 
 function listingOf(s: CompressSession, excludeIgnored: boolean): Promise<CompressListing> {
@@ -242,7 +242,7 @@ export async function startCompress(
       await originalFs.rename(temp, target)
     } catch (err) {
       await removeTemp(temp)
-      return { status: 'error', message: `无法保存「${target}」：${(err as Error).message}` }
+      return { status: 'error', message: `无法保存 “${target}”：${(err as Error).message}` }
     }
     if (!s.win.isDestroyed()) s.win.close()
     return outcome

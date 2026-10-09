@@ -9,12 +9,7 @@ import { FolderOpen, LoaderCircle } from 'lucide-react'
 import { AppTitleBar } from '@renderer/components/AppTitleBar'
 import { Button } from '@renderer/components/ui/button'
 import { CHOICE_ROW, Checkbox } from '@renderer/components/ui/checkbox'
-import {
-  ErrorDialog,
-  FieldRow,
-  FormDialogShell,
-  InfoIcon
-} from '@renderer/components/ui/form-dialog'
+import { ConfirmDialog, ErrorDialog, FieldRow, InfoIcon } from '@renderer/components/ui/form-dialog'
 import { INPUT_ICON_BTN, Input } from '@renderer/components/ui/input'
 import {
   ARCHIVE_EXT,
@@ -64,7 +59,7 @@ export function CompressWindow({ launch }: { launch: CompressLaunch }): React.JS
   const [confirmReplace, setConfirmReplace] = useState(false)
   /** 错误框：读不了内容（预览时）与压缩失败分两种标题 */
   const [error, setError] = useState<{ title: string; message: string } | null>(null)
-  const title = `压缩「${launch.subject}」`
+  const title = `压缩 “${launch.subject}”`
 
   useEffect(() => {
     document.title = title
@@ -245,19 +240,11 @@ export function CompressWindow({ launch }: { launch: CompressLaunch }): React.JS
       </div>
 
       {confirmReplace && (
-        <FormDialogShell
-          message={
-            <>
-              <b className="break-all font-semibold text-foreground">
-                {name.trim()}
-                {ARCHIVE_EXT}
-              </b>{' '}
-              已存在，要替换它吗？
-            </>
-          }
+        <ConfirmDialog
+          title={`替换 “${name.trim()}${ARCHIVE_EXT}”？`}
+          message="位置里已有同名的压缩包，替换后它会被覆盖。"
           buttons={[{ label: '替换', destructive: true, onClick: start }]}
           onCancel={() => setConfirmReplace(false)}
-          dismissOnOutsidePress
         />
       )}
       {error !== null && (

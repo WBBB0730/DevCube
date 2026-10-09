@@ -102,7 +102,7 @@ function getBranchLabels(
 
 /** 分支标签上工作树小图标的 hover 说明。 */
 function heldByWorktreeTitle(worktree: GitWorktree): string {
-  return `已在工作树 "${worktreeDisplayName(worktree)}" 检出：${worktree.path}`
+  return `已在工作树 “${worktreeDisplayName(worktree)}” 检出：${worktree.path}`
 }
 
 /** 行事件处理集（父组件 useMemo 一份稳定引用，供 memo 行组件共用）。 */
@@ -281,7 +281,7 @@ export function GitCommitTable({ projectPath }: { projectPath: string }): React.
           .runAction(
             projectPath,
             { kind: 'checkout-branch', branch: name, remoteBranch: null },
-            `正在检出分支 "${name}"`
+            `正在检出分支 “${name}”`
           )
       },
       remoteDoubleClick: (e, fullRef, remote) => {
@@ -524,7 +524,7 @@ const CommitRow = memo(function CommitRow({
       : branchLabels
   const headDotTip =
     currentBranch !== null && commit.heads.includes(currentBranch)
-      ? `分支 "${currentBranch}" 当前检出于此提交。`
+      ? `分支 “${currentBranch}” 当前检出于此提交。`
       : '此提交当前已检出（detached HEAD）。'
 
   return (

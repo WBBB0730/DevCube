@@ -75,6 +75,18 @@ describe('应用主题偏好', () => {
   })
 })
 
+describe('记住窗口和面板布局', () => {
+  it('缺字段的老档案默认开', async () => {
+    await withStoredPrefs({ theme: 'light' })
+    expect(getAppPrefs().rememberLayout).toBe(true)
+  })
+
+  it('保留落盘的关闭', async () => {
+    await withStoredPrefs({ rememberLayout: false })
+    expect(getAppPrefs().rememberLayout).toBe(false)
+  })
+})
+
 describe('按键删除', () => {
   it('删掉有的几条，其余不动', async () => {
     await initStore()

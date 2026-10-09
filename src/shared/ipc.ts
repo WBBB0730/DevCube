@@ -132,6 +132,11 @@ export const IPC = {
   appPrefsSet: 'app:prefs-set',
   /** 主进程 → 全部窗口：应用偏好已变（任一窗口的设置弹窗改的） */
   appPrefsChanged: 'app:prefs-changed',
+  /** 记下 / 清掉可拖面板的尺寸；主进程 → 全部窗口：尺寸已变（ADR-0053） */
+  panelSizesSet: 'layout:panel-sizes-set',
+  panelSizesChanged: 'layout:panel-sizes-changed',
+  /** 恢复默认布局：面板尺寸与窗口几何（开着的主窗口、预览窗口当场复原） */
+  layoutReset: 'layout:reset',
   /** 「记住密码」为什么不可用（没有可用的系统钥匙串）：服务器与数据源的对话框共用 */
   passwordUnavailableReason: 'secrets:password-unavailable-reason',
   /** 通用目录选择器（不绑定项目；克隆对话框选存放位置用） */

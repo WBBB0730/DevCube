@@ -6,6 +6,7 @@ import { getSessions, getTerminals } from './runner'
 import { listDataSourceNodes } from './data-sources'
 import { listServerNodes } from './servers'
 import { buildTree } from './tree'
+import { getPanelSizes } from './layout-memory'
 
 export function getRendererBootstrap(): RendererBootstrap {
   return {
@@ -16,7 +17,8 @@ export function getRendererBootstrap(): RendererBootstrap {
     terminals: getTerminals(),
     projectSortPrefs: getProjectSortPrefs(),
     workspace: getWorkspaceUi(),
-    appPrefs: getAppPrefs()
+    appPrefs: getAppPrefs(),
+    panelSizes: getPanelSizes()
   }
 }
 

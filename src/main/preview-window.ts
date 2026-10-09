@@ -4,11 +4,11 @@ import { normalizePath } from '../shared/files-path'
 import { IPC } from '../shared/ipc'
 import { matchAppShortcut } from '../shared/app-shortcut'
 import { buildPreviewQuery, resolvePreviewRoot } from '../shared/preview-window'
-import { createAppWindow } from './app-window'
+import { createAppWindow, resetWindowGeometry } from './app-window'
 import { grantFilesRoot, revokeFilesRoot } from './files-roots'
 import { isAppQuitting } from './app-shutdown'
 import { getProjects } from './store'
-import { rememberWindowPlacement, resolveRememberedWindowPlacement } from './window-placement'
+import { rememberWindowPlacement, resolveRememberedWindowPlacement } from './layout-memory'
 import { watchPreviewRoot } from './preview-watch'
 
 /**
@@ -41,6 +41,16 @@ function toSys(logical: string): string {
 function entryOf(win: BrowserWindow): PreviewEntry | undefined {
   for (const entry of byFile.values()) if (entry.win === win) return entry
   return undefined
+}
+
+function liveFocused(): BrowserWindow | null {
+  return lastFocused && !lastFocused.isDestroyed() ? lastFocused : null
+}
+
+/** 把最近聚焦的活窗此刻的几何写进记忆（开新窗前、退出时）。 */
+export function rememberPreviewWindowPlacement(): void {
+  const live = liveFocused()
+  if (live) rememberWindowPlacement(live, 'preview')
 }
 
 function attachWatcher(entry: PreviewEntry): void {
@@ -107,10 +117,10 @@ function openPreview(
     return existing.win
   }
 
-  // 几何只在进程内记（退出即清，与主窗口同；两者各记一份）。还开着的预览窗口是最新事实：
-  // 先把它此刻的状态写进记忆再取，新窗就跟它一样是否最大化、多大、在哪；没有活窗则用最近关掉的那份。
-  const live = lastFocused && !lastFocused.isDestroyed() ? lastFocused : null
-  if (live) rememberWindowPlacement(live, 'preview')
+  // 几何与主窗口各记一份（ADR-0053）。还开着的预览窗口是最新事实：先把它此刻的状态写进记忆再取，
+  // 新窗就跟它一样是否最大化、多大、在哪；没有活窗则用最近关掉的那份。
+  const live = liveFocused()
+  rememberPreviewWindowPlacement()
   const placement = resolveRememberedWindowPlacement(PREVIEW_DEFAULTS, 'preview')
   // 多开且不是最大化 / 全屏：从活窗错位级联，别叠在同一位置
   if (live && !placement.isMaximized && !placement.isFullScreen) {
@@ -136,11 +146,6 @@ function openPreview(
   win.on('focus', () => {
     lastFocused = win
   })
-  win.on('ready-to-show', () => {
-    if (placement.isMaximized) win.maximize()
-    if (placement.isFullScreen) win.setFullScreen(true)
-    win.show()
-  })
   win.on('close', () => rememberWindowPlacement(win, 'preview'))
   win.on('closed', () => {
     revokeFilesRoot(win.id)
@@ -150,6 +155,16 @@ function openPreview(
     if (lastFocused === win) lastFocused = null
   })
   return win
+}
+
+/** 恢复默认布局：开着的预览窗口都回到新开时的样子，依次错开（同多开）。 */
+export function resetPreviewWindowsGeometry(): void {
+  let offset = 0
+  for (const { win } of byFile.values()) {
+    if (win.isDestroyed()) continue
+    resetWindowGeometry(win, offset)
+    offset += CASCADE_OFFSET
+  }
 }
 
 /** 「上一级」等根切换：换授权、换监听。非预览窗口调用则忽略。 */

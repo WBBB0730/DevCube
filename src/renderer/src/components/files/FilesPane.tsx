@@ -26,6 +26,7 @@ import {
 } from '@shared/server-files'
 import { SHORTCUT } from '@shared/shortcut-label'
 import { createKeyedSubscription } from '@renderer/lib/keyed-subscription'
+import { useRememberedPanel } from '@renderer/lib/remembered-panel'
 import { isPrimaryModifierEvent, shortcutTitle } from '@renderer/lib/shortcut-label'
 import {
   FILES_BASIC_SETUP,
@@ -86,7 +87,7 @@ import { useApp } from '@renderer/store'
 import { BAR_INPUT_ICON, BarInput } from '@renderer/components/ui/bar-input'
 import { Button } from '@renderer/components/ui/button'
 import { CenteredHint } from '@renderer/components/ui/centered-hint'
-import { FormDialogShell } from '@renderer/components/ui/form-dialog'
+import { ConfirmDialog } from '@renderer/components/ui/form-dialog'
 import { RefreshButton, TOOLBAR_BTN } from '@renderer/components/ui/toolbar'
 import {
   TREE_ICON,
@@ -95,6 +96,11 @@ import {
   TreeNoticeRow,
   TreeRow
 } from '@renderer/components/ui/tree'
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup
+} from '@renderer/components/ui/resizable'
 import {
   TREE_SCROLL,
   TreePanel,
@@ -1615,12 +1621,14 @@ export function FilesPane({
   const downloadOpenFile =
     remote && connected && loaded !== null ? () => downloadFile(loaded.path) : null
 
+  const treePanel = useRememberedPanel('treePanel')
+
   return (
     <FilesLocalContext.Provider value={!remote}>
       <FilesDownloadContext.Provider value={downloadOpenFile}>
-        <div className="flex h-full min-h-0">
-          <div
-            className="relative min-h-0 min-w-0 flex-1 bg-deepest"
+        <ResizablePanelGroup {...treePanel.groupProps}>
+          <ResizablePanel
+            className="relative bg-deepest"
             onContextMenu={(e) => {
               // 任何已打开的条目都有正文菜单；空态没有。看图 / SVG 预览态另给「复制图片」取图源
               const cur = loaded
@@ -1948,9 +1956,11 @@ export function FilesPane({
                 />
               </div>
             )}
-          </div>
+          </ResizablePanel>
+          {treeVisible && <ResizableHandle {...treePanel.handleProps} />}
           {treeVisible && (
             <TreePanel
+              {...treePanel.panelProps}
               onDragOver={onTreeDragOver}
               onDragLeave={onTreeDragLeave}
               onDrop={onTreeDrop}
@@ -2151,15 +2161,15 @@ export function FilesPane({
           )}
 
           {conflict?.kind === 'changed' && !remote && (
-            <FormDialogShell
-              message={`文件 “${loaded !== null ? baseName(loaded.path) : ''}” 已在磁盘上更改，当前还有未保存的编辑。要重载磁盘版本，还是保留编辑器内容？`}
+            <ConfirmDialog
+              title={`重载 “${loaded !== null ? baseName(loaded.path) : ''}”？`}
+              message="文件已在磁盘上更改，当前还有未保存的编辑。重载会换成磁盘上的版本，丢掉这些编辑。"
               cancelLabel="保留编辑器内容"
               buttons={[{ label: '重载', onClick: reloadFromConflict }]}
               onCancel={keepEditorContent}
-              dismissOnOutsidePress
             />
           )}
-        </div>
+        </ResizablePanelGroup>
       </FilesDownloadContext.Provider>
     </FilesLocalContext.Provider>
   )

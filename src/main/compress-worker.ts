@@ -60,7 +60,7 @@ const report = (): void => {
 const zip = new ZipFile()
 const out = createWriteStream(output)
 zip.on('error', (err: Error) => fail(err.message))
-out.on('error', (err) => fail(`无法写入「${output}」：${err.message}`))
+out.on('error', (err) => fail(`无法写入 “${output}”：${err.message}`))
 // close 在文件句柄关掉之后才发：主线程随后改名，Windows 上句柄未关会改名失败
 out.on('close', () => {
   if (!failed) post({ type: 'done' })
@@ -83,7 +83,7 @@ for (const entry of entries) {
         doneBytes += chunk.length
         report()
       })
-      stream.on('error', (err) => fail(`无法读取「${entry.path}」：${err.message}`))
+      stream.on('error', (err) => fail(`无法读取 “${entry.path}”：${err.message}`))
       cb(null, stream)
     })
   }

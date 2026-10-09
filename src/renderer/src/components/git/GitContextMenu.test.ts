@@ -631,7 +631,7 @@ describe('工作树新建入口', () => {
       (i) => i !== 'divider' && i.title === '在新工作树中检出…'
     ) as GitMenuItem
     expect(item.disabled).toBe(true)
-    expect(item.disabledReason).toBe('已在工作树 "dev" 检出')
+    expect(item.disabledReason).toBe('已在工作树 “dev” 检出')
   })
 
   it('远程分支「在新工作树中检出…」：预设新建同名本地分支，起点为远程 ref', () => {

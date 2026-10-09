@@ -36,6 +36,7 @@ import { AutocompleteInput } from '@renderer/components/ui/autocomplete-input'
 import { Button } from '@renderer/components/ui/button'
 import { Dialog } from '@renderer/components/ui/dialog'
 import {
+  ConfirmDialog,
   ErrorDialog,
   FieldRow,
   FormDialogShell,
@@ -243,7 +244,12 @@ interface DialogButton {
 
 /** 一个待渲染的对话框描述：消息 + 输入 + 动作按钮（第 0 个为主按钮，Enter 触发）。 */
 export interface DialogSpec {
-  message: React.ReactNode
+  /**
+   * 确认类（没有输入）的问句标题：给了即以确认框呈现（图标 + 标题，message 作说明，可省）。带输入的不给，
+   * 以小对话框呈现（无标题栏，message 即说明）。
+   */
+  title?: string
+  message?: React.ReactNode
   inputs: DialogInputSpec[]
   buttons: DialogButton[]
   /** Message 型：无动作按钮语义，仅渲染「关闭」副按钮 */
@@ -489,11 +495,7 @@ export function buildSpec(req: GitDialogRequest, env: DialogEnv): DialogSpec | n
       return checkoutRemoteSpec(env, req.remoteRef, req.remote, null)
     case 'delete-remote-branch': // D8
       return {
-        message: (
-          <>
-            确定要删除远程分支 <Em>{req.remoteRef}</Em> 吗？
-          </>
-        ),
+        title: `删除远程分支 “${req.remoteRef}”？`,
         inputs: [],
         buttons: [
           {
@@ -681,16 +683,12 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
         GIT_DEFAULTS.onlyFollowFirstParent
       )
       return {
-        message: (
-          <>
-            确定要永久丢弃提交 <Em>{abbrevHash(req.hash)}</Em> 吗？
-            {onlyFirstParent && (
-              <span className="mt-2 block text-[12px] italic text-muted-foreground">
-                注意：由于启用了「只跟随第一父提交」，图中可能隐藏了会影响此操作结果的提交。
-              </span>
-            )}
-          </>
-        ),
+        title: `永久丢弃提交 “${abbrevHash(req.hash)}”？`,
+        message: onlyFirstParent ? (
+          <span className="text-[12px] italic">
+            注意：由于启用了「只跟随第一父提交」，图中可能隐藏了会影响此操作结果的提交。
+          </span>
+        ) : undefined,
         inputs: [],
         buttons: [
           {
@@ -853,11 +851,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
     }
     case 'stash-drop': // D25
       return {
-        message: (
-          <>
-            确定要丢弃贮藏 <Em>{req.selector.substring(5)}</Em> 吗？
-          </>
-        ),
+        title: `丢弃贮藏 “${req.selector.substring(5)}”？`,
         inputs: [],
         buttons: [
           {
@@ -889,10 +883,11 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
       }
     case 'reset-file': // D29
       return {
+        title: `重置文件 “${req.filePath}”？`,
         message: (
           <>
-            确定要将 <Em>{req.filePath}</Em> 重置到它在提交 <Em>{abbrevHash(req.hash)}</Em>{' '}
-            时的状态吗？该文件所有未提交的更改都将被覆盖。
+            将恢复到它在提交 <Em>{abbrevHash(req.hash)}</Em>{' '}
+            时的状态，该文件所有未提交的更改都将被覆盖。
           </>
         ),
         inputs: [],
@@ -910,17 +905,11 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
       }
     case 'discard-file': // 提交面板「撤销更改…」：确认后静默执行（PRD 12c，无进行中遮罩）
       return {
-        message: (
-          <>
-            确定要撤销{' '}
-            {req.paths.length === 1 ? (
-              <Em>{req.paths[0]}</Em>
-            ) : (
-              <Em>所选 {req.paths.length} 个文件</Em>
-            )}{' '}
-            的未暂存更改吗？此操作不可撤销。
-          </>
-        ),
+        title:
+          req.paths.length === 1
+            ? `撤销 “${req.paths[0]}” 的未暂存更改？`
+            : `撤销所选 ${req.paths.length} 个文件的未暂存更改？`,
+        message: '此操作不可撤销。',
         inputs: [],
         buttons: [
           {
@@ -934,19 +923,11 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
       }
     case 'delete-untracked-file': // 提交面板「删除文件…」：确认后静默执行（同上）
       return {
-        message: (
-          <>
-            确定要删除{' '}
-            {req.paths.length === 1 ? (
-              <>
-                未跟踪文件 <Em>{req.paths[0]}</Em>
-              </>
-            ) : (
-              <Em>所选 {req.paths.length} 个未跟踪文件</Em>
-            )}{' '}
-            吗？{req.paths.length === 1 ? '该文件' : '这些文件'}将从磁盘删除，此操作不可撤销。
-          </>
-        ),
+        title:
+          req.paths.length === 1
+            ? `删除未跟踪文件 “${req.paths[0]}”？`
+            : `删除所选 ${req.paths.length} 个未跟踪文件？`,
+        message: `${req.paths.length === 1 ? '该文件' : '这些文件'}将从磁盘删除，此操作不可撤销。`,
         inputs: [],
         buttons: [
           {
@@ -982,11 +963,8 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
         if (result.status === 'ok' && state !== null) env.removeProject(path)
       }
       const forceSpec: DialogSpec = {
-        message: (
-          <>
-            工作树 <Em>{name}</Em> 有未提交的改动或未跟踪文件，强制删除会丢弃它们。确定继续？
-          </>
-        ),
+        title: `强制删除工作树 “${name}”？`,
+        message: '它有未提交的改动或未跟踪文件，强制删除会丢弃它们。',
         inputs: [],
         buttons: [
           {
@@ -1000,9 +978,10 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
         ]
       }
       return {
+        title: `删除工作树 “${name}”？`,
         message: (
           <>
-            确定要删除工作树 <Em>{name}</Em> 吗？目录 {path} 将被删除，分支保留。
+            目录 {path} 将被删除，分支保留。
             {state !== null && '该目录已登记为项目，会一并移除。'}
           </>
         ),
@@ -1027,7 +1006,8 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
     case 'worktree-prune':
       // D33：清理失效登记（目录已不存在的工作树记录），不删任何文件
       return {
-        message: <>清理已失效的工作树登记？目录已不存在的记录将从 git 中移除，不会删除任何文件。</>,
+        title: '清理已失效的工作树登记？',
+        message: '目录已不存在的记录将从 git 中移除，不会删除任何文件。',
         inputs: [],
         buttons: [
           {
@@ -1041,9 +1021,10 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
       // 引导前往那个工作树对应的项目（未登记则由 addProjectByPath 先登记，ADR-0028）
       const name = worktreeDisplayName(req.worktree)
       return {
+        title: `前往工作树 “${name}” 对应的项目？`,
         message: (
           <>
-            分支 <Em>{req.branch}</Em> 已在工作树 <Em>{name}</Em> 检出（{req.worktree.path}）。
+            分支 <Em>{req.branch}</Em> 已在这个工作树检出（{req.worktree.path}），
             同一分支不能同时检出到两个工作树。
           </>
         ),
@@ -1063,7 +1044,8 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
       // 状态条「中止」的危险确认：git <op> --abort 会丢掉已解决的冲突进度
       const opLabel = GIT_OP_LABEL[req.op]
       return {
-        message: <>确定要中止{opLabel}吗？已解决的冲突进度将丢失。</>,
+        title: `中止${opLabel}？`,
+        message: '已解决的冲突进度将丢失。',
         inputs: [],
         buttons: [
           {
@@ -1118,11 +1100,8 @@ function deleteBranchSpec(env: DialogEnv, branch: string, remotesWithBranch: str
         if (res.status === 'error' && res.errors.some((e) => e.includes('git branch -D'))) {
           env.clearActionErrors()
           env.openChase({
-            message: (
-              <>
-                分支 <Em>{branch}</Em> 尚未完全合并。要强制删除吗？
-              </>
-            ),
+            title: `强制删除分支 “${branch}”？`,
+            message: '它尚未完全合并。',
             inputs: [],
             buttons: [{ label: '是，强制删除', onClick: () => run(true, deleteOnRemotes) }]
           })
@@ -1177,11 +1156,7 @@ function checkoutRemoteSpec(
           // D7b：重名双按钮（两个按钮都是动作，Esc/遮罩仍可取消）
           env.closeDialog()
           env.openChase({
-            message: (
-              <>
-                名称 <Em>{name}</Em> 已被另一个分支占用：
-              </>
-            ),
+            title: `分支名 “${name}” 已被占用，要怎么做？`,
             inputs: [],
             hideCancel: true,
             buttons: [
@@ -1328,11 +1303,8 @@ function addTagSpec(
             // D11b：标签重名双按钮（替换 / 换名保留已填值）
             env.closeDialog()
             env.openChase({
-              message: (
-                <>
-                  标签 <Em>{name}</Em> 已存在，要用新标签替换它吗？
-                </>
-              ),
+              title: `替换现有标签 “${name}”？`,
+              message: '同名标签已存在。',
               inputs: [],
               hideCancel: true,
               buttons: [
@@ -1542,11 +1514,8 @@ function createBranchSpec(
           if (env.branches.includes(name)) {
             env.closeDialog()
             env.openChase({
-              message: (
-                <>
-                  分支 <Em>{name}</Em> 已存在，要用新分支替换它吗？
-                </>
-              ),
+              title: `替换现有分支 “${name}”？`,
+              message: '同名分支已存在。',
               inputs: [],
               hideCancel: true,
               buttons: [
@@ -1789,6 +1758,24 @@ function DialogForm({
   // 第一个 Text/TextRef 输入自动聚焦（§1.2）
   const autoFocusKey =
     spec.inputs.find((i) => i.type === 'text' || i.type === 'text-ref')?.key ?? null
+
+  // 确认类（有问句标题、没有输入）：确认框
+  if (spec.title !== undefined && spec.inputs.length === 0) {
+    return (
+      <ConfirmDialog
+        title={spec.title}
+        message={spec.message}
+        buttons={spec.buttons.map((btn) => ({
+          label: btn.label,
+          destructive: btn.destructive,
+          onClick: () => btn.onClick(values)
+        }))}
+        onCancel={onCancel}
+        cancelLabel={spec.cancelLabel}
+        hideCancel={spec.hideCancel}
+      />
+    )
+  }
 
   return (
     <FormDialogShell

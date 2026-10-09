@@ -17,12 +17,7 @@ import {
   TreeNoticeRow,
   TreeRow
 } from '@renderer/components/ui/tree'
-import {
-  TREE_SCROLL,
-  TreePanel,
-  TreePanelBar,
-  TreeRootRow
-} from '@renderer/components/ui/tree-panel'
+import { TREE_SCROLL, TreePanelBar, TreeRootRow } from '@renderer/components/ui/tree-panel'
 import { useRedisDatabases } from '@renderer/lib/data-source-context'
 import { typeToInput } from '@renderer/lib/type-to-input'
 import { useTreeVirtualReveal } from '@renderer/lib/use-tree-virtual-reveal'
@@ -156,8 +151,9 @@ export function RedisKeyTree({
     setMenu({ x: e.clientX, y: e.clientY, ...target })
   }
 
+  // 外框（TreePanel）由 DataSourceLayout 套：面板须是面板组的直接子元素
   return (
-    <TreePanel>
+    <>
       <TreePanelBar>
         {context?.kind === 'redis' && <DatabaseMenu tabKey={tabKey} context={context} />}
         <BarInput
@@ -268,7 +264,7 @@ export function RedisKeyTree({
         )}
       </div>
       <DataSourceTreeMenu menu={menu} onClose={() => setMenu(null)} />
-    </TreePanel>
+    </>
   )
 }
 

@@ -267,7 +267,7 @@ function branchMenu(name: string, ctx: GitMenuContext): (GitMenuItem | 'divider'
             title: '在新工作树中检出…',
             onClick: () => {},
             disabled: true,
-            disabledReason: `已在工作树 "${worktreeDisplayName(holder)}" 检出`
+            disabledReason: `已在工作树 “${worktreeDisplayName(holder)}” 检出`
           }
         : {
             title: '在新工作树中检出…',

@@ -13,6 +13,7 @@ import type { FilesTreeFilterResult } from './files-tree-search'
 import type { GitAPI, GitRepoSettings, GitViewPrefs } from './git'
 import type { GitCloneInput, GitCloneProgress, GitCloneTargetState } from './git-clone'
 import type { OpenInAppId, OpenInAppResult, OpenInAppStatus } from './open-in-app'
+import type { PanelSizes, PanelSizesPatch } from './panel-sizes'
 import type { RendererBootstrap } from './renderer-bootstrap'
 import type {
   ServerFileStat,
@@ -97,6 +98,7 @@ import type {
   SystemIntegrationState
 } from './system-integration'
 import type { ThemeMode } from './theme'
+import type { WindowPlacement, WindowPlacementKey } from './window-placement'
 import type { WorkspaceUiState } from './workspace'
 
 export type { DiscoverSource } from './discover-source'
@@ -166,13 +168,15 @@ export interface AppPrefs {
   dataPageSize: number
   /** 压缩窗口的勾选（记住上次的选择，全局；docs/prd/compress.md） */
   compressOptions: CompressOptions
+  /** 记住窗口和面板布局：开着时窗口几何与面板尺寸落盘、重启恢复（docs/prd/resizable-panels.md） */
+  rememberLayout: boolean
 }
 
 export const WINDOWS_SHELLS: readonly WindowsShell[] = ['git-bash', 'powershell', 'cmd']
 
 /**
  * shell 默认 Git Bash，探测不到时运行时回退 PowerShell（见 ADR-0022）；主题默认深色；自动获取默认开；
- * 数据源表格每页 500 行；压缩窗口的勾选见 DEFAULT_COMPRESS_OPTIONS。
+ * 数据源表格每页 500 行；压缩窗口的勾选见 DEFAULT_COMPRESS_OPTIONS；记住窗口和面板布局默认开。
  */
 export const DEFAULT_APP_PREFS: AppPrefs = {
   windowsShell: 'git-bash',
@@ -180,7 +184,8 @@ export const DEFAULT_APP_PREFS: AppPrefs = {
   lastProjectParentDir: undefined,
   gitAutoFetch: true,
   dataPageSize: DEFAULT_PAGE_SIZE,
-  compressOptions: DEFAULT_COMPRESS_OPTIONS
+  compressOptions: DEFAULT_COMPRESS_OPTIONS,
+  rememberLayout: true
 }
 
 /** Windows shell 选项及本机是否可用（供设置页置灰不可选项）。 */
@@ -305,6 +310,10 @@ export interface PersistedState {
   filesUi: Record<string, FilesUiState>
   /** 工作台 Tab 现场（当前项目 / 选中 / 激活 Tab / Terminal 壳） */
   workspaceUi: WorkspaceUiState
+  /** 窗口几何（「记住窗口和面板布局」开着时才写，关掉即清空） */
+  windowPlacements: Partial<Record<WindowPlacementKey, WindowPlacement>>
+  /** 可拖面板的尺寸（同上） */
+  panelSizes: PanelSizes
 }
 
 /** 一个项目在聚合面板里的完整视图。 */
@@ -430,6 +439,11 @@ export interface RunAPI extends GitAPI {
   getAppPrefs(): Promise<AppPrefs>
   setAppPrefs(patch: Partial<AppPrefs>): Promise<AppPrefs>
   onAppPrefsChanged(cb: (prefs: AppPrefs) => void): () => void
+  /** 记下 / 清掉可拖面板的尺寸（全局共享，主进程推给全部窗口） */
+  setPanelSizes(patch: PanelSizesPatch): Promise<PanelSizes>
+  onPanelSizesChanged(cb: (sizes: PanelSizes) => void): () => void
+  /** 恢复默认布局：面板尺寸回默认，开着的主窗口、预览窗口回到新开时的大小与位置 */
+  resetLayout(): Promise<void>
   /** 通用目录选择器（不绑定项目）；取消返回 null */
   pickDirectory(defaultPath?: string): Promise<string | null>
   /** 系统剪贴板纯文本 */

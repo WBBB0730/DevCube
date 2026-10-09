@@ -13,8 +13,15 @@ import { ContentSearchPanel } from '@renderer/components/ContentSearchPanel'
 import { AppTitleBar } from '@renderer/components/AppTitleBar'
 import { SettingsDialog } from '@renderer/components/SettingsDialog'
 import { isDialogOpen } from '@renderer/components/ui/dialog'
+import { ConfirmDialog } from '@renderer/components/ui/form-dialog'
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup
+} from '@renderer/components/ui/resizable'
 import { useDataSourceUi } from '@renderer/data-source-store'
 import { countExecutedStatements } from '@renderer/lib/data-source-completion-usage'
+import { useRememberedPanel } from '@renderer/lib/remembered-panel'
 import { useFiles } from '@renderer/files-store'
 import { orderedTabKeys, resolveTabs, useApp } from '@renderer/store'
 import { gitState, useGit } from '@renderer/git-store'
@@ -152,6 +159,7 @@ function App(): React.JSX.Element {
   const sshPrompt = useApp((s) => s.sshPromptQueue[0] ?? null)
   const transferConflict = useApp((s) => s.transferConflictQueue[0] ?? null)
   const unsavedPrompt = useApp((s) => s.unsavedPrompt)
+  const confirmPrompt = useApp((s) => s.confirmPrompt)
   const runParamsPrompt = useApp((s) => s.runParamsPrompt)
   // 当前条目名（无当前条目 / 暂未找到则为 null）；驱动窗口标题。
   const entryName = useApp((s) => {
@@ -265,6 +273,8 @@ function App(): React.JSX.Element {
     return () => clearInterval(timer)
   }, [gitAutoFetch])
 
+  const projectTree = useRememberedPanel('projectTree')
+
   return (
     <div className="flex h-full flex-col">
       <AppTitleBar
@@ -273,9 +283,16 @@ function App(): React.JSX.Element {
         onOpenSettings={() => setSettingsOpen(true)}
         onPerformUpdate={() => void window.api.performAppUpdateAction()}
       />
-      <div className="flex min-h-0 flex-1">
-        <ProjectTree />
-        <Console />
+      <div className="min-h-0 flex-1">
+        <ResizablePanelGroup {...projectTree.groupProps}>
+          <ResizablePanel {...projectTree.panelProps}>
+            <ProjectTree />
+          </ResizablePanel>
+          <ResizableHandle {...projectTree.handleProps} />
+          <ResizablePanel>
+            <Console />
+          </ResizablePanel>
+        </ResizablePanelGroup>
       </div>
       {dialog && (
         <ConfigDialog
@@ -298,6 +315,20 @@ function App(): React.JSX.Element {
       )}
       {unsavedPrompt && (
         <UnsavedChangesDialog name={unsavedPrompt.name} onChoose={unsavedPrompt.resolve} />
+      )}
+      {confirmPrompt && (
+        <ConfirmDialog
+          title={confirmPrompt.title}
+          message={confirmPrompt.message}
+          buttons={[
+            {
+              label: confirmPrompt.confirmLabel,
+              destructive: confirmPrompt.destructive,
+              onClick: () => confirmPrompt.resolve(true)
+            }
+          ]}
+          onCancel={() => confirmPrompt.resolve(false)}
+        />
       )}
       {runParamsPrompt && (
         <RunParamsDialog key={runParamsPrompt.configId} prompt={runParamsPrompt} />

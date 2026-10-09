@@ -16,6 +16,7 @@ import {
 import {
   DirectField,
   DuplicateTargetConfirm,
+  type DuplicateNotice,
   HostPortFields,
   PasswordField,
   TestConnection,
@@ -128,10 +129,10 @@ export function DataSourceDialog({ node: editing }: { node?: DataSourceNode }): 
   const disabledReason = dataSourceTargetError(target)
   const submitLabel = editing === undefined ? '添加' : '保存'
   // 连接目标与已登记的数据源相同：允许重复，提交时再确认一次（编辑时目标没改不问）
-  const duplicateMessage =
+  const duplicate =
     disabledReason === null &&
     (editing === undefined || !sameDataSourceTarget(editing.dataSource.target, target))
-      ? duplicateDataSourceMessage(dataSources, target, editing?.dataSource.id ?? null, submitLabel)
+      ? duplicateDataSourceNotice(dataSources, target, editing?.dataSource.id ?? null, submitLabel)
       : null
   const [confirmingDuplicate, setConfirmingDuplicate] = useState(false)
 
@@ -168,7 +169,7 @@ export function DataSourceDialog({ node: editing }: { node?: DataSourceNode }): 
 
   const submit = (): void => {
     if (disabledReason !== null) return
-    if (duplicateMessage !== null) setConfirmingDuplicate(true)
+    if (duplicate !== null) setConfirmingDuplicate(true)
     else save()
   }
 
@@ -311,9 +312,9 @@ export function DataSourceDialog({ node: editing }: { node?: DataSourceNode }): 
         </>
       )}
       <TestFailureDialog test={test} />
-      {confirmingDuplicate && duplicateMessage !== null && (
+      {confirmingDuplicate && duplicate !== null && (
         <DuplicateTargetConfirm
-          message={duplicateMessage}
+          notice={duplicate}
           confirmLabel={submitLabel}
           onConfirm={() => {
             setConfirmingDuplicate(false)
@@ -327,16 +328,19 @@ export function DataSourceDialog({ node: editing }: { node?: DataSourceNode }): 
 }
 
 /** 连接目标与某个已登记的数据源（编辑时不算自己）相同：确认提示；没有则为 null。 */
-function duplicateDataSourceMessage(
+function duplicateDataSourceNotice(
   dataSources: DataSourceNode[],
   target: DataSourceTarget,
   selfId: string | null,
   action: string
-): string | null {
+): DuplicateNotice | null {
   const duplicate = dataSources.find(
     (n) => n.dataSource.id !== selfId && sameDataSourceTarget(n.dataSource.target, target)
   )
   return duplicate === undefined
     ? null
-    : `“${duplicate.dataSource.name}” 连接的是同一个库。仍要${action}吗？`
+    : {
+        title: `仍要${action}吗？`,
+        message: `“${duplicate.dataSource.name}” 连接的是同一个库。`
+      }
 }

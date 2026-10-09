@@ -2,7 +2,7 @@
 // 「测试连接」与连接目标重复时的确认；对应的 Hook 在 lib/connection-test。
 import { Check, LoaderCircle, X } from 'lucide-react'
 import { CHOICE_ROW, Checkbox } from '@renderer/components/ui/checkbox'
-import { ErrorDialog, FieldRow, FormDialogShell } from '@renderer/components/ui/form-dialog'
+import { ConfirmDialog, ErrorDialog, FieldRow } from '@renderer/components/ui/form-dialog'
 import { Input } from '@renderer/components/ui/input'
 import { PasswordInput } from '@renderer/components/ui/password-input'
 import { supportsDirectRoute } from '@shared/connection'
@@ -164,27 +164,30 @@ export function TestFailureDialog({
   return <ErrorDialog title="连接失败" message={result.message} onClose={closeFailureDialog} />
 }
 
+/** 与已登记的重复时提交前再问一次的内容：标题是问句（仍要添加 / 保存吗），正文说重复在哪 */
+export type DuplicateNotice = { title: string; message: string }
+
 /**
  * 连接目标与已登记的重复：允许（同一个库或同一台服务器可以登记多份），只在提交时再问一次。
  * 写在表单对话框的 children 里，叠在它之上；回车即确认，Esc、点遮罩只关它自己。
  */
 export function DuplicateTargetConfirm({
-  message,
+  notice,
   confirmLabel,
   onConfirm,
   onCancel
 }: {
-  message: string
+  notice: DuplicateNotice
   confirmLabel: string
   onConfirm: () => void
   onCancel: () => void
 }): React.JSX.Element {
   return (
-    <FormDialogShell
-      message={message}
+    <ConfirmDialog
+      title={notice.title}
+      message={notice.message}
       buttons={[{ label: confirmLabel, onClick: onConfirm }]}
       onCancel={onCancel}
-      dismissOnOutsidePress
     />
   )
 }

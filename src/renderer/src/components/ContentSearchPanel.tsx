@@ -25,6 +25,11 @@ import {
   type ContentSearchOptions
 } from '@shared/content-search'
 import { Dialog } from '@renderer/components/ui/dialog'
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup
+} from '@renderer/components/ui/resizable'
 import { TOOLBAR_BTN_SM } from '@renderer/components/ui/toolbar'
 import {
   filesEditorTheme,
@@ -36,6 +41,7 @@ import type { ThemeMode } from '@shared/theme'
 import { useApp } from '@renderer/store'
 import { useFiles } from '@renderer/files-store'
 import { cn } from '@renderer/lib/utils'
+import { useRememberedPanel } from '@renderer/lib/remembered-panel'
 
 const SEARCH_DEBOUNCE_MS = 200
 const ROW_H = 24
@@ -137,10 +143,8 @@ export function ContentSearchPanel({
   const [collapsedRels, setCollapsedRels] = useState<Set<string>>(new Set())
   const [preview, setPreview] = useState<{ rel: string; content: string | null } | null>(null)
 
-  /** 预览区占比：五五开默认，可拖 [0.2, 0.8]；面板每次打开重置、不持久化 */
-  const [previewRatio, setPreviewRatio] = useState(0.5)
-  const [previewDragging, setPreviewDragging] = useState(false)
-  const splitRef = useRef<HTMLDivElement>(null)
+  /** 预览区占比：五五开默认，可拖 [20%, 80%]，全局记一份（ADR-0053） */
+  const previewSplit = useRememberedPanel('contentSearchSplit')
 
   const seqRef = useRef(0)
   /** 当前 matches 状态对应的搜索 seq（新搜索首批结果到达时整体替换） */
@@ -351,24 +355,6 @@ export function ContentSearchPanel({
     }
   }
 
-  // 分隔线拖拽（同 Git 详情面板写法：全局监听、mouseup 摘除、拖中全屏遮罩保光标）
-  const startPreviewDrag = (e: React.MouseEvent): void => {
-    e.preventDefault()
-    setPreviewDragging(true)
-    const onMove = (ev: MouseEvent): void => {
-      const rect = splitRef.current?.getBoundingClientRect()
-      if (!rect || rect.height === 0) return
-      setPreviewRatio(Math.min(0.8, Math.max(0.2, 1 - (ev.clientY - rect.top) / rect.height)))
-    }
-    const onUp = (): void => {
-      setPreviewDragging(false)
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }
-
   const toggle = (key: 'caseSensitive' | 'wholeWord' | 'regex'): void => {
     setOptions((o) => ({ ...o, [key]: !o[key] }))
   }
@@ -448,176 +434,168 @@ export function ContentSearchPanel({
         </button>
       </div>
 
-      <div ref={splitRef} className="flex min-h-0 flex-1 flex-col">
-        {/* 上半区 = 汇总状态行 + 列表（与下半区「标题栏 + 预览」对称，五五开按整块算） */}
-        <div
-          className="flex min-h-0 flex-col"
-          style={{
-            height:
-              selectedMatch !== null && preview !== null ? `${(1 - previewRatio) * 100}%` : '100%'
-          }}
-        >
-          <div className="flex h-7 shrink-0 items-center gap-1.5 border-b border-[var(--separator)] px-3 text-[12px]">
-            {searching && <LoaderCircle className="size-3 animate-spin text-muted-foreground" />}
-            {error !== null ? (
-              <span className="min-w-0 flex-1 select-text truncate text-[color:var(--status-failed)]">
-                {error}
-              </span>
-            ) : (
-              <span className="min-w-0 flex-1 truncate text-muted-foreground">{statusText}</span>
-            )}
-            <button
-              type="button"
-              title="按文件分组"
-              onClick={() => setGroupByFile((v) => !v)}
-              className={toggleCls(groupByFile)}
-            >
-              <ListTree className="size-3.5" />
-            </button>
-          </div>
-          <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1">
-            <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
-              {rowVirtualizer.getVirtualItems().map((vi) => {
-                const row = rows[vi.index]
-                return (
-                  <div
-                    key={vi.key}
-                    className="absolute left-0 top-0 w-full"
-                    style={{ transform: `translateY(${vi.start}px)` }}
-                  >
-                    {row.kind === 'file' ? (
-                      <div
-                        className="flex h-6 cursor-pointer items-center gap-1.5 px-3 transition-colors hover:bg-[var(--bg-row-hover)]"
-                        title={row.rel}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => toggleFileCollapsed(row.rel)}
-                      >
-                        <FileIcon className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
-                        <span className="shrink-0 text-[13px] text-foreground">
-                          {row.rel.split('/').pop()}
-                        </span>
-                        {/* 目录为空（项目根下文件）时不渲染，避免空节点白占一个 gap */}
-                        {row.rel.includes('/') && (
-                          <span className="min-w-0 truncate text-[12px] text-[color:var(--fg-info)]">
-                            {row.rel.slice(0, row.rel.lastIndexOf('/'))}
-                          </span>
-                        )}
-                        {/* 计数徽标跟随在后（VS Code 搜索侧栏的视觉语言），不与行尾行号同槽 */}
-                        <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-[var(--bg-button-hover)] px-1.5 text-[11px] text-[color:var(--fg-dialog-title)]">
-                          {row.count}
-                        </span>
-                        {/* 开合箭头置最右，树式朝向（展开 ∨ / 收起 ▶，同 VS Code 侧栏分组头的方向逻辑） */}
-                        <span className="ml-auto flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
-                          <ChevronRight
-                            className={cn(
-                              'size-3.5 transition-transform',
-                              !collapsedRels.has(row.rel) && 'rotate-90'
-                            )}
-                          />
-                        </span>
-                      </div>
-                    ) : (
-                      <div
-                        className={cn(
-                          'flex h-6 cursor-pointer items-center gap-3 px-3 transition-colors',
-                          groupByFile && 'pl-8',
-                          row.matchIndex === selected
-                            ? 'bg-[var(--selection-row)]'
-                            : 'hover:bg-[var(--bg-row-hover)]'
-                        )}
-                        onMouseDown={(e) => e.preventDefault()}
-                        onClick={() => setSelected(row.matchIndex)}
-                        onDoubleClick={() => openSelected(row.match)}
-                      >
-                        <span className="code-line-text min-w-0 flex-1 truncate text-[color:var(--fg-code)]">
-                          <MatchLineText match={row.match} theme={theme} />
-                        </span>
-                        {groupByFile ? (
-                          <span className="shrink-0 text-[12px] text-[color:var(--fg-info)]">
-                            {row.match.line}
-                          </span>
-                        ) : (
-                          // 平铺态对齐弹窗：行尾「文件名 行号」；连续同文件仅文件名淡化表从属
-                          <span
-                            title={row.match.rel}
-                            className="max-w-[45%] shrink-0 truncate text-[12px] text-[color:var(--fg-info)]"
-                          >
-                            <span
-                              className={
-                                row.matchIndex > 0 &&
-                                matches[row.matchIndex - 1].rel === row.match.rel
-                                  ? 'opacity-50'
-                                  : undefined
-                              }
-                            >
-                              {row.match.rel.split('/').pop()}
-                            </span>{' '}
-                            {row.match.line}
-                          </span>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          </div>
-        </div>
-
-        {selectedMatch !== null && preview !== null && (
-          <div className="relative flex min-h-0 flex-1 flex-col border-t border-[var(--separator)]">
-            {/* 分隔线拖拽把手：6px 热区骑在上边框上（OnePixelSplitter 的等价物） */}
-            <div
-              className="absolute -top-[3px] left-0 right-0 z-20 h-[6px] cursor-row-resize"
-              onMouseDown={startPreviewDrag}
-            />
-            {/* 预览标题栏（对齐 WebStorm 弹窗：文件名 + 灰路径） */}
-            <div
-              className="flex h-7 shrink-0 items-center gap-1.5 border-b border-[var(--separator)] px-3"
-              title={selectedMatch.rel}
-            >
-              <span className="shrink-0 text-[13px] text-foreground">
-                {selectedMatch.rel.split('/').pop()}
-              </span>
-              <span className="min-w-0 truncate text-[12px] text-[color:var(--fg-info)]">
-                {selectedMatch.rel.includes('/')
-                  ? selectedMatch.rel.slice(0, selectedMatch.rel.lastIndexOf('/'))
-                  : ''}
-              </span>
-            </div>
-            <div className="files-codemirror min-h-0 flex-1 overflow-hidden bg-deepest">
-              {preview.content === null ? (
-                <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
-                  无法预览此文件
-                </div>
+      <div className="min-h-0 flex-1">
+        <ResizablePanelGroup orientation="vertical" {...previewSplit.groupProps}>
+          {/* 上半区 = 汇总状态行 + 列表（与下半区「标题栏 + 预览」对称，五五开按整块算） */}
+          <ResizablePanel className="flex flex-col">
+            <div className="flex h-7 shrink-0 items-center gap-1.5 border-b border-[var(--separator)] px-3 text-[12px]">
+              {searching && <LoaderCircle className="size-3 animate-spin text-muted-foreground" />}
+              {error !== null ? (
+                <span className="min-w-0 flex-1 select-text truncate text-[color:var(--status-failed)]">
+                  {error}
+                </span>
               ) : (
-                <CodeMirror
-                  key={preview.rel}
-                  value={preview.content}
-                  height="100%"
-                  theme="none"
-                  extensions={previewExtensions}
-                  basicSetup={{
-                    lineNumbers: true,
-                    foldGutter: false,
-                    highlightActiveLine: true,
-                    highlightActiveLineGutter: true,
-                    syntaxHighlighting: false
-                  }}
-                  editable={false}
-                  onCreateEditor={(view) => {
-                    previewViewRef.current = view
-                    setPreviewViewNonce((n) => n + 1)
-                  }}
-                  className="h-full [&_.cm-editor]:h-full [&_.cm-editor]:outline-none"
-                />
+                <span className="min-w-0 flex-1 truncate text-muted-foreground">{statusText}</span>
               )}
+              <button
+                type="button"
+                title="按文件分组"
+                onClick={() => setGroupByFile((v) => !v)}
+                className={toggleCls(groupByFile)}
+              >
+                <ListTree className="size-3.5" />
+              </button>
             </div>
-          </div>
-        )}
+            <div ref={listRef} className="min-h-0 flex-1 overflow-y-auto py-1">
+              <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
+                {rowVirtualizer.getVirtualItems().map((vi) => {
+                  const row = rows[vi.index]
+                  return (
+                    <div
+                      key={vi.key}
+                      className="absolute left-0 top-0 w-full"
+                      style={{ transform: `translateY(${vi.start}px)` }}
+                    >
+                      {row.kind === 'file' ? (
+                        <div
+                          className="flex h-6 cursor-pointer items-center gap-1.5 px-3 transition-colors hover:bg-[var(--bg-row-hover)]"
+                          title={row.rel}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => toggleFileCollapsed(row.rel)}
+                        >
+                          <FileIcon className="size-3.5 shrink-0 text-[color:var(--fg-icon)]" />
+                          <span className="shrink-0 text-[13px] text-foreground">
+                            {row.rel.split('/').pop()}
+                          </span>
+                          {/* 目录为空（项目根下文件）时不渲染，避免空节点白占一个 gap */}
+                          {row.rel.includes('/') && (
+                            <span className="min-w-0 truncate text-[12px] text-[color:var(--fg-info)]">
+                              {row.rel.slice(0, row.rel.lastIndexOf('/'))}
+                            </span>
+                          )}
+                          {/* 计数徽标跟随在后（VS Code 搜索侧栏的视觉语言），不与行尾行号同槽 */}
+                          <span className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-[var(--bg-button-hover)] px-1.5 text-[11px] text-[color:var(--fg-dialog-title)]">
+                            {row.count}
+                          </span>
+                          {/* 开合箭头置最右，树式朝向（展开 ∨ / 收起 ▶，同 VS Code 侧栏分组头的方向逻辑） */}
+                          <span className="ml-auto flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+                            <ChevronRight
+                              className={cn(
+                                'size-3.5 transition-transform',
+                                !collapsedRels.has(row.rel) && 'rotate-90'
+                              )}
+                            />
+                          </span>
+                        </div>
+                      ) : (
+                        <div
+                          className={cn(
+                            'flex h-6 cursor-pointer items-center gap-3 px-3 transition-colors',
+                            groupByFile && 'pl-8',
+                            row.matchIndex === selected
+                              ? 'bg-[var(--selection-row)]'
+                              : 'hover:bg-[var(--bg-row-hover)]'
+                          )}
+                          onMouseDown={(e) => e.preventDefault()}
+                          onClick={() => setSelected(row.matchIndex)}
+                          onDoubleClick={() => openSelected(row.match)}
+                        >
+                          <span className="code-line-text min-w-0 flex-1 truncate text-[color:var(--fg-code)]">
+                            <MatchLineText match={row.match} theme={theme} />
+                          </span>
+                          {groupByFile ? (
+                            <span className="shrink-0 text-[12px] text-[color:var(--fg-info)]">
+                              {row.match.line}
+                            </span>
+                          ) : (
+                            // 平铺态对齐弹窗：行尾「文件名 行号」；连续同文件仅文件名淡化表从属
+                            <span
+                              title={row.match.rel}
+                              className="max-w-[45%] shrink-0 truncate text-[12px] text-[color:var(--fg-info)]"
+                            >
+                              <span
+                                className={
+                                  row.matchIndex > 0 &&
+                                  matches[row.matchIndex - 1].rel === row.match.rel
+                                    ? 'opacity-50'
+                                    : undefined
+                                }
+                              >
+                                {row.match.rel.split('/').pop()}
+                              </span>{' '}
+                              {row.match.line}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </ResizablePanel>
+
+          {selectedMatch !== null && preview !== null && (
+            <ResizableHandle {...previewSplit.handleProps} />
+          )}
+          {selectedMatch !== null && preview !== null && (
+            <ResizablePanel {...previewSplit.panelProps} className="flex flex-col">
+              {/* 预览标题栏（对齐 WebStorm 弹窗：文件名 + 灰路径） */}
+              <div
+                className="flex h-7 shrink-0 items-center gap-1.5 border-b border-[var(--separator)] px-3"
+                title={selectedMatch.rel}
+              >
+                <span className="shrink-0 text-[13px] text-foreground">
+                  {selectedMatch.rel.split('/').pop()}
+                </span>
+                <span className="min-w-0 truncate text-[12px] text-[color:var(--fg-info)]">
+                  {selectedMatch.rel.includes('/')
+                    ? selectedMatch.rel.slice(0, selectedMatch.rel.lastIndexOf('/'))
+                    : ''}
+                </span>
+              </div>
+              <div className="files-codemirror min-h-0 flex-1 overflow-hidden bg-deepest">
+                {preview.content === null ? (
+                  <div className="flex h-full items-center justify-center text-[13px] text-muted-foreground">
+                    无法预览此文件
+                  </div>
+                ) : (
+                  <CodeMirror
+                    key={preview.rel}
+                    value={preview.content}
+                    height="100%"
+                    theme="none"
+                    extensions={previewExtensions}
+                    basicSetup={{
+                      lineNumbers: true,
+                      foldGutter: false,
+                      highlightActiveLine: true,
+                      highlightActiveLineGutter: true,
+                      syntaxHighlighting: false
+                    }}
+                    editable={false}
+                    onCreateEditor={(view) => {
+                      previewViewRef.current = view
+                      setPreviewViewNonce((n) => n + 1)
+                    }}
+                    className="h-full [&_.cm-editor]:h-full [&_.cm-editor]:outline-none"
+                  />
+                )}
+              </div>
+            </ResizablePanel>
+          )}
+        </ResizablePanelGroup>
       </div>
-      {/* 拖拽期间的全屏遮罩：保持光标形态并防止误触其它元素 */}
-      {previewDragging && <div className="fixed inset-0 z-50 cursor-row-resize" />}
     </Dialog>
   )
 }

@@ -11,6 +11,7 @@ import { SegmentedControl } from '@renderer/components/ui/segmented-control'
 import {
   DirectField,
   DuplicateTargetConfirm,
+  type DuplicateNotice,
   HostPortFields,
   PasswordField,
   TestConnection,
@@ -181,12 +182,12 @@ function AddServerForm(): React.JSX.Element {
 
   const pickedAliases = (hosts ?? []).map((h) => h.alias).filter((alias) => picked.has(alias))
   // 与已登记的重复：勾选的主机里已添加过的，或手填的目标与某台已登记的相同（允许，提交时再确认一次）
-  const duplicateMessage =
+  const duplicate =
     disabledReason !== null
       ? null
       : source === 'config'
-        ? duplicateAliasesMessage(pickedAliases.filter((alias) => addedAliases.has(alias)))
-        : duplicateServerMessage(servers, manualTarget, null, '添加')
+        ? duplicateAliasesNotice(pickedAliases.filter((alias) => addedAliases.has(alias)))
+        : duplicateServerNotice(servers, manualTarget, null, '添加')
   const [confirmingDuplicate, setConfirmingDuplicate] = useState(false)
 
   const save = (): void => {
@@ -203,7 +204,7 @@ function AddServerForm(): React.JSX.Element {
 
   const submit = (): void => {
     if (disabledReason !== null) return
-    if (duplicateMessage !== null) setConfirmingDuplicate(true)
+    if (duplicate !== null) setConfirmingDuplicate(true)
     else save()
   }
 
@@ -265,9 +266,9 @@ function AddServerForm(): React.JSX.Element {
       )}
       <DirectField checked={direct} onChange={setDirect} />
       <TestFailureDialog test={test} />
-      {confirmingDuplicate && duplicateMessage !== null && (
+      {confirmingDuplicate && duplicate !== null && (
         <DuplicateTargetConfirm
-          message={duplicateMessage}
+          notice={duplicate}
           confirmLabel="添加"
           onConfirm={() => {
             setConfirmingDuplicate(false)
@@ -280,25 +281,31 @@ function AddServerForm(): React.JSX.Element {
   )
 }
 
-/** 勾选的主机里已添加过的：「“a”、“b” 已经添加过。仍要再添加一次吗？」；没有则为 null。 */
-function duplicateAliasesMessage(aliases: string[]): string | null {
+/** 勾选的主机里已添加过的：「仍要再添加一次吗？」+「“a”、“b” 已经添加过。」；没有则为 null。 */
+function duplicateAliasesNotice(aliases: string[]): DuplicateNotice | null {
   if (aliases.length === 0) return null
-  return `${aliases.map((alias) => `“${alias}”`).join('、')} 已经添加过。仍要再添加一次吗？`
+  return {
+    title: '仍要再添加一次吗？',
+    message: `${aliases.map((alias) => `“${alias}”`).join('、')} 已经添加过。`
+  }
 }
 
 /** 手填的目标与某台已登记的服务器（编辑时不算自己）相同：确认提示；没有则为 null。 */
-function duplicateServerMessage(
+function duplicateServerNotice(
   servers: ServerNode[],
   target: ServerTarget,
   selfId: string | null,
   action: string
-): string | null {
+): DuplicateNotice | null {
   const duplicate = servers.find(
     (n) => n.server.id !== selfId && sameServerTarget(n.server.target, target)
   )
   return duplicate === undefined
     ? null
-    : `“${duplicate.server.name}” 连接的是同一台服务器。仍要${action}吗？`
+    : {
+        title: `仍要${action}吗？`,
+        message: `“${duplicate.server.name}” 连接的是同一台服务器。`
+      }
 }
 
 /** `~/.ssh/config` 里的主机：别名 + 实际连接信息（按 `ssh -G`），已添加的标出来（仍可再勾选）。 */
@@ -371,9 +378,9 @@ function EditServerForm({ node }: { node: ServerNode }): React.JSX.Element {
     server.target.kind === 'config' ? server.target : manualTargetOf(fields)
   const disabledReason = target.kind === 'manual' ? manualTargetError(target) : null
   // 目标改成与别的已登记服务器相同：允许，保存时再确认一次（目标没改不问）
-  const duplicateMessage =
+  const duplicate =
     disabledReason === null && !sameServerTarget(server.target, target)
-      ? duplicateServerMessage(servers, target, server.id, '保存')
+      ? duplicateServerNotice(servers, target, server.id, '保存')
       : null
   const [confirmingDuplicate, setConfirmingDuplicate] = useState(false)
   const passwords = passwordChangesOf(password, remember, true)
@@ -391,7 +398,7 @@ function EditServerForm({ node }: { node: ServerNode }): React.JSX.Element {
 
   const submit = (): void => {
     if (disabledReason !== null) return
-    if (duplicateMessage !== null) setConfirmingDuplicate(true)
+    if (duplicate !== null) setConfirmingDuplicate(true)
     else save()
   }
 
@@ -436,9 +443,9 @@ function EditServerForm({ node }: { node: ServerNode }): React.JSX.Element {
       />
       <DirectField checked={direct} onChange={setDirect} />
       <TestFailureDialog test={test} />
-      {confirmingDuplicate && duplicateMessage !== null && (
+      {confirmingDuplicate && duplicate !== null && (
         <DuplicateTargetConfirm
-          message={duplicateMessage}
+          notice={duplicate}
           confirmLabel="保存"
           onConfirm={() => {
             setConfirmingDuplicate(false)

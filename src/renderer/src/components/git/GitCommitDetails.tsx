@@ -1,8 +1,8 @@
 // Git 提交详情面板（CDV，details-diff 规格）：读 git-store 的 expanded，渲染于 GitPane 底部。
 // 与参考实现的差异（v1 取舍，已录 PRD）：采用 docked-bottom 吊底而非 inline 嵌入表格行 ——
 // React 表格行内嵌套 + 图谱 expandY 联动实现复杂，吊底与表格零耦合。
-// 组件自管高度（普通详情默认 250px、提交面板默认 320px，顶边拖拽，钳 [100, 600]，
-// 不持久化）；左右分栏比例与文件夹开合同为组件内 state（换展开目标即重置）。
+// 高度与左右分栏可拖（普通详情默认 250px、提交面板默认 292px，钳 [100, 600]；分栏五五开，钳 [20%, 80%]），
+// 全局各记一份（ADR-0053）；文件夹开合为组件内 state（换展开目标即重置）。
 // 未提交普通模式即提交面板（ADR-0006）：左栏 CommitForm、右栏 UncommittedFileSections。
 // Esc 关闭由 GitPane 统一处理。
 import { useMemo, useRef, useState, type ReactNode } from 'react'
@@ -11,7 +11,13 @@ import { UNCOMMITTED, type GitFileChange } from '@shared/git'
 import { gitState, useGit } from '@renderer/git-store'
 import { useFiles } from '@renderer/files-store'
 import { cn } from '@renderer/lib/utils'
+import { useRememberedPanel } from '@renderer/lib/remembered-panel'
 import { LoadingHint } from '@renderer/components/ui/centered-hint'
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup
+} from '@renderer/components/ui/resizable'
 import { abbrevHash, formatDateTime } from './git-format'
 import {
   FILE_STATUS_COLOR,
@@ -28,11 +34,8 @@ import { StickyTree, ROW_HEIGHT, type FolderRow, type FileRow } from './GitFileT
 import { CommitForm, UncommittedFileSections } from './GitCommitPanel'
 import type { GitExpandedState } from './git-view-types'
 
-const MIN_HEIGHT = 100
-const MAX_HEIGHT = 600
-const DEFAULT_HEIGHT = 250
-/** 提交面板（未提交普通模式）的默认高：需要装下提交表单，比普通详情高一档。 */
-const COMMIT_PANEL_HEIGHT = 292
+/** 提交面板（未提交普通模式）的默认高：需要装下提交表单，比普通详情（250px）高一档。 */
+export const COMMIT_PANEL_HEIGHT = 292
 
 /** 字段名列（左栏摘要的 grid 第一列）。 */
 const FIELD = 'whitespace-nowrap text-muted-foreground'
@@ -44,21 +47,21 @@ function hashLabel(hash: string): string {
   return hash === UNCOMMITTED ? '未提交更改' : abbrevHash(hash)
 }
 
+/**
+ * 详情区本身是 GitPane 竖排面板组里的一个面板（高度由 GitPane 记，见 lib/remembered-panel），panel 即它给的面板属性；
+ * 里面的左右分栏另成一组。
+ */
 export function GitCommitDetails({
-  projectPath
+  projectPath,
+  panel
 }: {
   projectPath: string
+  panel: React.ComponentProps<typeof ResizablePanel>
 }): React.JSX.Element | null {
   const exp = useGit((s) => gitState(s, projectPath).expanded)
   const commits = useGit((s) => gitState(s, projectPath).commits)
   const closeDetails = useGit((s) => s.closeDetails)
-
-  /** null = 未拖拽过（按展开目标取默认高）；拖拽后记具体数值，行为与既有一致 */
-  const [height, setHeight] = useState<number | null>(null)
-  /** 左栏宽度比例（cdvDivider），拖拽范围 [0.2, 0.8]。 */
-  const [ratio, setRatio] = useState(0.5)
-  const [dragKind, setDragKind] = useState<'height' | 'divider' | null>(null)
-  const contentRef = useRef<HTMLDivElement>(null)
+  const split = useRememberedPanel('gitDetailsSplit')
   const rootRef = useRef<HTMLDivElement>(null)
 
   const commitIndex = useMemo(() => new Map(commits.map((c, i) => [c.hash, i])), [commits])
@@ -69,7 +72,7 @@ export function GitCommitDetails({
 
   /**
    * 把图谱中某提交行滚进视口（已可见则不动，block:'nearest'）。限定在本 Pane 内查——
-   * 详情面板与表格同属该 Pane 容器，parentElement 即含表格的 flex-col 容器，
+   * 详情面板与表格同属一个面板组，parentElement 即含表格的面板组，
    * 避免命中隐藏 Pane 的同 hash 行（与 GitFindWidget 同法）。
    */
   const scrollGraphToHash = (hash: string): void => {
@@ -79,7 +82,6 @@ export function GitCommitDetails({
 
   /** 未提交普通模式 = 提交面板（ADR-0006）：左提交表单、右两段文件树。 */
   const isCommitPanel = exp.hash === UNCOMMITTED && exp.compareWith === null
-  const effectiveHeight = height ?? (isCommitPanel ? COMMIT_PANEL_HEIGHT : DEFAULT_HEIGHT)
 
   const title =
     exp.compareWith !== null
@@ -100,61 +102,8 @@ export function GitCommitDetails({
   /** 右栏数据源：比较模式在 fileChanges，其余在 details.fileChanges（§6.2）。 */
   const files = exp.compareWith !== null ? exp.fileChanges : (exp.details?.fileChanges ?? null)
 
-  // 高度拖拽（docked：向上拖增高）。mouseup 自行摘除监听；拖拽中挂全屏遮罩保持光标。
-  const startHeightDrag = (e: React.MouseEvent): void => {
-    e.preventDefault()
-    const startY = e.pageY
-    const startH = effectiveHeight
-    setDragKind('height')
-    const onMove = (ev: MouseEvent): void => {
-      setHeight(Math.min(MAX_HEIGHT, Math.max(MIN_HEIGHT, startH + (startY - ev.pageY))))
-    }
-    const onUp = (): void => {
-      setDragKind(null)
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }
-
-  const startDividerDrag = (e: React.MouseEvent): void => {
-    e.preventDefault()
-    setDragKind('divider')
-    const onMove = (ev: MouseEvent): void => {
-      const rect = contentRef.current?.getBoundingClientRect()
-      if (!rect || rect.width === 0) return
-      setRatio(Math.min(0.8, Math.max(0.2, (ev.pageX - rect.left) / rect.width)))
-    }
-    const onUp = (): void => {
-      setDragKind(null)
-      window.removeEventListener('mousemove', onMove)
-      window.removeEventListener('mouseup', onUp)
-    }
-    window.addEventListener('mousemove', onMove)
-    window.addEventListener('mouseup', onUp)
-  }
-
   return (
-    <div
-      ref={rootRef}
-      className="relative flex shrink-0 flex-col border-t border-[color:var(--border-input)] bg-deepest"
-      style={{ height: effectiveHeight }}
-    >
-      {/* 顶边高度拖拽把手：6px 热区骑在上边框上 */}
-      <div
-        className="absolute -top-[3px] left-0 right-0 z-20 h-[6px] cursor-row-resize"
-        onMouseDown={startHeightDrag}
-      />
-      {/* 拖拽期间的全屏遮罩：保持光标形态并防止误触其它元素 */}
-      {dragKind !== null && (
-        <div
-          className={cn(
-            'fixed inset-0 z-50',
-            dragKind === 'height' ? 'cursor-row-resize' : 'cursor-col-resize'
-          )}
-        />
-      )}
+    <ResizablePanel {...panel} elementRef={rootRef} className="flex flex-col bg-deepest">
       {/* 头部小工具条：标题 + 关闭 */}
       <div className="flex h-8 shrink-0 items-center gap-2 border-b border-[color:var(--separator)] px-3">
         <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[13px] text-foreground">
@@ -179,51 +128,46 @@ export function GitCommitDetails({
           </div>
         </div>
       ) : (
-        <div ref={contentRef} className="flex min-h-0 flex-1">
-          {/* 左栏：摘要（整栏可选中复制）；提交面板模式换成提交表单 */}
-          <div
-            className="min-w-0 select-text overflow-auto px-3 py-2"
-            style={{ width: `${ratio * 100}%` }}
-          >
-            {isCommitPanel ? (
-              <CommitForm projectPath={projectPath} />
-            ) : (
-              <SummaryPane
-                projectPath={projectPath}
-                exp={exp}
-                rowIndexOf={rowIndexOf}
-                scrollGraphToHash={scrollGraphToHash}
-              />
-            )}
-          </div>
-          {/* 分栏拖拽条 */}
-          <div
-            className="w-[5px] shrink-0 cursor-col-resize border-l border-[color:var(--separator)]"
-            onMouseDown={startDividerDrag}
-          />
-          {/* 右栏：文件树。key 绑定展开目标：切换提交即重置开合状态，同目标刷新则保留；
+        <div className="min-h-0 flex-1">
+          <ResizablePanelGroup {...split.groupProps}>
+            {/* 左栏：摘要（整栏可选中复制）；提交面板模式换成提交表单 */}
+            <ResizablePanel {...split.panelProps} className="select-text px-3 py-2">
+              {isCommitPanel ? (
+                <CommitForm projectPath={projectPath} />
+              ) : (
+                <SummaryPane
+                  projectPath={projectPath}
+                  exp={exp}
+                  rowIndexOf={rowIndexOf}
+                  scrollGraphToHash={scrollGraphToHash}
+                />
+              )}
+            </ResizablePanel>
+            <ResizableHandle {...split.handleProps} />
+            {/* 右栏：文件树。key 绑定展开目标：切换提交即重置开合状态，同目标刷新则保留；
               提交面板模式换成两段文件树（目标恒为 '*'，开合状态在组件内自然保留） */}
-          {/* 两种文件树都用 StickyTree 的嵌套 sticky 逐级吸顶（目录头随滚动钉在容器顶）：
+            {/* 两种文件树都用 StickyTree 的嵌套 sticky 逐级吸顶（目录头随滚动钉在容器顶）：
               提交面板自持滚动容器（UncommittedFileSections 内 h-full overflow-auto），此处只给
-              高度约束；详情树的滚动容器 = 下面这层 overflow-auto，sticky 即相对它定位。 */}
-          {isCommitPanel ? (
-            <div className="min-w-0 flex-1 overflow-hidden">
-              <UncommittedFileSections projectPath={projectPath} />
-            </div>
-          ) : (
-            <div className="min-w-0 flex-1 overflow-auto pb-2">
-              <FileTreePane
-                key={`${exp.hash}|${exp.compareWith ?? ''}`}
-                projectPath={projectPath}
-                exp={exp}
-                files={files ?? []}
-                rowIndexOf={rowIndexOf}
-              />
-            </div>
-          )}
+              高度约束；详情树的滚动容器 = 面板本身（库给面板内层 overflow:auto），sticky 即相对它定位。 */}
+            {isCommitPanel ? (
+              <ResizablePanel style={{ overflow: 'hidden' }}>
+                <UncommittedFileSections projectPath={projectPath} />
+              </ResizablePanel>
+            ) : (
+              <ResizablePanel className="pb-2">
+                <FileTreePane
+                  key={`${exp.hash}|${exp.compareWith ?? ''}`}
+                  projectPath={projectPath}
+                  exp={exp}
+                  files={files ?? []}
+                  rowIndexOf={rowIndexOf}
+                />
+              </ResizablePanel>
+            )}
+          </ResizablePanelGroup>
         </div>
       )}
-    </div>
+    </ResizablePanel>
   )
 }
 
