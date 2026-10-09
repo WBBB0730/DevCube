@@ -19,7 +19,7 @@ ADR-0038 让所有 SSH 连接都经系统 `ssh`：**SSH Terminal** 在 PTY 里�
 
 ## Consequences
 
-- 依赖 `ssh2`（纯 JavaScript，可选的原生加速模块不是必需）。它的可选依赖 `cpu-features` 只用来按 CPU 调整 ssh2 默认加密算法的先后，而我们总按 `ssh -G` 的顺序整表替换、用不上；它又是要为 Electron 重编译的原生模块，缺构建脚本时会让安装失败，所以用 pnpm 的覆盖规则不安装它。系统 `ssh` 仍是必需的：用来跑 `ssh -G`，同目录的 `ssh-keygen` 用来查找与删除 known_hosts 记录；找不到时与今天一样报「找不到 ssh」，不另设不读配置的退路。
+- 依赖 `ssh2`（纯 JavaScript，可选的原生加速模块不是必需）。它的可选依赖 `cpu-features` 只用来按 CPU 调整 ssh2 默认加密算法的先后，而我们总按 `ssh -G` 的顺序整表替换、用不上；它又是要为 Electron 重编译的原生模块，缺构建脚本时会让安装失败，所以用 pnpm 的覆盖规则不安装它。系统 `ssh` 仍是必需的：用来跑 `ssh -G`，同目录的 `ssh-keygen` 用来查找与删除 known_hosts 记录；找不到时与今天一样报「未找到 ssh，请安装 OpenSSH 客户端或将其加入 PATH」，不另设不读配置的退路。
 - ssh2 不支持、因而不再生效的：硬件密钥（`sk-` 类型）、证书登录（`CertificateFile`、主机证书与 known_hosts 的 `@cert-authority`）、GSSAPI / Kerberos、macOS 的 `UseKeychain`（私钥口令改由 DevCube 问一次并可记住）、`ControlMaster`、端口转发、`ForwardAgent`、X11、`LocalCommand`；抗量子密钥交换（`sntrup761`、`mlkem768`）协商不上时退到 curve25519。
 - known_hosts 与终端里的 `ssh` 共用同一份：查找与删除交给同目录的 `ssh-keygen`（`-F` / `-R`；Node 没有成熟的 known_hosts 库，Ansible 也是这么做的），哈希条目、通配与取反、`@revoked` 由它按 OpenSSH 的规则认；DevCube 只比对密钥、追加新记录，`StrictHostKeyChecking` 各档照 OpenSSH 处理；只有默认的询问档遇到主机密钥变了，照 WebStorm 醒目警告、可选择更新后继续（OpenSSH 直接拒绝）。
 - 提问改为原生弹窗，确切知道是指纹确认、密码、私钥口令还是服务器的交互式提问；askpass 小程序与启动脚本随之删除。

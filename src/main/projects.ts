@@ -49,7 +49,7 @@ export async function pickAndAddProject(): Promise<string | null> {
 }
 
 /**
- * 打开系统保存面板新建项目文件夹并登记（「新建项目…」）。用户取消返回 null；
+ * 打开系统保存面板新建项目文件夹并登记（「新建空项目…」）。用户取消返回 null；
  * 所填路径已存在同名目录时不删不动，直接登记（等同添加现有项目）。
  */
 export async function createAndAddProject(): Promise<string | null> {

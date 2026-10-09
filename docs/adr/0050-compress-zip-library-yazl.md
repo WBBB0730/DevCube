@@ -2,7 +2,7 @@
 
 压缩（`docs/prd/compress.md`）要把所选条目写成 zip，要求：流式写入（大文件夹不全读进内存），文件名带 UTF-8 标记，外部属性写 Unix 权限位，符号链接存为链接条目，超过 4 GB 自动转 ZIP64，还要能报进度、能中途停下。我们选用 [yazl](https://github.com/thejoshwolfe/yazl)：它只依赖一个 CRC 校验小库，以上要求都满足，文档里还专门处理了 macOS「归档实用工具」对数据描述符的特殊要求。VS Code 的扩展打包工具 vsce 也用它。
 
-清单由我们自己列（`compress-scan.ts`，判定规则见 PRD），yazl 只负责写包：目录用 `addEmptyDirectory`，文件用 `addReadStreamLazy`（轮到时才打开，同时打开的文件不随清单增长），符号链接用 `addBuffer` 写入链接目标、`mode` 带上链接类型位。写包放在 worker 线程里（同 SQLite 查询线程的做法），主进程照常响应；取消就结束线程，写了一半的临时文件由主进程删除。
+清单由我们自己列（判定规则见 PRD），yazl 只负责写包：文件轮到时才打开（`addReadStreamLazy`，同时打开的文件不随清单增长），符号链接写入链接目标、`mode` 带上链接类型位，空目录单独加目录条目。写包放在 worker 线程里（同 SQLite 查询线程的做法），主进程照常响应；取消就结束线程，写了一半的临时文件由主进程删除。
 
 ## Considered Options
 

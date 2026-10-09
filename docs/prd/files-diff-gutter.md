@@ -1,4 +1,6 @@
-# Files 编辑器行号栏 diff 条纹
+# files-diff-gutter
+
+**Files 编辑器行号栏 diff 条纹**
 
 ## Problem Statement
 
@@ -20,7 +22,7 @@
 6. As a 开发者, I want 在 Git Tab 暂存文件后条纹保持不变, so that 已暂存但未提交的行仍被视为改动（与 WebStorm 口径一致）
 7. As a 开发者, I want 未跟踪的新文件不显示条纹, so that 整页绿条不会造成噪音
 8. As a 开发者, I want 打开非 git 项目的文件时一切如常, so that 该功能不干扰无仓库场景
-9. As a 开发者, I want 条纹颜色与 WebStorm Dark 主题一致, so that 两个工具间切换没有认知成本
+9. As a 开发者, I want 条纹颜色取自 WebStorm 配色方案的 VCS 行状态色并随主题切换, so that 两个工具间切换没有认知成本
 10. As a 开发者, I want 点击条纹弹出该块的旧内容, so that 不离开编辑器就能看到这块改了什么
 11. As a 开发者, I want 在弹窗里一键回滚该块, so that 误改能就地撤销而不用手动恢复
 12. As a 开发者, I want 复制该块的旧文本, so that 需要旧内容时不必去 Git 面板翻
@@ -31,20 +33,21 @@
 ## Implementation Decisions
 
 - 对比基线取 **HEAD**（`git show HEAD:<path>`），非 index——已暂存未提交的行仍显示条纹，对齐 WebStorm。
-- 基线读取走主进程新增的 Files IPC（路径越界校验与其他 Files 通道同款）；非仓库、HEAD 无此路径（含未跟踪 / 重命名未提交）、二进制（魔数嗅探）、超过文本上限时返回 null，渲染端据此不挂条纹扩展。
-- 行级 diff 在渲染端用 jsdiff（`diff` 包）的 `diffLines` 计算——与 VS Code / JetBrains 行状态跟踪同款的**按行比较**，行语义与 git 一致（含 EOF 换行）。曾用 `@codemirror/merge` 的字符级 Chunk API，因行模型错配把「文末追加」误标为修改而替换（增量更新随之放弃：每次输入全量重 diff，实测 1 万行约 2ms；超过 3 万行的守卫内不显示条纹）。基线在扩展构造时按 CM 文档口径归一换行（CRLF → LF）。
-- 标记通过 CodeMirror 官方 `lineNumberMarkers` facet 附着在行号元素上（不新增 gutter 列）：条纹画在行号列右缘，删除短条骑在下一行顶部边界。
+- 基线读取走主进程的 Files IPC（路径越界校验与其他 Files 通道同款）；非仓库、HEAD 无此路径（含未跟踪 / 重命名未提交）、二进制（魔数嗅探）、超过文本上限时返回空，渲染端据此不挂条纹。
+- 行级 diff 在渲染端用 jsdiff（`diff` 包）的 `diffLines` 计算——与 VS Code / JetBrains 行状态跟踪同款的**按行比较**，行语义与 git 一致（含 EOF 换行）。不用 `@codemirror/merge` 的字符级 Chunk API：行模型错配，会把「文末追加」误标为修改。每次输入全量重 diff（1 万行约 2ms）；超过 3 万行不显示条纹。基线按编辑器文档口径归一换行（CRLF → LF）。
+- 标记经 CodeMirror 官方行号标记接口附着在行号元素上（不新增 gutter 列）：条纹画在行号列右缘，删除短条骑在下一行顶部边界。
 - diff 结果以 **hunk 列表**为一等数据（当前侧行区间 + 基线侧旧行 + 文末删除特殊位），行号→颜色是派生视图；弹窗、回滚、跳转都吃同一份 hunks。
-- 点击接线走 CodeMirror 官方 gutter API：basicSetup 的 lineNumbers / foldGutter 关闭，改由带 `domEventHandlers` 的自建行号 gutter + foldGutter 组合提供（保证行号在折叠列左侧的既有列序）；点击回调经 Facet 注入，行号 gutter 无条件挂载、无基线时一切 no-op。点击与 hover 限定在**条纹命中带**（行号列右缘 6px）；用 click（松开）而非 mousedown 打开——mousedown 打开会被随后的松开判为弹窗外按压而立即关闭。hover 是编辑器状态字段（hunk 下标），整块联动加宽，文档一变即失效。
-- 弹窗为受控 Base UI Popover + **标准化虚拟锚点**：横向从编辑器内容区左缘（补 1px 描边，弹窗内文字与代码逐列对齐）铺到滚动区右缘（宽度经 `--anchor-width` 落到弹窗），纵向贴块尾行底边（零偏移）。旧行预览是只读 mini CodeMirror（复用同一套 Darcula 主题与按路径选语言）。关闭时机：Esc / 点外 / 手动滚动 / 文档变化（含弹窗内回滚本身）；上一/下一跳转采用「先关 → 平滑滚动（标准 `scrollTo(smooth)`，目标位置按 CM 同款公式自算）并把光标切到目标块尾行行首 → `scrollend` 后重开」——scrollend 在滚动流（含平滑动画）整体收尾后触发，是唯一可靠的重开时机（实测 scroll 事件流晚于任何同步 / 测量回调）；目标已在位（无滚动事件）时直接重开。重开前比对编辑器当前 hunks 与 payload 的引用相等（文档 / 基线一变即重算、引用必变），过期即放弃——堵住等待窗口内 watcher 重载文档后「过期弹窗复活、按旧区间误回滚」的竞态。目标块尾行固定滚到编辑器上 40% 处。
-- 回滚是纯函数计算的单次区间替换（modified 换回旧行 / added 删行 / deleted 插回旧行），执行走 `view.dispatch`，落盘吃既有 dirty → 自动保存管线，不新增 IPC。
-- 基线刷新时机：打开文本文件、`git:changed` 事件（提交 / 暂存 / 工作区 watcher）；保存不刷新（HEAD 未变）。
-- 三色取自 Dark.icls 的 ADDED / MODIFIED / DELETED_LINES_COLOR。
+- 点击走 CodeMirror 官方 gutter API（自建行号 gutter，行号仍在折叠列左侧）；无基线时一切 no-op。点击与 hover 限定在**条纹命中带**（行号列右缘 6px）；用 click（松开）而非 mousedown 打开——mousedown 打开会被随后的松开判为弹窗外按压而立即关闭。hover 整块联动加宽，文档一变即失效。
+- 弹窗为受控 Base UI Popover + 虚拟锚点：横向从编辑器内容区左缘铺到滚动区右缘（弹窗内旧行与代码逐列对齐），纵向贴块尾行底边。旧行预览是只读 mini CodeMirror（复用编辑器的主题配色与按路径选语言）。Esc / 点外 / 手动滚动 / 文档变化（含弹窗内回滚本身）即关。
+- 上一 / 下一跳转：先关弹窗 → 平滑滚动、把光标移到目标块尾行行首（尾行停在编辑器上 40% 处）→ `scrollend` 后重开；目标已在位（无滚动事件）时直接重开。`scrollend` 在滚动流（含平滑动画）整体收尾后才触发，是唯一可靠的重开时机（scroll 事件流晚于任何同步 / 测量回调）。重开前核对 hunks 是否仍是跳转时那份，过期即放弃——防止等待期间 watcher 重载文档后过期弹窗复活、按旧区间误回滚。
+- 回滚是纯函数计算的单次区间替换（modified 换回旧行 / added 删行 / deleted 插回旧行），作为编辑器的一次普通修改，落盘吃既有的自动保存，不新增 IPC。
+- 基线刷新时机：打开文本文件、Git 仓库变化（提交 / 暂存 / 工作区监听）；保存不刷新（HEAD 未变）。
+- 三色取自配色方案的 VCS 行状态色（ADDED / MODIFIED / DELETED_LINES_COLOR），随主题切换。
 
 ## Testing Decisions
 
-- 纯函数 `gitGutterLineKinds`（基线 + 当前文本 → 行号状态）配 vitest：无差异、中间新增、文末追加（README 回归）、修改、删除落点、末行删除、空行填内容、无尾换行追加、CRLF 归一、新文件基线，与既有渲染端纯函数测试（`components/git/*.test.ts`）同款风格。
-- `gitGutterHunks` 断言块结构（旧行、标记行、atEof）；`hunkRollbackChange` 用**往返测试**——对唯一 hunk 执行回滚后必须恢复为基线原文，覆盖 modified / added / deleted 各自的中间、文末、无尾换行、空基线边界。
+- 行状态计算（基线 + 当前文本 → 行号状态）配 vitest：无差异、中间新增、文末追加（README 回归）、修改、删除落点、末行删除、空行填内容、无尾换行追加、CRLF 归一、新文件基线；风格同既有渲染端纯函数测试。
+- hunk 提取断言块结构（旧行、标记行、文末）；回滚用**往返测试**——对唯一 hunk 执行回滚后必须恢复为基线原文，覆盖 modified / added / deleted 各自的中间、文末、无尾换行、空基线边界。
 - IPC / 渲染接线不做单测（外部行为靠人工回归），与 Files Tab 现状一致。
 
 ## Out of Scope

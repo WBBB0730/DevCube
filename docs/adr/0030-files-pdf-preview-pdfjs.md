@@ -1,6 +1,6 @@
 # Files Tab PDF 预览用 PDF.js viewer 组件，不用 Chromium 自带阅读器
 
-Files Tab 要内嵌看 PDF。Electron 自带 Chromium 的 PDFium 阅读器，`<iframe>` 一嵌零依赖、零代码，但要给整个窗口开 `plugins: true`，工具栏是 Chrome 的、不能换肤，快捷键与查找都在 iframe 里、我们管不到，和 DESIGN.md 的一致性、看图刚调好的缩放手感都对不上；隐藏工具栏后翻页与查找 UI 又一起没了。我们改用 PDF.js（pdfjs-dist，Firefox 内置引擎，Apache-2.0）的官方 viewer 组件层：连续滚动、只渲染可见页、缩放重绘、文字层、查找、内链都是库的，DevCube 只写壳——工具栏、与编辑器同款的查找栏、复用看图常量的缩放手势、主题。「轻量」在本项目指少写业务胶水（见 files-tab PRD），不指包体积；这层壳约三百行，重活全在库里。
+Files Tab 要内嵌看 PDF。Electron 自带 Chromium 的 PDFium 阅读器，`<iframe>` 一嵌零依赖、零代码，但要给整个窗口开 `plugins: true`，工具栏是 Chrome 的、不能换肤，快捷键与查找都在 iframe 里、我们管不到，和 DESIGN.md 的一致性、看图刚调好的缩放手感都对不上；隐藏工具栏后翻页与查找 UI 又一起没了。我们改用 PDF.js（pdfjs-dist，Firefox 内置引擎，Apache-2.0）的官方 viewer 组件层：连续滚动、只渲染可见页、缩放重绘、文字层、查找、内链都是库的，DevCube 只写壳——工具栏、与编辑器同款的查找栏、复用看图常量的缩放手势、主题。
 
 ## Considered Options
 

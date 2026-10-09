@@ -495,7 +495,7 @@ export function FilesPdfPreview({
   }, [])
   useCtrlWheelZoom(wrapRef, onWheelZoom)
 
-  /** 点缩略图跳页后把焦点还给正文，PageUp / PageDown 与 ←/→ 继续滚正文（同关查找栏） */
+  /** 点缩略图跳页后把焦点还给正文，方向键与 PageUp / PageDown 继续由正文处理（同关查找栏） */
   const selectThumbnail = (n: number): void => {
     goToPage(n)
     containerRef.current?.focus({ preventScroll: true })

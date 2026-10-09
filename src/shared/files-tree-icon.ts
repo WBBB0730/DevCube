@@ -1,8 +1,8 @@
 import { FILES_OPEN_WITH_EXTS, classifyFilesOpenKind, isPptxPath, isXlsxPath } from './files-kind'
 
 /**
- * 文件树里文件行的图标种类（docs/prd/files-tab.md）：按扩展名归到一组「文件 + 角标」的 lucide 图标，
- * PDF 用自绘的「文件 + PDF 字样」。只看名字不读盘；粒度取「一眼分得清大类」，不做逐语言图标。
+ * 文件树里文件行的图标种类（docs/prd/files-tab.md）：按扩展名归到一组「裸物件」lucide 图标（内容是什么就画什么，
+ * 不用「文件 + 角标」），PDF 用自绘的 Acrobat 风格卷纹。只看名字不读盘；粒度取「一眼分得清大类」，不做逐语言图标。
  */
 export type FilesTreeIconKind =
   | 'image'

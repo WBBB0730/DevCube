@@ -6,7 +6,7 @@ status: accepted
 
 **Data Source Tab** 的控制台要能选在哪个库上执行：PostgreSQL 还要选模式（不写前缀的表落在哪个模式由 search_path 决定），MySQL / MariaDB 选库，Redis 选库编号（键列表也列这个库）。这就是 **Console Context**（`docs/prd/database.md`「控制台上下文」）。它能从工具栏的下拉改，也能在控制台里直接写语句改（`use`、`set search_path`、`SELECT n`），还会被别的语句顺带改掉（换角色、删掉控制台所在的库、事务回滚）。我们决定：
 
-- **以服务器为准**：主进程按 Tab 持有控制台上下文，只推送回查到的服务器实际状态，渲染端不自己推算。下拉切换是先在控制台的连接上执行（PostgreSQL 设 search_path，MySQL / MariaDB 发 `USE`，Redis 发 `SELECT`），再回查、推送；控制台执行了可能改它的语句后，同样回查。哪些语句算写成纯函数，按第一个关键字判断，宁可多查：PostgreSQL 连所有改结构的语句（`isSchemaChange`：建、删、改名模式或授予、收回模式的使用权会改 `current_schema()`，按第一个关键字认不出是哪一种，所以都查）与结束事务的语句都算；Redis 按回复判断，`MULTI` 里排着的 `SELECT` 等 `EXEC` 真正执行了才算。
+- **以服务器为准**：主进程按 Tab 持有控制台上下文，只推送回查到的服务器实际状态，渲染端不自己推算。下拉切换是先在控制台的连接上执行（PostgreSQL 设 search_path，MySQL / MariaDB 发 `USE`，Redis 发 `SELECT`），再回查、推送；控制台执行了可能改它的语句后，同样回查。哪些语句算写成纯函数，按第一个关键字判断，宁可多查：PostgreSQL 连所有改结构的语句（建、删、改名模式或授予、收回模式的使用权会改 `current_schema()`，按第一个关键字认不出是哪一种，所以都查）与结束事务的语句都算；Redis 按回复判断，`MULTI` 里排着的 `SELECT` 等 `EXEC` 真正执行了才算。
 - **PostgreSQL 切库用会话里的按库连接**：目录展开别的库时本来就按库另连（每个库一条，留到断开），控制台切过去就在那条连接上执行，Tab 自己的连接不动。每条按库连接记下后端进程号：叫停（含断开时先叫停）另开一条连接，对执行语句的那条连接的进程号发 `pg_cancel_backend`。
 - **选模式是放到 search_path 最前**：原有各项原样留在后面（去掉同名的那一项），不是把 search_path 整个换成它；只选库不改 search_path。
 - **按 Tab 记住，连上即重新应用**：登记的数据源的每个 Data Source Tab 记住自己的（PostgreSQL 记库与整个 search_path），连上、重连、重启后先设回去再回查；记住的库已不在或切不过去时，这一次用默认库，记住的留着下次再试。连接信息被改时忘掉。同一个数据源的各个 Tab 互不影响。

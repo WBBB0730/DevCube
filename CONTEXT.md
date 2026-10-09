@@ -7,7 +7,7 @@
 **Project（项目）**：被登记进运行器的一个本地文件夹，是聚合面板里的一个顶层条目，拥有属于自己的 Discovered Script 与 Run Configuration。
 _Avoid_: Workspace, Repo, Folder
 
-**Pin（置顶）**：附着在 **Project**、**Server** 或 **Data Source** 上的持久布尔标记，三者规则相同（下文以 Project 为例）。已置顶的 Project 在左树中整段排在未置顶的 Project 之上（组内仍服从当前排序）；滚动左树时，所有已置顶的**项目行**依次叠在列表顶部保持可见（行间留 1px 间隙），配置行照常滚走。未置顶项目滚过时，其**项目行**作为当前段贴在置顶堆下方，被下一段顶走。
+**Pin（置顶）**：附着在 **Project**、**Server** 或 **Data Source** 上的持久布尔标记，三者规则相同（下文以 Project 为例）。已置顶的 Project 在左树中整段排在未置顶的 Project 之上（组内仍服从当前排序）。
 _Avoid_: Favorite, Star, 收藏, Bookmark
 
 **Discovered Script（探测脚本）**：从 Project 实时派生的只读候补——尚未被选中或运行过；被选中或运行一次即"晋升"为 Run Configuration，并从候补区消失。来源有两类：**清单脚本**（如顶层 `package.json` 的 `scripts`，随清单增删）与**约定命令**（按项目指纹给出的常用命令，随指纹有无出现/消失）。候补菜单里两类用小标题隔开，仍是同一种 Discovered Script。
@@ -23,46 +23,46 @@ _Avoid_: Task, Profile, Preset
 **Run Session（运行会话）**：某条 Run Configuration 的一次"活的执行"，拥有自己的进程（**Data Source** 上的配置为一条到数据库的连接）、输出（**Data Source** 上的配置为这次执行的结果）、状态（运行中 / 已退出 / 失败）与控制（停止、重跑）。一条配置**单实例**：同时最多只有一个活跃的 Run Session；对运行中的配置再次"运行"即"重新运行"（先停旧进程再起新的）。
 _Avoid_: Run, Process, Instance, Job
 
-**Terminal（终端）**：项目下的一个自由交互 shell 会话——起用户配置的 shell（posix 为 `$SHELL`；Windows 默认 Git Bash，可改 PowerShell / cmd，与 **Run Session** 共用同一偏好），cwd 默认项目根，也可从 **Files Tab** 的「在终端中打开」在项目内某目录起；cwd 不随壳持久化（重启回项目根）。可随意敲命令，**不绑定任何 Run Configuration / Discovered Script**。壳（稳定身份、显示名、在项目 Tab 栏中的顺序）可按项目持久化；**进程与输出不持久化**——重启后需再次拉起空 shell，历史输出不恢复。shell 进程结束即销毁其活会话并关闭对应 Tab。与 **Run Session** 并列但语义不同：Run Session 是"某条配置的一次执行"，Terminal 是"项目下的一个自由 shell"。一个项目可同时拥有任意多个 Terminal。
+**Terminal（终端）**：项目下的一个自由交互 shell 会话，cwd 默认项目根（也可在项目内某目录起，该目录不持久化），**不绑定任何 Run Configuration / Discovered Script**。壳（身份、名字、顺序）可跨重启恢复，**进程与输出不持久化**；shell 结束即关闭对应 Tab。一个项目可同时拥有任意多个 Terminal。
 _Avoid_: Shell（裸用）, 控制台
 
 **Server（服务器）**：被登记进 DevCube 的一台远程主机，是左树里与 **Project** 并列的顶层条目；它要么引用 `~/.ssh/config` 里的一个主机，要么是手填的地址、用户与端口。它恒有一个 **Status Tab** 与一个 **Files Tab**，拥有 0..N 个 **SSH Terminal** 与 0..N 条命令型 **Run Configuration**（在服务器上执行），没有 **Git Tab**，也没有 **Discovered Script**。
 _Avoid_: Host, 主机, 远程, Site, 站点, 会话
 
-**SSH Terminal（SSH 终端）**：连到某台 **Server** 的交互终端，可以开在该 Server 下，也可以开在某个 **Project** 下。也可从该 Server 的 **Files Tab**「在 SSH 终端中打开」在服务器上某目录起，目录不随壳持久化。与 **Terminal** 不同：连接断开后 Tab 保留、可原地重连；跨重启只恢复壳，不自动连接。
+**SSH Terminal（SSH 终端）**：连到某台 **Server** 的交互终端，可以开在该 Server 下，也可以开在某个 **Project** 下；可在服务器上某目录起（该目录不持久化）。与 **Terminal** 不同：连接断开后 Tab 保留、可原地重连；跨重启只恢复壳，不自动连接。
 _Avoid_: 远程终端, SSH 会话, Shell（裸用）
 
-**Git Tab（Git 标签页）**：项目的 Git 图谱视图——展示该项目仓库的提交历史图、引用与详情，并可从中执行 git 操作。每项目**恒有一个**、常驻 Tab 栏最前、不可关闭；它不是会话（无进程、无输出流），是 Tab 模型中的非会话 Tab 之一。项目不是 git 仓库时显示兜底提示与初始化仓库入口；仓库状态（是否仓库 / 仓库根）随文件系统变化自动跟进，不需要重新添加项目。
+**Git Tab（Git 标签页）**：项目的 Git 图谱视图——展示该项目仓库的提交历史图、引用与详情，并可从中执行 git 操作。每项目**恒有一个**，常驻、不可关闭，是非会话 Tab（无进程、无输出流）。项目不是 git 仓库时提供初始化入口；仓库状态随文件系统变化自动跟进。
 _Avoid_: Git 面板, 图谱 Tab, 仓库视图
 
-**Files Tab（文件标签页）**：**Project** 或 **Server** 的文件浏览与编辑视图（下文先述 Project 的，末尾述 Server 的差异）——展示该项目根下文件系统可见的**全部**条目（不按 `.gitignore` 等忽略规则过滤）。已展开的文件树与当前打开条目随磁盘变化自动跟进。打开条目时按类型分流：文本进编辑器；图片内嵌预览；PDF 内嵌预览；PPT（pptx 及其放映版 / 模板 / 带宏版本）内嵌预览；Excel（xlsx 及其模板 / 带宏版本与老 xls）内嵌预览；Chromium 可播的音视频内嵌预览；SQLite 文件内嵌 **Data Source Tab** 的视图（它不因此成为 **Data Source**）；其余只读占位并可以系统应用打开。同一时刻**至多打开一个条目**（点树即切换，无内层多文件 Tab）。正文在左、文件树在右。支持**基础文件管理**：树上右键新建文件 / 新建文件夹 / 重命名 / 删除（删除移入系统回收站）；**复制 / 移动仍不做**——走系统文件管理器或 **Terminal**。每项目**恒有一个**、常驻 Tab 栏**第二位**（紧接 **Git Tab** 之后、会话 Tab 之前）、不可关闭；它不是会话（无进程、无输出流），是 Tab 模型中的非会话 Tab 之一（与 **Git Tab** 同类）。每台 **Server** 同样**恒有一个**，常驻其 Tab 栏第二位（紧接 **Status Tab**）：展示服务器上从 `/` 起的条目，另能在本机与服务器之间上传、下载；编辑后手动保存（不自动保存）；不随服务器上的变化自动跟进；服务器上没有回收站，删除即不可恢复。
+**Files Tab（文件标签页）**：**Project** 或 **Server** 的文件浏览与编辑视图：展示根下的**全部**条目（不按 `.gitignore` 等忽略规则过滤），按文件类型在正文区编辑或内嵌预览（SQLite 文件内嵌 **Data Source Tab** 的视图，它不因此成为 **Data Source**），同一时刻**至多打开一个条目**。支持新建、重命名、删除，**复制 / 移动不做**。每个 Project 与 Server **恒有一个**，常驻、不可关闭，是非会话 Tab（与 **Git Tab** 同类）。Project 的随磁盘变化自动跟进、删除进回收站；Server 的从 `/` 起，能在本机与服务器之间上传下载，编辑后手动保存，不自动跟进服务器上的变化，删除即不可恢复。
 _Avoid_: Editor Tab, Code Tab, 文件面板, 编辑器 Tab, Workspace, 远程文件 Tab, SFTP 面板
 
-**Status Tab（状态标签页）**：服务器的运行状态视图——连上后定时显示该 **Server** 的 CPU、内存、网络、硬盘、进程与基本系统信息。每台服务器**恒有一个**、常驻 Tab 栏最前、不可关闭；它是非会话 Tab（与 **Git Tab** 同类），背后那条状态连接不是 **SSH Terminal**。只支持 Linux 服务器。
+**Status Tab（状态标签页）**：服务器的运行状态视图——连上后定时显示该 **Server** 的 CPU、内存、网络、硬盘、进程与基本系统信息。每台服务器**恒有一个**，常驻、不可关闭，是非会话 Tab（与 **Git Tab** 同类），背后那条状态连接不是 **SSH Terminal**。只支持 Linux 服务器。
 _Avoid_: 仪表盘, Dashboard, 监控面板, 概览
 
 **Data Source（数据源）**：被登记进 DevCube 的一个数据库连接（类型、地址与账号，或一个本机 SQLite 文件），是左树里与 **Project**、**Server** 并列的顶层条目；一个 Data Source 下可以有多个库。
 _Avoid_: 数据库（指条目时）, 数据库连接, 连接（裸用）, Connection, DB
 
-**Data Source Tab（数据源标签页）**：查看与查询一个 **Data Source** 的视图：右侧是目录（Redis 为按 `:` 分组的键），左侧是「当前对象」（Redis 为「当前键」）与「控制台」两格。它可以开在该 Data Source 下，也可以开在某个 **Project** 下。
+**Data Source Tab（数据源标签页）**：查看与查询一个 **Data Source** 的视图，由目录（Redis 为按 `:` 分组的键）、「当前对象」（Redis 为「当前键」）与「控制台」组成。它可以开在该 Data Source 下，也可以开在某个 **Project** 下。
 _Avoid_: 数据库 Tab, 查询 Tab, 数据库视图, SQL 编辑器
 
 **Console Context（控制台上下文）**：一个 **Data Source Tab** 的控制台眼下在哪个库上执行，以服务器上的实际状态为准：PostgreSQL 为库与 search_path（决定不写前缀的表落在哪个模式），MySQL / MariaDB 为所在的库（`USE` 选的那个），Redis 为库编号；SQLite 没有。
 _Avoid_: 当前库（裸用）, 会话库, 选中的库, Current schema
 
-**Content Search（内容搜索）**：在当前 **Project** 内按文本搜索文件内容的居中浮层面板；结果按文件分组、可预览，确认命中后经 **Files Tab** 打开并定位到行。
+**Content Search（内容搜索）**：在当前 **Project** 内按文本搜索文件内容的浮层面板；确认命中后经 **Files Tab** 打开并定位到行。
 _Avoid_: 全文搜索, 全局搜索, Find in Files
 
-**未提交更改行（未提交更改）**：Git 图谱最上方一条合成的虚拟行，代表工作区相对 HEAD 的改动（HEAD 未出生的空仓库相对空树；仅有改动时才出现）。HEAD 未出生时它不锚定任何提交，承担首次提交的入口。选中它，其详情面板即该项目的**提交入口**——按「已暂存 / 未暂存」两段管理文件、勾选即暂存、并从中提交（支持修正、提交并推送）。
+**未提交更改行（未提交更改）**：Git 图谱最上方一条合成的虚拟行，代表工作区相对 HEAD 的改动（HEAD 未出生的空仓库相对空树；仅有改动时才出现）。HEAD 未出生时它不锚定任何提交，承担首次提交的入口。选中它，其详情面板即该项目的**提交入口**：按「已暂存 / 未暂存」两段管理文件并从中提交。
 _Avoid_: 工作区行, WIP 行, 暂存行
 
-**Worktree（工作树）**：同一仓库在磁盘上的另一份检出——共享同一套提交、分支与远程，但各有自己的目录、HEAD 与暂存区。`git worktree list` 首条为**主工作树**，其余为**链接工作树**。DevCube 不把工作树当新实体：要在 DevCube 里使用某个工作树目录，就把它登记为一个 **Project**，与主工作树的 Project 并列；**Git Tab** 负责列出同仓库的全部工作树、新建与删除工作树、标注被其他工作树占用的分支，并提供前往对应 Project 的入口；新建的工作树默认放在主工作树旁的 `<主项目名>.worktrees/` 目录下。
+**Worktree（工作树）**：同一仓库在磁盘上的另一份检出——共享同一套提交、分支与远程，但各有自己的目录、HEAD 与暂存区。`git worktree list` 首条为**主工作树**，其余为**链接工作树**。DevCube 不把工作树当新实体：要在 DevCube 里使用某个工作树目录，就把它登记为一个 **Project**，与主工作树的 Project 并列；**Git Tab** 负责列出、新建与删除同仓库的工作树，标注被其他工作树占用的分支，并提供前往对应 Project 的入口。
 _Avoid_: 工作区（指工作树时）, 副本, 多检出, Linked checkout
 
 **External Open（外部唤起）**：DevCube 被系统或外部工具带着路径拉起 / 聚焦的入口统称（命令行、deep link、系统右键菜单、「打开方式」、其他应用的 Open in 都汇于此），分两种动作。**打开**：目录走「添加项目」语义，未登记则登记为 **Project**，已登记则仅聚焦选中；文件则开一个 **Preview Window**。**压缩**：带一组路径开一个压缩窗口，不聚焦主窗口。
 _Avoid_: 协议唤起, 命令行打开, Deep link（指整个入口时）
 
-**Preview Window（预览窗口）**：DevCube 作为系统「打开方式」被带着一个**文件**拉起时开的独立窗口——就是一个根泛化了的 **Files Tab** 面板（左正文、右文件树、同一套编辑 / 预览 / 快捷键），根默认是文件所在文件夹（落在已登记 **Project** 内则取项目根）、可逐级上翻；一文件一窗、可多开、不是 Project、不是 Tab、不落盘；没有 Git Tab / Terminal / Run Session / Content Search，多一颗「添加为项目」。
+**Preview Window（预览窗口）**：DevCube 作为系统「打开方式」被带着一个**文件**拉起时开的独立窗口——就是一个根泛化了的 **Files Tab** 面板，根默认是文件所在文件夹（落在已登记 **Project** 内则取项目根）、可逐级上翻；一文件一窗、可多开、不是 Project、不是 Tab、不落盘；没有 Git Tab / Terminal / Run Session / Content Search，可「添加为项目」。
 _Avoid_: 看图窗口, 独立窗口, Viewer, 预览器
 
 **Release Edition（发行身份）**：正式版或 Beta 二者之一，决定一次安装的系统身份（与另一身份可并行、数据隔离、显示名可辨），并由 semver 派生——无 prerelease 为正式版，仅 `-beta` / `-beta.N` 为 Beta。应用内更新只跟随**同一发行身份**的 GitHub Release，不跨线。
@@ -73,7 +73,7 @@ _Avoid_: Release Notes, 发版说明, 更新说明, 提交记录（指日志内�
 
 ### Flagged ambiguities
 
-- **「置顶」一词两义**：口语/ DESIGN 里曾用「置顶」形容「新项目在某种排序下落到列表最前」——那是排序结果，不是 **Pin**。域语言里 **Pin / 置顶** 专指上述持久布尔标记。
+- **「置顶」一词两义**：「新项目在某种排序下落到列表最前」是排序结果，不是 **Pin**。域语言里 **Pin / 置顶** 专指上述持久布尔标记。
 
 - **「终端」裸用**：「终端」裸用专指本机的 **Terminal**；连到 **Server** 的一律称 **SSH Terminal**，即使它开在某个 **Project** 下。
 
@@ -91,34 +91,30 @@ _Avoid_: Release Notes, 发版说明, 更新说明, 提交记录（指日志内�
 
 ### 关系
 
-- 一个 **Project** 拥有 0..1 个 **Pin** 状态（已置顶 / 未置顶）。左树展示时已置顶与未置顶各成一个区块：置顶区块整体在上，区块内顺序由当前项目排序决定；自定义序下两区块边界密封（拖拽不可跨界改 Pin）。置顶时进入置顶区块**开头**，取消置顶时进入未置顶区块**开头**（自定义序落盘如此；其他排序模式的展示序仍由该模式决定）。滚动时所有已置顶的**项目行**在列表顶依次叠放保持可见（行间 1px），配置行不吸顶；未置顶的**项目行**滚过时贴在置顶堆下作为当前段，被下一段顶走。
+- 一个 **Project** 拥有 0..1 个 **Pin** 状态（已置顶 / 未置顶）。左树展示时已置顶与未置顶各成一个区块：置顶区块整体在上，区块内顺序由当前项目排序决定；自定义序下两区块边界密封（拖拽不可跨界改 Pin）。置顶时进入置顶区块**开头**，取消置顶时进入未置顶区块**开头**（自定义序落盘如此；其他排序模式的展示序仍由该模式决定）。
 - 一个 **Project** 拥有 0..N 个 **Discovered Script**（实时派生：清单脚本与约定命令）和 0..N 个 **Run Configuration**（已保存）。同一 Project 可同时命中多个来源；候补菜单按来源分小标题展示，未命中的来源不出现空组。
 - 选中或运行一个 **Discovered Script** 都会把它**晋升**为一条**引用型 Run Configuration**（不必等运行）；按 `(Project, 来源, 名)` 去重，晋升后候补区不再显示它。同名可在不同来源下并存。
 - **引用型**配置所引用的清单脚本若从清单消失，或所依据的约定指纹不再成立 → 该配置**自动删除**；清单脚本改名视作"删旧出新"（旧配置删除，新名字作为全新 Discovered Script 候补重新出现）。
 - 一切自定义只落在**命令型**配置上；**引用型**不承载任何自定义，因而其自动删除永不丢失用户内容。
 - 一条 **Run Configuration** 至多对应一个活跃的 **Run Session**；不同配置的 Run Session 可并发存在。
-- 一个 **Project** 拥有 0..N 个 **Terminal**（cwd 默认项目根、可指定项目内目录但不持久化；不绑定任何 Run Configuration；活 shell 随退出而销毁；壳可跨重启按项目恢复）。
-- **Terminal** 与 **Run Session** 都是"活的会话"，但 Terminal 不由任何配置派生、彼此独立——不做单实例去重，同一项目可并存任意多个。
+- 一个 **Project** 拥有 0..N 个 **Terminal**。**Terminal** 与 **Run Session** 都是"活的会话"，但 Terminal 不由任何配置派生、彼此独立——不做单实例去重，同一项目可并存任意多个。
 - 一台 **Server** 拥有 0..N 条命令型 **Run Configuration**，运行时在服务器上执行，其 **Run Session** 出现在该 Server 的 Tab 栏里；引用型只属于 **Project**。移除 Server 连同它的配置一起删除。
 - 一台 **Server** 拥有 0..N 个 **SSH Terminal**；一个 **Project** 也可以拥有 0..N 个连到某台 Server 的 **SSH Terminal**，与它的 **Terminal** 并列在 Tab 栏里。移除一台 Server 会关闭所有连到它的 SSH Terminal，无论开在哪里。
 - **Project**、**Server** 与 **Data Source** 同在左树，共用 **Pin**、排序、拖拽与名称筛选；左树可以按类型只显示其中几类。
-- 一台 **Server** 恒有一个 **Status Tab**（非会话、不可关闭、常驻其 Tab 栏最前）；它与该 Server 的 **Files Tab** / Run Session / **SSH Terminal** 的 Tab 共用激活与循环规则，所以点开服务器默认就是它。它背后的状态连接独立于 **SSH Terminal**，点「连接」才建立，连上后不论是否切走都持续刷新，可手动断开。
-- 一台 **Server** 恒有一个 **Files Tab**（非会话、不可关闭、常驻其 Tab 栏第二位，紧接 **Status Tab**）；它背后的文件连接独立于 **SSH Terminal** 与状态连接，同样点「连接」才建立、切走不断、可手动断开。
+- 一台 **Server** 恒有一个 **Status Tab**（在其 Tab 栏最前，点开服务器默认就是它）与一个 **Files Tab**（紧随其后）；两者各有一条独立于 **SSH Terminal** 的连接，点「连接」才建立、切走不断、可手动断开。
 - 一个 **Data Source** 恒有一个常驻的 **Data Source Tab**（不可关闭、在其 Tab 栏最前），另可有 0..N 个可关闭的；一个 **Project** 也可以拥有 0..N 个连到某个 Data Source 的 Data Source Tab，与 **Terminal** 等并列在 Tab 栏里。项目里开着的 Data Source Tab 就是项目与库的关联，二者之间没有别的绑定。移除一个 Data Source 会关闭所有连到它的 Data Source Tab，无论开在哪里。
 - 一个 **Data Source** 拥有 0..N 条命令型 **Run Configuration**，运行时在它的某个库上执行，其 **Run Session** 出现在该 Data Source 的 Tab 栏里。移除 Data Source 连同它的配置一起删除。
 - 一个 **Data Source Tab** 的控制台有 0..1 个 **Console Context**（SQLite 没有）；同一个 **Data Source** 的各个 Tab 各有各的，互不影响。**Run Session** 不用它。
 - 同一个库可以登记成多个 **Data Source**，同一台服务器也可以登记成多台 **Server**；它们各自独立，互不关联。
-- 一个 **Project** 恒有一个 **Git Tab**（非会话、不可关闭、常驻其 Tab 栏最前）；它与 **Files Tab** / Run Session / Terminal 的 Tab 共用激活与循环规则。
-- 一个 **Project** 恒有一个 **Files Tab**（非会话、不可关闭、常驻其 Tab 栏第二位，紧接 Git Tab）；它与 Git Tab / Run Session / Terminal 的 Tab 共用激活与循环规则。一个 Files Tab 同一时刻至多打开一个条目。
+- 一个 **Project** 恒有一个 **Git Tab**（在其 Tab 栏最前）与一个 **Files Tab**（紧随其后）。常驻 Tab 与会话 Tab 共用激活与循环规则。
 - 从 **Git Tab**「打开文件」进入该项目的 **Files Tab** 并打开对应路径；Files Tab 另提供「在其他应用中打开」（系统默认应用）。
-- **Content Search** 作用于当前 **Project**、同一时刻至多打开一个；它不是 Tab（浮层），确认命中后经 **Files Tab** 打开并定位，其忽略口径（gitignore + IDE 忽略名）与 Files Tab 树顶过滤一致。
-- 工作台按项目记住激活 Tab，并全局记住当前 **Project** 与左树选中；合法记忆优先于默认激活。**默认激活 Tab**（无合法记忆 / 首次解析）：若有运行中的 **Run Session**，取 Tab 栏从左到右第一个运行中的；否则按 Tab 栏顺序（常驻下即落在 **Git Tab**）。**关闭**激活 Tab 仍回落左邻，其次右邻（不套用上述默认规则）。**Run Session** Tab 不随工作台落盘跨冷启动恢复。
+- **Content Search** 作用于当前 **Project**、同一时刻至多打开一个；它不是 Tab（浮层），确认命中后经 **Files Tab** 打开并定位。
+- 工作台按条目记住激活 Tab，并全局记住当前条目与左树选中；合法记忆优先于默认激活。**默认激活 Tab**（无合法记忆 / 首次解析）：若有运行中的 **Run Session**，取 Tab 栏从左到右第一个运行中的；否则取 Tab 栏第一个（即第一个常驻 Tab）。**关闭**激活 Tab 仍回落左邻，其次右邻（不套用上述默认规则）。**Run Session** Tab 不随工作台落盘跨冷启动恢复。
 - 一个 **Git Tab** 的图谱含 0..1 个 **未提交更改行**（工作区有改动才合成）；它是该项目在 DevCube 内的提交入口。
 - 一次安装恰好属于一个 **Release Edition**；正式版只消费非 Pre-release 的 GitHub Release，Beta 只消费 Pre-release 的 GitHub Release，二者不互相升级。
 - 一个正式版本有 0..1 段 **Changelog**，同号 Beta 与它共用；应用内更新确认前展示「当前版本之后、到新版本为止」的各段（两端都按正式版号比），没写的版本不出现。
 - **External Open** 的系统入口（协议、右键菜单、CLI 名、文件打开方式）随 **Release Edition** 分线注册，双装互不抢注；目录唤起落到既有的「添加项目」语义上，不引入新的登记方式；文件唤起落到 **Preview Window**；压缩唤起只开压缩窗口，不登记、不打开任何条目。
-- 一个 **Preview Window** 对应一个文件（同一文件复开即聚焦），持有一个可上翻的根；也可从主窗口项目菜单「在新窗口中打开」以某个 **Project** 根开出（无初始文件）；它的根不必是 **Project**，但「添加为项目」可把当前根按 External Open 的目录语义登记 / 聚焦。**Files Tab** 与 Preview Window 共用同一套面板能力；预览窗口的树顶栏另有「按类型筛选」，「上一级文件夹 / 进入此文件夹」在树右键菜单，「添加为项目」在其窗口顶栏与树空白区菜单。
-
+- 一个 **Preview Window** 对应一个文件（同一文件复开即聚焦），持有一个可上翻的根；也可从主窗口项目菜单「在新窗口中打开」以某个 **Project** 根开出（无初始文件）；它的根不必是 **Project**，但「添加为项目」可把当前根按 External Open 的目录语义登记 / 聚焦。**Files Tab** 与 Preview Window 共用同一套面板能力。
 - 一个仓库恒有 1 个主 **Worktree**、0..N 个链接 **Worktree**；每个 Worktree 至多对应一个 **Project**（按目录登记），登记与否不影响它在 git 层面的存在。
 - 一条本地分支同一时刻至多被一个 **Worktree** 检出；**Git Tab** 对被其他 Worktree 占用的分支不执行检出，改为引导前往该 Worktree 对应的 **Project**（未登记则先登记）。
 
@@ -127,21 +123,21 @@ _Avoid_: Release Notes, 发版说明, 更新说明, 提交记录（指日志内�
 > **开发者**：我把 `~/code/web` 加进来了，它下面出来一堆东西。
 > **领域专家**：那些是 **Discovered Script**——有的来自 `package.json` 清单脚本，有的是按项目指纹给的约定命令；菜单里用小标题隔开，你还没选中或跑过，所以是只读的。
 > **开发者**：我在候补菜单里点了 `dev`。
-> **领域专家**：一选中它就**晋升**成一条 **Run Configuration** 了，不必等运行——进了"我的配置"，候补区里不再重复显示。它按 `(项目, 来源, 名)` 引用那条候补，来源还在就跟着同步。
+> **领域专家**：一选中它就**晋升**成一条 **Run Configuration** 了，不必等运行——进了配置列表，候补区里不再重复显示。它按 `(项目, 来源, 名)` 引用那条候补，来源还在就跟着同步。
 > **开发者**：那我再手写一条带环境变量的 `docker compose up` 呢？
 > **领域专家**：那是第二种 **Run Configuration**——一条不依赖任何探测来源的独立命令。Compose 若已被约定探测出来，晋升用的是引用型；要定制就另建命令型。
 > **开发者**：我想在这个项目里随手跑几条 `git`、`ls`，不想每次都建配置。
 > **领域专家**：那就在它下面开个 **Terminal**——项目根目录里的一个自由 shell，跟任何配置都无关，想开几个开几个。关掉或 shell 自己退出，Tab 就没了；重启后仍会按你留下的名字和顺序把壳找回来，但里面是新的空 shell，上次输出不保留。它不是 **Run Session**，别混为一谈。
 > **开发者**：我还想在 DevCube 里连公司那台测试服务器。
-> **领域专家**：把它添加成一台 **Server**——可以从你的 `~/.ssh/config` 里勾选，也可以手填地址。它和 **Project** 并排在左树里，点开就是它的 **SSH Terminal**，想开几个开几个。
+> **领域专家**：把它添加成一台 **Server**——可以从你的 `~/.ssh/config` 里勾选，也可以手填地址。它和 **Project** 并排在左树里，下面可以开 **SSH Terminal**，想开几个开几个。
 > **开发者**：它和项目里的 **Terminal** 有什么不一样？
 > **领域专家**：**Terminal** 是本机的 shell，进程一结束 Tab 就没了；**SSH Terminal** 断线后 Tab 还在，报错留着给你看，按回车就重连。在项目里新建终端时也能直接选「连接到服务器」，开出来的同样是 **SSH Terminal**，不是 **Terminal**。
 > **开发者**：我还想改一下那台服务器上的 nginx 配置，再把本机打好的包传上去。
 > **领域专家**：切到这台 **Server** 的 **Files Tab**，就在 **Status Tab** 后面。树从 `/` 开始，点开配置就能改，保存即写回服务器；把包从 Finder 拖到目标目录就是上传。它不会自己发现服务器上的变化，切回来时会刷新一次；另外服务器上没有回收站，删了就找不回来。
 > **开发者**：`web` 我天天用，想让它永远在列表最上面，哪怕按名称排序。
-> **领域专家**：给它打上 **Pin**——已置顶的项目整段浮在未置顶之上；组内仍按你选的排序排。往下滚时，置顶项目的名字行会叠在列表顶上不走（中间留一条细缝），配置行照常滚；滚到未置顶项目时，它的名字行会贴在置顶堆下面，直到被下一个项目顶走。这和「新加的项目碰巧排到最前」不是一回事。
+> **领域专家**：给它打上 **Pin**——已置顶的项目整段浮在未置顶之上；组内仍按你选的排序排。这和「新加的项目碰巧排到最前」不是一回事。
 > **开发者**：我在 Finder 里双击一张 png，DevCube 弹了个窗口出来，但左边项目列表里没多出「下载」。
-> **领域专家**：那是 **Preview Window**——DevCube 作为「打开方式」被带着一个文件拉起时开的独立窗口，里面就是 **Files Tab** 的那套面板，根落在文件所在文件夹，能上翻、能编辑、能按类型只看图。它不是 **Project**，关掉不留痕；真要收进面板，工具栏上「添加为项目」走的就是 **External Open** 的目录语义。
+> **领域专家**：那是 **Preview Window**——DevCube 作为「打开方式」被带着一个文件拉起时开的独立窗口，里面就是 **Files Tab** 的那套面板，根落在文件所在文件夹，能上翻、能编辑、能按类型只看图。它不是 **Project**，关掉不留痕；真要收进面板，「添加为项目」走的就是 **External Open** 的目录语义。
 > **开发者**：我想改一下 `src/app.ts`，又不想离开这个面板去开 WebStorm。
 > **领域专家**：切到它的 **Files Tab**——和 **Git Tab** 一样常驻、不可关，排在 Git 后面。右边是项目根下的完整文件树，左边一次只开一个文件；从 Git 图谱里「打开文件」也会进这里。树上右键就能新建、重命名、删除（删除进回收站）；复制移动还是去 Finder 或 **Terminal**。
 > **开发者**：我同时装着 DevCube 和 DevCube Beta，应用内更新会不会把 Beta 升成正式版？

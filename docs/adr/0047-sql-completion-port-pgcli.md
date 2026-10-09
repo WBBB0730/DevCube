@@ -4,7 +4,7 @@ status: accepted
 
 # SQL 补全照抄 pgcli 的做法，切词用 lang-sql 的语法树
 
-**Data Source Tab** 的控制台、数据源上的配置对话框、表数据的 WHERE / ORDER BY 框都要补全 SQL（`docs/prd/database.md`「补全」「补全引擎」）。原来用的是 `@codemirror/lang-sql` 自带的补全：只按 `schema` 配置列出表名、列名和关键字，不分子句，别名只认语句顶层的 FROM，没有函数，也不知道 JOIN 该连哪张表；它的作者明确表示不做别名与上下文补全。能直接装上用的库，没有一个同时覆盖 PostgreSQL、MySQL、MariaDB、SQLite，又能处理写到一半的语句。我们决定照抄 pgcli（PostgreSQL 的命令行客户端，补全做了十多年，pgAdmin 4 用的是它的分支）的做法，自己移植成 TypeScript：
+**Data Source Tab** 的控制台、数据源上的配置对话框、表数据的 WHERE / ORDER BY 框都要补全 SQL（`docs/prd/database.md`「补全」「补全引擎」）。`@codemirror/lang-sql` 自带的补全只按 `schema` 配置列出表名、列名和关键字，不分子句，别名只认语句顶层的 FROM，没有函数，也不知道 JOIN 该连哪张表；它的作者明确表示不做别名与上下文补全。能直接装上用的库，没有一个同时覆盖 PostgreSQL、MySQL、MariaDB、SQLite，又能处理写到一半的语句。我们决定照抄 pgcli（PostgreSQL 的命令行客户端，补全做了十多年，pgAdmin 4 用的是它的分支）的做法，自己移植成 TypeScript：
 
 - **照搬的范围**：尽量完全照抄，按它的结构逐函数照搬——
   - 判断光标处该补什么：`packages/sqlcompletion.py`（`suggest_type`、`suggest_based_on_last_token` 等，建议类型 Column / FromClauseItem / Join / JoinCondition / Alias / Function / Keyword / Datatype 等）；
@@ -15,7 +15,7 @@ status: accepted
 - **另借两处 pgcli 没有的**：子查询的作用域参照 sqls（Go 写的 SQL 语言服务器）的 `parser/parseutil`：pgcli 不分作用域，FROM 里子查询的表会带到外层，WHERE 里子查询的表又取不到。关键字按子句过滤参照 Tabularis 的 `KEYWORD_ALLOWED_CLAUSES`：pgcli 给关键字时只看前一个关键字（挑常见的后续），不管光标在哪个子句，mycli / litecli 连这一步也没有。
 - **补上 pgcli 关键字表漏掉的**：它的补全关键字表漏了一批写查询常用的（如 `ILIKE`、`OFFSET`、`RETURNING`、`END`），从它自己的保留字表里补上（`PG_MISSING_KEYWORDS`）。
 - **照搬部分唯一换掉的是切词**：pgcli 用 Python 的 sqlparse 切词，我们用编辑器现成的 lang-sql 语法树——一个适配层把语法树的叶子转成与 sqlparse 等价的记号流（类别查 sqlparse 的关键字表，按位置的判定照 sqlparse 的规则），再交给照搬的切分与分组。这样不引入第二套解析器，引号、注释、字符串的认法与编辑器的高亮一致。这一层里有两处有意与 sqlparse 不同：sqlparse 表里的关键字（`type`、`key`、`data` 等）在本方言里不是保留字时，在只能是名字的位置（表名与别名、`AS` 之后、选择列表里的一项）纠正为名字，否则叫这些名字的表和列补不出来；MySQL / MariaDB 的可执行注释（`/*! … */`、`/*!50003 … */`）照 mysql 客户端当代码，里面照常切词、只有开头与结尾另记，否则 mysqldump 写在里面的语句执行前就被当注释丢掉（sqlparse 与 lang-sql 都当注释，编辑器里仍按注释高亮）。lang-sql 自己的切法与服务器不符的（MySQL 的 `--` 注释只认后跟空格，单独一行的 `--` 认不出；可执行注释遇到第一个 `*/` 就算结尾，字符串里的也算）用 pnpm patch 修在 lang-sql 里，高亮随之一致。
-- **接入**：一个引擎给三处共用。编辑器的语言改为 lang-sql 的方言语言配上这个补全源（`new LanguageSupport(language, [language.data.of({ autocomplete })])`），不再用 `sql()`：它不论给不给 schema 都会挂上自带的关键字补全。补全只取光标所在的那条语句、在内存里匹配；排序与筛选全照 pgcli，不用 CodeMirror 自己的筛选。WHERE / ORDER BY 框改成单行编辑器，补全时在框里的文字前面接上 `SELECT * FROM 这张表 WHERE `（或 `ORDER BY `），上下文就固定为这张表和这个子句。补全要的表结构扩充为列的类型与默认值、库里的自定义函数与类型、外键，MySQL / MariaDB 另有字符集、排序规则、`SHOW` 的各项与用户（读不出来即没有那一项的候选，同 mycli），主进程照 pgcli / mycli / litecli 读表结构的查询来读，存进表结构缓存（ADR-0045）。
+- **接入**：一个引擎给三处共用。编辑器的语言是 lang-sql 的方言语言配上这个补全源，不用 `sql()`：它不论给不给 schema 都会挂上自带的关键字补全。补全只取光标所在的那条语句、在内存里匹配；排序与筛选全照 pgcli，不用 CodeMirror 自己的筛选。WHERE / ORDER BY 框是单行编辑器，补全时在框里的文字前面接上 `SELECT * FROM 这张表 WHERE `（或 `ORDER BY `），上下文就固定为这张表和这个子句。补全要的表结构包括列的类型与默认值、库里的自定义函数与类型、外键，MySQL / MariaDB 另有字符集、排序规则、`SHOW` 的各项与用户（读不出来即没有那一项的候选，同 mycli），主进程照 pgcli / mycli / litecli 读表结构的查询来读，存进表结构缓存（ADR-0045）。
 - **使用次数照 pgcli，但按数据源存盘**：pgcli 按执行过的语句里各个名字与关键字出现的次数排序（`packages/prioritization.py`），照搬。pgcli 的次数只在内存里（启动时只从命令历史补回关键字），我们按数据源存盘、跨重启保留：这个数据源的控制台、WHERE / ORDER BY 框与运行配置对话框共用一份，只数控制台与运行配置里执行成功的语句。关键字的次数按关键字表的写法（大写）记，查的时候也换成大写；pgcli 按候选原样查，关键字补成小写时（mycli / litecli 随输入的大小写）就查不到，这一处有意与 pgcli 不同。
 - **不吸收 mycli / litecli 独有的功能**：只在同一个判断点上照它们，pgcli 没有的功能不加，匹配与排序各方言都照 pgcli。不吸收的有：
   - 输入以反引号开头时给所有候选都加反引号：函数候选带参数表、JOIN 候选是整条连接子句，整个包上反引号就成了错的 SQL；

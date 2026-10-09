@@ -2,7 +2,7 @@
 
 加浅色主题时，两件事需要定：颜色从哪来，以及主题怎么落到界面上。
 
-**取色源不手取。** 深色的 UI 色当年是肉眼手取的（编辑器色另有 `docs/reference/Dark.icls` 兜底）。浅色改为从 WebStorm 的 `intellij.platform.ide.impl.jar` 里直接解出三份原件——`expUI_light.theme.json`（UI 层）、`expUI_lightScheme.xml`（编辑器层）、`DefaultColorSchemesManager.xml`（两者继承的基方案与 ANSI 调色板，只摘 Default 段），一并入库 `docs/reference/`。手取会引入 1 单位误差（深色侧已知三处），而这些文件是 IDE 运行时真正读的东西，没有第二解释。逐项取值与出处记在 DESIGN.md 的浅色列。
+**取色源不手取。** 深色的 UI 色当年是肉眼手取的（编辑器色另有 `docs/reference/Dark.icls` 兜底）。浅色改为从 WebStorm 的 `intellij.platform.ide.impl.jar` 里直接解出三份原件——`expUI_light.theme.json`（UI 层）、`expUI_lightScheme.xml`（编辑器层）、`DefaultColorSchemesManager.xml`（两者继承的基方案与 ANSI 调色板），一并入库 `docs/reference/`，其中第三份只摘 Default 段、存为 `DefaultColorScheme.xml`。手取会引入 1 单位误差（深色侧已知的几处见 DESIGN.md），而这些文件是 IDE 运行时真正读的东西，没有第二解释。逐项取值与出处记在 DESIGN.md 的浅色列。
 
 **切换机制走 `nativeTheme.themeSource` + `prefers-color-scheme`。** 主进程在建窗前按偏好把 `themeSource` 钉成 `'dark'` / `'light'`——它是强制值，不是「跟随系统」，系统外观不参与。渲染层的 CSS 只写一个 `@media (prefers-color-scheme: light)` 覆写块，取值由 Chromium 从 themeSource 推出。
 

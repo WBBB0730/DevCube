@@ -16,4 +16,4 @@
 - 打开「绕开代理直连」时，DevCube 会在 `ssh` 参数上追加绑定本机地址等选项（ADR-0039），这时的行为与在终端里敲 `ssh` 不再完全一致。
 - 首次连接的指纹确认、钥匙文件口令、验证码都在 DevCube 弹窗里回答，不在终端里输入。
 - Linux 上 `safeStorage` 没有可用的系统钥匙串时，不提供「记住密码」。
-- askpass 必须是一个能被 `ssh` 直接执行的程序：启动脚本运行时写进 userData，以 `ELECTRON_RUN_AS_NODE` 借应用自带的 Electron 跑小助手（参照 VS Code git 扩展）。因此小助手是 electron-vite 的第二个主进程入口、打包时放在 asar 外，且不能引入 electron 或其他主进程模块；应用若关掉 RunAsNode 这个 Electron fuse，这条路就会断。
+- askpass 必须是一个能被 `ssh` 直接执行的程序：以 `ELECTRON_RUN_AS_NODE` 借应用自带的 Electron 跑小助手（参照 VS Code git 扩展），小助手打包在 asar 外、不能引入 electron 或其他主进程模块；应用若关掉 RunAsNode 这个 Electron fuse，这条路就会断。

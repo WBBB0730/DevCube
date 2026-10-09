@@ -4,7 +4,7 @@ Electron 为了让应用读自己打包的 `app.asar`，改装了主进程（以
 
 我们决定：主进程里凡是读写**用户的文件**，一律用 Electron 内置的 `original-fs`——不带这层改装的原版 `fs`（Electron 文档「Treating an asar archive as a normal file」）。读写**应用自身**的文件（打包在 asar 里的代码与资源）仍用普通 `fs`。已实测：主进程与 worker 线程里，改装过的 `fs` 把 `app.asar` 认作文件夹，`original-fs` 认作文件。
 
-目前按此处理的：文件树与文件读写（`files.ts`）、媒体预览协议、大图瓦片缓存、External Open 的路径判定、登记项目、服务器文件的本地一侧（上传下载）、压缩的清单扫描与写包。
+目前按此处理的：文件树与文件读写、媒体预览协议、大图瓦片缓存、External Open 的路径判定、登记项目、服务器文件的本地一侧（上传下载）、压缩的清单扫描与写包。
 
 ## Considered Options
 

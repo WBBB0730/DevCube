@@ -1,8 +1,8 @@
 # dependencies 只放主进程与预加载运行时引用的包，界面层专用的依赖放 devDependencies
 
-electron-vite 编译界面层时，代码引用到的包一律编进产物，不看它写在 package.json 哪一栏；主进程与预加载相反，`dependencies` 里的包保持外部引用，运行时从安装包里的 node_modules 加载。electron-builder 只把 `dependencies` 及其依赖闭包原样打进 app.asar。所以界面层专用的库写在 `dependencies`，安装包里就会多出一份永远用不到的副本：v1.10.0 的 app.asar 有 241 MB，其中应用代码只有 11 MB；pdfjs-dist 还经由可选依赖带进了 25 MB 的原生 @napi-rs/canvas，每次发版都要跟着签名、公证、压缩。因此 `dependencies` 只放主进程、预加载在运行时引用的包，界面层专用的一律放 `devDependencies`。这是 electron-vite 文档的建议，react / react-dom 从一开始就是这么放的，后来加的界面层库没有跟上。
+electron-vite 编译界面层时，代码引用到的包一律编进产物，不看它写在 package.json 哪一栏；主进程与预加载相反，`dependencies` 里的包保持外部引用，运行时从安装包里的 node_modules 加载。electron-builder 只把 `dependencies` 及其依赖闭包原样打进 app.asar。所以界面层专用的库写在 `dependencies`，安装包里就会多出一份永远用不到的副本：v1.10.0 的 app.asar 有 241 MB，其中应用代码只有 11 MB；pdfjs-dist 还经由可选依赖带进了 25 MB 的原生 @napi-rs/canvas，每次发版都要跟着签名、公证、压缩。因此 `dependencies` 只放主进程、预加载在运行时引用的包，界面层专用的一律放 `devDependencies`。这也是 electron-vite 文档的建议。
 
-调整时把 52 个界面层库挪进了 `devDependencies`，锁文件里所有包的解析结果不变。编译产物逐字节相同；主进程引用的 18 个包的依赖闭包（103 个包）在安装包里的路径与内容也逐字节相同。macOS 安装包由 572 MB 降到 336 MB，app.asar 由 241 MB 降到 30 MB。
+挪栏不改锁文件的解析结果，编译产物与主进程依赖闭包在安装包里的路径与内容都逐字节不变；macOS 的 .app 由 572 MB 降到 336 MB，app.asar 由 241 MB 降到 30 MB。
 
 ## Considered Options
 

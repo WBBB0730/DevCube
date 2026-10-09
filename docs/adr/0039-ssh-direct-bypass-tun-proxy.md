@@ -4,7 +4,7 @@
 
 开着 TUN 模式代理（Clash Verge / mihomo 等）时，本机所有连接都先进代理的虚拟网卡：代理节点普遍封掉 22 端口，连接在收到服务器问候前就被断开；fake-IP 模式下，域名还会被解析成代理内部的假地址。我们决定给每台 **Server** 一个「绕开代理直连」开关，添加时默认不打开。开启时，DevCube 建立连接时绑定实体网卡的本机地址，让连接从实体网卡出去；连接目标是域名时，先向实体网卡所在网络的 DNS 查出真实地址（查询同样绑定该地址），改连这个地址，known_hosts 照旧按原主机名核对。用户 ssh 配置里已写了 `ProxyJump`、`ProxyCommand`、`BindAddress` 或 `BindInterface` 的目标，DevCube 不插手。开启后找不到实体网卡、或查不到真实地址时，直接报出原因，不退回经代理连接。
 
-绑定本机地址能绕开虚拟网卡，是因为 macOS（scoped routing）和 Windows（强主机模型）会按源地址选出口网卡。Linux 只按目标地址（及策略路由）选路，普通进程没有 root 权限绕不开，所以 Linux 不提供这个开关。
+绑定本机地址能绕开虚拟网卡，靠的是系统公开的选路规则：macOS 按地址隐式绑定网卡（scoped routing；Apple 推荐的显式做法 `IP_BOUND_IF` 在 Node 里用不了），Windows 默认按强主机模型选路（只在源地址所在网卡的路由里找）；与 OpenSSH 的 `BindAddress` / `BindInterface` 同一个做法。Linux 只按目标地址（及策略路由）选路，普通进程没有 root 权限绕不开，所以 Linux 不提供这个开关。
 
 ## Considered Options
 
@@ -12,9 +12,9 @@
 - **全局开关统一决定，服务器可跟随或覆盖**：改一处会悄悄改变所有「跟随」的服务器的连接方式，一台服务器怎么连要对照两处设置才知道。
 - **设置里放一个「添加时默认打开」**：只省下添加时勾一下（添加本就不常做），却看起来像管所有服务器的总开关，容易误会。
 - **在代理软件里加直连规则**（例如 mihomo 的 `DST-PORT,22,DIRECT`）：最干净，但要改每台电脑的代理配置，不在 DevCube 的管辖内，也做不到「装好就能连」。
-- **先照常连，认出 ssh「未收到问候即断开」的报错后自动改直连**：默认开也不会误伤，但要认 ssh 的报错文字，而且本质上是兜底。
+- **先照常连，认出 ssh「未收到问候即断开」的报错后自动改直连**：默认开也不会误伤，但要认 ssh 的报错文字，而且本质上是兜底（按 ADR-0038 的系统 `ssh` 架构评估）。
 - **每次连接前先探测一次**：OpenSSH 9.8 起的 `PerSourcePenalties` 会把连上后不登录就断开的连接计入惩罚，探测多了，本机会被服务器临时拒绝。
-- **DevCube 常驻在每个连接中间转发（ProxyCommand）**：能在协议层准确判断是否被拦，但每个连接多一个常驻进程（借 Electron 跑约 45MB；macOS 可借系统 `nc`，约 2.5MB，Windows 没有现成的），而且没开代理时流量也要从 DevCube 绕一道。
+- **DevCube 常驻在每个连接中间转发（ProxyCommand）**：能在协议层准确判断是否被拦，但每个连接多一个常驻进程（借 Electron 跑约 45MB；macOS 可借系统 `nc`，约 2.5MB，Windows 没有现成的），而且没开代理时流量也要从 DevCube 绕一道（按 ADR-0038 的系统 `ssh` 架构评估）。
 
 ## Consequences
 
@@ -23,5 +23,6 @@
 - 只处理 IPv4：绑定实体网卡的 IPv4 地址，只查 A 记录。
 - 实体网卡与 DNS 每次连接时现查（网络会变）：macOS 用 `scutil` 读主网卡（`PrimaryInterface`），DNS 取系统为这张网卡配置的那一组（`scutil --dns` 中限定到该网卡的解析器，手动设过的 DNS 也在其中）；Windows 用 PowerShell 取默认路由度量最小的实体网卡及其 DNS。Windows 部分未实测。
 - 终端、服务器上的命令、状态、文件与测试连接都经同一套内置连接建立，自动适用。
-- 绑定源地址能改变出口，靠的是系统公开的选路规则：Windows 默认按强主机模型选路（只在源地址所在网卡的路由里找），macOS 为按地址隐式绑定网卡（Apple 推荐的显式做法 `IP_BOUND_IF` 在 Node 里用不了）；与 OpenSSH 的 `BindAddress` / `BindInterface` 同一个做法。网卡中途换了地址时，连接随之断开。
+- **Data Source** 复用同一个开关与机制。
+- 网卡中途换了地址时，连接随之断开。
 - 能绕开的只是靠路由表接管流量的 TUN（mihomo / sing-box 的 auto-route，已实测）。以下未实测，可能绕不开或报错：macOS 上基于 NetworkExtension、开了 `includeAllNetworks` 的全局隧道（Surge、Stash 等；Apple 说明除少数系统流量外全部进隧道，主网卡也可能被识别成隧道）；Windows 上 mihomo / sing-box 开了 `strict-route`（会拦截发往实体网卡 DNS 的查询，域名目标可能报查不到真实地址）；Windows 上物理网卡被 Hyper-V 外部交换机桥接（地址在虚拟网卡上，找不到可用的本机网络）。Windows 自带 VPN 连上后会停用物理网卡的默认路由，绕不开，这是 VPN 的本意。

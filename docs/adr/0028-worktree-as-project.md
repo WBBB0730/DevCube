@@ -1,6 +1,6 @@
 # 工作树即 Project：不做原地切换，也不做子项目
 
-要支持 git worktree（同仓库多份检出）时，Zed 的做法是「同一窗口换根目录」并把布局带过去。DevCube 的一切都挂在项目目录上——运行配置按目录探测、Run Session / Terminal 以目录为 cwd、Files Tab 与 Git Tab 也以目录为键——所以我们决定：**一个工作树目录就是一个 Project**，创建或前往工作树 = 登记（已登记则聚焦）该目录，复用 External Open 的「登记或聚焦」语义；Git Tab 只负责列出同仓库的工作树、标注被占用的分支、提供跳转入口。
+要支持 git worktree（同仓库多份检出）时，Zed 的做法是「同一窗口换根目录」并把布局带过去。DevCube 的一切都挂在项目目录上——运行配置按目录探测、Run Session / Terminal 以目录为 cwd、Files Tab 与 Git Tab 也以目录为键——所以我们决定：**一个工作树目录就是一个 Project**，创建或前往工作树 = 登记（已登记则聚焦）该目录，复用 External Open 的「登记或聚焦」语义；Git Tab 负责列出同仓库的工作树、标注被占用的分支、提供跳转入口，以及新建、删除工作树与清理失效登记。
 
 ## Considered Options
 
