@@ -453,6 +453,11 @@ function trimUrlTail(raw: string): string {
   }
 }
 
+/** 提交信息 → 段落：按空行切分（连续空行算一处，空行可含空白），详情左栏逐段显示、段距小于与字段区的距离。 */
+export function splitParagraphs(message: string): string[] {
+  return message.split(/\r?\n(?:[ \t]*\r?\n)+/).filter((paragraph) => paragraph.trim() !== '')
+}
+
 /** 提交信息正文 → 顺序 token 流：按 URL 切分，URL 之外的片段为纯文本。 */
 export function tokenizeBody(body: string): BodyToken[] {
   const tokens: BodyToken[] = []

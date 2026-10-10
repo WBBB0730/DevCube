@@ -280,6 +280,20 @@ const api: RunAPI = {
   gitRevalidate: (projectPath) => ipcRenderer.invoke(IPC.gitRevalidate, projectPath),
   gitDefaultBranch: (projectPath) => ipcRenderer.invoke(IPC.gitDefaultBranch, projectPath),
 
+  githubAccount: () => ipcRenderer.invoke(IPC.githubAccountGet),
+  onGitHubAccountChanged: (cb) => subscribe(IPC.githubAccountChanged, cb),
+  githubLogin: () => ipcRenderer.invoke(IPC.githubLogin),
+  onGitHubLoginCode: (cb) => subscribe(IPC.githubLoginCode, cb),
+  githubLoginCancel: () => ipcRenderer.invoke(IPC.githubLoginCancel),
+  githubLogout: () => ipcRenderer.invoke(IPC.githubLogout),
+  githubHasRepo: (projectPath) => ipcRenderer.invoke(IPC.githubHasRepo, projectPath),
+  githubStarred: () => ipcRenderer.invoke(IPC.githubStarGet),
+  githubStar: () => ipcRenderer.invoke(IPC.githubStarAdd),
+  githubCommitChecks: (projectPath, hashes) =>
+    ipcRenderer.invoke(IPC.githubCommitChecks, projectPath, hashes),
+  githubCheckRuns: (projectPath, hash) =>
+    ipcRenderer.invoke(IPC.githubCheckRuns, projectPath, hash),
+
   onTreeChanged: (cb) => subscribe(IPC.treeChanged, cb),
   onSessionOutput: (cb) => subscribe(IPC.sessionOutput, cb),
   onSessionStatus: (cb) => subscribe(IPC.sessionStatus, cb),

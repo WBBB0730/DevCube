@@ -1,4 +1,4 @@
-// Git 图谱的展示格式化纯函数：hash 缩写、相对时间、完整日期时间（tooltip 与详情面板用）。
+// Git 图谱的展示格式化纯函数：hash 缩写、相对时间、完整日期时间（tooltip 与详情面板用）、检查耗时。
 // 相对时间阈值照抄参考实现（graph-table 规格 §4），文案中文化；完整日期时间改用 Intl 标准 API 输出中文格式。
 
 /** 完整日期时间格式器：模块级复用，避免每次调用都 new。 */
@@ -37,4 +37,17 @@ export function formatRelativeDuration(diffSec: number): string {
 /** Unix 秒 → 本地时区完整时间「2026年7月3日 09:05:07」（24 小时制、时分秒补零，悬浮 title 恒用完整精度）。 */
 export function formatDateTime(unixSec: number): string {
   return DATE_TIME_FORMAT.format(new Date(unixSec * 1000))
+}
+
+/** 秒数 → 检查耗时「45 秒」「2 分 13 秒」「1 小时 5 分」；整分、整时不带零头。 */
+export function formatElapsed(totalSec: number): string {
+  const sec = Math.max(0, Math.round(totalSec))
+  if (sec < 60) return `${sec} 秒`
+  if (sec < 3600) {
+    const s = sec % 60
+    return s === 0 ? `${sec / 60} 分` : `${Math.floor(sec / 60)} 分 ${s} 秒`
+  }
+  const m = Math.floor((sec % 3600) / 60)
+  const h = Math.floor(sec / 3600)
+  return m === 0 ? `${h} 小时` : `${h} 小时 ${m} 分`
 }

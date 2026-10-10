@@ -64,6 +64,10 @@
   --status-running: #5fad65;
   --status-success: #57965d;
   --status-failed: #c94f4f;
+  /* 提交检查进行中：Dark.icls WARNING_ATTRIBUTES 的 ERROR_STRIPE_COLOR（明度与上面的绿、红相当） */
+  --status-pending: #c29e4a;
+  /* GitHub 星标的实心星：GitHub 设计系统 Primer 的 --button-star-iconColor（GitHub 自家元素沿用 GitHub 的颜色） */
+  --github-star: #e3b341;
   /* 图表的两个系列色（服务器状态的曲线）：蓝、橙，按 dataviz 规范的验证脚本在面板底上验过深色档 */
   --chart-1: #3987e5;
   --chart-2: #d95926;
@@ -205,6 +209,10 @@
     --status-running: #208a3c;
     --status-success: #208a3c;
     --status-failed: #db3b4b;
+    /* 提交检查进行中：Label.warningForeground（Yellow1），与上面同取前景变体 */
+    --status-pending: #a46704;
+    /* GitHub 星标的实心星：Primer 浅色主题的 --button-star-iconColor */
+    --github-star: #eac54f;
     --chart-1: #2a78d6;
     --chart-2: #eb6834;
 
@@ -298,6 +306,8 @@
   --color-status-running: var(--status-running);
   --color-status-success: var(--status-success);
   --color-status-failed: var(--status-failed);
+  --color-status-pending: var(--status-pending);
+  --color-github-star: var(--github-star);
   --color-git-status-added: var(--git-status-added);
   --color-git-status-modified: var(--git-status-modified);
   --color-git-status-deleted: var(--git-status-deleted);

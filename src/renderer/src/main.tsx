@@ -9,6 +9,7 @@ import { CompressWindow } from './components/CompressWindow'
 import { PreviewWindow } from './components/PreviewWindow'
 import { syncAppPrefsAcrossWindows, syncThemeWithSystem } from './store'
 import { syncPanelSizesAcrossWindows } from './lib/remembered-panel'
+import { syncGitHubAccountAcrossWindows } from './github-store'
 
 // 同一渲染入口、三种窗口：主进程按查询串决定挂工作台、Preview Window（shared/preview-window）
 // 还是压缩窗口（shared/compress）。
@@ -17,6 +18,7 @@ const compress = parseCompressLaunch(window.location.search)
 syncThemeWithSystem()
 syncAppPrefsAcrossWindows()
 syncPanelSizesAcrossWindows()
+syncGitHubAccountAcrossWindows()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

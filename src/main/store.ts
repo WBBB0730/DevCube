@@ -60,6 +60,7 @@ export async function initStore(): Promise<void> {
       runParams: {},
       gitSettings: {},
       gitViewPrefs: DEFAULT_GIT_VIEW_PREFS,
+      githubAccount: null,
       projectSortPrefs: DEFAULT_PROJECT_SORT_PREFS,
       appPrefs: DEFAULT_APP_PREFS,
       filesUi: {},
@@ -167,6 +168,16 @@ export function getDataSources(): DataSource[] {
 
 export function setDataSources(dataSources: DataSource[]): void {
   store.set('dataSources', dataSources)
+}
+
+/** 登录的 GitHub 账号：登录名 + 凭证密文（同 getServerSecret，ADR-0054）；未登录为 null。 */
+export function getGitHubAccountRecord(): PersistedState['githubAccount'] {
+  return store.get('githubAccount') ?? null
+}
+
+/** 记下登录的 GitHub 账号，或在退出 / 凭证失效时清掉（null）。 */
+export function setGitHubAccountRecord(record: PersistedState['githubAccount']): void {
+  store.set('githubAccount', record)
 }
 
 /** 记住的数据源密码密文（同 getServerSecret）；没有返回 null。 */

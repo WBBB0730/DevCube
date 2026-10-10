@@ -231,6 +231,22 @@ export const IPC = {
   gitChanged: 'git:changed',
   gitRevalidate: 'git:revalidate',
   gitDefaultBranch: 'git:default-branch',
+  /**
+   * GitHub 账号与提交检查（docs/prd/github-checks.md）：账号读取与变更推送、设备授权登录（代码经 login-code
+   * 推给发起的窗口）、取消与退出、项目是否在 GitHub 上，以及查一批提交的检查汇总 / 一个提交的各项检查
+   */
+  githubAccountGet: 'github:account-get',
+  githubAccountChanged: 'github:account-changed',
+  githubLogin: 'github:login',
+  githubLoginCode: 'github:login-code',
+  githubLoginCancel: 'github:login-cancel',
+  githubLogout: 'github:logout',
+  githubHasRepo: 'github:has-repo',
+  /** DevCube 仓库的星标（关于页）：读当前账号的状态 / 加星标（不提供取消） */
+  githubStarGet: 'github:star-get',
+  githubStarAdd: 'github:star-add',
+  githubCommitChecks: 'github:commit-checks',
+  githubCheckRuns: 'github:check-runs',
   /** 主进程 before-input-event 命中后下发的应用快捷键 */
   appShortcut: 'app:shortcut',
   /** 渲染端上报焦点进出终端（xterm），主进程据此把与 shell 冲突的快捷键让出去 */

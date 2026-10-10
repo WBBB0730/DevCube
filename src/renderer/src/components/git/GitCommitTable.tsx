@@ -31,9 +31,13 @@ import {
   vertexPixel,
   type GraphGrid
 } from '@renderer/lib/git-graph'
+import type { CommitCheckState } from '@shared/github'
 import { gitState, useGit } from '@renderer/git-store'
+import { commitChecks, useGitHub } from '@renderer/github-store'
 import { cn } from '@renderer/lib/utils'
 import { abbrevHash, formatDateTime, formatRelativeDuration } from './git-format'
+import { GitCheckIcon } from './GitCheckIcon'
+import { clockNowSec, subscribeClock } from './git-clock'
 import type { GitMenuTarget } from './git-view-types'
 
 /** 调色板 CSS 变量引用（下标即 --git-graph-colorN，共 12 色循环）。 */
@@ -55,20 +59,6 @@ const REF =
   'mr-[5px] inline-flex h-[18px] shrink-0 cursor-default items-center overflow-hidden rounded border border-[color:var(--border-input)] bg-panel text-[12px] leading-[18px]'
 const REF_ICON = 'flex h-full w-[18px] shrink-0 items-center justify-center'
 const REF_NAME = 'px-[5px]'
-
-// 相对时间的共享时钟（整秒）：所有日期格读同一个「现在」，每秒走一格。常驻不停——
-// React 先渲染后订阅，按订阅启停会让首帧拿到停摆时的旧时刻、下一帧才纠正（闪一下）。
-let clockNowSec = Math.floor(Date.now() / 1000)
-const clockListeners = new Set<() => void>()
-setInterval(() => {
-  clockNowSec = Math.floor(Date.now() / 1000)
-  clockListeners.forEach((notify) => notify())
-}, 1000)
-
-function subscribeClock(notify: () => void): () => void {
-  clockListeners.add(notify)
-  return () => clockListeners.delete(notify)
-}
 
 /** 合并型分支标签：本地分支名 + 并入的远程名徽标。 */
 interface BranchLabel {
@@ -133,6 +123,7 @@ export function GitCommitTable({ projectPath }: { projectPath: string }): React.
   })
   const find = useGit((s) => gitState(s, projectPath).find)
   const loadMore = useGit((s) => s.loadMore)
+  const checks = useGitHub((s) => commitChecks(s, projectPath))
 
   const viewRef = useRef<HTMLDivElement>(null)
   const tableRef = useRef<HTMLTableElement>(null)
@@ -354,6 +345,7 @@ export function GitCommitTable({ projectPath }: { projectPath: string }): React.
                 rowActive={hoveredIdx === i || menuHash === c.hash}
                 findMatch={findMatches?.has(c.hash) ?? false}
                 findActive={c.hash === findActiveHash}
+                checkState={checks[c.hash]}
                 actions={actions}
               />
             ))}
@@ -491,6 +483,7 @@ const CommitRow = memo(function CommitRow({
   rowActive,
   findMatch,
   findActive,
+  checkState,
   actions
 }: {
   commit: GitCommit
@@ -509,6 +502,8 @@ const CommitRow = memo(function CommitRow({
   rowActive: boolean
   findMatch: boolean
   findActive: boolean
+  /** GitHub 检查汇总；没查过为 undefined（docs/prd/github-checks.md） */
+  checkState: CommitCheckState | undefined
   actions: RowActions
 }): React.JSX.Element {
   const isUncommitted = commit.hash === UNCOMMITTED
@@ -655,13 +650,21 @@ const CommitRow = memo(function CommitRow({
           ))}
           <span
             className={cn(
-              'min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap',
+              'min-w-0 overflow-hidden text-ellipsis whitespace-nowrap',
               current && 'font-bold',
               dimmed && 'opacity-50'
             )}
           >
             {commit.message}
           </span>
+          {/* 检查汇总紧跟提交说明（同 GitHub 的提交列表）；说明过长时说明截断、图标不被挤掉 */}
+          {checkState !== undefined && (
+            <GitCheckIcon
+              state={checkState}
+              withTitle
+              className={cn('ml-1.5', dimmed && 'opacity-50')}
+            />
+          )}
         </span>
       </td>
       <td
@@ -687,7 +690,7 @@ const CommitRow = memo(function CommitRow({
  */
 function RelativeTime({ date }: { date: number }): React.JSX.Element {
   const label = useSyncExternalStore(subscribeClock, () =>
-    formatRelativeDuration(clockNowSec - date)
+    formatRelativeDuration(clockNowSec() - date)
   )
   return <>{label}</>
 }

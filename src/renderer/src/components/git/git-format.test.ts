@@ -1,6 +1,6 @@
-// git-format 纯函数测试：hash 缩写、相对时间阈值（graph-table §4.1）、完整日期时间格式。
+// git-format 纯函数测试：hash 缩写、相对时间阈值（graph-table §4.1）、完整日期时间格式、检查耗时。
 import { describe, expect, it } from 'vitest'
-import { abbrevHash, formatDateTime, formatRelativeDuration } from './git-format'
+import { abbrevHash, formatDateTime, formatElapsed, formatRelativeDuration } from './git-format'
 
 describe('abbrevHash', () => {
   it('完整 40 位 hash 缩写为前 8 位', () => {
@@ -63,5 +63,25 @@ describe('formatDateTime', () => {
   it('月日不补零、时分秒补零，24 小时制', () => {
     const unixSec = new Date(2025, 11, 31, 23, 59, 59).getTime() / 1000
     expect(formatDateTime(unixSec)).toBe('2025年12月31日 23:59:59')
+  })
+})
+
+describe('formatElapsed', () => {
+  it('不足一分钟只报秒，负数钳为 0', () => {
+    expect(formatElapsed(0)).toBe('0 秒')
+    expect(formatElapsed(45)).toBe('45 秒')
+    expect(formatElapsed(-3)).toBe('0 秒')
+  })
+
+  it('一小时内报分秒，整分不带零头', () => {
+    expect(formatElapsed(60)).toBe('1 分')
+    expect(formatElapsed(133)).toBe('2 分 13 秒')
+    expect(formatElapsed(3599)).toBe('59 分 59 秒')
+  })
+
+  it('一小时起报时分，整时不带零头', () => {
+    expect(formatElapsed(3600)).toBe('1 小时')
+    expect(formatElapsed(3900)).toBe('1 小时 5 分')
+    expect(formatElapsed(7259)).toBe('2 小时')
   })
 })

@@ -11,6 +11,7 @@ import type { FilesDirEntry, FilesReadResult, FilesUiState } from './files'
 import type { FilesImagePreview, FilesImagePyramid } from './files-image-tiles'
 import type { FilesTreeFilterResult } from './files-tree-search'
 import type { GitAPI, GitRepoSettings, GitViewPrefs } from './git'
+import type { GitHubAPI } from './github'
 import type { GitCloneInput, GitCloneProgress, GitCloneTargetState } from './git-clone'
 import type { OpenInAppId, OpenInAppResult, OpenInAppStatus } from './open-in-app'
 import type { PanelSizes, PanelSizesPatch } from './panel-sizes'
@@ -302,6 +303,8 @@ export interface PersistedState {
   gitSettings: Record<string, GitRepoSettings>
   /** 跨项目 git 视图偏好（查找选项、「不再提示」标记） */
   gitViewPrefs: GitViewPrefs
+  /** 登录的 GitHub 账号：登录名 + 凭证的 safeStorage 密文 base64（不下发渲染端；ADR-0054）；未登录为 null */
+  githubAccount: { login: string; token: string } | null
   /** 左树项目列表排序偏好 */
   projectSortPrefs: ProjectSortPrefs
   /** 应用偏好（Windows shell 等） */
@@ -407,8 +410,8 @@ export interface TerminalInfo {
   serverId?: string
 }
 
-/** preload 经 contextBridge 暴露给渲染端的 API。随 slice 逐步实现；Git 部分见 GitAPI。 */
-export interface RunAPI extends GitAPI {
+/** preload 经 contextBridge 暴露给渲染端的 API。随 slice 逐步实现；Git 部分见 GitAPI，GitHub 部分见 GitHubAPI。 */
+export interface RunAPI extends GitAPI, GitHubAPI {
   /** preload 阶段同步缓存的首屏快照（每窗口一次） */
   getBootstrap(): RendererBootstrap
 

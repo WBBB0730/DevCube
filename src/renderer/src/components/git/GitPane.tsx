@@ -24,6 +24,7 @@ import { COMMIT_PANEL_HEIGHT, GitCommitDetails } from './GitCommitDetails'
 import { GitDiffView } from './GitDiffView'
 import { GitContextMenu } from './GitContextMenu'
 import { GitDialogs } from './GitDialogs'
+import { useCommitChecks } from './use-github-checks'
 
 function subscribeWindowFocus(onChange: () => void): () => void {
   window.addEventListener('focus', onChange)
@@ -66,6 +67,8 @@ export function GitPane({
   const gitAutoFetch = useApp((s) => s.gitAutoFetch)
   const windowFocused = useWindowFocused()
   const foreground = visible && windowFocused
+  // GitHub 提交检查（登录后）：图谱每行的检查汇总按可见 / 刷新 / 前台轮询去查（docs/prd/github-checks.md）
+  useCommitChecks(projectPath, visible, foreground)
 
   // 到前台（本 Tab 可见且窗口激活：切项目 / 切 Tab / 应用切回前台）的那一刻：
   // 自动获取开着则「刷新」（先软刷新本地再 fetch；在途跳过，失败不弹框），否则仍 idle

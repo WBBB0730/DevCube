@@ -252,6 +252,17 @@ import {
   loadRepo
 } from './git-data'
 import { runGitAction } from './git-actions'
+import {
+  cancelGitHubLogin,
+  getCheckRuns,
+  getCommitChecks,
+  getDevCubeStarred,
+  getGitHubAccount,
+  hasGitHubRepo,
+  loginGitHub,
+  logoutGitHub,
+  starDevCube
+} from './github'
 import { syncProjectWatchers } from './project-watchers'
 import {
   clearRepoRootCache,
@@ -1184,6 +1195,26 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   )
   ipcMain.handle(IPC.gitViewPrefsGet, () => getGitViewPrefs())
   ipcMain.handle(IPC.gitViewPrefsSet, (_e, patch: Partial<GitViewPrefs>) => setGitViewPrefs(patch))
+
+  // —— GitHub 账号与提交检查（ADR-0054） ——
+  ipcMain.handle(IPC.githubAccountGet, () => getGitHubAccount())
+  // 设备授权的代码只推给发起登录的窗口（设置弹窗所在的那一个）
+  ipcMain.handle(IPC.githubLogin, (e) =>
+    loginGitHub((code) => {
+      if (!e.sender.isDestroyed()) e.sender.send(IPC.githubLoginCode, code)
+    })
+  )
+  ipcMain.handle(IPC.githubLoginCancel, () => cancelGitHubLogin())
+  ipcMain.handle(IPC.githubLogout, () => logoutGitHub())
+  ipcMain.handle(IPC.githubHasRepo, (_e, projectPath: string) => hasGitHubRepo(projectPath))
+  ipcMain.handle(IPC.githubStarGet, () => getDevCubeStarred())
+  ipcMain.handle(IPC.githubStarAdd, () => starDevCube())
+  ipcMain.handle(IPC.githubCommitChecks, (_e, projectPath: string, hashes: string[]) =>
+    getCommitChecks(projectPath, hashes)
+  )
+  ipcMain.handle(IPC.githubCheckRuns, (_e, projectPath: string, hash: string) =>
+    getCheckRuns(projectPath, hash)
+  )
 
   // —— 应用内更新 ——
   ipcMain.handle(IPC.appUpdateGet, () => getAppUpdateState())

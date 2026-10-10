@@ -18,6 +18,7 @@ import {
   pathspecOf,
   reconcileDiffView,
   resolveDiffEndpoints,
+  splitParagraphs,
   tokenizeBody,
   treeRowKeys,
   uncommittedDiffEndpoints,
@@ -463,6 +464,25 @@ describe('reconcileDiffView', () => {
         }
       )
     ).toEqual({ action: 'refresh', file: a, fromHash: 'aaa', toHash: UNCOMMITTED })
+  })
+})
+
+describe('splitParagraphs', () => {
+  it('只有一行得到一段，空信息没有段落', () => {
+    expect(splitParagraphs('fix: 修正编码问题')).toEqual(['fix: 修正编码问题'])
+    expect(splitParagraphs('')).toEqual([])
+  })
+
+  it('按空行分段，连续空行与只含空白的空行都算一处，段内换行保留', () => {
+    expect(splitParagraphs('feat: 新功能\n\n- 第一点\n- 第二点\n\n\n  \n补充说明')).toEqual([
+      'feat: 新功能',
+      '- 第一点\n- 第二点',
+      '补充说明'
+    ])
+  })
+
+  it('兼容 CRLF', () => {
+    expect(splitParagraphs('标题\r\n\r\n正文')).toEqual(['标题', '正文'])
   })
 })
 

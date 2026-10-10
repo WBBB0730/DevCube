@@ -83,10 +83,17 @@ CARET_ROW_COLOR（深 `#26282E` / 浅 `#F5F8FE`）**不是 CSS 变量**——控
 | `--status-running` | `#5FAD65` | `#208A3C` | 运行中                                                                                                                                       |
 | `--status-success` | `#57965D` | `#208A3C` | 成功退出（exit 0）                                                                                                                           |
 | `--status-failed`  | `#C94F4F` | `#DB3B4B` | 失败退出（非 0）。深色下与 `--stop-active-bg` 同值，**浅色下两者解绑**                                                                       |
+| `--status-pending` | `#C29E4A` | `#A46704` | 提交检查进行中（Git 图谱行与提交详情的黄点）。深色取 Dark.icls `WARNING_ATTRIBUTES` 的 ERROR_STRIPE_COLOR（明度与上面的绿、红相当）；浅色取 `Label.warningForeground`（Yellow1），同为前景变体 |
 | `--chart-1`        | `#3987E5` | `#2A78D6` | 图表系列一（蓝）。取自 dataviz 规范的已验证分类色板，在 `--bg-panel` 上按深 / 浅两档各自验过（色弱可分、对比 ≥ 3:1）；只用于图表线条与其图例 |
 | `--chart-2`        | `#D95926` | `#EB6834` | 图表系列二（橙），同上。**不用状态色（如 `--status-success`）区分系列**——状态色只表达好坏                                                    |
 
-这四颗除了 8px 状态点，还兼作提交面板「+N / -N」的 12px 文字色，所以浅色取的是 New UI Light 的**前景**变体（`Badge.greenOutlineForeground` / `Label.errorForeground`，即 Green4 / Red4），不是图标填充用的 Green6 `#55A76A` / Red5 `#E55765`——后者在白底上只有 3:1 上下，当图标够用、当文字太淡。代价是浅色下「运行中」与「成功退出」同色（深色下两者也只差 2 个单位，本就近乎不可辨）。
+前四颗（空闲 / 运行中 / 成功 / 失败）除了 8px 状态点，还兼作提交面板「+N / -N」的 12px 文字色，所以浅色取的是 New UI Light 的**前景**变体（`Badge.greenOutlineForeground` / `Label.errorForeground`，即 Green4 / Red4），不是图标填充用的 Green6 `#55A76A` / Red5 `#E55765`——后者在白底上只有 3:1 上下，当图标够用、当文字太淡。代价是浅色下「运行中」与「成功退出」同色（深色下两者也只差 2 个单位，本就近乎不可辨）。
+
+**GitHub**（GitHub 自家元素沿用 GitHub 的颜色，不从 JetBrains 推导；取自 GitHub 设计系统 Primer，`@primer/primitives` 11.10.0）
+
+| 变量            | 深色      | 浅色      | 用途                                                                 |
+| --------------- | --------- | --------- | -------------------------------------------------------------------- |
+| `--github-star` | `#E3B341` | `#EAC54F` | 关于页「已星标」的实心星（Primer `--button-star-iconColor`，dark / light 主题） |
 
 **Git 文件状态色**（FILESTATUS_*；提交面板 / Files 树文件名与图标）
 

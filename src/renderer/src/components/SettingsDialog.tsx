@@ -12,12 +12,14 @@ import { FILES_OPEN_WITH_EXTS } from '@shared/files-kind'
 import type { AppPrefs, WindowsShell, WindowsShellOption } from '@shared/types'
 import { DEFAULT_APP_PREFS } from '@shared/types'
 import { THEME_MODES, type ThemeMode } from '@shared/theme'
-import { Check, Info, LoaderCircle } from 'lucide-react'
+import { Check, LoaderCircle, Star } from 'lucide-react'
 import { SettingsModal } from '@renderer/components/SettingsModal'
 import { UpdateDialog } from '@renderer/components/UpdateDialog'
+import { GitHubLoginDialog } from '@renderer/components/GitHubLoginDialog'
+import { GitHubMark } from '@renderer/components/ui/github-mark'
 import { Button } from '@renderer/components/ui/button'
 import { Checkbox } from '@renderer/components/ui/checkbox'
-import { ConfirmDialog, ErrorDialog } from '@renderer/components/ui/form-dialog'
+import { ConfirmDialog, ErrorDialog, InfoIcon } from '@renderer/components/ui/form-dialog'
 import {
   Select,
   SelectContent,
@@ -29,12 +31,14 @@ import { SegmentedControl } from '@renderer/components/ui/segmented-control'
 import { shortcutLabel } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
 import { useApp } from '@renderer/store'
+import { useGitHub } from '@renderer/github-store'
 
-type SectionId = 'about' | 'prefs' | 'integration' | 'keymap'
+type SectionId = 'about' | 'prefs' | 'account' | 'integration' | 'keymap'
 
 const SECTIONS: { id: SectionId; label: string }[] = [
   { id: 'about', label: '关于' },
   { id: 'prefs', label: '偏好' },
+  { id: 'account', label: '账号' },
   { id: 'integration', label: '系统集成' },
   { id: 'keymap', label: '快捷键' }
 ]
@@ -165,6 +169,16 @@ export function SettingsDialog({
   const [integrationError, setIntegrationError] = useState<string | null>(null)
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
   const [layoutResetConfirm, setLayoutResetConfirm] = useState(false)
+  const [githubLoginOpen, setGitHubLoginOpen] = useState(false)
+  const githubAccount = useGitHub((s) => s.account)
+  const githubLogin = githubAccount?.login ?? null
+  /** DevCube 仓库的星标：登录后进关于页时读一次，记下是哪个账号读到的（换账号即作废） */
+  const [starred, setStarred] = useState<{ login: string; value: boolean } | null>(null)
+  const [starBusy, setStarBusy] = useState(false)
+  /** 这次打开设置期间点星标加上的账号：只对它显示「已星标」，之后再打开、已加过星的不再显示 */
+  const [starredNow, setStarredNow] = useState<string | null>(null)
+  const [starError, setStarError] = useState<string | null>(null)
+  const starState = starred !== null && starred.login === githubLogin ? starred.value : null
   const setTheme = useApp((s) => s.setTheme)
   const gitAutoFetch = useApp((s) => s.gitAutoFetch)
   const setGitAutoFetch = useApp((s) => s.setGitAutoFetch)
@@ -182,6 +196,32 @@ export function SettingsDialog({
     // 只在切入关于时触发；onCheckUpdate 恒为「invoke 检查」，不必进依赖。
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
   }, [section])
+
+  // 星标状态：登录后进关于页时读；没登录或读不到就不显示星标按钮，只留仓库链接。
+  useEffect(() => {
+    if (section !== 'about' || githubLogin === null) return
+    let alive = true
+    void window.api.githubStarred().then((value) => {
+      if (alive && value !== null) setStarred({ login: githubLogin, value })
+    })
+    return () => {
+      alive = false
+    }
+  }, [section, githubLogin])
+
+  // 只在用户点按钮时加星标；加过的不提供取消
+  const addStar = async (): Promise<void> => {
+    if (githubLogin === null) return
+    setStarBusy(true)
+    const value = await window.api.githubStar()
+    setStarBusy(false)
+    if (value === null) {
+      setStarError('无法加星标，请稍后重试')
+      return
+    }
+    setStarred({ login: githubLogin, value })
+    if (value) setStarredNow(githubLogin)
+  }
 
   // shell 选项只有 Windows 用得上，非 win32 不去探测。
   useEffect(() => {
@@ -250,15 +290,8 @@ export function SettingsDialog({
       {/* 名字与 ⓘ 同处一个定宽块：ⓘ 贴着名字，按钮列仍对齐 */}
       <span className="flex w-16 shrink-0 items-center gap-1 text-foreground">
         {copy.label}
-        {copy.info && (
-          // 完整扩展名收进 hover：行里只留类型名
-          <span
-            title={copy.info}
-            className="inline-flex cursor-default text-[color:var(--fg-disabled)] transition-colors hover:text-[color:var(--fg-icon)]"
-          >
-            <Info className="size-3.5" />
-          </span>
-        )}
+        {/* 完整扩展名收进 hover：行里只留类型名 */}
+        {copy.info && <InfoIcon text={copy.info} />}
       </span>
       {f.enabled ? (
         // 已是默认：没有反向动作，不摆一颗按不动的按钮，改用带勾灰字
@@ -373,13 +406,35 @@ export function SettingsDialog({
                   </Button>
                 )}
               </div>
-              <button
-                type="button"
-                className="text-[color:var(--link)] hover:underline"
-                onClick={onOpenRepo}
-              >
-                {update.repoUrl}
-              </button>
+              <div className="mt-3 flex min-h-7 items-center gap-3">
+                <button
+                  type="button"
+                  className="flex items-center gap-1.5 text-[color:var(--link)] hover:underline"
+                  onClick={onOpenRepo}
+                >
+                  <GitHubMark className="size-4" />
+                  {update.repoUrl}
+                </button>
+                {starState === true
+                  ? starredNow === githubLogin && (
+                      <span className="flex items-center gap-1.5 text-muted-foreground">
+                        <Star className="size-3.5 fill-current text-github-star" />
+                        已星标
+                      </span>
+                    )
+                  : starState === false && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        disabled={starBusy}
+                        onClick={() => void addStar()}
+                      >
+                        <Star className="size-3.5" />
+                        星标
+                      </Button>
+                    )}
+              </div>
             </div>
           )}
 
@@ -462,6 +517,40 @@ export function SettingsDialog({
                   )}
                 </div>
               )}
+            </div>
+          )}
+
+          {section === 'account' && (
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <div className="flex items-center gap-1.5 text-[color:var(--fg-primary)]">
+                  <GitHubMark className="size-4" />
+                  GitHub
+                  <InfoIcon text="用于访问 GitHub 仓库信息，如检查结果" />
+                </div>
+                <div className="flex min-h-7 items-center gap-2 text-foreground">
+                  <span>{githubAccount?.login ?? '未登录'}</span>
+                  {githubAccount === null ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setGitHubLoginOpen(true)}
+                    >
+                      登录
+                    </Button>
+                  ) : (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => void window.api.githubLogout()}
+                    >
+                      退出登录
+                    </Button>
+                  )}
+                </div>
+              </div>
             </div>
           )}
 
@@ -558,6 +647,10 @@ export function SettingsDialog({
           onCancel={() => setLayoutResetConfirm(false)}
         />
       )}
+
+      {githubLoginOpen && <GitHubLoginDialog onClose={() => setGitHubLoginOpen(false)} />}
+
+      {starError !== null && <ErrorDialog message={starError} onClose={() => setStarError(null)} />}
 
       {/* 提示类信息不内联进界面：失败走「操作失败」错误框（Git 同款样式） */}
       {integrationError !== null && (

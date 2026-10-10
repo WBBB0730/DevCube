@@ -1,6 +1,7 @@
 /** 主进程在 preload 阶段同步注入的首屏快照，避免首帧空树。 */
 
 import type { DataSourceNode } from './data-source'
+import type { GitHubAccount } from './github'
 import type { PanelSizes } from './panel-sizes'
 import type { ServerNode } from './server'
 import { buildTreeEntries, configOwnerKey } from './tree-entry'
@@ -25,11 +26,13 @@ export type RendererBootstrap = {
   appPrefs: AppPrefs
   /** 可拖面板的尺寸：首帧即按它摆，不先显示默认再跳 */
   panelSizes: PanelSizes
+  /** 登录的 GitHub 账号：Git Tab 首次到前台即可按它去查提交检查 */
+  githubAccount: GitHubAccount | null
 }
 
 /** 由 bootstrap 快照得到工作台首屏字段（与历史 init 对齐）。 */
 export function workspaceSliceFromBootstrap(
-  boot: Omit<RendererBootstrap, 'appPrefs' | 'panelSizes'>
+  boot: Omit<RendererBootstrap, 'appPrefs' | 'panelSizes' | 'githubAccount'>
 ): {
   tree: ProjectNode[]
   servers: ServerNode[]

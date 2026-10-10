@@ -17,7 +17,8 @@ export function passwordUnavailableReason(): string | null {
   return null
 }
 
-function encryptSecret(value: string): string {
+/** 加密一项要记住的口令或凭证，返回密文 base64（调用前须确认 passwordUnavailableReason 为 null）。 */
+export function encryptSecret(value: string): string {
   return safeStorage.encryptString(value).toString('base64')
 }
 

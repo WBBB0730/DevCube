@@ -5,7 +5,7 @@
 // 全局各记一份（ADR-0053）；文件夹开合为组件内 state（换展开目标即重置）。
 // 未提交普通模式即提交面板（ADR-0006）：左栏 CommitForm、右栏 UncommittedFileSections。
 // Esc 关闭由 GitPane 统一处理。
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { ChevronRight, File as FileIcon, Folder, X } from 'lucide-react'
 import { UNCOMMITTED, type GitFileChange } from '@shared/git'
 import { gitState, useGit } from '@renderer/git-store'
@@ -18,7 +18,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup
 } from '@renderer/components/ui/resizable'
-import { abbrevHash, formatDateTime } from './git-format'
+import { abbrevHash, formatDateTime, formatElapsed } from './git-format'
 import {
   FILE_STATUS_COLOR,
   buildFileTree,
@@ -28,10 +28,14 @@ import {
   flattenFileTree,
   normalizeCompare,
   resolveDiffEndpoints,
+  splitParagraphs,
   tokenizeBody
 } from './git-details'
 import { StickyTree, ROW_HEIGHT, type FolderRow, type FileRow } from './GitFileTree'
 import { CommitForm, UncommittedFileSections } from './GitCommitPanel'
+import { GitCheckIcon } from './GitCheckIcon'
+import { useCheckRuns } from './use-github-checks'
+import { clockNowSec, subscribeClock } from './git-clock'
 import type { GitExpandedState } from './git-view-types'
 
 /** 提交面板（未提交普通模式）的默认高：需要装下提交表单，比普通详情（250px）高一档。 */
@@ -171,7 +175,10 @@ export function GitCommitDetails({
   )
 }
 
-/** 左栏摘要：比较模式为一句话，普通提交与 stash 为字段区 + 正文（details-diff §5）；未提交普通模式的左栏由 CommitForm 接管，不走这里。 */
+/**
+ * 左栏摘要：比较模式为一句话；普通提交与 stash 为提交信息 + 字段区（details-diff §5，提交信息移到了最上面）。
+ * 未提交普通模式的左栏由 CommitForm 接管，不走这里。
+ */
 function SummaryPane({
   projectPath,
   exp,
@@ -198,6 +205,7 @@ function SummaryPane({
   const d = exp.details
   if (d === null) return <div className="text-[13px] text-muted-foreground">没有详情数据</div>
   const sameDates = d.authorDate === d.committerDate
+  const paragraphs = splitParagraphs(d.body)
 
   /** 父提交跳转：目标在已加载列表中才可点（§5.1），点击换开该提交的详情并把图谱滚到它那一行。 */
   const openParent = (hash: string): void => {
@@ -210,6 +218,35 @@ function SummaryPane({
 
   return (
     <>
+      {/* 提交信息在最上面，字段区与检查在其下；第一段即标题，半粗（同消息框标题）；间距三级：行 < 段（8px）< 提交信息与字段区（16px） */}
+      {paragraphs.length > 0 && (
+        <div className="mb-4 space-y-2 text-[13px]">
+          {paragraphs.map((paragraph, pi) => (
+            <p
+              key={pi}
+              className={cn('whitespace-pre-wrap break-words', pi === 0 && 'font-semibold')}
+            >
+              {tokenizeBody(paragraph).map((t, i) =>
+                t.kind === 'text' ? (
+                  <span key={i}>{t.text}</span>
+                ) : (
+                  <a
+                    key={i}
+                    className={LINK}
+                    title={t.url}
+                    onClick={(e) => {
+                      e.preventDefault()
+                      void window.api.openExternal(t.url)
+                    }}
+                  >
+                    {t.text}
+                  </a>
+                )
+              )}
+            </p>
+          ))}
+        </div>
+      )}
       <div className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[13px]">
         {exp.stash !== null && (
           <>
@@ -250,30 +287,57 @@ function SummaryPane({
         <PersonLine name={d.committer} email={d.committerEmail} />
         <span className={FIELD}>{sameDates ? '日期' : '提交日期'}</span>
         <span>{formatDateTime(d.committerDate)}</span>
+        {exp.stash === null && <CommitChecks projectPath={projectPath} hash={d.hash} />}
       </div>
-      {d.body !== '' && (
-        <div className="mt-2 whitespace-pre-wrap break-words text-[13px]">
-          {tokenizeBody(d.body).map((t, i) =>
-            t.kind === 'text' ? (
-              <span key={i}>{t.text}</span>
-            ) : (
-              <a
-                key={i}
-                className={LINK}
-                title={t.url}
-                onClick={(e) => {
-                  e.preventDefault()
-                  void window.api.openExternal(t.url)
-                }}
-              >
-                {t.text}
-              </a>
-            )
-          )}
-        </div>
-      )}
     </>
   )
+}
+
+/**
+ * 字段区的「检查」一栏（docs/prd/github-checks.md）：这个提交在 GitHub 上的各项检查，名字点开在浏览器里看；
+ * 结束的显示耗时，运行中的显示已运行时长（每秒走一格）。没有检查、没查过或未登录时整栏不出现。
+ */
+function CommitChecks({ projectPath, hash }: { projectPath: string; hash: string }): ReactNode {
+  const runs = useCheckRuns(projectPath, hash)
+  if (runs === null || runs.length === 0) return null
+  return (
+    <>
+      <span className={FIELD}>检查</span>
+      <span className="min-w-0 space-y-1">
+        {runs.map(({ name, state, url, durationSec, runningSince }, i) => (
+          <span key={i} className="flex items-center gap-1.5">
+            <GitCheckIcon state={state} />
+            {url !== null ? (
+              <a
+                className={cn(LINK, 'min-w-0 break-all')}
+                title={url}
+                onClick={() => void window.api.openExternal(url)}
+              >
+                {name}
+              </a>
+            ) : (
+              <span className="min-w-0 break-all">{name}</span>
+            )}
+            {runningSince !== null ? (
+              <span className="shrink-0 text-muted-foreground">
+                <RunningElapsed since={runningSince} />
+              </span>
+            ) : (
+              durationSec !== null && (
+                <span className="shrink-0 text-muted-foreground">{formatElapsed(durationSec)}</span>
+              )
+            )}
+          </span>
+        ))}
+      </span>
+    </>
+  )
+}
+
+/** 运行中检查的已运行时长：读 Git Tab 的共享时钟，每秒走一格，文案变了才重渲染。 */
+function RunningElapsed({ since }: { since: number }): React.JSX.Element {
+  const label = useSyncExternalStore(subscribeClock, () => formatElapsed(clockNowSec() - since))
+  return <>{label}</>
 }
 
 /** 比较摘要里的一端：未提交端显示中文，其余显示 8 位短哈希（title 带全 hash）。 */
