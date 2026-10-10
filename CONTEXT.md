@@ -7,6 +7,9 @@
 **Project（项目）**：被登记进运行器的一个本地文件夹，是聚合面板里的一个顶层条目，拥有属于自己的 Discovered Script 与 Run Configuration。
 _Avoid_: Workspace, Repo, Folder
 
+**WSL Project（WSL 项目）**：文件夹位于 Windows 上某个 WSL 发行版里的 **Project**，按路径认出，不是另一种条目。它的 **Terminal**、**Run Session**、**Git Tab**、**Content Search**、**Discovered Script** 与变化跟进都在该发行版里进行。
+_Avoid_: 远程项目, Linux 项目, WSL 服务器
+
 **Pin（置顶）**：附着在 **Project**、**Server** 或 **Data Source** 上的持久布尔标记，三者规则相同（下文以 Project 为例）。已置顶的 Project 在左树中整段排在未置顶的 Project 之上（组内仍服从当前排序）。
 _Avoid_: Favorite, Star, 收藏, Bookmark
 
@@ -120,6 +123,8 @@ _Avoid_: Release Notes, 发版说明, 更新说明, 提交记录（指日志内�
 - 一个 **Preview Window** 对应一个文件（同一文件复开即聚焦），持有一个可上翻的根；也可从主窗口项目菜单「在新窗口中打开」以某个 **Project** 根开出（无初始文件）；它的根不必是 **Project**，但「添加为项目」可把当前根按 External Open 的目录语义登记 / 聚焦。**Files Tab** 与 Preview Window 共用同一套面板能力。
 - 一个提交在 GitHub 上有 0..N 项 **Check**；**Git Tab** 只在登录 GitHub 后、对远程指向 github.com 的仓库显示它们，没有 Check 的提交不显示任何标记。
 - 一个仓库恒有 1 个主 **Worktree**、0..N 个链接 **Worktree**；每个 Worktree 至多对应一个 **Project**（按目录登记），登记与否不影响它在 git 层面的存在。
+- 一个 **WSL Project** 恰属于一个发行版；同一发行版的 WSL Project 共用一条连接：其中任一个被用到即连上，都不在用满偏好时长即断开，没有「连接」按钮。没连上时它的 **Discovered Script** 保持上次连上时的结果（从未连上则没有），引用型配置不因此删除。
+- **WSL Project** 下开的终端仍是 **Terminal**（不是 **SSH Terminal**），只是 shell 在发行版里；它的链接 **Worktree** 登记出来也是 WSL Project。
 - 一条本地分支同一时刻至多被一个 **Worktree** 检出；**Git Tab** 对被其他 Worktree 占用的分支不执行检出，改为引导前往该 Worktree 对应的 **Project**（未登记则先登记）。
 
 ## Example dialogue
@@ -174,3 +179,9 @@ _Avoid_: Release Notes, 发版说明, 更新说明, 提交记录（指日志内�
 > **领域专家**：在 SQL 里写成 `${{days}}` 这样的**参数**，每次运行前会问你填多少，默认是上次填的。它只是把你填的字原样换进去，和 SQL 里的绑定参数不是一回事。
 > **开发者**：项目上的部署配置每次要换版本号，也能这样吗？
 > **领域专家**：能。命令里写 `${{version}}`，运行前同样会问；`${HOME}` 这类是 shell 自己的变量，照旧交给 shell，不算**参数**。
+> **开发者**：我在 Windows 上，代码都放在 WSL 的 Ubuntu 里，能加进来吗？
+> **领域专家**：照常「添加现有项目」，选 `\\wsl.localhost\Ubuntu\…` 下的文件夹就行，它就是一个 **WSL Project**——还是 **Project**，不是 **Server**。点开它就自动连上 Ubuntu，终端、运行、Git、搜索都在 Ubuntu 里做。
+> **开发者**：那我在它下面开的终端算 **SSH Terminal** 吗？
+> **领域专家**：不算，它是 **Terminal**，只是 shell 在 Ubuntu 里；关掉就没了，不会断线重连。
+> **开发者**：我切去别的项目一下午，它会一直连着吗？
+> **领域专家**：Ubuntu 里的项目都不在用、满了偏好里设的时长就断开，让 WSL 能休眠；再点开会自己连回来。

@@ -73,7 +73,7 @@ import { FilesTreeIcon } from './FilesTreeIcon'
 import { arrowDirection, editableTarget, overlayOpen } from '@renderer/lib/files-key-guards'
 import { filterFilesTreeByType, type FilesTypeCategory } from '@shared/files-type-filter'
 import { FILES_ALL_TYPES, PreviewTypeFilterButton } from './PreviewTreeControls'
-import { relPathUnderRoot, toSysPath } from '@renderer/lib/files-paths'
+import { relPathUnderRoot } from '@renderer/lib/files-paths'
 import {
   localFilesBackend,
   serverFilesBackend,
@@ -1918,7 +1918,7 @@ export function FilesPane({
                     <p className="text-xs">{formatSize(loaded.size)}</p>
                     <Button
                       variant="secondary"
-                      onClick={() => void window.api.openPath(toSysPath(loaded.path))}
+                      onClick={() => void window.api.openPath(loaded.path)}
                     >
                       在其他应用中打开
                     </Button>

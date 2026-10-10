@@ -1,4 +1,4 @@
-import { normalizePath } from './files-path'
+import { childPathPrefix, isLogicalRoot, logicalParentPath, normalizePath } from './files-path'
 
 /**
  * Preview Window（预览窗口）的纯逻辑（docs/prd/file-preview-window.md）：
@@ -14,16 +14,12 @@ export interface PreviewLaunch {
   root: string
 }
 
-/** 父目录；已到文件系统根（`/` 或 `C:/`）时 null。 */
+/** 父目录；已到文件系统根（`/`、`C:/` 或 `//主机/共享`）时 null。 */
 export function parentLogicalPath(logical: string): string | null {
   const p = normalizePath(logical)
-  if (p === '/' || /^[A-Z]:\/$/.test(p)) return null
-  const slash = p.lastIndexOf('/')
-  if (slash < 0) return null
-  if (slash === 0) return '/'
-  const parent = p.slice(0, slash)
-  // Windows 盘符根：`C:` → `C:/`
-  return /^[A-Z]:$/.test(parent) ? parent + '/' : parent
+  if (isLogicalRoot(p)) return null
+  const parent = logicalParentPath(p)
+  return parent === p ? null : parent
 }
 
 /**
@@ -34,7 +30,9 @@ export function resolvePreviewRoot(fileLogical: string, projectPaths: readonly s
   let best: string | null = null
   for (const raw of projectPaths) {
     const root = normalizePath(raw)
-    if (file.startsWith(root + '/') && (best === null || root.length > best.length)) best = root
+    if (file.startsWith(childPathPrefix(root)) && (best === null || root.length > best.length)) {
+      best = root
+    }
   }
   return best ?? parentLogicalPath(file) ?? file
 }

@@ -14,6 +14,8 @@ describe('parentLogicalPath', () => {
     expect(parentLogicalPath('C:/Users/me')).toBe('C:/Users')
     expect(parentLogicalPath('C:/Users')).toBe('C:/')
     expect(parentLogicalPath('C:/')).toBeNull()
+    expect(parentLogicalPath('//wsl.localhost/Ubuntu/home')).toBe('//wsl.localhost/Ubuntu')
+    expect(parentLogicalPath('//wsl.localhost/Ubuntu')).toBeNull()
   })
 })
 
@@ -25,6 +27,13 @@ describe('resolvePreviewRoot', () => {
     )
     expect(resolvePreviewRoot('/Users/me/web/docs/a.pdf', projects)).toBe('/Users/me/web')
     expect(resolvePreviewRoot('/Users/me/Downloads/a.png', projects)).toBe('/Users/me/Downloads')
+  })
+
+  it('WSL 项目：文件的两种前缀都能落到登记的项目根', () => {
+    const projects = ['\\\\wsl.localhost\\Ubuntu\\home\\me\\web']
+    expect(resolvePreviewRoot('\\\\wsl$\\Ubuntu\\home\\me\\web\\a.png', projects)).toBe(
+      '//wsl.localhost/Ubuntu/home/me/web'
+    )
   })
 })
 

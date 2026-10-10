@@ -12,7 +12,7 @@ import {
   type GitCloneProgress,
   type GitCloneTargetState
 } from '../shared/git-clone'
-import { execGitStreaming } from './git-exec'
+import { execGitStreaming, gitPathArg } from './git-exec'
 
 /** 一次克隆的终局。 */
 export type GitCloneOutcome =
@@ -67,7 +67,8 @@ export async function runClone(
 
     const run = await execGitStreaming(
       input.parentDir,
-      buildCloneArgs(input.url, target, input.recurseSubmodules),
+      // 存放位置在 WSL 里时 git 在那个发行版里执行，目标目录换成它的 Linux 路径
+      buildCloneArgs(input.url, gitPathArg(input.parentDir, target), input.recurseSubmodules),
       (chunk) => {
         const progress = parseCloneProgress(chunk)
         if (progress) onProgress(progress)

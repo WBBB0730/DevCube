@@ -15,7 +15,7 @@ import type { GitFileStatus } from '@shared/git'
 import { joinLogicalPath } from '@shared/files-path'
 import { SHORTCUT } from '@shared/shortcut-label'
 import { useDoubleClick } from '@renderer/lib/double-click'
-import { relPathUnderRoot, toSysPath } from '@renderer/lib/files-paths'
+import { relPathUnderRoot } from '@renderer/lib/files-paths'
 import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
 import { RecentMenu, type RecentMenuItem } from '@renderer/components/ui/recent-menu'
@@ -212,7 +212,7 @@ export function FilesToolbar({
                   type="button"
                   title="在文件夹中显示"
                   className={TOOLBAR_BTN}
-                  onClick={() => void window.api.revealInFolder(toSysPath(path))}
+                  onClick={() => void window.api.revealInFolder(path)}
                 >
                   <FolderOpen className="size-4" />
                 </button>
@@ -220,7 +220,7 @@ export function FilesToolbar({
                   type="button"
                   title="在其他应用中打开"
                   className={TOOLBAR_BTN}
-                  onClick={() => void window.api.openPath(toSysPath(path))}
+                  onClick={() => void window.api.openPath(path)}
                 >
                   <SquareArrowOutUpRight className="size-4" />
                 </button>

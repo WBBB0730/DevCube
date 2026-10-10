@@ -90,6 +90,7 @@ import { cn } from '@renderer/lib/utils'
 import { xtermThemes } from '@renderer/lib/xterm-theme'
 import { GitPane } from '@renderer/components/git/GitPane'
 import { FilesPane } from '@renderer/components/files/FilesPane'
+import { WslGate } from '@renderer/components/WslGate'
 import { abbrevHash } from '@renderer/components/git/git-format'
 
 // 常驻 xterm 会各持一个 WebGL 上下文；浏览器/Electron 对同页上下文数有硬上限（约 16）。
@@ -212,23 +213,27 @@ export function Console(): React.JSX.Element {
             </TabPane>
           )
         })}
-        {/* Git 面板：每个项目常驻一个（切走仅隐藏；当前项目由 App 预加载，见 GitPane）。 */}
+        {/* Git 面板：每个项目常驻一个（切走仅隐藏；当前项目由 App 预加载，见 GitPane）。WSL 项目连上前是连接占位页（见 WslGate）。 */}
         {tree.map((n) => {
           const gk = gitTabKey(n.project.path)
           const visible = gk === activeKey
           return (
             <TabPane key={gk} visible={visible}>
-              <GitPane projectPath={n.project.path} visible={visible} />
+              <WslGate projectPath={n.project.path}>
+                <GitPane projectPath={n.project.path} visible={visible} />
+              </WslGate>
             </TabPane>
           )
         })}
-        {/* Files 面板：每项目常驻（切走仅隐藏）。 */}
+        {/* Files 面板：每项目常驻（切走仅隐藏）。WSL 项目连上前是连接占位页（见 WslGate）。 */}
         {tree.map((n) => {
           const fk = filesTabKey(n.project.path)
           const visible = fk === activeKey
           return (
             <TabPane key={fk} visible={visible}>
-              <FilesPane rootPath={n.project.path} visible={visible} />
+              <WslGate projectPath={n.project.path}>
+                <FilesPane rootPath={n.project.path} visible={visible} />
+              </WslGate>
             </TabPane>
           )
         })}

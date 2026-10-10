@@ -11,6 +11,7 @@ import {
 import { FILES_OPEN_WITH_EXTS } from '@shared/files-kind'
 import type { AppPrefs, WindowsShell, WindowsShellOption } from '@shared/types'
 import { DEFAULT_APP_PREFS } from '@shared/types'
+import { WSL_IDLE_MINUTES_OPTIONS } from '@shared/wsl'
 import { THEME_MODES, type ThemeMode } from '@shared/theme'
 import { Check, LoaderCircle, Star } from 'lucide-react'
 import { SettingsModal } from '@renderer/components/SettingsModal'
@@ -48,6 +49,12 @@ const WINDOWS_SHELL_LABELS: Record<WindowsShell, string> = {
   powershell: 'PowerShell',
   cmd: '命令提示符 (cmd)'
 }
+
+/** 「闲置后断开 WSL」的选项（docs/prd/wsl-project.md）；下拉的值为字符串，「从不」记作 never */
+const WSL_IDLE_ITEMS = WSL_IDLE_MINUTES_OPTIONS.map((minutes) => ({
+  value: minutes === null ? 'never' : String(minutes),
+  label: minutes === null ? '从不' : `${minutes} 分钟`
+}))
 
 const THEME_LABELS: Record<ThemeMode, string> = {
   dark: '深色',
@@ -332,6 +339,15 @@ export function SettingsDialog({
     void window.api.setAppPrefs({ windowsShell }).then(setPrefs)
   }
 
+  const setWslIdleMinutes = (value: string): void => {
+    const wslIdleMinutes = WSL_IDLE_MINUTES_OPTIONS.find(
+      (m) => (m === null ? 'never' : String(m)) === value
+    )
+    if (wslIdleMinutes === undefined) return
+    setPrefs({ ...(prefs ?? DEFAULT_APP_PREFS), wslIdleMinutes })
+    void window.api.setAppPrefs({ wslIdleMinutes }).then(setPrefs)
+  }
+
   // 主题落盘与原生侧同步走 store（渲染层的 JS 侧色源也订阅它），这里只更新本页显示值。
   const changeTheme = (theme: ThemeMode): void => {
     setPrefs({ ...(prefs ?? DEFAULT_APP_PREFS), theme })
@@ -508,6 +524,34 @@ export function SettingsDialog({
                         {shellOptions.map((o) => (
                           <SelectItem key={o.id} value={o.id} disabled={!o.available}>
                             {WINDOWS_SHELL_LABELS[o.id]}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  ) : (
+                    <div className="text-[color:var(--fg-muted)]">正在加载…</div>
+                  )}
+                </div>
+              )}
+
+              {isWin && (
+                <div className="space-y-2">
+                  <div className="text-[color:var(--fg-primary)]">闲置后断开 WSL</div>
+                  {prefs ? (
+                    <Select
+                      value={prefs.wslIdleMinutes === null ? 'never' : String(prefs.wslIdleMinutes)}
+                      onValueChange={(v) => {
+                        if (v != null) setWslIdleMinutes(v)
+                      }}
+                      items={WSL_IDLE_ITEMS}
+                    >
+                      <SelectTrigger className="w-[280px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        {WSL_IDLE_ITEMS.map((item) => (
+                          <SelectItem key={item.value} value={item.value}>
+                            {item.label}
                           </SelectItem>
                         ))}
                       </SelectContent>

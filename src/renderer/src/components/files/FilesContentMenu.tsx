@@ -3,7 +3,6 @@
 // 栅格化（lib/copy-image），复制文件走主进程系统剪贴板（clipboard-file）。
 // 服务器上的文件没有本机专属的三项，换成「下载…」。
 import { Copy, Download, Files, FolderOpen, SquareArrowOutUpRight } from 'lucide-react'
-import { toSysPath } from '@renderer/lib/files-paths'
 import { copyImageToClipboard } from '@renderer/lib/copy-image'
 import { ContextMenuItem, PointContextMenu } from '@renderer/components/ui/context-menu'
 
@@ -57,7 +56,7 @@ export function FilesContentMenu({
           <ContextMenuItem
             onClick={() => {
               onClose()
-              void window.api.filesCopyFile(toSysPath(menu.path))
+              void window.api.filesCopyFile(menu.path)
             }}
           >
             <Files className="size-4" /> 复制文件
@@ -65,7 +64,7 @@ export function FilesContentMenu({
           <ContextMenuItem
             onClick={() => {
               onClose()
-              void window.api.revealInFolder(toSysPath(menu.path))
+              void window.api.revealInFolder(menu.path)
             }}
           >
             <FolderOpen className="size-4" /> 在文件夹中显示
@@ -73,7 +72,7 @@ export function FilesContentMenu({
           <ContextMenuItem
             onClick={() => {
               onClose()
-              void window.api.openPath(toSysPath(menu.path))
+              void window.api.openPath(menu.path)
             }}
           >
             <SquareArrowOutUpRight className="size-4" /> 在其他应用中打开

@@ -26,6 +26,7 @@ import { useFiles } from '@renderer/files-store'
 import { orderedTabKeys, resolveTabs, useApp } from '@renderer/store'
 import { gitState, useGit } from '@renderer/git-store'
 import type { AppShortcut } from '@shared/app-shortcut'
+import { wslDistroOf } from '@shared/wsl-path'
 import type { AppUpdateState } from '@shared/app-update-state'
 import { filterTreeEntries, sortTreeEntries } from '@shared/project-sort'
 import { isResidentTabKey } from '@shared/runnable'
@@ -264,11 +265,13 @@ function App(): React.JSX.Element {
   const gitAutoFetch = useApp((s) => s.gitAutoFetch)
   useEffect(() => {
     if (!gitAutoFetch) return
-    const timer = setInterval(() => {
+    const timer = setInterval(async () => {
       const entryKey = useApp.getState().currentEntryKey
-      if (entryKey !== null && entryKindOfKey(entryKey) === 'project') {
-        void useGit.getState().refresh(entryKey, { suppressErrorBox: true })
-      }
+      if (entryKey === null || entryKindOfKey(entryKey) !== 'project') return
+      // WSL 项目没连上时不为定时获取去连：窗口关到托盘后闲置断开的发行版不再被叫醒（docs/prd/wsl-project.md）
+      const distro = wslDistroOf(entryKey)
+      if (distro !== null && (await window.api.getWslState(distro)).status !== 'connected') return
+      void useGit.getState().refresh(entryKey, { suppressErrorBox: true })
     }, GIT_DEFAULTS.autoFetchIntervalMs)
     return () => clearInterval(timer)
   }, [gitAutoFetch])

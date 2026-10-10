@@ -31,6 +31,7 @@ import { createConnectionTester } from './connection-test'
 import { readDataSourcePassword } from './data-sources'
 import { SqliteClient } from './data-source-sqlite'
 import { resolveDirectRoute, type DirectRoute } from './ssh-direct'
+import { untilAborted } from './until-aborted'
 
 /** pg 对传入的 stream 调 connect(port, host)：改为按直连路线连接。 */
 class DirectSocket extends Socket {
@@ -525,14 +526,6 @@ async function ping(target: DataSourceTarget, password: string | null): Promise<
   } finally {
     await closeClient(c)
   }
-}
-
-/** 等 promise 的结果，中途 signal 中止则立即以中止收口（进行中的连接自己完成后随即断开）。 */
-function untilAborted<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  return new Promise((resolve, reject) => {
-    signal.addEventListener('abort', () => reject(signal.reason), { once: true })
-    promise.then(resolve, reject)
-  })
 }
 
 const dataSourceTester = createConnectionTester()

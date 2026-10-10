@@ -1,6 +1,6 @@
 import { randomUUID } from 'crypto'
 import { statSync } from 'node:fs'
-import path from 'node:path'
+import { homedir } from 'node:os'
 import { BrowserWindow } from 'electron'
 import { spawn, type IPty } from 'node-pty'
 import type { ClientChannel, PseudoTtyOptions } from 'ssh2'
@@ -9,6 +9,7 @@ import { SerializeAddon } from '@xterm/addon-serialize'
 import { IPC } from '../shared/ipc'
 import { configKey, scriptKey } from '../shared/runnable'
 import { resolveWithinProject } from '../shared/files-path'
+import { wslDistroOf } from '../shared/wsl-path'
 import type { QuitGuardSession } from '../shared/quit-guard'
 import { fillRunConfigParams } from '../shared/run-params'
 import type { Server } from '../shared/server'
@@ -26,8 +27,11 @@ import {
   buildRemoteShellInDir,
   buildShellInvocation,
   buildShellSession,
+  buildWslRunInvocation,
+  buildWslShellSession,
   resolveCwd,
   resolveDiscoveredCommand,
+  resolveWslCwd,
   runHeaderShellFor,
   withTerminalLocale,
   wrapWithRunHeader
@@ -40,10 +44,15 @@ import {
   setDataSourceRunSink,
   stopDataSourceRun
 } from './data-source-runs'
-import { detectPackageManager, readFingerprints } from './discovery'
+import { NO_FINGERPRINTS } from './discovery'
 import { findServer } from './servers'
 import { connectSsh, onSshClosed } from './ssh-connect'
 import { getAppPrefs, getConfigs } from './store'
+import { toSysPath } from './sys-path'
+import { untilAborted } from './until-aborted'
+import { connectWsl, holdWsl, releaseWsl, wslExePath, wslForgetRun, wslKillRun } from './wsl'
+import type { WslHelperInfo } from './wsl-connection'
+import { ensureWslDiscovery, projectDiscovery } from './wsl-discovery'
 
 /**
  * 会话背后跑着的东西：本机是 PTY 里的进程（node-pty）；服务器上是内置连接（ADR-0041）上一个带伪终端的通道。
@@ -139,13 +148,23 @@ setDataSourceRunSink({
   removed: (key) => post(IPC.sessionRemoved, key)
 })
 
-/** 本机执行（经登录 shell）的配置 / 探测脚本解析结果。 */
+/** 本机执行（经登录 shell）的配置 / 探测脚本解析结果；WSL 项目的在发行版里执行。 */
 interface Resolved {
   type: 'local'
   key: string
+  /** 所属项目：WSL 项目据此在它的发行版里执行 */
+  projectPath: string
   command: string
+  /** WSL 项目为交给 `wsl.exe --cd` 的目录（见 resolveWslCwd） */
   cwd: string
   env?: Record<string, string>
+}
+
+/** 本机执行的工作目录：WSL 项目按发行版里的 Linux 路径算，其余相对项目根解析。 */
+function runCwd(projectPath: string, cwd?: string): string {
+  return wslDistroOf(projectPath) !== null
+    ? resolveWslCwd(projectPath, cwd)
+    : resolveCwd(projectPath, cwd)
 }
 
 /** 在服务器上执行的配置。 */
@@ -191,37 +210,50 @@ function localLaunch(resolved: Resolved): Launch {
   }
 }
 
+/** 命令要靠探测结果解析的运行目标（探测脚本、引用型配置）所属的项目；其余为 null。 */
+function discoveredTargetProject(target: RunTarget): string | null {
+  if (target.type === 'script') return target.projectPath
+  const config = getConfigs().find((c) => c.id === target.id)
+  return config?.kind === 'referenced' ? config.projectPath : null
+}
+
 function resolveTarget(target: RunTarget): Resolved | ResolvedRemote | ResolvedDataSource | null {
   if (target.type === 'script') {
+    const snapshot = projectDiscovery(target.projectPath)
+    if (snapshot === null) return null
     const command = resolveDiscoveredCommand(
       target.source,
       target.name,
-      detectPackageManager(target.projectPath),
-      readFingerprints(target.projectPath)
+      snapshot.packageManager,
+      snapshot.fingerprints ?? NO_FINGERPRINTS
     )
     if (!command) return null
     return {
       type: 'local',
       key: scriptKey(target.projectPath, target.source, target.name),
+      projectPath: target.projectPath,
       command,
-      cwd: target.projectPath
+      cwd: runCwd(target.projectPath)
     }
   }
   const config = getConfigs().find((c) => c.id === target.id)
   if (!config) return null
   if (config.kind === 'referenced') {
+    const snapshot = projectDiscovery(config.projectPath)
+    if (snapshot === null) return null
     const command = resolveDiscoveredCommand(
       config.source,
       config.scriptName,
-      detectPackageManager(config.projectPath),
-      readFingerprints(config.projectPath)
+      snapshot.packageManager,
+      snapshot.fingerprints ?? NO_FINGERPRINTS
     )
     if (!command) return null
     return {
       type: 'local',
       key: configKey(config),
+      projectPath: config.projectPath,
       command,
-      cwd: config.projectPath
+      cwd: runCwd(config.projectPath)
     }
   }
   if (config.kind === 'dataSource') return { type: 'dataSource', key: configKey(config), config }
@@ -234,8 +266,9 @@ function resolveTarget(target: RunTarget): Resolved | ResolvedRemote | ResolvedD
   return {
     type: 'local',
     key: configKey(config),
+    projectPath: filled.projectPath,
     command: filled.command,
-    cwd: resolveCwd(filled.projectPath, filled.cwd),
+    cwd: runCwd(filled.projectPath, filled.cwd),
     env: filled.env
   }
 }
@@ -370,6 +403,9 @@ async function openRemoteSession(
 }
 
 export async function run(target: RunTarget): Promise<void> {
+  // WSL 项目还没读到过探测结果时，先连上读一次才知道探测脚本 / 引用型配置的命令（命令型不需要）
+  const projectPath = discoveredTargetProject(target)
+  if (projectPath !== null) await ensureWslDiscovery(projectPath)
   const resolved = resolveTarget(target)
   if (!resolved) return
   // 数据源上的配置：单实例与重跑由 data-source-runs 负责；连接在后台进行（可能要等密码），不让调用方等
@@ -418,6 +454,12 @@ export async function run(target: RunTarget): Promise<void> {
     void runRemote(session, resolved.config)
     return
   }
+  // WSL 项目：先连上它的发行版（要等 WSL 启动），不让调用方等
+  const distro = wslDistroOf(resolved.projectPath)
+  if (distro !== null) {
+    void runWsl(session, resolved, distro)
+    return
+  }
   const launch = localLaunch(resolved)
   let pty: IPty
   try {
@@ -440,6 +482,100 @@ export async function run(target: RunTarget): Promise<void> {
     if (sessions.get(session.key) !== session) return
     endSession(session, `进程已结束，退出代码为 ${exitCode}`, exitCode)
   })
+}
+
+/** 会话在用 WSL 发行版时的来源键（闲置断开据此判断「在用」，见 wsl-idle）。 */
+function wslHolder(session: Session): string {
+  return `session:${session.sid}`
+}
+
+/**
+ * WSL 项目的运行会话（docs/prd/wsl-project.md）：连上发行版（小助手的位置与登记目录取自连接），再在 PTY 里经
+ * `wsl.exe` 由小助手的 launch 子命令起进程；运行头由发行版里的 shell 打印（ADR-0023）。连接期间被停止或关掉时
+ * 什么都不起；进程结束时放下「在用」并删掉进程组登记。
+ */
+async function runWsl(session: Session, resolved: Resolved, distro: string): Promise<void> {
+  const holder = wslHolder(session)
+  holdWsl(distro, holder)
+  const controller = new AbortController()
+  session.connecting = controller
+  let info: WslHelperInfo
+  try {
+    // 停止或关掉时立刻收尾，不等连接（连接是这个发行版共用的，照常连完）
+    info = await untilAborted(connectWsl(distro), controller.signal)
+  } catch (error) {
+    releaseWsl(distro, holder)
+    if (sessions.get(session.key) === session) {
+      const message = error instanceof Error ? error.message : String(error)
+      endSession(session, controller.signal.aborted ? '已取消' : `无法启动：${message}`, null)
+    }
+    return
+  } finally {
+    if (session.connecting === controller) session.connecting = null
+  }
+  // 连上的那一刻会话已被取代或停止
+  if (sessions.get(session.key) !== session || controller.signal.aborted) {
+    releaseWsl(distro, holder)
+    return
+  }
+  const { file, args } = buildWslRunInvocation({
+    wslExe: wslExePath(),
+    distro,
+    cwd: resolved.cwd,
+    helper: info.executable,
+    runDir: info.runDir,
+    id: session.sid,
+    shell: info.shell,
+    command: wrapWithRunHeader(resolved.command, resolved.cwd, 'sh'),
+    env: resolved.env
+  })
+  let pty: IPty
+  try {
+    pty = spawn(file, args, {
+      name: 'xterm-256color',
+      cols: session.cols,
+      rows: session.rows,
+      // wsl.exe 自己的工作目录无关紧要（目录由 --cd 给），用一个一定存在的本机目录
+      cwd: homedir(),
+      env: withTerminalLocale(process.env) as Record<string, string>
+    })
+  } catch (error) {
+    releaseWsl(distro, holder)
+    endSession(session, `无法启动：${error instanceof Error ? error.message : String(error)}`, null)
+    return
+  }
+  const proc = wslRunProcess(pty, distro, session.sid)
+  session.proc = proc
+  pty.onData(outputOf(session, proc))
+  pty.onExit(({ exitCode }) => {
+    releaseWsl(distro, holder)
+    wslForgetRun(distro, session.sid)
+    if (sessions.get(session.key) !== session) return
+    endSession(session, `进程已结束，退出代码为 ${exitCode}`, exitCode)
+  })
+}
+
+/**
+ * WSL 运行会话的进程：信号经小助手发给发行版里的整个进程组（同本机的停止，结束 wsl.exe 不一定能结束
+ * 发行版里的进程）；launch 还没登记好进程组时，能结束的只有 wsl.exe。
+ */
+function wslRunProcess(pty: IPty, distro: string, id: string): SessionProcess {
+  const killPty = (): void => {
+    try {
+      pty.kill()
+    } catch {
+      /* 已退出 */
+    }
+  }
+  return {
+    write: (data) => pty.write(data),
+    resize: (cols, rows) => pty.resize(cols, rows),
+    kill: (signal) => {
+      void wslKillRun(distro, id, signal).then((killed) => {
+        if (!killed) killPty()
+      })
+    }
+  }
 }
 
 /** 服务器上的命令型配置：经内置连接在服务器上执行（ADR-0041），运行头由远端 shell 打印。 */
@@ -486,7 +622,7 @@ function terminalCwd(projectPath: string, cwd?: string): string {
   if (cwd === undefined) return projectPath
   const logical = resolveWithinProject(projectPath, cwd)
   if (logical === null) return projectPath
-  const sys = path.normalize(logical.split('/').join(path.sep))
+  const sys = toSysPath(logical)
   try {
     if (statSync(sys).isDirectory()) return sys
   } catch {
@@ -505,15 +641,21 @@ export function openTerminal(projectPath: string, key?: string, cwd?: string): s
   const existing = sessions.get(sessionKey)
   if (existing) return sessionKey
 
-  const { file, args } = buildShellSession(process.platform, {
-    posixShell: process.env.SHELL,
-    windowsShell: getAppPrefs().windowsShell
-  })
+  // WSL 项目：发行版里用户默认 shell 的交互登录 shell（不等连接，wsl.exe 自己唤醒发行版），Windows 的 shell 偏好不作用
+  const distro = wslDistroOf(projectPath)
+  const start = terminalCwd(projectPath, cwd)
+  const { file, args } =
+    distro !== null
+      ? buildWslShellSession(wslExePath(), distro, resolveWslCwd(projectPath, start))
+      : buildShellSession(process.platform, {
+          posixShell: process.env.SHELL,
+          windowsShell: getAppPrefs().windowsShell
+        })
   const pty = spawn(file, args, {
     name: 'xterm-256color',
     cols: DEFAULT_COLS,
     rows: DEFAULT_ROWS,
-    cwd: terminalCwd(projectPath, cwd),
+    cwd: distro !== null ? homedir() : start,
     env: withTerminalLocale(process.env) as Record<string, string>
   })
 
@@ -539,8 +681,10 @@ export function openTerminal(projectPath: string, key?: string, cwd?: string): s
   sessions.set(sessionKey, session)
   emitStatus(session)
   pty.onData(outputOf(session, proc))
+  if (distro !== null) holdWsl(distro, wslHolder(session))
 
   pty.onExit(() => {
+    if (distro !== null) releaseWsl(distro, wslHolder(session))
     if (sessions.get(sessionKey) !== session) return
     session.screen.dispose()
     sessions.delete(sessionKey)

@@ -1,4 +1,4 @@
-import { normalizePath } from '../shared/files-path'
+import { childPathPrefix, normalizePath } from '../shared/files-path'
 import { serverFilesCacheRoot } from './server-files-cache'
 import { getProjects } from './store'
 
@@ -34,5 +34,5 @@ export function isGrantedFilesRoot(root: string): boolean {
 export function isPathUnderGrantedRoot(path: string): boolean {
   const logical = normalizePath(path)
   const roots = [...getProjects().map((p) => normalizePath(p.path)), ...grantedByOwner.values()]
-  return roots.some((root) => logical === root || logical.startsWith(root + '/'))
+  return roots.some((root) => logical === root || logical.startsWith(childPathPrefix(root)))
 }

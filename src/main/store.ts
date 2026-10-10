@@ -12,6 +12,7 @@ import type {
 import { DEFAULT_APP_PREFS, DEFAULT_PROJECT_SORT_PREFS, WINDOWS_SHELLS } from '../shared/types'
 import { THEME_MODES, type ThemeMode } from '../shared/theme'
 import { normalizeCompressOptions } from '../shared/compress'
+import { isWslIdleMinutes, type WslIdleMinutes } from '../shared/wsl'
 import type { Server } from '../shared/server'
 import type { DataSource } from '../shared/data-source'
 import type { SavedConsoleContext } from '../shared/data-source-context'
@@ -391,6 +392,10 @@ function normalizeTheme(value: unknown): ThemeMode {
     : DEFAULT_APP_PREFS.theme
 }
 
+function normalizeWslIdleMinutes(value: unknown): WslIdleMinutes {
+  return isWslIdleMinutes(value) ? value : DEFAULT_APP_PREFS.wslIdleMinutes
+}
+
 function normalizePageSize(value: unknown): number {
   return isPageSize(value) ? value : DEFAULT_APP_PREFS.dataPageSize
 }
@@ -403,7 +408,8 @@ export function getAppPrefs(): AppPrefs {
     windowsShell: normalizeWindowsShell(stored?.windowsShell ?? DEFAULT_APP_PREFS.windowsShell),
     theme: normalizeTheme(stored?.theme ?? DEFAULT_APP_PREFS.theme),
     dataPageSize: normalizePageSize(stored?.dataPageSize),
-    compressOptions: normalizeCompressOptions(stored?.compressOptions)
+    compressOptions: normalizeCompressOptions(stored?.compressOptions),
+    wslIdleMinutes: normalizeWslIdleMinutes(stored?.wslIdleMinutes)
   }
 }
 
@@ -415,7 +421,11 @@ export function setAppPrefs(patch: Partial<AppPrefs>): AppPrefs {
     windowsShell: normalizeWindowsShell(patch.windowsShell ?? current.windowsShell),
     theme: normalizeTheme(patch.theme ?? current.theme),
     dataPageSize: normalizePageSize(patch.dataPageSize ?? current.dataPageSize),
-    compressOptions: normalizeCompressOptions(patch.compressOptions ?? current.compressOptions)
+    compressOptions: normalizeCompressOptions(patch.compressOptions ?? current.compressOptions),
+    // null（从不）是合法取值，不能用 ?? 回落
+    wslIdleMinutes: normalizeWslIdleMinutes(
+      'wslIdleMinutes' in patch ? patch.wslIdleMinutes : current.wslIdleMinutes
+    )
   }
   store.set('appPrefs', merged)
   return merged

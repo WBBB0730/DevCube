@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import { normalizePath } from '@shared/files-path'
+import { isAbsolutePath, normalizePath } from '@shared/files-path'
 import { filesTabKey } from '@shared/runnable'
 import { useApp } from '@renderer/store'
 
@@ -44,9 +44,7 @@ export const useFiles = create<FilesStore>((set, get) => ({
   recentMenuNonceByKey: {},
   openInFiles: (projectPath, filePath, at) => {
     const logical = normalizePath(
-      filePath.startsWith('/') || /^[a-zA-Z]:/.test(filePath)
-        ? filePath
-        : `${projectPath}/${filePath}`
+      isAbsolutePath(filePath) ? filePath : `${projectPath}/${filePath}`
     )
     set((s) => ({
       pendingOpenByProject: { ...s.pendingOpenByProject, [projectPath]: { path: logical, at } }

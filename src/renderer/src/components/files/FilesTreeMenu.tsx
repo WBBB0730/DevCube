@@ -27,8 +27,9 @@ import {
   Trash2
 } from 'lucide-react'
 import { useApp } from '@renderer/store'
-import { relPathUnderRoot, toSysPath } from '@renderer/lib/files-paths'
+import { relPathUnderRoot } from '@renderer/lib/files-paths'
 import { logicalParentPath } from '@shared/files-path'
+import { copyablePath, wslDistroOf } from '@shared/wsl-path'
 import {
   ContextMenuItem,
   ContextMenuSeparator,
@@ -91,6 +92,8 @@ export function FilesTreeMenu({
   if (menu === null) return null
 
   const isRoot = menu.path === projectRoot
+  /** WSL 发行版里的树（docs/prd/wsl-project.md）：没有回收站 */
+  const wslDistro = server === undefined ? wslDistroOf(projectRoot) : null
   /** 文件行的新建 / 终端 / 上传「就近」作用于所在目录（目录与根即自身） */
   const nearestDir = menu.isDirectory ? menu.path : logicalParentPath(menu.path)
   const request = (req: FilesEntryDialogRequest): void => {
@@ -183,14 +186,14 @@ export function FilesTreeMenu({
         </>
       )}
       <ContextMenuSeparator />
-      <ContextMenuItem onClick={act(() => void window.api.filesCopyFile(toSysPath(menu.path)))}>
+      <ContextMenuItem onClick={act(() => void window.api.filesCopyFile(menu.path))}>
         <Files className="size-4" /> {menu.isDirectory ? '复制文件夹' : '复制文件'}
       </ContextMenuItem>
       {/* 压缩：开一个压缩窗口（docs/prd/compress.md）；文件树不支持多选，一次压一个条目 */}
-      <ContextMenuItem onClick={act(() => void window.api.filesCompress(toSysPath(menu.path)))}>
+      <ContextMenuItem onClick={act(() => void window.api.filesCompress(menu.path))}>
         <FileArchive className="size-4" /> 压缩
       </ContextMenuItem>
-      <ContextMenuItem onClick={() => copyText(menu.path)}>
+      <ContextMenuItem onClick={() => copyText(copyablePath(menu.path))}>
         <Copy className="size-4" /> 复制路径
       </ContextMenuItem>
       {!isRoot && (
@@ -233,10 +236,11 @@ export function FilesTreeMenu({
           <ContextMenuItem
             onClick={() =>
               request({
-                // 服务器上没有回收站：删了即不可恢复
-                kind: server !== undefined ? 'delete' : 'trash',
+                // 服务器上与 WSL 发行版里没有回收站：删了即不可恢复
+                kind: server !== undefined || wslDistro !== null ? 'delete' : 'trash',
                 path: menu.path,
-                isDirectory: menu.isDirectory
+                isDirectory: menu.isDirectory,
+                distro: wslDistro ?? undefined
               })
             }
           >

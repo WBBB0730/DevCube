@@ -1,4 +1,10 @@
-import { childPathPrefix, lastPathSegment, logicalParentPath, normalizePath } from './files-path'
+import {
+  childPathPrefix,
+  isLogicalRoot,
+  lastPathSegment,
+  logicalParentPath,
+  normalizePath
+} from './files-path'
 import { numberedName } from './numbered-name'
 
 /**
@@ -107,10 +113,6 @@ export function visibleCompressOptions(
   }
 }
 
-function isFsRoot(p: string): boolean {
-  return p === '/' || /^[A-Z]:\/$/.test(p)
-}
-
 /**
  * 去掉重复的、被其他所选条目包含的条目：Finder 列表视图里可以同时选中文件夹和它里面的条目，
  * 选了文件夹就已包含里面的内容。保留原顺序与原写法。
@@ -137,7 +139,7 @@ export function commonParentPath(paths: readonly string[]): string {
   let common = parents[0] ?? '/'
   for (const parent of parents.slice(1)) {
     while (common !== parent && !parent.startsWith(childPathPrefix(common))) {
-      if (isFsRoot(common)) break
+      if (isLogicalRoot(common)) break
       common = logicalParentPath(common)
     }
   }
@@ -147,7 +149,7 @@ export function commonParentPath(paths: readonly string[]): string {
 /** 默认名称（不含 `.zip`）：单个条目取它的名字（文件保留扩展名），多选取共同上层文件夹的名字。 */
 export function defaultArchiveName(paths: readonly string[], parent: string): string {
   if (paths.length === 1) return lastPathSegment(normalizePath(paths[0]))
-  return isFsRoot(parent) ? '归档' : lastPathSegment(parent)
+  return isLogicalRoot(parent) ? '归档' : lastPathSegment(parent)
 }
 
 /**

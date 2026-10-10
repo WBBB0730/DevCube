@@ -101,6 +101,12 @@ import type {
 import type { ThemeMode } from './theme'
 import type { WindowPlacement, WindowPlacementKey } from './window-placement'
 import type { WorkspaceUiState } from './workspace'
+import {
+  DEFAULT_WSL_IDLE_MINUTES,
+  type WslConnectionState,
+  type WslIdleMinutes,
+  type WslStateEvent
+} from './wsl'
 
 export type { DiscoverSource } from './discover-source'
 
@@ -171,13 +177,16 @@ export interface AppPrefs {
   compressOptions: CompressOptions
   /** 记住窗口和面板布局：开着时窗口几何与面板尺寸落盘、重启恢复（docs/prd/resizable-panels.md） */
   rememberLayout: boolean
+  /** 闲置后断开 WSL：一个发行版的 WSL 项目都不在用满这么多分钟即断开，null 为从不（仅 win32 生效，docs/prd/wsl-project.md） */
+  wslIdleMinutes: WslIdleMinutes
 }
 
 export const WINDOWS_SHELLS: readonly WindowsShell[] = ['git-bash', 'powershell', 'cmd']
 
 /**
  * shell 默认 Git Bash，探测不到时运行时回退 PowerShell（见 ADR-0022）；主题默认深色；自动获取默认开；
- * 数据源表格每页 500 行；压缩窗口的勾选见 DEFAULT_COMPRESS_OPTIONS；记住窗口和面板布局默认开。
+ * 数据源表格每页 500 行；压缩窗口的勾选见 DEFAULT_COMPRESS_OPTIONS；记住窗口和面板布局默认开；
+ * 闲置 15 分钟后断开 WSL。
  */
 export const DEFAULT_APP_PREFS: AppPrefs = {
   windowsShell: 'git-bash',
@@ -186,7 +195,8 @@ export const DEFAULT_APP_PREFS: AppPrefs = {
   gitAutoFetch: true,
   dataPageSize: DEFAULT_PAGE_SIZE,
   compressOptions: DEFAULT_COMPRESS_OPTIONS,
-  rememberLayout: true
+  rememberLayout: true,
+  wslIdleMinutes: DEFAULT_WSL_IDLE_MINUTES
 }
 
 /** Windows shell 选项及本机是否可用（供设置页置灰不可选项）。 */
@@ -649,6 +659,13 @@ export interface RunAPI extends GitAPI, GitHubAPI {
   testServerConnection(input: ServerTestInput): Promise<ConnectionTestResult>
   /** 取消进行中的测试连接（对话框关闭时） */
   cancelServerTest(): Promise<void>
+  // —— WSL 项目的连接（docs/prd/wsl-project.md） ——
+  /** 某个发行版的连接状态（Git / Files 面板挂载时取一次，之后靠推送） */
+  getWslState(distro: string): Promise<WslConnectionState>
+  /** 「重新连接」：清掉失败状态后重连 */
+  reconnectWsl(distro: string): Promise<void>
+  /** 某个发行版的连接状态有变化 */
+  onWslStateChanged(cb: (event: WslStateEvent) => void): () => void
   /** 某台服务器状态连接的当前状态（Status Tab 挂载时取一次，之后靠推送） */
   getServerStatus(serverId: string): Promise<ServerStatusState>
   /** 点「连接」/「重新连接」：建立状态连接 */

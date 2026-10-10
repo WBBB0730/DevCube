@@ -1,6 +1,6 @@
 // 每项目一条 @parcel/watcher 原生递归订阅（VS Code 同栈：macOS FSEvents /
 // Windows ReadDirectoryChangesW / Linux inotify）。C++ 侧合并节流事件，避免
-// chokidar 在 Windows 上逐目录挂 fs.watch 拖垮主进程。
+// chokidar 在 Windows 上逐目录挂 fs.watch 拖垮主进程。WSL 项目改由发行版里的小助手监听（dir-watch）。
 //
 // 通道划分在 classify 纯函数里完成；git 工作区是否刷新仍经 git check-ignore
 // （零硬编码生态目录）。discovery / files / git 共用同一条订阅与同一轮调度（见 schedule）。
@@ -9,8 +9,9 @@
 // 该仓库有写动作排队 / 执行中（含余震）时，到点的通知挂起不发，转闲后补发一次——
 // 不与动作抢锁，也不丢动作期间的外部变化。
 
-import parcelWatcher, { type AsyncSubscription, type Event } from '@parcel/watcher'
+import { sep } from 'node:path'
 import { isAppQuitting } from './app-shutdown'
+import { subscribeDir, type DirSubscription, type DirWatchEvent } from './dir-watch'
 import { isRepoBusy, onRepoIdle } from './git-actions'
 import { execGit, repoKeyOf, type GitDirs } from './git-exec'
 import {
@@ -29,7 +30,8 @@ import {
 } from './project-watch-schedule'
 
 export type ProjectWatchHandlers = {
-  onDiscoveryChange: () => void
+  /** 项目根的清单 / lockfile / 约定指纹变了（WSL 项目要先重读它的探测缓存） */
+  onDiscoveryChange: (projectPath: string) => void
   onFilesChange: (projectPath: string) => void
   onGitChange: (projectPath: string) => void
 }
@@ -51,8 +53,8 @@ interface ProjectWatcherEntry {
   commonDir: string | null
   gitDir: string | null
   handlers: ProjectWatchHandlers
-  subscription: AsyncSubscription | null
-  commonSubscription: AsyncSubscription | null
+  subscription: DirSubscription | null
+  commonSubscription: DirSubscription | null
   closed: boolean
   /** 本轮待发通知 */
   pending: PendingChanges
@@ -86,11 +88,13 @@ async function notifyIfNotIgnored(
   paths: string[],
   onGitChange: (projectPath: string) => void
 ): Promise<void> {
-  // -z 只能配合 --stdin（ADR-0009）：路径经标准输入传入
+  // -z 只能配合 --stdin（ADR-0009）：路径经标准输入传入。分隔符统一为 `/`：WSL 仓库的 git 在发行版里执行，
+  // 只认 `/`（Windows 版 git 两种都认）
+  const input = paths.map((p) => p.split(sep).join('/')).join('\0') + '\0'
   const result = await execGit(
     repoRoot,
     ['check-ignore', '--stdin', '-z'],
-    Buffer.from(paths.join('\0') + '\0', 'utf8')
+    Buffer.from(input, 'utf8')
   )
   if (result.code === 0) {
     const ignored = result.stdout
@@ -112,7 +116,7 @@ function flush(entry: ProjectWatcherEntry): void {
   entry.pending = emptyPending()
   if (entry.closed || isAppQuitting()) return
   const { handlers, projectPath, repoRoot } = entry
-  if (discovery) handlers.onDiscoveryChange()
+  if (discovery) handlers.onDiscoveryChange(projectPath)
   if (files) handlers.onFilesChange(projectPath)
   if (git === null) return
   if (git.mode === 'force' || repoRoot === null) {
@@ -146,7 +150,11 @@ onRepoIdle((repoKey) => {
   }
 })
 
-function handleEvents(entry: ProjectWatcherEntry, err: Error | null, events: Event[]): void {
+function handleEvents(
+  entry: ProjectWatcherEntry,
+  err: Error | null,
+  events: DirWatchEvent[]
+): void {
   if (entry.closed || isAppQuitting()) return
   // 监听报错（如 FSEvents 丢事件需重扫）：这批不完整，各通道强制刷新；事件照常并入
   if (err) markRescan(entry.pending)
@@ -162,7 +170,7 @@ function handleEvents(entry: ProjectWatcherEntry, err: Error | null, events: Eve
 function handleCommonDirEvents(
   entry: ProjectWatcherEntry,
   err: Error | null,
-  events: Event[]
+  events: DirWatchEvent[]
 ): void {
   if (entry.closed || isAppQuitting()) return
   if (entry.commonDir === null || entry.gitDir === null) return
@@ -210,7 +218,7 @@ async function startEntry(
   const stale = (): boolean =>
     entry.closed || isAppQuitting() || watchers.get(projectPath) !== entry
   try {
-    const subscription = await parcelWatcher.subscribe(watchRoot, (err, events) =>
+    const subscription = await subscribeDir(watchRoot, (err, events) =>
       handleEvents(entry, err, events)
     )
     if (stale()) {
@@ -219,7 +227,7 @@ async function startEntry(
     }
     entry.subscription = subscription
     if (entry.commonDir !== null) {
-      const commonSubscription = await parcelWatcher.subscribe(entry.commonDir, (err, events) =>
+      const commonSubscription = await subscribeDir(entry.commonDir, (err, events) =>
         handleCommonDirEvents(entry, err, events)
       )
       if (stale()) {

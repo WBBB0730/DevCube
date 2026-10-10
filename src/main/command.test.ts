@@ -8,12 +8,15 @@ import {
   buildScriptCommand,
   buildShellInvocation,
   buildShellSession,
+  buildWslRunInvocation,
+  buildWslShellSession,
   cwdFromPickedDir,
   findGitBash,
   findOnPath,
   resolveCwd,
   resolveDiscoveredCommand,
   resolveWindowsShell,
+  resolveWslCwd,
   runHeaderShellFor,
   withTerminalLocale,
   wrapWithRunHeader
@@ -308,5 +311,64 @@ describe('withTerminalLocale', () => {
     const env = { PATH: '/usr/bin' }
     withTerminalLocale(env)
     expect(env).toEqual({ PATH: '/usr/bin' })
+  })
+})
+
+describe('resolveWslCwd', () => {
+  const project = '\\\\wsl.localhost\\Ubuntu\\home\\me\\web'
+
+  it('缺省为项目根（Linux 路径），相对路径按项目根解析', () => {
+    expect(resolveWslCwd(project)).toBe('/home/me/web')
+    expect(resolveWslCwd(project, 'packages\\api')).toBe('/home/me/web/packages/api')
+    expect(resolveWslCwd(project, '../other')).toBe('/home/me/other')
+  })
+
+  it('同一发行版的 Windows 路径换成 Linux 路径；/、~ 开头原样用', () => {
+    expect(resolveWslCwd(project, '\\\\wsl$\\ubuntu\\srv\\app')).toBe('/srv/app')
+    expect(resolveWslCwd(project, '/opt/app')).toBe('/opt/app')
+    expect(resolveWslCwd(project, '~/work')).toBe('~/work')
+  })
+
+  it('盘符路径与别的发行版原样交给 WSL 换算', () => {
+    expect(resolveWslCwd(project, 'C:\\code\\web')).toBe('C:\\code\\web')
+    expect(resolveWslCwd(project, '\\\\wsl.localhost\\Debian\\srv')).toBe(
+      '\\\\wsl.localhost\\Debian\\srv'
+    )
+  })
+})
+
+describe('buildWslShellSession / buildWslRunInvocation', () => {
+  const wslExe = 'C:\\Windows\\System32\\wsl.exe'
+
+  it('终端：不带命令即登录 shell', () => {
+    expect(buildWslShellSession(wslExe, 'Ubuntu', '/home/me/web')).toEqual({
+      file: wslExe,
+      args: ['-d', 'Ubuntu', '--cd', '/home/me/web']
+    })
+  })
+
+  it('运行会话：经 launch 登记进程组、带上环境变量，再以登录 shell 执行', () => {
+    expect(
+      buildWslRunInvocation({
+        wslExe,
+        distro: 'Ubuntu',
+        cwd: '/home/me/web',
+        helper: '/mnt/c/DevCube/resources/wsl/devcube-wsl',
+        runDir: '/tmp/devcube-wsl-runs-1',
+        id: 'sid-1',
+        shell: '/bin/zsh',
+        command: 'pnpm dev',
+        env: { PORT: '3000', NODE_OPTIONS: '--a=b c' }
+      })
+    ).toEqual({
+      file: wslExe,
+      args: [
+        ...['-d', 'Ubuntu', '--cd', '/home/me/web'],
+        ...['--exec', '/mnt/c/DevCube/resources/wsl/devcube-wsl', 'launch'],
+        ...['--run-dir', '/tmp/devcube-wsl-runs-1', '--id', 'sid-1'],
+        ...['--env', 'PORT=3000', '--env', 'NODE_OPTIONS=--a=b c', '--'],
+        ...['/bin/zsh', '-l', '-i', '-c', 'pnpm dev']
+      ]
+    })
   })
 })

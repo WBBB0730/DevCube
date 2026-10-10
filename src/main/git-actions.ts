@@ -7,6 +7,7 @@ import {
   execGit,
   findGit,
   getErrorMessage,
+  gitPathArg,
   isVersionAtLeast,
   repoKeyOf,
   resolveGitDirs,
@@ -610,9 +611,9 @@ async function commitSquashIfStagedChangesExist(
   return run(cwd, buildSquashCommitArgs(obj, on))
 }
 
-/** fetch 是否可用 --atomic（git ≥ 2.31）；取不到版本按不可用处理（静默降级为普通 fetch）。 */
-async function supportsAtomicFetch(): Promise<boolean> {
-  const git = await findGit()
+/** fetch 是否可用 --atomic（git ≥ 2.31，按执行这次 fetch 的 git 判断）；取不到版本按不可用处理（静默降级为普通 fetch）。 */
+async function supportsAtomicFetch(cwd: string): Promise<boolean> {
+  const git = await findGit(cwd)
   return git !== null && isVersionAtLeast(git.version, '2.31.0')
 }
 
@@ -704,7 +705,7 @@ async function runFetch(cwd: string, action: ActionOf<'fetch'>): Promise<GitActi
     const gateError = await checkGitVersion(cwd, '2.17.0', 'fetch --prune-tags')
     if (gateError !== null) return { status: 'error', errors: [gateError] }
   }
-  const atomic = await supportsAtomicFetch()
+  const atomic = await supportsAtomicFetch(cwd)
   // 全量抓取且 atomic 时才需要枚举远程（--atomic 与 --all 互斥，见 buildFetchArgs）；枚举失败原样报错
   let remotes: string[] = []
   if (action.remote === null && atomic) {
@@ -786,7 +787,7 @@ async function runAddTag(cwd: string, action: ActionOf<'add-tag'>): Promise<GitA
 async function runInit(projectPath: string, action: ActionOf<'init'>): Promise<GitActionResult> {
   const result = toActionResult(await runSequence(projectPath, buildInitArgs(action)))
   if (result.status !== 'ok' || action.remoteUrl === null) return result
-  const atomic = await supportsAtomicFetch()
+  const atomic = await supportsAtomicFetch(projectPath)
   const fetchError = await run(
     projectPath,
     atomic ? ['fetch', '--atomic', 'origin'] : ['fetch', 'origin']
@@ -824,7 +825,9 @@ async function runWorktreeAdd(
 ): Promise<GitActionResult> {
   const gateError = await checkGitVersion(cwd, WORKTREE_MIN_GIT, 'git worktree')
   if (gateError !== null) return { status: 'error', errors: [gateError] }
-  return toActionResult(await runSequence(cwd, buildWorktreeAddArgs(action)))
+  // 工作树路径来自渲染端（本机路径）；WSL 仓库里换成发行版里的 Linux 路径交给 git
+  const path = gitPathArg(cwd, action.path)
+  return toActionResult(await runSequence(cwd, buildWorktreeAddArgs({ ...action, path })))
 }
 
 /** worktree-remove：非 force 撞上脏工作树时不算错误，转结构化状态让渲染端追问。 */
@@ -834,7 +837,8 @@ async function runWorktreeRemove(
 ): Promise<GitActionResult> {
   const gateError = await checkGitVersion(cwd, WORKTREE_MIN_GIT, 'git worktree')
   if (gateError !== null) return { status: 'error', errors: [gateError] }
-  const error = await run(cwd, buildWorktreeRemoveArgs(action)[0])
+  const path = gitPathArg(cwd, action.path)
+  const error = await run(cwd, buildWorktreeRemoveArgs({ ...action, path })[0])
   if (error !== null && !action.force && worktreeRemoveNeedsForce(error)) {
     return { status: 'worktree-remove-needs-force' }
   }

@@ -10,6 +10,7 @@ import { isAppQuitting } from './app-shutdown'
 import { getProjects } from './store'
 import { rememberWindowPlacement, resolveRememberedWindowPlacement } from './layout-memory'
 import { watchPreviewRoot } from './preview-watch'
+import { toSysPath } from './sys-path'
 
 /**
  * Preview Window（预览窗口）：系统带着一个文件拉起 DevCube 时开的独立窗口（docs/prd/file-preview-window.md）；
@@ -33,11 +34,6 @@ const byFile = new Map<string, PreviewEntry>()
 /** 最近聚焦过的预览窗口：新窗继承它的实时几何（最大化 / 位置尺寸），而不是只认最近关掉的那份 */
 let lastFocused: BrowserWindow | null = null
 
-/** 逻辑路径（/）→ 系统路径（Windows 盘符路径还原反斜杠）。 */
-function toSys(logical: string): string {
-  return process.platform === 'win32' ? logical.replace(/\//g, '\\') : logical
-}
-
 function entryOf(win: BrowserWindow): PreviewEntry | undefined {
   for (const entry of byFile.values()) if (entry.win === win) return entry
   return undefined
@@ -56,7 +52,7 @@ export function rememberPreviewWindowPlacement(): void {
 function attachWatcher(entry: PreviewEntry): void {
   void entry.watcher?.dispose()
   const root = entry.root
-  entry.watcher = watchPreviewRoot(toSys(root), () => {
+  entry.watcher = watchPreviewRoot(toSysPath(root), () => {
     if (!entry.win.isDestroyed()) entry.win.webContents.send(IPC.filesChanged, root)
   })
 }

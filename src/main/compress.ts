@@ -29,6 +29,9 @@ import {
 } from './compress-scan'
 import type { CompressWorkerData, CompressWorkerMessage } from './compress-worker'
 import workerPath from './compress-worker?modulePath'
+import { toSysPath } from './sys-path'
+import { wslDistroOf } from '../shared/wsl-path'
+import { holdWsl, releaseWsl } from './wsl'
 
 /**
  * 压缩窗口（docs/prd/compress.md）：每次压缩一个独立的小窗口，可多开。主进程按窗口持有一次压缩的会话——
@@ -67,11 +70,6 @@ export function hasCompressWindows(): boolean {
   return sessions.size > 0
 }
 
-/** 逻辑路径（/）→ 系统路径（Windows 还原反斜杠）。 */
-function toSys(logical: string): string {
-  return process.platform === 'win32' ? logical.replace(/\//g, '\\') : logical
-}
-
 function sessionOf(sender: WebContents): CompressSession {
   const session = sessions.get(sender.id)
   if (!session) throw new Error('不是压缩窗口')
@@ -87,7 +85,7 @@ export async function openCompressWindow(paths: readonly string[]): Promise<void
   const items = outermostPaths(paths)
   if (items.length === 0) return
   const logicalParent = commonParentPath(items)
-  const parent = toSys(logicalParent)
+  const parent = toSysPath(logicalParent)
   const subject = compressSubject(items)
   // 默认名称避开位置里已有的同名包；建窗前算好，首帧就是完整内容
   const taken = await originalFs.readdir(parent).catch(() => [])
@@ -111,9 +109,14 @@ export async function openCompressWindow(paths: readonly string[]): Promise<void
     job: null
   }
   sessions.set(webContentsId, session)
+  // 位置在 WSL 发行版里：开着期间算「在用」，不被闲置断开（docs/prd/wsl-project.md）
+  const distro = wslDistroOf(parent)
+  const holder = `compress:${webContentsId}`
+  if (distro !== null) holdWsl(distro, holder)
 
   // 关窗即取消：中止扫描、结束压缩线程、删掉写了一半的临时文件
   win.on('closed', () => {
+    if (distro !== null) releaseWsl(distro, holder)
     session.abort.abort()
     void cancelJob(session)
     sessions.delete(webContentsId)

@@ -128,6 +128,7 @@ export function defaultWorktreeDirectory(anchorPath: string): string {
 }
 
 const WINDOWS_DRIVE = /^[A-Za-z]:$/
+const UNC_ROOT = /^[/\\]{2}([^/\\]+)[/\\]+([^/\\]+)/
 
 /**
  * 新工作树的完整路径 = 存放目录 + 名称。目录设置为 null / 空即默认 `../<主项目名>.worktrees`；
@@ -143,13 +144,14 @@ export function resolveWorktreePath(
   const directory = (directorySetting ?? '').trim() || defaultWorktreeDirectory(anchorPath)
   const isAbsolute = /^[/\\]/.test(directory) || WINDOWS_DRIVE.test(directory.slice(0, 2))
   const raw = isAbsolute
-    ? splitPath(directory)
-    : [...splitPath(anchorPath), ...splitPath(directory)]
+    ? splitPath(directory, sep)
+    : [...splitPath(anchorPath, sep), ...splitPath(directory, sep)]
   const out: string[] = []
   for (const seg of raw) {
     if (seg === '.') continue
     if (seg === '..') {
-      const isRoot = out.length === 1 && (out[0] === '' || WINDOWS_DRIVE.test(out[0]))
+      const isRoot =
+        out.length === 1 && (out[0] === '' || WINDOWS_DRIVE.test(out[0]) || UNC_ROOT.test(out[0]))
       if (out.length > 0 && !isRoot) out.pop()
       continue
     }
@@ -159,8 +161,19 @@ export function resolveWorktreePath(
   return out.join(sep)
 }
 
-/** 按两种分隔符切段；保留首段的空串（POSIX 根标记），丢掉其余空段（重复 / 末尾分隔符）。 */
-function splitPath(path: string): string[] {
+/**
+ * 按两种分隔符切段，丢掉空段（重复 / 末尾分隔符）；首段是根标记：POSIX 根为空串，
+ * UNC 根（`\\主机\共享`）整段按 sep 写成一段。
+ */
+function splitPath(path: string, sep: string): string[] {
+  const unc = UNC_ROOT.exec(path)
+  if (unc) {
+    const rest = path
+      .slice(unc[0].length)
+      .split(/[/\\]/)
+      .filter((seg) => seg !== '')
+    return [`${sep}${sep}${unc[1]}${sep}${unc[2]}`, ...rest]
+  }
   return path.split(/[/\\]/).filter((seg, i) => i === 0 || seg !== '')
 }
 

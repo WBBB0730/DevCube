@@ -90,6 +90,8 @@ import { typeToInput } from '@renderer/lib/type-to-input'
 import { cn } from '@renderer/lib/utils'
 import { BAR_INPUT_ICON, BarInput } from '@renderer/components/ui/bar-input'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
+import { LinuxMark } from '@renderer/components/ui/linux-mark'
+import { wslToLinuxPath } from '@shared/wsl-path'
 import {
   ContextMenu,
   ContextMenuContent,
@@ -1104,11 +1106,16 @@ function EntryRowContent({
   )
 }
 
-/** 条目行图标：项目为文件夹（链接工作树换 FolderGit2），服务器为 Server，数据源为 Database。 */
+/** 条目行图标：项目为文件夹（WSL 项目换 Linux 企鹅、链接工作树换 FolderGit2），服务器为 Server，数据源为 Database。 */
 function EntryIcon({ entry }: { entry: TreeEntry }): React.JSX.Element {
   switch (entry.kind) {
     case 'project':
-      return <ProjectFolderIcon worktreeOf={entry.node.worktreeOf} />
+      return (
+        <ProjectFolderIcon
+          projectPath={entry.node.project.path}
+          worktreeOf={entry.node.worktreeOf}
+        />
+      )
     case 'server':
       return <ServerIcon className="size-4 shrink-0 text-muted-foreground" />
     case 'dataSource':
@@ -1380,18 +1387,41 @@ function EntryRow({
 }
 
 /**
- * 项目行的文件夹图标：链接工作树项目换成 FolderGit2（术语见 CONTEXT.md「Worktree」），
- * hover 说明属于哪个主工作树；主工作树与普通项目仍是 Folder。
+ * 项目行的文件夹图标：WSL 项目换成 Linux 企鹅（hover 说明在哪个发行版里与 Linux 路径，docs/prd/wsl-project.md）；
+ * 链接工作树项目换成 FolderGit2（术语见 CONTEXT.md「Worktree」），hover 说明属于哪个主工作树——
+ * WSL 里的链接工作树仍用企鹅，hover 再加这一行；主工作树与普通项目仍是 Folder。
  */
-function ProjectFolderIcon({ worktreeOf }: { worktreeOf: string | null }): React.JSX.Element {
+function ProjectFolderIcon({
+  projectPath,
+  worktreeOf
+}: {
+  projectPath: string
+  worktreeOf: string | null
+}): React.JSX.Element {
+  const wsl = wslToLinuxPath(projectPath)
+  /** 链接工作树的两行说明：属于哪个主工作树、主工作树的路径（WSL 里的给 Linux 路径） */
+  const worktreeLines: string[] = []
+  if (worktreeOf !== null) {
+    const mainName =
+      worktreeOf
+        .split(/[/\\]/)
+        .filter((seg) => seg !== '')
+        .pop() ?? worktreeOf
+    worktreeLines.push(`“${mainName}” 的工作树`, wslToLinuxPath(worktreeOf)?.path ?? worktreeOf)
+  }
+  if (wsl !== null) {
+    return (
+      <span
+        title={[`${wsl.distro} 中的项目`, wsl.path, ...worktreeLines].join('\n')}
+        className="flex shrink-0 items-center"
+      >
+        <LinuxMark className="size-4 text-muted-foreground" />
+      </span>
+    )
+  }
   if (worktreeOf === null) return <Folder className="size-4 shrink-0 text-muted-foreground" />
-  const mainName =
-    worktreeOf
-      .split(/[/\\]/)
-      .filter((seg) => seg !== '')
-      .pop() ?? worktreeOf
   return (
-    <span title={`“${mainName}” 的工作树\n${worktreeOf}`} className="flex shrink-0 items-center">
+    <span title={worktreeLines.join('\n')} className="flex shrink-0 items-center">
       <FolderGit2 className="size-4 text-muted-foreground" />
     </span>
   )

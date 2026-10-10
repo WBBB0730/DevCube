@@ -1,7 +1,8 @@
 import { existsSync } from 'fs'
-import { dirname, isAbsolute, join, normalize, relative } from 'path'
+import { dirname, isAbsolute, join, normalize, posix, relative } from 'path'
 import { SCRIPT_SOURCE, type DiscoverSource } from '../shared/discover-source'
 import type { PackageManager, WindowsShell } from '../shared/types'
+import { wslToLinuxPath } from '../shared/wsl-path'
 import { conventionCommand, type ProjectFingerprints } from './discovery'
 
 /** 清单脚本的执行命令：`<pm> run <script>`，pm 缺省回退 npm。 */
@@ -274,6 +275,67 @@ export function buildShellSession(
     return { file, args: ['-NoLogo'] }
   }
   return { file: options.posixShell || '/bin/zsh', args: ['-l', '-i'] }
+}
+
+/**
+ * WSL 项目（docs/prd/wsl-project.md）里运行会话与终端的工作目录，交给 `wsl.exe --cd`：缺省为项目根；
+ * 相对路径按项目根解析；同一发行版的 Windows 路径换成 Linux 路径；`/`、`~` 开头按 Linux 路径原样用；
+ * 其余 Windows 绝对路径（盘符、别的发行版）原样交给 WSL 换算。全程按 Linux 路径算，与本机平台无关。
+ */
+export function resolveWslCwd(projectPath: string, cwd?: string): string {
+  const project = wslToLinuxPath(projectPath)
+  const root = project?.path ?? projectPath
+  if (!cwd) return root
+  if (/^[/\\]{2}|^[a-zA-Z]:[/\\]/.test(cwd)) {
+    const target = wslToLinuxPath(cwd)
+    return target !== null && target.distro.toLowerCase() === project?.distro.toLowerCase()
+      ? target.path
+      : cwd
+  }
+  if (/^[/~]/.test(cwd)) return cwd
+  return posix.join(root, cwd.replace(/\\/g, '/'))
+}
+
+/** WSL 项目的 Terminal：`wsl.exe -d <发行版> --cd <目录>`，不带命令即用户默认 shell 的交互登录 shell（同 Windows Terminal 的 WSL 配置）。 */
+export function buildWslShellSession(
+  wslExe: string,
+  distro: string,
+  cwd: string
+): { file: string; args: string[] } {
+  return { file: wslExe, args: ['-d', distro, '--cd', cwd] }
+}
+
+/** WSL 项目运行会话的启动参数（小助手的位置与登记目录取自连接时的 initialize）。 */
+export interface WslRunInvocation {
+  wslExe: string
+  distro: string
+  cwd: string
+  /** 小助手在发行版里的路径 */
+  helper: string
+  runDir: string
+  /** 会话 id：停止时按它找进程组 */
+  id: string
+  /** 用户的登录 shell */
+  shell: string
+  /** 已包好运行头的命令 */
+  command: string
+  env?: Record<string, string>
+}
+
+/**
+ * WSL 项目的运行会话：经小助手的 launch 子命令自成进程组并登记（停止时在发行版里结束整组），设好配置的环境变量，
+ * 再以用户的 shell `-l -i -c` 执行（同 macOS / Linux 上的本机运行）。
+ */
+export function buildWslRunInvocation(o: WslRunInvocation): { file: string; args: string[] } {
+  const env = Object.entries(o.env ?? {}).flatMap(([key, value]) => ['--env', `${key}=${value}`])
+  return {
+    file: o.wslExe,
+    args: [
+      ...['-d', o.distro, '--cd', o.cwd, '--exec', o.helper],
+      ...['launch', '--run-dir', o.runDir, '--id', o.id, ...env, '--'],
+      ...[o.shell, '-l', '-i', '-c', o.command]
+    ]
+  }
 }
 
 /** 缺省语言环境跟界面语言走（界面只有简体中文，见 ADR-0037），同 VS Code 终端的做法。 */

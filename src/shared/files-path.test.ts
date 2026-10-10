@@ -1,6 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import {
   childPathPrefix,
+  isAbsolutePath,
+  isLogicalRoot,
   joinLogicalPath,
   lastPathSegment,
   logicalParentPath,
@@ -12,6 +14,45 @@ import {
 describe('normalizePath', () => {
   it('折叠 . 与 ..', () => {
     expect(normalizePath('/a/./b/../c')).toBe('/a/c')
+  })
+
+  it('UNC 路径保留 //主机/共享 根，.. 不越过它', () => {
+    expect(normalizePath('\\\\server\\share\\a\\b')).toBe('//server/share/a/b')
+    expect(normalizePath('//server/share/a/../b/')).toBe('//server/share/b')
+    expect(normalizePath('\\\\server\\share\\..\\..\\x')).toBe('//server/share/x')
+    expect(normalizePath('\\\\server\\share')).toBe('//server/share')
+    expect(normalizePath('//server/share/')).toBe('//server/share')
+  })
+
+  it('UNC 主机名统一写法：WSL 两种前缀归一为 wsl.localhost，其余转小写', () => {
+    expect(normalizePath('\\\\wsl$\\Ubuntu\\home\\me')).toBe('//wsl.localhost/Ubuntu/home/me')
+    expect(normalizePath('\\\\WSL.LocalHost\\Ubuntu\\home')).toBe('//wsl.localhost/Ubuntu/home')
+    expect(normalizePath('\\\\Server\\Share')).toBe('//server/Share')
+  })
+
+  it('规范化结果再规范化不变', () => {
+    for (const p of ['//wsl.localhost/Ubuntu/home/me', 'C:/a', '/a', 'a/b']) {
+      expect(normalizePath(p)).toBe(p)
+    }
+  })
+})
+
+describe('isAbsolutePath / isLogicalRoot', () => {
+  it('POSIX 根、盘符与 UNC 都是绝对路径', () => {
+    expect(isAbsolutePath('/a')).toBe(true)
+    expect(isAbsolutePath('C:\\a')).toBe(true)
+    expect(isAbsolutePath('\\\\server\\share')).toBe(true)
+    expect(isAbsolutePath('//server/share')).toBe(true)
+    expect(isAbsolutePath('src/a.ts')).toBe(false)
+  })
+
+  it('三种根', () => {
+    expect(isLogicalRoot('/')).toBe(true)
+    expect(isLogicalRoot('C:/')).toBe(true)
+    expect(isLogicalRoot('//wsl.localhost/Ubuntu')).toBe(true)
+    expect(isLogicalRoot('//wsl.localhost/Ubuntu/home')).toBe(false)
+    expect(isLogicalRoot('/a')).toBe(false)
+    expect(isLogicalRoot('a')).toBe(false)
   })
 })
 
@@ -33,6 +74,13 @@ describe('childPathPrefix / joinLogicalPath / logicalParentPath', () => {
     expect(logicalParentPath('/etc')).toBe('/')
     expect(logicalParentPath('/')).toBe('/')
     expect(logicalParentPath('C:/x')).toBe('C:/')
+  })
+
+  it('UNC：所在目录不越过 //主机/共享', () => {
+    expect(childPathPrefix('//wsl.localhost/Ubuntu')).toBe('//wsl.localhost/Ubuntu/')
+    expect(logicalParentPath('//wsl.localhost/Ubuntu/home/me')).toBe('//wsl.localhost/Ubuntu/home')
+    expect(logicalParentPath('//wsl.localhost/Ubuntu/home')).toBe('//wsl.localhost/Ubuntu')
+    expect(logicalParentPath('//wsl.localhost/Ubuntu')).toBe('//wsl.localhost/Ubuntu')
   })
 })
 
@@ -78,6 +126,18 @@ describe('resolveWithinProject', () => {
 
   it('拒绝根外绝对路径', () => {
     expect(resolveWithinProject(root, '/other/file')).toBeNull()
+  })
+
+  it('UNC 项目根：接受根下路径，拒绝穿越与其他发行版', () => {
+    const wsl = '\\\\wsl.localhost\\Ubuntu\\home\\me\\web'
+    expect(resolveWithinProject(wsl, 'src/a.ts')).toBe(
+      '//wsl.localhost/Ubuntu/home/me/web/src/a.ts'
+    )
+    expect(resolveWithinProject(wsl, '\\\\wsl$\\Ubuntu\\home\\me\\web\\b')).toBe(
+      '//wsl.localhost/Ubuntu/home/me/web/b'
+    )
+    expect(resolveWithinProject(wsl, '../other')).toBeNull()
+    expect(resolveWithinProject(wsl, '//wsl.localhost/Debian/home/me/web/a')).toBeNull()
   })
 
   it('空输入返回 null', () => {

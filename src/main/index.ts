@@ -43,6 +43,7 @@ import {
 import { openProjectFromExternal } from './ipc'
 import { addProjectByPath } from './projects'
 import { getAppPrefs, getWorkspaceUi, setWorkspaceUi } from './store'
+import { closeAllWsl } from './wsl'
 import { applyTheme } from './theme'
 import { createAppWindow } from './app-window'
 import {
@@ -273,6 +274,7 @@ async function runQuitCleanup(): Promise<void> {
   rememberPreviewWindowPlacement()
   disposeTray()
   killAllSessions()
+  closeAllWsl()
   disposeAllServerStatus()
   disposeAllServerFiles()
   clearAllServerFilesCache()

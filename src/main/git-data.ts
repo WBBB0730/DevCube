@@ -5,7 +5,15 @@
 
 import { readFile, realpath, stat } from 'fs/promises'
 import { isAbsolute, join, normalize } from 'path'
-import { execGit, findGit, getErrorMessage, isVersionAtLeast, resolveRepoRoot } from './git-exec'
+import {
+  execGit,
+  findGit,
+  getErrorMessage,
+  gitOutputToLocal,
+  gitPathArg,
+  isVersionAtLeast,
+  resolveRepoRoot
+} from './git-exec'
 import {
   assembleCommits,
   countPorcelainStatus,
@@ -427,8 +435,9 @@ async function detectOpInProgress(root: string): Promise<GitOpInProgress | null>
   const exists = await Promise.all(
     paths.map(async (p) => {
       try {
-        // --git-path 输出相对执行时 cwd（即 root），也可能已是绝对路径
-        await stat(isAbsolute(p) ? p : join(root, p))
+        // --git-path 输出相对执行时 cwd（即 root），也可能已是绝对路径（WSL 仓库为发行版里的 Linux 路径）
+        const local = gitOutputToLocal(root, p)
+        await stat(isAbsolute(local) ? local : join(root, local))
         return true
       } catch {
         return false
@@ -446,7 +455,10 @@ async function detectOpInProgress(root: string): Promise<GitOpInProgress | null>
 async function loadWorktrees(root: string): Promise<GitWorktree[]> {
   const result = await runGit(root, ['worktree', 'list', '--porcelain'])
   if (!result.ok) return []
-  const parsed = parseWorktreeList(result.stdout).map((w) => ({ ...w, path: normalize(w.path) }))
+  const parsed = parseWorktreeList(result.stdout).map((w) => ({
+    ...w,
+    path: normalize(gitOutputToLocal(root, w.path))
+  }))
   let real = root
   try {
     real = await realpath(root)
@@ -892,7 +904,7 @@ export async function getFileDiff(
 ): Promise<GitDiffResult> {
   const root = await resolveRepoRoot(projectPath)
   if (root === null) return { diff: null, error: NOT_A_REPO }
-  const { args, noIndex } = buildFileDiffArgs(request, root)
+  const { args, noIndex } = buildFileDiffArgs(request, gitPathArg(root, root))
   const result = await execGit(root, args)
   // --no-index 有差异时退出码为 1（常态），≥2 或 spawn 失败（-1）才是错误；其余命令非 0 即错
   const failed = noIndex ? result.code < 0 || result.code >= 2 : result.code !== 0
@@ -972,7 +984,7 @@ export async function getTagDetails(
   if (root === null) return { details: null, error: NOT_A_REPO }
   // 版本 gate：%(contents:signature) 等 for-each-ref 字段 1.7.8 起才有
   // （git 缺失时不在此拦截，让 runGit 返回统一的「未找到 git」错误文案）
-  const git = await findGit()
+  const git = await findGit(root)
   if (git !== null && !isVersionAtLeast(git.version, '1.7.8')) {
     return {
       details: null,

@@ -30,6 +30,7 @@ import {
   worktreeDisplayName,
   worktreeHoldingBranch
 } from '@shared/git'
+import { copyablePath } from '@shared/wsl-path'
 import { dropCommitPossible } from '@renderer/lib/git-graph'
 import { gitState, useGit } from '@renderer/git-store'
 import { useFiles } from '@renderer/files-store'
@@ -592,7 +593,8 @@ function fileMenu(
     {
       // 绝对路径以项目根拼接（项目根即打开的仓库目录；见 foundation「打开文件」约定）
       title: '复制文件绝对路径',
-      onClick: () => actions.copyText(`${ctx.projectPath}/${file.newFilePath}`, '文件路径')
+      onClick: () =>
+        actions.copyText(copyablePath(`${ctx.projectPath}/${file.newFilePath}`), '文件路径')
     },
     {
       title: '复制文件相对路径',
@@ -654,7 +656,8 @@ function uncommittedFileMenu(
     {
       // 绝对路径以项目根拼接（同 fileMenu 的约定）
       title: '复制文件绝对路径',
-      onClick: () => actions.copyText(`${ctx.projectPath}/${file.newFilePath}`, '文件路径')
+      onClick: () =>
+        actions.copyText(copyablePath(`${ctx.projectPath}/${file.newFilePath}`), '文件路径')
     },
     {
       title: '复制文件相对路径',

@@ -1,5 +1,6 @@
 import { getConfigs, getProjects } from './store'
-import { detectPackageManager, discoverScripts, readFingerprints, readScripts } from './discovery'
+import { discoverScripts, NO_FINGERPRINTS } from './discovery'
+import { projectDiscovery } from './wsl-discovery'
 import { configOwnerKey } from '../shared/tree-entry'
 import type { ProjectNode } from '../shared/types'
 
@@ -20,19 +21,25 @@ export function clearProjectWorktreeOf(projectPath: string): void {
   worktreeOfByProject.delete(projectPath)
 }
 
-// 把持久化的 projects + configs 与实时探测组装成聚合面板的树。
+// 把持久化的 projects + configs 与实时探测组装成聚合面板的树（WSL 项目的探测只读缓存，从未连上时没有检测结果）。
 export function buildTree(): ProjectNode[] {
   const configs = getConfigs()
-  return getProjects().map((project) => ({
-    project,
-    packageManager: detectPackageManager(project.path),
-    discovered: discoverScripts(
-      project.path,
-      readScripts(project.path),
-      readFingerprints(project.path),
-      configs
-    ),
-    configs: configs.filter((c) => configOwnerKey(c) === project.path),
-    worktreeOf: worktreeOfByProject.get(project.path) ?? null
-  }))
+  return getProjects().map((project) => {
+    const snapshot = projectDiscovery(project.path)
+    return {
+      project,
+      packageManager: snapshot?.packageManager ?? null,
+      discovered:
+        snapshot === null
+          ? []
+          : discoverScripts(
+              project.path,
+              snapshot.scripts ?? {},
+              snapshot.fingerprints ?? NO_FINGERPRINTS,
+              configs
+            ),
+      configs: configs.filter((c) => configOwnerKey(c) === project.path),
+      worktreeOf: worktreeOfByProject.get(project.path) ?? null
+    }
+  })
 }

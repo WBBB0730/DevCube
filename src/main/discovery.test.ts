@@ -8,7 +8,9 @@ import {
   liveReferencedKeys,
   parseScripts,
   pickPackageManager,
-  type ProjectFingerprints
+  type ProjectFingerprints,
+  NO_FINGERPRINTS,
+  snapshotFromFiles
 } from './discovery'
 
 const none: ProjectFingerprints = {
@@ -186,5 +188,51 @@ describe('liveReferencedKeys', () => {
   it('快照不可用时返回 null', () => {
     expect(liveReferencedKeys(null, none)).toBeNull()
     expect(liveReferencedKeys({}, null)).toBeNull()
+  })
+})
+
+describe('snapshotFromFiles', () => {
+  it('由根目录条目与清单原文得出包管理器、脚本与指纹', () => {
+    expect(
+      snapshotFromFiles({
+        names: ['package.json', 'pnpm-lock.yaml', 'go.mod', 'compose.yaml', 'app.csproj'],
+        packageJson: '{"scripts":{"dev":"vite"}}',
+        pubspec: null
+      })
+    ).toEqual({
+      packageManager: 'pnpm',
+      scripts: { dev: 'vite' },
+      fingerprints: { ...NO_FINGERPRINTS, hasGoMod: true, hasCompose: true, hasDotnet: true }
+    })
+  })
+
+  it('没有 package.json 为空脚本；读失败为 null（对账时保留引用）；解析失败同本机读取按空', () => {
+    expect(snapshotFromFiles({ names: [], packageJson: null, pubspec: null }).scripts).toEqual({})
+    expect(
+      snapshotFromFiles({ names: ['package.json'], packageJson: undefined, pubspec: null }).scripts
+    ).toBeNull()
+    expect(
+      snapshotFromFiles({ names: ['package.json'], packageJson: '{oops', pubspec: null }).scripts
+    ).toEqual({})
+  })
+
+  it('pubspec.yaml 决定 Flutter；它在但读失败时指纹整份不可用', () => {
+    const flutter = 'dependencies:\n  flutter:\n    sdk: flutter\n'
+    expect(
+      snapshotFromFiles({ names: ['pubspec.yaml'], packageJson: null, pubspec: flutter })
+        .fingerprints?.isFlutter
+    ).toBe(true)
+    expect(
+      snapshotFromFiles({ names: ['pubspec.yaml'], packageJson: null, pubspec: undefined })
+        .fingerprints
+    ).toBeNull()
+  })
+
+  it('根目录读不到：三项都不可用', () => {
+    expect(snapshotFromFiles({ names: null, packageJson: null, pubspec: null })).toEqual({
+      packageManager: null,
+      scripts: null,
+      fingerprints: null
+    })
   })
 })

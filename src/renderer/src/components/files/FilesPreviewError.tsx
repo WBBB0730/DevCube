@@ -1,7 +1,6 @@
 // Files Tab 正文预览打不开时的占位（PDF / PPT / 表格 / 图片共用）。
 import { useContext } from 'react'
 import { Button } from '@renderer/components/ui/button'
-import { toSysPath } from '@renderer/lib/files-paths'
 import { FilesDownloadContext, FilesLocalContext } from './files-local-context'
 
 /**
@@ -32,7 +31,7 @@ export function FilesPreviewError({
           </Button>
         )}
         {local && (
-          <Button variant="secondary" onClick={() => void window.api.openPath(toSysPath(path))}>
+          <Button variant="secondary" onClick={() => void window.api.openPath(path)}>
             在其他应用中打开
           </Button>
         )}

@@ -56,14 +56,14 @@ export interface CompressGitResult {
 }
 
 export interface CompressScanDeps {
-  /** 本机有没有 git：没有就不做忽略判定，也不出现那个勾选框 */
-  gitAvailable: () => Promise<boolean>
+  /** 这个目录所在的环境有没有 git（WSL 里的看发行版里的）：没有就不做忽略判定，也不出现那个勾选框 */
+  gitAvailable: (cwd: string) => Promise<boolean>
   /** input 写进标准输入（`check-ignore --stdin`） */
   git: (cwd: string, args: string[], input?: Buffer) => Promise<CompressGitResult>
 }
 
 const defaultDeps: CompressScanDeps = {
-  gitAvailable: async () => (await findGit()) !== null,
+  gitAvailable: async (cwd) => (await findGit(cwd)) !== null,
   git: async (cwd, args, input) => {
     const result = await execGit(cwd, args, input)
     return { code: result.code, stdout: result.stdout, message: getErrorMessage(result) }
@@ -152,7 +152,7 @@ export async function scanCompressItems(
   const parentLogical = normalizePath(parent)
   const flags: CompressContentFlags = { hasRepo: false, hasDotGit: false, hasMacJunk: false }
   const entries: CompressEntry[] = []
-  const gitAvailable = await deps.gitAvailable()
+  const gitAvailable = await deps.gitAvailable(parent)
   const useGit = excludeIgnored && gitAvailable
 
   const checkAborted = (): void => {

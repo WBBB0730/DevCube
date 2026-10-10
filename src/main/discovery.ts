@@ -1,4 +1,4 @@
-import { existsSync, readdirSync, readFileSync } from 'fs'
+import { readdirSync, readFileSync } from 'fs'
 import { join } from 'path'
 import { discoverRefKey } from '../shared/discover-key'
 import { SCRIPT_SOURCE, type DiscoverSource } from '../shared/discover-source'
@@ -214,82 +214,76 @@ export function liveReferencedKeys(
   return keys
 }
 
-// —— IO 包装（依赖 fs，不依赖 electron，便于测试其纯函数） ——
-
-export function detectPackageManager(projectPath: string): PackageManager | null {
-  const present = LOCKFILE_NAMES.filter((f) => existsSync(join(projectPath, f)))
-  return pickPackageManager(present)
+/** 一个项目的探测快照：包管理器、清单脚本与约定指纹；读不到的为 null（对账时保留引用，展示时按空）。 */
+export interface DiscoverySnapshot {
+  packageManager: PackageManager | null
+  scripts: Record<string, string> | null
+  fingerprints: ProjectFingerprints | null
 }
 
-export function readScripts(projectPath: string): Record<string, string> {
-  const file = join(projectPath, 'package.json')
-  if (!existsSync(file)) return {}
-  try {
-    return parseScripts(readFileSync(file, 'utf8'))
-  } catch {
-    return {}
-  }
+/** 没有任何指纹（读不到时展示用）。 */
+export const NO_FINGERPRINTS: ProjectFingerprints = {
+  hasGoMod: false,
+  hasCargoToml: false,
+  isFlutter: false,
+  hasDotnet: false,
+  hasCompose: false
 }
 
 /**
- * 对账专用：读失败返回 null（保留引用）；确认无 package.json 返回 {}。
- * 避免编辑器原子写（unlink→rename）瞬间把引用型全删掉。
+ * 由项目根的条目名与两份清单原文得出探测快照（纯函数；WSL 项目由发行版里的小助手读取，见 wsl-discovery）。
+ * names 为 null 即根目录读不到；packageJson / pubspec 为 null 即没有这个文件，undefined 即有但读失败。
+ * 口径同下面的本机读取（对账专用的那组）。
  */
-export function readScriptsForReconcile(projectPath: string): Record<string, string> | null {
-  const file = join(projectPath, 'package.json')
-  try {
-    if (!existsSync(file)) {
-      try {
-        const names = readdirSync(projectPath)
-        if (!names.includes('package.json')) return {}
-        // readdir 仍见其名但 exists 为 false：极可能是原子写窗口
-        return null
-      } catch {
-        return null
-      }
-    }
-    return parseScripts(readFileSync(file, 'utf8'))
-  } catch {
-    return null
-  }
-}
-
-export function readFingerprints(projectPath: string): ProjectFingerprints {
-  const fp = readFingerprintsForReconcile(projectPath)
-  return (
-    fp ?? {
-      hasGoMod: false,
-      hasCargoToml: false,
-      isFlutter: false,
-      hasDotnet: false,
-      hasCompose: false
-    }
-  )
-}
-
-/** 对账专用：根目录不可读时返回 null，保留约定引用。 */
-export function readFingerprintsForReconcile(projectPath: string): ProjectFingerprints | null {
-  let rootFiles: string[]
-  try {
-    rootFiles = readdirSync(projectPath)
-  } catch {
-    return null
-  }
-  const pubspec = join(projectPath, 'pubspec.yaml')
-  let isFlutter = false
-  if (rootFiles.includes('pubspec.yaml')) {
-    try {
-      isFlutter = isFlutterPubspec(readFileSync(pubspec, 'utf8'))
-    } catch {
-      // pubspec 在但读失败：不当成「非 Flutter」去删约定，整份指纹标记不可用
-      return null
-    }
-  }
+export function snapshotFromFiles(input: {
+  names: readonly string[] | null
+  packageJson: string | null | undefined
+  pubspec: string | null | undefined
+}): DiscoverySnapshot {
+  const { names, packageJson, pubspec } = input
+  if (names === null) return { packageManager: null, scripts: null, fingerprints: null }
+  const scripts =
+    packageJson === undefined ? null : packageJson === null ? {} : parseScripts(packageJson)
+  const pubspecUnreadable = names.includes('pubspec.yaml') && pubspec === undefined
   return {
-    hasGoMod: rootFiles.includes('go.mod'),
-    hasCargoToml: rootFiles.includes('Cargo.toml'),
-    isFlutter,
-    hasDotnet: rootFiles.some(isDotnetProjectFile),
-    hasCompose: rootFiles.some(isComposeFile)
+    packageManager: pickPackageManager(LOCKFILE_NAMES.filter((f) => names.includes(f))),
+    scripts,
+    fingerprints: pubspecUnreadable
+      ? null
+      : {
+          hasGoMod: names.includes('go.mod'),
+          hasCargoToml: names.includes('Cargo.toml'),
+          isFlutter: typeof pubspec === 'string' && isFlutterPubspec(pubspec),
+          hasDotnet: names.some(isDotnetProjectFile),
+          hasCompose: names.some(isComposeFile)
+        }
   }
+}
+
+// —— IO 包装（依赖 fs，不依赖 electron，便于测试其纯函数） ——
+
+/**
+ * 本机项目的探测快照：列一次根目录，再按需读两份清单，交给 snapshotFromFiles（与 WSL 项目同一套口径）。
+ * 名单里有、读却失败（编辑器原子写 unlink→rename 的瞬间）记为读失败，对账时保留引用而不是全删。
+ */
+export function readDiscoverySnapshot(projectPath: string): DiscoverySnapshot {
+  let names: string[]
+  try {
+    names = readdirSync(projectPath)
+  } catch {
+    return snapshotFromFiles({ names: null, packageJson: null, pubspec: null })
+  }
+  const read = (name: string): string | null | undefined => {
+    if (!names.includes(name)) return null
+    try {
+      return readFileSync(join(projectPath, name), 'utf8')
+    } catch {
+      return undefined
+    }
+  }
+  return snapshotFromFiles({
+    names,
+    packageJson: read('package.json'),
+    pubspec: read('pubspec.yaml')
+  })
 }

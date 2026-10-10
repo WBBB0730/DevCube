@@ -35,6 +35,8 @@ import { ensureImagePreview, ensureImagePyramid } from './files-image-pyramid'
 import { getFilesIndex } from './files-index'
 import { execGit, resolveRepoRoot } from './git-exec'
 import { isGrantedFilesRoot } from './files-roots'
+import { toSysPath } from './sys-path'
+import { wslDistroOf } from '../shared/wsl-path'
 
 const IMAGE_SIZE_PROBE_BYTES = 65536
 
@@ -70,11 +72,6 @@ async function probeImageSize(sys: string): Promise<{ width: number; height: num
   return undefined
 }
 
-/** 逻辑路径（/）→ 系统路径。 */
-function toSys(logical: string): string {
-  return path.normalize(logical.split('/').join(path.sep))
-}
-
 /** 根须在授权表内（已登记 Project 根或 Preview Window 当前根，见 files-roots）。 */
 export function assertFilesRoot(rootPath: string): string {
   const root = normalizePath(rootPath)
@@ -91,18 +88,18 @@ function within(projectPath: string, candidate: string): string {
 
 /** 授权根下某个文件的系统路径（越界或根未授权即抛错）。 */
 export function filesSysPath(projectPath: string, filePath: string): string {
-  return toSys(within(projectPath, filePath))
+  return toSysPath(within(projectPath, filePath))
 }
 
 export async function listDir(projectPath: string, dirPath: string): Promise<FilesDirEntry[]> {
   const logical = within(projectPath, dirPath || '.')
-  const sys = toSys(logical)
+  const sys = toSysPath(logical)
   const names = await fs.readdir(sys)
   const entries: FilesDirEntry[] = []
   for (const name of names) {
     if (isIdeIgnoredEntryName(name)) continue
     const childLogical = normalizePath(logical + '/' + name)
-    const st = await fs.lstat(toSys(childLogical)).catch(() => null)
+    const st = await fs.lstat(toSysPath(childLogical)).catch(() => null)
     if (!st) continue
     entries.push({
       name,
@@ -163,7 +160,7 @@ export async function readFileEntry(
 ): Promise<FilesReadResult> {
   const root = assertFilesRoot(projectPath)
   const logical = within(projectPath, filePath)
-  const sys = toSys(logical)
+  const sys = toSysPath(logical)
   const st = await fs.stat(sys)
   if (st.isDirectory()) throw new Error('不能打开目录')
   const name = path.basename(sys)
@@ -280,7 +277,7 @@ export function imagePyramidEntry(
  */
 export async function readHeadText(projectPath: string, filePath: string): Promise<string | null> {
   const logical = within(projectPath, filePath)
-  const repoRootSys = await resolveRepoRoot(toSys(normalizePath(projectPath)))
+  const repoRootSys = await resolveRepoRoot(toSysPath(normalizePath(projectPath)))
   if (!repoRootSys) return null
   const rel = toRepoRel(normalizePath(repoRootSys), logical)
   if (rel === '.') return null
@@ -297,7 +294,7 @@ export async function writeFileEntry(
   content: string
 ): Promise<{ mtimeMs: number; size: number }> {
   const logical = within(projectPath, filePath)
-  const sys = toSys(logical)
+  const sys = toSysPath(logical)
   await fs.writeFile(sys, content, 'utf8')
   const st = await fs.stat(sys)
   return { mtimeMs: st.mtimeMs, size: st.size }
@@ -318,7 +315,7 @@ export async function createEntry(
   const parent = within(projectPath, dirPath)
   assertEntryName(name)
   const logical = normalizePath(parent + '/' + name)
-  const sys = toSys(logical)
+  const sys = toSysPath(logical)
   try {
     // wx / mkdir：已存在即失败，创建与查重原子完成
     if (kind === 'directory') await fs.mkdir(sys)
@@ -343,26 +340,31 @@ export async function renameEntry(
   const target = normalizePath(parent + '/' + newName)
   if (target === logical) return { path: logical }
   const caseOnly = target.toLowerCase() === logical.toLowerCase()
-  const exists = await fs.access(toSys(target)).then(
+  const exists = await fs.access(toSysPath(target)).then(
     () => true,
     () => false
   )
   if (exists && !caseOnly) throw new Error('已存在同名条目')
-  await fs.rename(toSys(logical), toSys(target))
+  await fs.rename(toSysPath(logical), toSysPath(target))
   return { path: target }
 }
 
 /** 移入系统回收站（可恢复；不做永久删除）。 */
+/**
+ * 删除条目：移到回收站。WSL 发行版里没有回收站（Windows 回收站不覆盖 WSL，强行调用会报错），直接删除——
+ * 渲染端对 WSL 项目已按「删除后无法恢复」确认过（docs/prd/wsl-project.md）。
+ */
 export async function trashEntry(projectPath: string, entryPath: string): Promise<void> {
   const logical = within(projectPath, entryPath)
   if (logical === normalizePath(projectPath)) throw new Error('不能删除根文件夹')
-  await shell.trashItem(toSys(logical))
+  if (wslDistroOf(logical) !== null) await fs.rm(toSysPath(logical), { recursive: true })
+  else await shell.trashItem(toSysPath(logical))
 }
 
 export async function fileExists(projectPath: string, filePath: string): Promise<boolean> {
   try {
     const logical = within(projectPath, filePath)
-    await fs.access(toSys(logical))
+    await fs.access(toSysPath(logical))
     return true
   } catch {
     return false

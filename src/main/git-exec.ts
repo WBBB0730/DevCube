@@ -7,7 +7,9 @@ import * as cp from 'child_process'
 import { promises as fs } from 'fs'
 import { isAbsolute, join, normalize, posix, resolve } from 'path'
 import { StringDecoder } from 'string_decoder'
+import { linuxToWslPath, wslToLinuxPath } from '../shared/wsl-path'
 import { resolveShellEnvironment } from './shell-env'
+import { wslExec } from './wsl'
 
 /** 行分割：兼容 \r\n / \r / \n（与 git-parse 中的常量同义，为避免层间依赖各自持有）。 */
 const EOL_REGEX = /\r\n|\r|\n/g
@@ -138,8 +140,13 @@ async function discoverGit(): Promise<GitExecutable | null> {
   return null
 }
 
-/** 发现并缓存 git 可执行文件；找不到返回 null。并发调用共享同一次发现。 */
-export async function findGit(): Promise<GitExecutable | null> {
+/**
+ * 发现并缓存 git 可执行文件；找不到返回 null。并发调用共享同一次发现。
+ * 给了目录且它在 WSL 发行版里时，取那个发行版里的 git（版本门槛按它判断）。
+ */
+export async function findGit(cwd?: string): Promise<GitExecutable | null> {
+  const wsl = wslTarget(cwd)
+  if (wsl !== null) return findWslGit(wsl.distro)
   if (cachedGit !== undefined) return cachedGit
   if (!discovering) {
     discovering = discoverGit().then((git) => {
@@ -156,6 +163,8 @@ export async function findGit(): Promise<GitExecutable | null> {
  * input 写进标准输入（`--stdin` 类命令用）。
  */
 export async function execGit(cwd: string, args: string[], input?: Buffer): Promise<GitExecResult> {
+  const wsl = wslTarget(cwd)
+  if (wsl !== null) return execWslGit(wsl.distro, wsl.path, args, { input })
   const git = await findGit()
   if (!git) {
     return {
@@ -192,6 +201,8 @@ export async function execGitStreaming(
   args: string[],
   onStderr: (chunk: string) => void
 ): Promise<GitStreamRun> {
+  const wsl = wslTarget(cwd)
+  if (wsl !== null) return execWslGitStreaming(wsl.distro, wsl.path, args, onStderr)
   const git = await findGit()
   if (!git) {
     return {
@@ -255,6 +266,103 @@ export function getErrorMessage(result: GitExecResult): string {
   return ''
 }
 
+// —— WSL 项目（ADR-0055、docs/prd/wsl-project.md）：仓库在 WSL 发行版里时，git 在那里执行 ——
+
+/** 目录在 WSL 发行版里时的发行版名与 Linux 路径；否则（含未给目录）为 null。 */
+function wslTarget(cwd: string | undefined): { distro: string; path: string } | null {
+  return cwd === undefined ? null : wslToLinuxPath(cwd)
+}
+
+/** 交给 git 的绝对路径参数：仓库在 WSL 里时换成发行版里的 Linux 路径（git 在那里执行），其余原样。 */
+export function gitPathArg(cwd: string, path: string): string {
+  return wslTarget(cwd) !== null ? (wslToLinuxPath(path)?.path ?? path) : path
+}
+
+/** git 输出的绝对路径 → 本机路径：仓库在 WSL 里时 Linux 路径换成 `\\wsl.localhost\<发行版>\…`，其余（含相对路径）原样。 */
+export function gitOutputToLocal(cwd: string, path: string): string {
+  const wsl = wslTarget(cwd)
+  return wsl !== null && path.startsWith('/') ? linuxToWslPath(wsl.distro, path) : path
+}
+
+/** 发行版里 git 的环境：登录环境由小助手带上，这里只叠加 gitEnv 里的两条（应用内 git 永不交互）。 */
+const WSL_GIT_ENV = { GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true' }
+
+/** 找不到 git 时换成指明发行版的提示；其余错误原样。 */
+function wslGitError(distro: string, error: Error | null): Error | null {
+  return (error as NodeJS.ErrnoException | null)?.code === 'ENOENT'
+    ? new Error(`${distro} 中未找到 git，请在其中安装`)
+    : error
+}
+
+async function execWslGit(
+  distro: string,
+  cwd: string,
+  args: string[],
+  options: { input?: Buffer }
+): Promise<GitExecResult> {
+  const result = await wslExec(distro, 'git', args, { cwd, env: WSL_GIT_ENV, input: options.input })
+  return {
+    code: result.code,
+    stdout: result.stdout,
+    stderr: result.stderr.toString('utf8'),
+    error: wslGitError(distro, result.error)
+  }
+}
+
+function execWslGitStreaming(
+  distro: string,
+  cwd: string,
+  args: string[],
+  onStderr: (chunk: string) => void
+): GitStreamRun {
+  const controller = new AbortController()
+  const stdoutChunks: Buffer[] = []
+  let stderrText = ''
+  const decoder = new StringDecoder('utf8')
+  const done = wslExec(distro, 'git', args, {
+    cwd,
+    env: WSL_GIT_ENV,
+    signal: controller.signal,
+    onData: (fd, chunk) => {
+      if (fd === 'stdout') {
+        stdoutChunks.push(chunk)
+        return
+      }
+      const text = decoder.write(chunk)
+      if (text === '') return
+      stderrText += text
+      onStderr(text)
+    }
+  }).then((result) => ({
+    code: result.code,
+    stdout: Buffer.concat(stdoutChunks),
+    stderr: stderrText,
+    error: wslGitError(distro, result.error)
+  }))
+  // 取消即在发行版里结束 git 的进程组（SIGTERM，git 照常清理中途产物）
+  return { cancel: () => controller.abort(), done }
+}
+
+/** 发行版键（小写）→ 正在 / 已经发现的 git；没找到不缓存，装上后下次即可用。 */
+const wslGits = new Map<string, Promise<GitExecutable | null>>()
+
+function findWslGit(distro: string): Promise<GitExecutable | null> {
+  const key = distro.toLowerCase()
+  let pending = wslGits.get(key)
+  if (!pending) {
+    pending = execWslGit(distro, '/', ['--version'], {}).then((result) => {
+      const stdout = result.stdout.toString('utf8').trim()
+      if (result.code !== 0 || !stdout.startsWith('git version')) return null
+      return { path: 'git', version: stdout.replace(/^git version /, '').trim() }
+    })
+    wslGits.set(key, pending)
+    void pending.then((git) => {
+      if (git === null) wslGits.delete(key)
+    })
+  }
+  return pending
+}
+
 // —— 版本比较 ——
 
 /** 提取 major.minor.patch；缺省补 0。解析不出返回 null。 */
@@ -299,11 +407,17 @@ async function realpathOr(path: string): Promise<string> {
   }
 }
 
-/** 无缓存的仓库根查找：rev-parse --show-toplevel + 符号链接回溯（保持用户视角路径）。 */
-async function lookupRepoRoot(dir: string): Promise<string | null> {
+/**
+ * 无缓存的仓库根查找：rev-parse --show-toplevel + 符号链接回溯（保持用户视角路径）。
+ * git 跑不起来（找不到 git、连不上 WSL 发行版）为 undefined：查不了，不等于不在仓库内，不能缓存。
+ */
+async function lookupRepoRoot(dir: string): Promise<string | null | undefined> {
   const result = await execGit(dir, ['rev-parse', '--show-toplevel'])
+  if (result.error !== null) return undefined
   if (result.code !== 0) return null
-  const canonical = normalizeSep(normalize(result.stdout.toString('utf8').trim()))
+  const canonical = normalizeSep(
+    normalize(gitOutputToLocal(dir, result.stdout.toString('utf8').trim()))
+  )
   // git 返回 canonical 路径；用户路径含符号链接时，逐级向上找与之等价的用户视角路径，
   // 保证 UI 显示与用户登记的项目路径一致；回溯不命中则直接用 git 的结果
   let path = normalizeSep(dir)
@@ -321,6 +435,7 @@ export async function resolveRepoRoot(dir: string): Promise<string | null> {
   const cached = repoRootCache.get(dir)
   if (cached !== undefined) return cached
   const root = await lookupRepoRoot(dir)
+  if (root === undefined) return null
   repoRootCache.set(dir, root)
   return root
 }
@@ -374,7 +489,10 @@ export async function resolveGitDirs(root: string): Promise<GitDirs | null> {
     .split(EOL_REGEX)
     .filter((line) => line !== '')
   if (lines.length < 2) return null
-  const abs = (p: string): string => normalizeSep(isAbsolute(p) ? normalize(p) : resolve(root, p))
+  const abs = (output: string): string => {
+    const p = gitOutputToLocal(root, output)
+    return normalizeSep(isAbsolute(p) ? normalize(p) : resolve(root, p))
+  }
   return { gitDir: abs(lines[0]), commonDir: abs(lines[1]) }
 }
 
@@ -387,6 +505,8 @@ export async function revalidateRepoRoot(
 ): Promise<{ root: string | null; changed: boolean }> {
   const cached = repoRootCache.get(dir)
   const root = await lookupRepoRoot(dir)
+  // 查不了：维持原判断，不当作变化
+  if (root === undefined) return { root: cached ?? null, changed: false }
   repoRootCache.set(dir, root)
   return { root, changed: cached === undefined || cached !== root }
 }

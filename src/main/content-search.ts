@@ -1,10 +1,8 @@
 // 内容搜索（Content Search）：主进程 spawn rg --json，流式解析后按批推给渲染端。
 // 单例语义——同一时刻至多一个搜索在跑，新搜索自动终止旧的；封顶即杀进程。
 // gitignore / 隐藏文件 / IDE 忽略名口径与文件名索引一致（ADR-0027）。
-// 本模块不依赖 electron（项目登记校验在 IPC 层做），可被集成测试直接驱动。
+// 本模块不直接用 electron（项目登记校验在 IPC 层做），可被集成测试直接驱动。
 
-import { spawn, type ChildProcess } from 'node:child_process'
-import path from 'node:path'
 import { StringDecoder } from 'node:string_decoder'
 import {
   buildRgSearchArgs,
@@ -16,20 +14,15 @@ import {
 } from '../shared/content-search'
 import { isIdeIgnoredEntryName } from '../shared/files-tree-filter'
 import { normalizePath } from '../shared/files-path'
-import { rgBin } from './files-index'
+import { runRg, type RgRun } from './rg'
 
 const FLUSH_MS = 30
 
-/** 逻辑路径（/）→ 系统路径。 */
-function toSys(logical: string): string {
-  return path.normalize(logical.split('/').join(path.sep))
-}
-
-let current: { child: ChildProcess; seq: number } | null = null
+let current: { run: RgRun; seq: number } | null = null
 
 export function stopContentSearch(): void {
   if (current) {
-    current.child.kill()
+    current.run.kill()
     current = null
   }
 }
@@ -48,14 +41,6 @@ export function startContentSearch(
   const root = normalizePath(projectPath)
   stopContentSearch()
 
-  const child = spawn(rgBin, buildRgSearchArgs(query, options), {
-    cwd: toSys(root),
-    // stdin 必须关死：rg 对非 TTY stdin 有「从 stdin 搜」的语义（参数里已显式给路径，双保险）
-    stdio: ['ignore', 'pipe', 'pipe'],
-    windowsHide: true
-  })
-  const mine = { child, seq }
-  current = mine
   const active = (): boolean => current === mine
 
   let matchCount = 0
@@ -91,7 +76,7 @@ export function startContentSearch(
     }
   }
 
-  child.stdout.on('data', (chunk: Buffer) => {
+  const onStdout = (chunk: Buffer): void => {
     // 封顶 kill 后管道里可能还有已缓冲的 chunk，不再计入
     if (!active() || limitHit) return
     const lines = (stdoutRest + decoder.write(chunk)).split('\n')
@@ -106,28 +91,29 @@ export function startContentSearch(
       matchCount++
       if (matchCount >= CONTENT_SEARCH_MAX_MATCHES) {
         limitHit = true
-        // close 事件里统一 flush + done；kill 后剩余输出不再进来
-        child.kill()
+        // 结束时统一 flush + done；kill 后剩余输出不再进来
+        mine.run.kill()
         return
       }
     }
-  })
+  }
 
-  child.stderr.on('data', (chunk: Buffer) => {
-    stderrText += chunk.toString('utf8')
-  })
+  const mine = {
+    run: runRg(root, buildRgSearchArgs(query, options), onStdout, (chunk) => {
+      stderrText += chunk.toString('utf8')
+    }),
+    seq
+  }
+  current = mine
 
-  child.on('error', (err) => {
+  void mine.run.done.then(({ code, error: spawnError }) => {
     if (!active()) return
     flush()
     current = null
-    emit({ kind: 'done', seq, limitHit: false, error: err.message })
-  })
-
-  child.on('close', (code) => {
-    if (!active()) return
-    flush()
-    current = null
+    if (spawnError) {
+      emit({ kind: 'done', seq, limitHit: false, error: spawnError.message })
+      return
+    }
     // 0 = 有匹配；1 = 无匹配；封顶主动 kill 后 code 为 null——都不算错。
     // 2 = rg 报错（如正则无效）：stderr 是「rg: 概述 + 缩进详情 + error: 原因」多行，
     // 取首尾两句拼成一行提示。

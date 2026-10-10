@@ -6,6 +6,9 @@ import { configKey, residentDataSourceTabKey } from '../shared/runnable'
 import { isOpenInAppId } from '../shared/open-in-app'
 import { isSystemIntegrationFeatureId } from '../shared/system-integration'
 import { isExternalLink } from '../shared/external-link'
+import { normalizePath } from '../shared/files-path'
+import { canonicalWslPath, wslDistroOf } from '../shared/wsl-path'
+import type { WslStateEvent } from '../shared/wsl'
 import { applySystemIntegration, getSystemIntegrationState } from './system-integration'
 import type { DiscoverSource } from '../shared/discover-source'
 import type {
@@ -282,6 +285,16 @@ import {
 import { confirmQuitIfNeeded } from './quit-confirm'
 import { markQuitAllowed } from './app-shutdown'
 import { isPathUnderGrantedRoot } from './files-roots'
+import { toSysPath } from './sys-path'
+import {
+  getWslState,
+  onWslState,
+  reconnectWsl,
+  restartWslIdleTimers,
+  setWslCurrentEntry,
+  watchWslMainWindow
+} from './wsl'
+import { forgetWslDiscovery, refreshWslDiscovery } from './wsl-discovery'
 import {
   openPreviewWindowForRoot,
   resetPreviewWindowsGeometry,
@@ -358,7 +371,7 @@ function emitFilesChanged(projectPath: string): void {
  * 返回该路径是否在调用前就已登记。
  */
 export function openProjectFromExternal(path: string): { registered: boolean } {
-  const registered = getProjects().some((p) => p.path === path)
+  const registered = getProjects().some((p) => p.path === canonicalWslPath(path))
   const focusPath = addProjectByPath(path)
   if (focusPath === null) return { registered }
   refreshWatchers()
@@ -376,10 +389,15 @@ export function openProjectFromExternal(path: string): { registered: boolean } {
 }
 
 // 每项目一条原生递归监听：解析仓库根后对齐（非仓库 repoRoot=null → 探测 .git 出现）。
+// WSL 项目只在它的发行版连上时才解析、监听：没连上时不碰发行版（docs/prd/wsl-project.md），连上 / 断开时再对齐。
 async function refreshProjectWatchers(): Promise<void> {
   if (isAppQuitting()) return
+  const reachable = getProjects().filter((p) => {
+    const distro = wslDistroOf(p.path)
+    return distro === null || getWslState(distro).status === 'connected'
+  })
   const projects = await Promise.all(
-    getProjects().map(async (p) => {
+    reachable.map(async (p) => {
       const repoRoot = await resolveRepoRoot(p.path)
       return {
         projectPath: p.path,
@@ -390,7 +408,7 @@ async function refreshProjectWatchers(): Promise<void> {
     })
   )
   syncProjectWatchers(projects, {
-    onDiscoveryChange: onDiscoveryWatchEvent,
+    onDiscoveryChange,
     onFilesChange: emitFilesChanged,
     onGitChange: onGitWatcherChange
   })
@@ -426,6 +444,25 @@ const onDiscoveryWatchEvent = debounce(() => {
   emitTree()
 }, 120)
 
+// WSL 项目的探测结果是缓存（建树不访问发行版）：先重读它，再对账推树
+function onDiscoveryChange(projectPath: string): void {
+  if (wslDistroOf(projectPath) === null) onDiscoveryWatchEvent()
+  else void refreshWslDiscovery(projectPath).then(onDiscoveryWatchEvent)
+}
+
+// WSL 发行版的连接状态变化：推给各窗口（Git / Files 面板的连接占位页）；连接中之外的变化都重新对齐监听，
+// 连上时再读一遍它那些项目的探测结果、对账推树
+onWslState((distro, state) => {
+  broadcast(IPC.wslStateChanged, { distro, state } satisfies WslStateEvent)
+  if (state.status === 'connecting') return
+  refreshWatchers()
+  if (state.status !== 'connected') return
+  const inDistro = getProjects().filter(
+    (p) => wslDistroOf(p.path)?.toLowerCase() === distro.toLowerCase()
+  )
+  void Promise.all(inDistro.map((p) => refreshWslDiscovery(p.path))).then(onDiscoveryWatchEvent)
+})
+
 function refreshWatchers(): void {
   void refreshProjectWatchers()
 }
@@ -436,6 +473,8 @@ export function bindMainWindow(win: BrowserWindow): void {
   setRunnerWindow(win)
   startAppUpdater()
   refreshWatchers()
+  setWslCurrentEntry(getWorkspaceUi().currentEntryKey)
+  watchWslMainWindow(win)
 }
 
 /**
@@ -508,6 +547,7 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     deleteWorkspaceUiForEntry(path)
     clearRepoRootCache(path)
     clearProjectWorktreeOf(path)
+    forgetWslDiscovery(path)
     refreshWatchers()
     return buildTree()
   })
@@ -886,6 +926,8 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     // 主题改动即时落到原生侧（themeSource 驱动渲染层 prefers-color-scheme，无需重启窗口）。
     if (patch.theme !== undefined) applyTheme(merged.theme)
     if (patch.rememberLayout !== undefined) persistLayoutMemory(merged.rememberLayout)
+    // 闲置后断开 WSL 的时长改了：正在计时的按新时长从头计
+    if ('wslIdleMinutes' in patch) restartWslIdleTimers()
     // 推给全部窗口：主窗口与 Preview Window 的设置弹窗都能改，JS 侧读的偏好（自动获取）各窗口同步
     broadcast(IPC.appPrefsChanged, merged)
     return merged
@@ -945,8 +987,21 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   ipcMain.on(IPC.terminalFocus, (e, focused: boolean) => setTerminalFocused(e.sender, focused))
 
   // —— 工作台 UI（ADR-0008） ——
+  // —— WSL 项目的连接（docs/prd/wsl-project.md） ——
+  ipcMain.handle(IPC.wslStateGet, (_e, distro: unknown) =>
+    typeof distro === 'string' ? getWslState(distro) : { status: 'disconnected' }
+  )
+  ipcMain.handle(IPC.wslReconnect, async (_e, distro: unknown) => {
+    if (typeof distro !== 'string') return
+    // 失败原因随状态推送给渲染端，这里不再抛
+    await reconnectWsl(distro).catch(() => undefined)
+  })
   ipcMain.handle(IPC.workspaceUiGet, () => getWorkspaceUi())
-  ipcMain.handle(IPC.workspaceUiSet, (_e, state: WorkspaceUiState) => setWorkspaceUi(state))
+  ipcMain.handle(IPC.workspaceUiSet, (_e, state: WorkspaceUiState) => {
+    const saved = setWorkspaceUi(state)
+    setWslCurrentEntry(saved.currentEntryKey)
+    return saved
+  })
 
   // 选中探测脚本即晋升为引用型配置（不必等运行；运行路径的晋升见 IPC.run）。
   ipcMain.handle(
@@ -995,21 +1050,22 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   ipcMain.handle(IPC.openExternal, (_e, url: string) => {
     if (isExternalLink(url)) shell.openExternal(url)
   })
+  // 以下四项收渲染端的逻辑路径，放行后转成系统路径再交给系统（Windows 上还原反斜杠，含 UNC）。
   // Git 详情面板「打开文件」→ 系统默认应用；只放行授权根（登记项目 / 预览窗口根）内的绝对路径。
   ipcMain.handle(IPC.openPath, (_e, path: string) => {
-    if (isPathUnderGrantedRoot(path)) void shell.openPath(path)
+    if (isPathUnderGrantedRoot(path)) void shell.openPath(toSysPath(normalizePath(path)))
   })
   // 「在文件夹中显示」→ 系统文件管理器定位并选中；同样只放行授权根内的绝对路径。
   ipcMain.handle(IPC.openInFolder, (_e, path: string) => {
-    if (isPathUnderGrantedRoot(path)) shell.showItemInFolder(path)
+    if (isPathUnderGrantedRoot(path)) shell.showItemInFolder(toSysPath(normalizePath(path)))
   })
   // 「复制文件」→ 文件 / 文件夹本身进系统剪贴板；同样只放行授权根内的绝对路径。
   ipcMain.handle(IPC.filesCopyFile, async (_e, path: string) => {
-    if (isPathUnderGrantedRoot(path)) await copyFileToClipboard(path)
+    if (isPathUnderGrantedRoot(path)) await copyFileToClipboard(toSysPath(normalizePath(path)))
   })
   // 「压缩」→ 为该条目开一个压缩窗口；同样只放行授权根内的绝对路径。
   ipcMain.handle(IPC.filesCompress, async (_e, path: string) => {
-    if (isPathUnderGrantedRoot(path)) await openCompressWindow([path])
+    if (isPathUnderGrantedRoot(path)) await openCompressWindow([toSysPath(normalizePath(path))])
   })
   // —— Preview Window（预览窗口） ——
   ipcMain.handle(IPC.previewSetRoot, (e, root: unknown) => {

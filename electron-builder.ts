@@ -34,6 +34,10 @@ const winShellResources = existsSync(WIN_SHELL)
   ? [{ from: WIN_SHELL, to: 'compress-menu.dll' }]
   : []
 
+/** WSL 小助手与 Linux 版 rg（scripts/build-wsl-helper.ts 产物，ADR-0055）：只进 Windows 安装包；缺失时不带入，WSL 项目连不上并说明原因 */
+const WSL_HELPER = 'build/wsl/out'
+const wslHelperResources = existsSync(WSL_HELPER) ? [{ from: WSL_HELPER, to: 'wsl' }] : []
+
 const config: Configuration = {
   appId: edition.appId,
   productName: edition.productName,
@@ -103,6 +107,7 @@ const config: Configuration = {
   win: {
     executableName: edition.executableName,
     icon: edition.winIcon,
+    extraResources: wslHelperResources,
     target: [
       { target: 'nsis', arch: ['x64'] },
       { target: 'portable', arch: ['x64'] }

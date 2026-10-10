@@ -12,8 +12,8 @@ export type FilesEntryDialogRequest =
   | { kind: 'rename'; path: string; isDirectory: boolean }
   /** 本机：移到回收站（可恢复） */
   | { kind: 'trash'; path: string; isDirectory: boolean }
-  /** 服务器上：没有回收站，删了即不可恢复 */
-  | { kind: 'delete'; path: string; isDirectory: boolean }
+  /** 服务器上，或 WSL 发行版里（distro）：没有回收站，删了即不可恢复 */
+  | { kind: 'delete'; path: string; isDirectory: boolean; distro?: string }
 
 /** 条目名；根自身（`/`）原样 */
 function baseName(p: string): string {
@@ -35,10 +35,11 @@ function messageFor(request: NameRequest): string {
   }
 }
 
-/** 删除确认的后果：本机移到回收站（可恢复），服务器上删了即不可恢复 */
+/** 删除确认的后果：本机移到回收站（可恢复），服务器上与 WSL 发行版里删了即不可恢复 */
 function removalMessage(request: RemovalRequest): string {
   if (request.kind === 'trash') return '将移到回收站。'
-  return `将从服务器上删除${request.isDirectory ? '它及其中的全部内容' : '它'}，删除后无法恢复。`
+  const from = request.distro === undefined ? '服务器上' : ` ${request.distro} 中`
+  return `将从${from}删除${request.isDirectory ? '它及其中的全部内容' : '它'}，删除后无法恢复。`
 }
 
 const PRIMARY_LABEL: Record<NameRequest['kind'], string> = {

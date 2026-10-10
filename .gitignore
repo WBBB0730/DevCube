@@ -16,3 +16,6 @@ build/mac/default-app-helper
 
 # Windows 压缩右键扩展编译产物（scripts/build-win-shell.ts）
 build/win/compress-menu.dll
+
+# WSL 小助手与 Linux 版 rg（scripts/build-wsl-helper.ts）
+build/wsl/out

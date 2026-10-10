@@ -48,6 +48,9 @@ describe('commonParentPath', () => {
   it('Windows 路径与根', () => {
     expect(commonParentPath(['C:\\w\\a.txt', 'C:\\w\\sub\\b.txt'])).toBe('C:/w')
     expect(commonParentPath(['/a', '/b'])).toBe('/')
+    expect(commonParentPath(['//wsl.localhost/Ubuntu/a', '//wsl.localhost/Ubuntu/b'])).toBe(
+      '//wsl.localhost/Ubuntu'
+    )
   })
 })
 

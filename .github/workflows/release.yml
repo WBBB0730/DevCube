@@ -47,6 +47,16 @@ jobs:
       - name: Check
         run: pnpm check
 
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: build/wsl/go.mod
+          cache-dependency-path: build/wsl/go.sum
+
+      # WSL 小助手（ADR-0055）跑在 Linux 发行版里：在 Linux 上做静态检查与单测
+      - name: Test WSL helper
+        working-directory: build/wsl
+        run: go vet ./... && go test ./...
+
   # 与 verify 并行：打包不用它的任何输出，门禁由 release job 把关（两者都通过才发布），
   # 不必挡在最长的 Mac 打包前面。代价是门禁失败或 tag 不在 main 上时，打包与公证照跑一遍但不会发布
   build:
@@ -104,6 +114,17 @@ jobs:
       - name: Build Windows compress shell extension
         if: runner.os == 'Windows'
         run: pnpm build:win-shell
+
+      - if: runner.os == 'Windows'
+        uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: build/wsl/go.mod
+          cache-dependency-path: build/wsl/go.sum
+
+      # WSL 小助手与 Linux 版 rg 只进 Windows 安装包（ADR-0055）
+      - name: Build WSL helper
+        if: runner.os == 'Windows'
+        run: pnpm build:wsl-helper
 
       - name: Package (macOS)
         if: runner.os == 'macOS'

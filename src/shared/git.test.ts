@@ -156,4 +156,14 @@ describe('resolveWorktreePath', () => {
     expect(resolveWorktreePath('C:\\code\\app', 'D:\\wt', 'x')).toBe('D:\\wt\\x')
     expect(resolveWorktreePath('C:\\app', '..\\..\\wt', 'x')).toBe('C:\\wt\\x')
   })
+
+  it('UNC 路径（WSL）：保留 \\\\主机\\共享 根，.. 不越过它', () => {
+    const anchor = '\\\\wsl.localhost\\Ubuntu\\home\\me\\web'
+    expect(resolveWorktreePath(anchor, null, 'x')).toBe(
+      '\\\\wsl.localhost\\Ubuntu\\home\\me\\web.worktrees\\x'
+    )
+    expect(resolveWorktreePath(anchor, '..\\..\\..\\..\\..\\wt', 'x')).toBe(
+      '\\\\wsl.localhost\\Ubuntu\\wt\\x'
+    )
+  })
 })

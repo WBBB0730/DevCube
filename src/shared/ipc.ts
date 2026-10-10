@@ -85,6 +85,10 @@ export const IPC = {
   /** 测试连接：一次只测一个，cancel 取消进行中的测试 */
   serverTest: 'server:test',
   serverTestCancel: 'server:test-cancel',
+  /** WSL 项目的连接（docs/prd/wsl-project.md）：取某个发行版的连接状态 / 重新连接；状态变化时主进程推送 */
+  wslStateGet: 'wsl:state-get',
+  wslReconnect: 'wsl:reconnect',
+  wslStateChanged: 'wsl:state-changed',
   /** 服务器状态（Status Tab）：取当前状态 / 连接 / 断开；主进程每帧推送 */
   serverStatusGet: 'server-status:get',
   serverStatusConnect: 'server-status:connect',

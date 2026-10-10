@@ -4,12 +4,9 @@ import type { DiscoverSource } from '../shared/discover-source'
 import type { RunParams } from '../shared/run-params'
 import { configOwnerKey } from '../shared/tree-entry'
 import type { EditableRunConfig, EditableRunConfigInput, RunConfig } from '../shared/types'
-import {
-  liveReferencedKeys,
-  readFingerprintsForReconcile,
-  readScriptsForReconcile
-} from './discovery'
+import { liveReferencedKeys } from './discovery'
 import { deleteRunParams, getConfigs, getProjects, setConfigs, setRunParams } from './store'
+import { projectDiscovery } from './wsl-discovery'
 
 // —— 纯核心（供测试） ——
 
@@ -60,13 +57,17 @@ export function promoteScript(
   setConfigs(promote(getConfigs(), projectPath, source, scriptName, randomUUID()))
 }
 
-/** 依据各项目当前清单脚本与约定指纹做一次对账；落盘并返回**被删除的配置**（供调用方销毁其会话）。 */
+/**
+ * 依据各项目当前清单脚本与约定指纹做一次对账；落盘并返回**被删除的配置**（供调用方销毁其会话）。
+ * WSL 项目还没读到过探测结果时不对账（保留引用）。
+ */
 export function reconcileConfigs(): RunConfig[] {
   const aliveByProject = new Map(
     getProjects().map((p) => {
-      const scripts = readScriptsForReconcile(p.path)
-      const fingerprints = readFingerprintsForReconcile(p.path)
-      return [p.path, liveReferencedKeys(scripts, fingerprints)] as const
+      const snapshot = projectDiscovery(p.path)
+      const alive =
+        snapshot === null ? null : liveReferencedKeys(snapshot.scripts, snapshot.fingerprints)
+      return [p.path, alive] as const
     })
   )
   const before = getConfigs()

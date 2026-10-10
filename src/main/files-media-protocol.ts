@@ -1,7 +1,6 @@
 import { protocol } from 'electron'
 // 用户的文件用不带 asar 改装的原版 fs：Electron 改装过的 fs 会把 .asar 文件当成文件夹往里读（ADR-0051）
 import { createReadStream, promises as fs } from 'original-fs'
-import path from 'node:path'
 import { Readable } from 'node:stream'
 import { FILES_MEDIA_SCHEME } from '../shared/files'
 import { parseBytesRange } from '../shared/files-media-range'
@@ -9,11 +8,7 @@ import { normalizePath, resolveWithinProject } from '../shared/files-path'
 import { imageTilesDir } from './files-image-pyramid'
 import { appAssetMime, appAssetRoot } from './app-assets'
 import { isGrantedFilesRoot } from './files-roots'
-
-/** 逻辑路径（/）→ 系统路径。 */
-function toSys(logical: string): string {
-  return path.normalize(logical.split('/').join(path.sep))
-}
+import { toSysPath } from './sys-path'
 
 /**
  * 必须在 `app.ready` 之前调用。
@@ -61,7 +56,7 @@ function resolveMediaSysPath(u: URL): { sys: string; mime?: string } | { status:
     const root = appAssetRoot(asset, rel)
     if (!root) return { status: 403 }
     const logical = resolveWithinProject(normalizePath(root), rel)
-    return logical ? { sys: toSys(logical), mime: appAssetMime(rel) } : { status: 403 }
+    return logical ? { sys: toSysPath(logical), mime: appAssetMime(rel) } : { status: 403 }
   }
   const tileKey = u.searchParams.get('t')
   if (tileKey !== null) {
@@ -69,14 +64,14 @@ function resolveMediaSysPath(u: URL): { sys: string; mime?: string } | { status:
     if (dir === null) return { status: 403 }
     const root = normalizePath(dir)
     const logical = resolveWithinProject(root, rel)
-    return logical ? { sys: toSys(logical) } : { status: 403 }
+    return logical ? { sys: toSysPath(logical) } : { status: 403 }
   }
   const projectPath = u.searchParams.get('p')
   if (!projectPath) return { status: 400 }
   const root = normalizePath(projectPath)
   if (!isGrantedFilesRoot(root)) return { status: 403 }
   const logical = resolveWithinProject(root, rel)
-  return logical ? { sys: toSys(logical) } : { status: 403 }
+  return logical ? { sys: toSysPath(logical) } : { status: 403 }
 }
 
 /**

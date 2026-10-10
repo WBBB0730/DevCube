@@ -71,3 +71,19 @@ jobs:
       - name: Build Windows compress shell extension
         if: runner.os == 'Windows'
         run: pnpm build:win-shell
+
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: build/wsl/go.mod
+          cache-dependency-path: build/wsl/go.sum
+
+      # WSL 小助手（ADR-0055）：用到 Unix 进程组，单测在 macOS 上跑；Windows 上照发版那样交叉编译并取 Linux 版 rg，
+      # 构建问题在 main 上就暴露
+      - name: Test WSL helper
+        if: runner.os == 'macOS'
+        working-directory: build/wsl
+        run: go vet ./... && go test ./...
+
+      - name: Build WSL helper
+        if: runner.os == 'Windows'
+        run: pnpm build:wsl-helper

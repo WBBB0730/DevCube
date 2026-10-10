@@ -2,6 +2,7 @@ import { dialog } from 'electron'
 // 用户的文件用不带 asar 改装的原版 fs：Electron 改装过的 fs 会把 .asar 文件当成文件夹往里读（ADR-0051）
 import { mkdirSync, statSync } from 'original-fs'
 import { basename, dirname } from 'path'
+import { canonicalWslPath } from '../shared/wsl-path'
 import { getAppPrefs, getProjects, setAppPrefs, setProjects } from './store'
 import { headOrder } from './tree-order'
 
@@ -10,8 +11,12 @@ export function rememberProjectParentDir(projectPath: string): void {
   setAppPrefs({ lastProjectParentDir: dirname(projectPath) })
 }
 
-/** 按绝对路径去重登记一个项目；已存在则原样返回该路径。非目录返回 null。 */
-export function addProjectByPath(dir: string): string | null {
+/**
+ * 按绝对路径去重登记一个项目，返回登记的路径（已登记则直接返回）。非目录返回 null。
+ * WSL 路径先统一成 `\\wsl.localhost\…` 再去重与登记（见 shared/wsl-path）。
+ */
+export function addProjectByPath(path: string): string | null {
+  const dir = canonicalWslPath(path)
   try {
     if (!statSync(dir).isDirectory()) return null
   } catch {
