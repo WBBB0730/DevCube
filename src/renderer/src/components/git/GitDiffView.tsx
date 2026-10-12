@@ -373,8 +373,8 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
       ) : diffFile === null ? (
         <CenteredHint>没有差异内容</CenteredHint>
       ) : (
-        // 滚动收进库的容器内（main.css 高度链），此层只圈定高度不再自滚
-        <div ref={bodyRef} className="min-h-0 flex-1 overflow-hidden">
+        // 滚动收进库的容器内（main.css 高度链），此层只圈定高度不再自滚；代码可选中复制（行号由库设为不可选）
+        <div ref={bodyRef} className="min-h-0 flex-1 select-text overflow-hidden">
           <DiffView
             diffFile={diffFile}
             diffViewMode={splitView ? DiffModeEnum.Split : DiffModeEnum.Unified}

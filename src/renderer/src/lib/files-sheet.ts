@@ -79,8 +79,6 @@ export function csvToXlsxBytes(text: string, tsv: boolean): Uint8Array {
 /** 一个有内容的格子及其显示文字（同表格里看到的） */
 export type SheetCellText = { row: number; col: number; text: string }
 
-export type SheetFindOptions = { caseSensitive: boolean; wholeWord: boolean }
-
 /**
  * 查找命中的底色（Files 的表格预览与数据源的表格共用）：叠在格子原有底色之上的半透明层，
  * 命中黄 / 当前橙同 PDF / PPT。是 CSS background-image 值，可与格子自身的渐变填充逗号叠用。
@@ -90,34 +88,12 @@ export const SHEET_FIND_MATCH_LAYER =
 export const SHEET_FIND_CURRENT_LAYER =
   'linear-gradient(rgb(196 114 51 / 0.55), rgb(196 114 51 / 0.55))'
 
-const WORD_START = /^[\p{L}\p{N}_]/u
-const WORD_END = /[\p{L}\p{N}_]$/u
-
-/** `text` 里 [from, to) 两端是否落在词界上（同编辑器查找：查询自身两端不是词字符时不要求） */
-function atWordBoundary(text: string, from: number, to: number): boolean {
-  const before = text.slice(Math.max(0, from - 2), from)
-  const after = text.slice(to, to + 2)
-  const match = text.slice(from, to)
-  const startOk = !WORD_END.test(before) || !WORD_START.test(match)
-  const endOk = !WORD_START.test(after) || !WORD_END.test(match)
-  return startOk && endOk
-}
-
-/** 查找命中的格子：显示文字含查询即命中，一格只算一次，保持传入的顺序（行优先） */
+/** 查找命中的格子：显示文字里有命中即算，一格只算一次，保持传入的顺序（行优先）；`find` 是 compileTextFind 编出的查找器 */
 export function sheetFindMatches(
   cells: readonly SheetCellText[],
-  query: string,
-  { caseSensitive, wholeWord }: SheetFindOptions
+  find: (text: string) => [number, number][]
 ): SheetCellText[] {
-  if (query === '') return []
-  const needle = caseSensitive ? query : query.toLowerCase()
-  return cells.filter(({ text }) => {
-    const hay = caseSensitive ? text : text.toLowerCase()
-    for (let at = hay.indexOf(needle); at >= 0; at = hay.indexOf(needle, at + 1)) {
-      if (!wholeWord || atWordBoundary(hay, at, at + needle.length)) return true
-    }
-    return false
-  })
+  return cells.filter(({ text }) => find(text).length > 0)
 }
 
 /** 从 `from`（打开查找 / 改查询时的活动格）起的第一个命中；其后没有则回到第一个 */

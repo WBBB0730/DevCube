@@ -14,6 +14,7 @@ import {
 } from '@renderer/lib/cm6-setup'
 import { useContentFocus } from '@renderer/lib/data-source-content-focus'
 import { useEditorFind } from '@renderer/lib/use-editor-find'
+import { useFindSession } from '@renderer/lib/use-find-session'
 import { useApp } from '@renderer/store'
 
 export function CodeEditor({
@@ -37,11 +38,12 @@ export function CodeEditor({
 }): React.JSX.Element {
   const theme = useApp((s) => s.theme)
 
-  // 查找栏（⌘F）同 Files 编辑器
-  const find = useEditorFind(viewRef)
-
-  // 编辑器要等挂上之后的又一次渲染才建好（见 onCreateEditor）：建好了才登记正文焦点
+  // 编辑器要等挂上之后的又一次渲染才建好（见 onCreateEditor）：建好了才登记正文焦点、接上查找栏
   const [view, setView] = useState<EditorView | null>(null)
+
+  // 查找栏（⌘F）同 Files 编辑器
+  const find = useFindSession()
+  const findExtension = useEditorFind(view, find)
   const focusEditor = useMemo(() => (view === null ? null : () => view.focus()), [view])
   useContentFocus(focusEditor)
 
@@ -50,10 +52,10 @@ export function CodeEditor({
       filesEditorTheme[theme],
       filesHighlighting[theme],
       filesEditorConfig,
-      find.extension,
+      findExtension,
       extensions
     ],
-    [theme, find.extension, extensions]
+    [theme, findExtension, extensions]
   )
 
   // 以 Files 编辑器的 basicSetup 为底：行号改由这里提供，补全与当前行高亮按用途开
@@ -71,14 +73,7 @@ export function CodeEditor({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {find.open && (
-        <FilesFindWidget
-          viewRef={viewRef}
-          content={value}
-          focusNonce={find.focusNonce}
-          onClose={find.close}
-        />
-      )}
+      {find.open && <FilesFindWidget view={view} content={value} find={find} />}
       <div className="files-codemirror min-h-0 flex-1 overflow-hidden bg-deepest">
         <CodeMirror
           value={value}

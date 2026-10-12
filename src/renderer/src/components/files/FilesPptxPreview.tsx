@@ -24,6 +24,7 @@ import {
   type TextSearchResult
 } from '@aiden0z/pptx-renderer'
 import { cn } from '@renderer/lib/utils'
+import { findHighlights, scrollRangeToCenter } from '@renderer/lib/find-highlight'
 import {
   mediaFitWindowAxis,
   type MediaFitAxis,
@@ -54,15 +55,13 @@ import {
   pptxWheelScale,
   type PptxSize
 } from '@renderer/lib/files-pptx'
+import { useFindCursor } from '@renderer/lib/use-find-cursor'
+import type { FindSession } from '@renderer/lib/use-find-session'
 import { FilesPageControls, FilesThumbnailsToggle } from './FilesPagedControls'
 import { FilesPreviewError } from './FilesPreviewError'
 import { FilesPageThumbnails } from './FilesPageThumbnails'
 import { FilesToolbar, type FilesToolbarProps } from './FilesToolbar'
 import { FindBar } from './FindBar'
-
-/** 查找高亮在 CSS Custom Highlight 注册表里的名字（样式见 main.css）；各预览往同一个 Highlight 里增删自己的区间 */
-const FIND_HIGHLIGHT = 'files-pptx-find'
-const FIND_CURRENT_HIGHLIGHT = 'files-pptx-find-current'
 
 /** 一份已打开的演示文稿：各页共用的媒体对象 URL（关文档时统一回收）、图表实例与链接回调 */
 type PptxDoc = {
@@ -71,16 +70,6 @@ type PptxDoc = {
   mediaUrlCache: Map<string, string>
   chartInstances: NonNullable<SlideRendererOptions['chartInstances']>
   navigate: NonNullable<SlideRendererOptions['onNavigate']>
-}
-
-/** 注册表里取（没有就建）一个 Highlight；当前命中那个优先级更高，与全部命中重叠时显示当前色 */
-function sharedHighlight(name: string, priority: number): Highlight {
-  const existing = CSS.highlights.get(name)
-  if (existing) return existing
-  const highlight = new Highlight()
-  highlight.priority = priority
-  CSS.highlights.set(name, highlight)
-  return highlight
 }
 
 /** 一条查找结果在已挂载的页上对应的文字区间；元素没画出来或文字对不上（如公式）为 null */
@@ -184,6 +173,7 @@ export function FilesPptxPreview({
   src,
   path,
   active,
+  find,
   thumbnails,
   onToggleThumbnails,
   onPrev,
@@ -194,6 +184,8 @@ export function FilesPptxPreview({
   path: string
   /** Files Tab 可见时才响应键盘 */
   active: boolean
+  /** 这个文件的查找会话（FilesPane 按文件记，切走再切回来原样恢复） */
+  find: FindSession
   /** ←/→ 切上一个 / 下一个媒体文件（↑/↓ 归翻页）；由 FilesPane 按树内可见序给 */
   onPrev?: () => void
   onNext?: () => void
@@ -216,24 +208,15 @@ export function FilesPptxPreview({
   const [view, setView] = useState<PptxSize>({ width: 0, height: 0 })
   const [scrollTop, setScrollTop] = useState(0)
   const [page, setPage] = useState(1)
-  const [findOpen, setFindOpen] = useState(false)
-  const [findFocusNonce, setFindFocusNonce] = useState(0)
-  const [findQuery, setFindQuery] = useState('')
-  const [caseSensitive, setCaseSensitive] = useState(false)
-  const [wholeWord, setWholeWord] = useState(false)
-  /** 这次查找从第几页起（打开查找 / 改查询时的当前页），首个命中取这页及之后的第一个，同 PDF */
-  const [findFromPage, setFindFromPage] = useState(1)
-  /** 上一个 / 下一个选中的命中下标；null = 取 `findFromPage` 起的首个 */
-  const [activeMatch, setActiveMatch] = useState<number | null>(null)
+  const { open: findOpen, openFind, closeFind: closeSession } = find
+  const { query: findQuery, caseSensitive, wholeWord } = find.bar
   /** 最近一次请求的倍率与待落的滚动位置：连续滚轮在一帧里多次换倍率时以它们为基准，而不是还没提交的 DOM */
   const scaleRef = useRef(1)
   const pendingScroll = useRef<{ left: number; top: number } | null>(null)
   /** 已挂载的页（0 起）→ 页元素，查找高亮用 */
   const slideEls = useRef(new Map<number, HTMLElement>())
-  /** 待滚到视口正中的命中（换了当前命中时记下，页挂上、文字区间找到后执行） */
+  /** 待滚到视口正中的命中（首个命中换了或按了上一个 / 下一个时记下，页挂上、文字区间找到后执行） */
   const revealRef = useRef<TextSearchResult | null>(null)
-  /** 上次发起滚动的命中：只有当前命中换了才滚，缩放等重渲染不再把视口拽回命中处 */
-  const revealedFor = useRef<TextSearchResult | null>(null)
   /** 链接回调里的跳页（文档对象建一次，跳页随渲染更新） */
   const goToPageRef = useRef<(page: number) => void>(() => {})
 
@@ -457,28 +440,19 @@ export function FilesPptxPreview({
         : [],
     [textIndex, findQuery, caseSensitive, wholeWord]
   )
-  const firstFromPage = matches.findIndex((m) => m.slideIndex + 1 >= findFromPage)
-  const current =
-    matches.length === 0 ? -1 : (activeMatch ?? (firstFromPage >= 0 ? firstFromPage : 0))
+  // 每轮查找（打开 / 改查询或选项、换了文件）从当前页起找，首个命中取这页及之后的第一个，同 PDF。
+  // 刚换文件时新文档还没载入，`page` 还是上一个文件的，新文档总从第 1 页打开
+  const cursor = useFindCursor(find.round, doc ? page : 1)
+  const current = cursor.currentOf(matches.length, () => {
+    const i = matches.findIndex((m) => m.slideIndex + 1 >= cursor.start)
+    return i >= 0 ? i : 0
+  })
   const currentMatch = current >= 0 ? matches[current] : null
 
-  /** 新一轮查找（打开 / 改查询 / 改选项）：从当前页起找 */
-  const restartFind = (): void => {
-    setActiveMatch(null)
-    setFindFromPage(page)
-  }
-
-  const openFind = useCallback(() => {
-    setFindOpen(true)
-    setFindFocusNonce((n) => n + 1)
-    setActiveMatch(null)
-    setFindFromPage(page)
-  }, [page])
-
   const closeFind = useCallback(() => {
-    setFindOpen(false)
+    closeSession()
     containerRef.current?.focus({ preventScroll: true })
-  }, [])
+  }, [closeSession])
 
   const fitWindow = useCallback(() => fit('window'), [fit])
 
@@ -514,22 +488,21 @@ export function FilesPptxPreview({
     else slideEls.current.delete(index)
   }, [])
 
-  // 当前命中一变就滚过去：所在页还没挂上先滚到它的页顶，挂上之后由下面的高亮把命中滚到视口正中（同编辑器 / PDF）。
-  // 两段都是布局副作用、按声明顺序执行：先记下要滚的命中，再在同一次提交里建高亮区间。
+  // 首个命中一变、或按了上一个 / 下一个，就滚过去：所在页还没挂上先滚到它的页顶，挂上之后由下面的高亮把命中滚到视口
+  // 正中（同编辑器 / PDF）。两段都是布局副作用、按声明顺序执行：先记下要滚的命中，再在同一次提交里建高亮区间。
+  const { claimReveal, picked } = cursor
   useLayoutEffect(() => {
-    if (revealedFor.current === currentMatch) return
-    revealedFor.current = currentMatch
+    if (!claimReveal(currentMatch)) return
     revealRef.current = currentMatch
     const container = containerRef.current
     if (!currentMatch || !container || slideEls.current.has(currentMatch.slideIndex)) return
     container.scrollTop = currentMatch.slideIndex * rowH
-  }, [currentMatch, rowH])
+  }, [claimReveal, currentMatch, rowH])
 
-  // 已挂载的页上标出全部命中与当前命中；挂载的页或命中变化时重建（区间随 DOM 走，缩放不必重建）
+  // 已挂载的页上标出全部命中与当前命中；挂载的页、命中变化或按了上一个 / 下一个时重建（区间随 DOM 走，缩放不必重建）
   useLayoutEffect(() => {
     if (!findOpen || matches.length === 0) return
-    const all = sharedHighlight(FIND_HIGHLIGHT, 0)
-    const cur = sharedHighlight(FIND_CURRENT_HIGHLIGHT, 1)
+    const { all, current: cur } = findHighlights()
     const added: [Highlight, Range][] = []
     matches.forEach((match, i) => {
       const slideEl = slideEls.current.get(match.slideIndex)
@@ -541,16 +514,12 @@ export function FilesPptxPreview({
       const container = containerRef.current
       if (i !== current || revealRef.current !== match || !container) return
       revealRef.current = null
-      const rect = r.getBoundingClientRect()
-      const box = container.getBoundingClientRect()
-      container.scrollTop += rect.top + rect.height / 2 - (box.top + container.clientHeight / 2)
-      if (rect.left < box.left || rect.right > box.left + container.clientWidth)
-        container.scrollLeft += rect.left + rect.width / 2 - (box.left + container.clientWidth / 2)
+      scrollRangeToCenter(container, r)
     })
     return () => {
       for (const [h, r] of added) h.delete(r)
     }
-  }, [findOpen, matches, current, mountedFirst, mountedLast])
+  }, [findOpen, matches, current, picked, mountedFirst, mountedLast])
 
   /** 点缩略图跳页后把焦点还给正文，PageUp / PageDown 与 ←/→ 继续滚正文（同关查找栏） */
   const selectThumbnail = (n: number): void => {
@@ -567,13 +536,6 @@ export function FilesPptxPreview({
         : null,
     [doc]
   )
-
-  const countLabel =
-    !findOpen || findQuery === ''
-      ? null
-      : matches.length === 0
-        ? '无结果'
-        : `${current + 1}/${matches.length}`
 
   const content = slide ? pptxContentSize(slide, scale, pages, view) : null
   const pageLeft = slide ? pptxPageLeft(slide, scale, view) : 0
@@ -603,25 +565,9 @@ export function FilesPptxPreview({
       />
       {findOpen && (
         <FindBar
-          query={findQuery}
-          onQueryChange={(q) => {
-            setFindQuery(q)
-            restartFind()
-          }}
-          focusNonce={findFocusNonce}
-          countLabel={countLabel}
-          caseSensitive={caseSensitive}
-          onToggleCaseSensitive={() => {
-            setCaseSensitive((v) => !v)
-            restartFind()
-          }}
-          wholeWord={wholeWord}
-          onToggleWholeWord={() => {
-            setWholeWord((v) => !v)
-            restartFind()
-          }}
-          canNavigate={matches.length > 0}
-          onNavigate={(dir) => setActiveMatch((current + dir + matches.length) % matches.length)}
+          {...find.bar}
+          {...cursor.barOf(findQuery, current, matches.length)}
+          regexp={null}
           onClose={closeFind}
         />
       )}
@@ -667,7 +613,7 @@ export function FilesPptxPreview({
                       doc={doc}
                       index={i}
                       scale={scale}
-                      className="files-pptx-slide"
+                      className="files-pptx-slide select-text"
                       onRendered={onSlideRendered}
                     />
                   </div>

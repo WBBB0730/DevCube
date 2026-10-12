@@ -4,6 +4,7 @@
  * 缩放只改倍率，页面内容不重画（pptx-renderer 先按原尺寸排好一页再整体 CSS 缩放）。
  */
 import { MEDIA_ZOOM_STEP, type MediaFitMode } from './files-media-zoom'
+import { locateTextOffset } from './text-find'
 
 /** 页间留白（CSS px），同 PDF 预览页与页之间 */
 export const PPTX_PAGE_GAP = 10
@@ -196,17 +197,7 @@ export function pptxMatchSpan(
   const normalize = (s: string): string => s.replace(/\u00a0/g, ' ')
   const expected = normalize(text.slice(matchStart, matchEnd).replace(/\n/g, ''))
   if (normalize(segments.join('').slice(start, end)) !== expected || end <= start) return null
-  const locate = (offset: number, isEnd: boolean): [number, number] | null => {
-    let acc = 0
-    for (let i = 0; i < segments.length; i++) {
-      const len = segments[i].length
-      // 起点落在节点边界时取后一个节点的开头，终点取前一个节点的结尾，免得区间吃进空节点
-      if (isEnd ? offset <= acc + len : offset < acc + len) return [i, offset - acc]
-      acc += len
-    }
-    return null
-  }
-  const s = locate(start, false)
-  const e = locate(end, true)
+  const s = locateTextOffset(segments, start, false)
+  const e = locateTextOffset(segments, end, true)
   return s && e ? { start: s, end: e } : null
 }

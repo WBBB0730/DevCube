@@ -6,7 +6,7 @@
 // - 工作表标签在底部（只有一张表时不出，ui/sheet-tabs）；隐藏的工作表不列。
 // - 查找只查当前工作表（useSheetFind，换工作表即从头找）：格子的显示文字含查询即命中，命中格叠黄、当前命中叠橙
 //   （getCellStyle），并选中当前命中、滚入视口（选中后滚动是补丁给库加的 reveal 选项，同方向键移动选中格，见 patches/
-//   与 ADR-0034）。
+//   与 ADR-0034）。查找会话按文件记（FilesPane 给）；CSV 与编辑态共用一份（切换不关、不清空），多一个正则开关。
 // - 缩放：Cmd/Ctrl+滚轮与捏合按光标、Cmd/Ctrl +/- 按视口中心逐档、Cmd/Ctrl+0 回工作表自带倍率，快捷键与 PDF / PPT
 //   共用（lib/files-paged-preview）；库在 DOM 渲染下不接滚轮缩放，这里自接，锚点换算见 lib/files-sheet。
 // - 方向键归格子（移动选中格），不切上一个 / 下一个文件；选中与复制用库的。
@@ -36,6 +36,7 @@ import {
   sheetWheelZoom,
   type SheetCellText
 } from '@renderer/lib/files-sheet'
+import type { FindSession } from '@renderer/lib/use-find-session'
 import { useSheetFind } from '@renderer/lib/use-sheet-find'
 import { FilesPreviewError } from './FilesPreviewError'
 import { FindBar } from './FindBar'
@@ -49,12 +50,15 @@ export type FilesSheetSource =
 export function FilesSheetPreview({
   source,
   path,
-  active
+  active,
+  find
 }: {
   source: FilesSheetSource
   path: string
   /** Files Tab 可见时才响应键盘 */
   active: boolean
+  /** 这个文件的查找会话 */
+  find: FindSession
 }): React.JSX.Element {
   const rootRef = useRef<HTMLDivElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -245,14 +249,16 @@ export function FilesSheetPreview({
   /** 关查找后焦点回表格 */
   const focusSheet = useCallback(() => scrollerRef.current?.focus({ preventScroll: true }), [])
   // 起点为活动格，同 PDF / PPT 从当前页起
-  const find = useSheetFind({
+  const sheetFind = useSheetFind({
     buildCells,
     origin: activeCell,
     reveal: revealCell,
     scope: activeTabIndex,
-    onClose: focusSheet
+    onClose: focusSheet,
+    find,
+    regexpToggle: source.kind === 'csv'
   })
-  const { layerOf } = find
+  const { layerOf } = sheetFind
 
   const getCellStyle = useMemo(() => {
     if (layerOf === null) return undefined
@@ -271,9 +277,9 @@ export function FilesSheetPreview({
   usePagedPreviewKeys({
     active,
     rootRef,
-    findOpen: find.open,
-    openFind: find.openFind,
-    closeFind: find.closeFind,
+    findOpen: sheetFind.open,
+    openFind: sheetFind.openFind,
+    closeFind: sheetFind.closeFind,
     resetZoom,
     stepZoom
   })
@@ -299,7 +305,7 @@ export function FilesSheetPreview({
 
   return (
     <div ref={rootRef} className="flex min-h-0 flex-1 flex-col">
-      {find.open && <FindBar {...find.bar} />}
+      {sheetFind.open && <FindBar {...sheetFind.bar} />}
       <div ref={wrapRef} className="relative flex min-h-0 flex-1 flex-col bg-deepest">
         {file && !tooLarge && (
           <XlsxViewer

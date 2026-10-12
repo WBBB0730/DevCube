@@ -45,6 +45,7 @@ import {
   usePagedPreviewKeys,
   usePreviewPan
 } from '@renderer/lib/files-paged-preview'
+import type { FindSession } from '@renderer/lib/use-find-session'
 import { MEDIA_SETTLE_MS } from './FilesMediaPreview'
 import { FilesPageControls, FilesThumbnailsToggle } from './FilesPagedControls'
 import { FilesPreviewError } from './FilesPreviewError'
@@ -179,6 +180,7 @@ export function FilesPdfPreview({
   src,
   path,
   active,
+  find,
   thumbnails,
   onToggleThumbnails,
   onPrev,
@@ -189,6 +191,8 @@ export function FilesPdfPreview({
   path: string
   /** Files Tab 可见时才响应 Cmd+F */
   active: boolean
+  /** 这个文件的查找会话（FilesPane 按文件记，切走再切回来原样恢复） */
+  find: FindSession
   /** ←/→ 切上一个 / 下一个媒体文件（↑/↓ 归翻页）；由 FilesPane 按树内可见序给 */
   onPrev?: () => void
   onNext?: () => void
@@ -215,11 +219,8 @@ export function FilesPdfPreview({
   const [page, setPage] = useState(1)
   /** 当前所处的档；null = 滚轮缩出的自由倍率，四颗钮都不亮 */
   const [fitMode, setFitMode] = useState<MediaFitMode | null>(null)
-  const [findOpen, setFindOpen] = useState(false)
-  const [findFocusNonce, setFindFocusNonce] = useState(0)
-  const [findQuery, setFindQuery] = useState('')
-  const [caseSensitive, setCaseSensitive] = useState(false)
-  const [wholeWord, setWholeWord] = useState(false)
+  const { open: findOpen, round: findRound, openFind, closeFind: closeSession } = find
+  const { query: findQuery, caseSensitive, wholeWord } = find.bar
   const [findResult, setFindResult] = useState<FindResult | null>(null)
 
   const doc = docInfo?.src === src ? docInfo.doc : null
@@ -336,16 +337,11 @@ export function FilesPdfPreview({
     }
   }, [src])
 
-  const openFind = useCallback(() => {
-    setFindOpen(true)
-    setFindFocusNonce((n) => n + 1)
-  }, [])
-
   const closeFind = useCallback(() => {
-    setFindOpen(false)
+    closeSession()
     busRef.current?.dispatch('findbarclose', { source: null })
     containerRef.current?.focus({ preventScroll: true })
-  }, [])
+  }, [closeSession])
 
   const dispatchFind = useCallback(
     (type: '' | 'again', findPrevious = false) => {
@@ -420,11 +416,12 @@ export function FilesPdfPreview({
     })
   }, [])
 
-  // 查询 / 选项变化即重新查找（PDF.js 自带防抖）
+  // 每开始新一轮查找（打开、改查询或选项、换了文件……）即从当前页重新找（PDF.js 自带防抖）；
+  // 换文件时新文档还没载入，PDF.js 等它载入再找
   useEffect(() => {
     if (!findOpen) return
     dispatchFind('')
-  }, [findOpen, dispatchFind])
+  }, [findOpen, findRound, dispatchFind])
 
   const getPage = useCallback(() => {
     const viewer = viewerRef.current
@@ -535,14 +532,9 @@ export function FilesPdfPreview({
       />
       {findOpen && (
         <FindBar
-          query={findQuery}
-          onQueryChange={setFindQuery}
-          focusNonce={findFocusNonce}
+          {...find.bar}
+          regexp={null}
           countLabel={countLabel}
-          caseSensitive={caseSensitive}
-          onToggleCaseSensitive={() => setCaseSensitive((v) => !v)}
-          wholeWord={wholeWord}
-          onToggleWholeWord={() => setWholeWord((v) => !v)}
           canNavigate={(findResult?.total ?? 0) > 0}
           onNavigate={(dir) => dispatchFind('again', dir < 0)}
           onClose={closeFind}

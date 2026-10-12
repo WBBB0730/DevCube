@@ -580,8 +580,7 @@
 }
 
 /* Files Tab PPT 预览（pptx-renderer 画成 HTML / SVG）：页面阴影同 PDF；文字上是 text 光标（选字），
-   链接由库以行内样式给 pointer；按住空格的抓手模式处处 grab（盖过库的行内光标）。
-   查找高亮走 CSS Custom Highlight（全局命名），命中黄 / 当前橙同 PDF。 */
+   链接由库以行内样式给 pointer；按住空格的抓手模式处处 grab（盖过库的行内光标）。 */
 .files-pptx-slide {
   box-shadow: 0 1px 4px rgb(0 0 0 / 0.35);
 }
@@ -591,10 +590,12 @@
 .files-pptx .pan-mode .files-pptx-slide * {
   cursor: grab !important;
 }
-::highlight(files-pptx-find) {
+
+/* 预览查找（PPT / Markdown）的命中高亮：CSS Custom Highlight（全局命名，见 lib/find-highlight），命中黄 / 当前橙同 PDF */
+::highlight(files-find) {
   background-color: rgb(252 212 126 / 0.55);
 }
-::highlight(files-pptx-find-current) {
+::highlight(files-find-current) {
   background-color: rgb(196 114 51 / 0.55);
 }
 

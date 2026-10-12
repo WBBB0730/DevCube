@@ -21,6 +21,7 @@ import { FindBar } from '@renderer/components/files/FindBar'
 import { useContentFocus } from '@renderer/lib/data-source-content-focus'
 import type { SheetCellText } from '@renderer/lib/files-sheet'
 import { isPrimaryModifierEvent } from '@renderer/lib/shortcut-label'
+import { useFindSession } from '@renderer/lib/use-find-session'
 import { useSheetFind } from '@renderer/lib/use-sheet-find'
 import { cn } from '@renderer/lib/utils'
 import { resultValueText } from '@shared/data-source-export'
@@ -170,12 +171,14 @@ export function DataGrid({
     },
     [table, rowVirtualizer, columnVirtualizer]
   )
-  const find = useSheetFind({
+  const find = useFindSession()
+  const sheetFind = useSheetFind({
     buildCells,
     origin: focusedCell(),
     reveal: revealCell,
     scope: rows,
-    onClose: focusGrid
+    onClose: focusGrid,
+    find
   })
 
   const onKeyDown = (e: React.KeyboardEvent): void => {
@@ -190,7 +193,7 @@ export function DataGrid({
       table.selectAllCells()
     } else if (e.key === 'Escape') {
       // 查找开着时先关查找（焦点在表格上），否则取消选中
-      if (find.open) find.closeFind()
+      if (sheetFind.open) sheetFind.closeFind()
       else table.resetCellSelection(true)
     }
   }
@@ -233,10 +236,10 @@ export function DataGrid({
           return
         e.preventDefault()
         e.stopPropagation()
-        find.openFind()
+        sheetFind.openFind()
       }}
     >
-      {find.open && <FindBar {...find.bar} />}
+      {sheetFind.open && <FindBar {...sheetFind.bar} />}
       <div
         ref={scrollRef}
         tabIndex={0}
@@ -324,7 +327,7 @@ export function DataGrid({
                       style={{
                         left: GUTTER_W + vc.start,
                         width: vc.size,
-                        backgroundImage: find.layerOf?.(vr.index, vc.index)
+                        backgroundImage: sheetFind.layerOf?.(vr.index, vc.index)
                       }}
                       title={titleOf(value)}
                       onMouseDown={cell.getSelectionStartHandler()}

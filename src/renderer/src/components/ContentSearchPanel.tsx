@@ -332,20 +332,16 @@ export function ContentSearchPanel({
   const previewExtensions = useMemo(
     () =>
       preview
-        ? [
-            filesEditorTheme[theme],
-            filesHighlighting[theme],
-            languageExtensionForPath(preview.rel),
-            EditorView.editable.of(false)
-          ]
+        ? [filesEditorTheme[theme], filesHighlighting[theme], languageExtensionForPath(preview.rel)]
         : [],
     [theme, preview]
   )
 
-  // 面板键盘：↑↓ 选命中、回车打开（Esc 关闭归弹窗外壳）。焦点总在面板内——点状态行等不可聚焦处落在面板本身，
-  // 预览的 CodeMirror 不可编辑、拿不到焦点
+  // 面板键盘：↑↓ 选命中、回车打开（Esc 关闭归弹窗外壳）。焦点总在面板内——点状态行等不可聚焦处落在面板本身；
+  // 焦点在只读预览里（选字复制时）方向键与回车归预览
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
     if (e.nativeEvent.isComposing) return
+    if (e.target instanceof Node && previewViewRef.current?.dom.contains(e.target)) return
     if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
       e.preventDefault()
       moveSelection(e.key === 'ArrowDown' ? 1 : -1)
@@ -583,7 +579,8 @@ export function ContentSearchPanel({
                       highlightActiveLineGutter: true,
                       syntaxHighlighting: false
                     }}
-                    editable={false}
+                    // 用 readOnly 而非 editable={false}：内容区仍可聚焦，才能选中复制
+                    readOnly
                     onCreateEditor={(view) => {
                       previewViewRef.current = view
                       setPreviewViewNonce((n) => n + 1)

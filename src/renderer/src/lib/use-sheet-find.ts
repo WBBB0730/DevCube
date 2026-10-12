@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
   SHEET_FIND_CURRENT_LAYER,
   SHEET_FIND_MATCH_LAYER,
@@ -6,39 +6,41 @@ import {
   sheetFirstMatchFrom,
   type SheetCellText
 } from './files-sheet'
+import { compileTextFind } from './text-find'
+import { useFindCursor } from './use-find-cursor'
+import type { FindSession, FindSessionBar } from './use-find-session'
 
 /** 格子的位置：行、列序号 */
 type Cell = { row: number; col: number }
 
 const cellKey = (row: number, col: number): string => `${row}:${col}`
 
-/** 交给查找栏（FindBar）的：查询、选项、计数与各回调。 */
-export interface SheetFindBar {
-  query: string
-  onQueryChange: (query: string) => void
-  focusNonce: number
+/** 交给查找栏（FindBar）的：会话的查询与选项，加上计数、错误提示与导航。 */
+export interface SheetFindBar extends Omit<FindSessionBar, 'regexp'> {
+  /** null = 不提供正则开关 */
+  regexp: boolean | null
   countLabel: string | null
-  caseSensitive: boolean
-  onToggleCaseSensitive: () => void
-  wholeWord: boolean
-  onToggleWholeWord: () => void
+  invalidMessage: string | null
   canNavigate: boolean
   onNavigate: (dir: 1 | -1) => void
   onClose: () => void
 }
 
 /**
- * 表格的 ⌘F 查找（Files 的表格预览与数据源的表格共用；命中规则见 files-sheet，查找栏是 FindBar）：格子的显示文字含
- * 查询即命中，命中格叠黄、当前命中叠橙（调用方按 layerOf 叠底色）；首个命中取起点格（打开查找、改查询或选项时的焦点格 /
- * 活动格）及之后的第一个，Enter / Shift+Enter 下一个 / 上一个。当前命中一变即交 reveal 选中并滚入视口（其他重渲染不再
- * 动选区与滚动）。scope 变了（换了数据、换了工作表）即作废查找进度，在新的范围里从头找。
+ * 表格的 ⌘F 查找（Files 的表格预览与数据源的表格共用；命中规则见 text-find，查找栏是 FindBar）：格子的显示文字里有命中
+ * 即算，命中格叠黄、当前命中叠橙（调用方按 layerOf 叠底色）；首个命中取起点格（每轮查找开始时的焦点格 / 活动格）及之后的
+ * 第一个，Enter / Shift+Enter 下一个 / 上一个。当前命中一变即交 reveal 选中并滚入视口（其他重渲染不再动选区与滚动）。
+ * scope 变了（换了数据、换了工作表）即作废查找进度，在新的范围里从头找。查找会话（开关、查询与选项）由调用方给：
+ * Files 按文件记的那份（CSV 与编辑态共用），数据源表格自用一份。
  */
 export function useSheetFind({
   buildCells,
   origin,
   reveal,
   scope,
-  onClose
+  onClose,
+  find,
+  regexpToggle = false
 }: {
   /** 各格的显示文字（行优先）：打开查找时建一次，之后每次输入只在其中搜；它变了（换了数据）重建。要保持同一个引用 */
   buildCells: () => SheetCellText[]
@@ -50,6 +52,10 @@ export function useSheetFind({
   scope: unknown
   /** 关掉查找之后（焦点回表格）；要保持同一个引用 */
   onClose: () => void
+  /** 查找会话 */
+  find: FindSession
+  /** 提供正则开关（与编辑态共用查找栏的 CSV 预览） */
+  regexpToggle?: boolean
 }): {
   open: boolean
   openFind: () => void
@@ -58,40 +64,34 @@ export function useSheetFind({
   layerOf: ((row: number, col: number) => string | undefined) | null
   bar: SheetFindBar
 } {
-  const [open, setOpen] = useState(false)
-  const [focusNonce, setFocusNonce] = useState(0)
-  const [query, setQuery] = useState('')
-  const [caseSensitive, setCaseSensitive] = useState(false)
-  const [wholeWord, setWholeWord] = useState(false)
-  /** 这次查找从哪一格起，首个命中取它及之后的第一个；null = 从头 */
-  const [from, setFrom] = useState<Cell | null>(null)
-  /** 上一个 / 下一个选中的命中下标；null = 取 `from` 起的首个 */
-  const [active, setActive] = useState<number | null>(null)
+  const { open, closeFind: closeSession } = find
+  const { query, caseSensitive, wholeWord } = find.bar
+  /** 开关藏起来时不按正则找 */
+  const regexp = regexpToggle && find.bar.regexp
+  /** 起点（`start`）= 本轮查找开始时的起点格，首个命中取它及之后的第一个；null = 从头 */
+  const cursor = useFindCursor(find.round, origin)
 
-  // 换了范围即从头找：渲染期比对上一次的范围（React「渲染中调整 state」模式，非 effect）
+  // 换了范围从头找：渲染期比对（React「渲染中调整 state」模式，非 effect）
   const [seenScope, setSeenScope] = useState(scope)
   if (scope !== seenScope) {
     setSeenScope(scope)
-    setFrom(null)
-    setActive(null)
+    cursor.restart(null)
   }
 
   const cells = useMemo(() => (open ? buildCells() : []), [open, buildCells])
-  const matches = useMemo(
-    () => sheetFindMatches(cells, query, { caseSensitive, wholeWord }),
-    [cells, query, caseSensitive, wholeWord]
+  const finder = useMemo(
+    () => compileTextFind(query, { caseSensitive, wholeWord, regexp }),
+    [query, caseSensitive, wholeWord, regexp]
   )
-  const current =
-    active !== null && active < matches.length ? active : sheetFirstMatchFrom(matches, from)
+  const matches = useMemo(() => (finder ? sheetFindMatches(cells, finder) : []), [cells, finder])
+  const current = cursor.currentOf(matches.length, () => sheetFirstMatchFrom(matches, cursor.start))
   const currentMatch = current >= 0 ? matches[current]! : null
 
-  // 当前命中一变就选中并滚入视口（拖列宽、缩放等重渲染不再动选区与滚动）
-  const revealedFor = useRef<SheetCellText | null>(null)
+  // 首个命中一变、或按了上一个 / 下一个，就选中并滚入视口（拖列宽、缩放等重渲染不再动选区与滚动）
+  const { claimReveal } = cursor
   useEffect(() => {
-    if (revealedFor.current === currentMatch) return
-    revealedFor.current = currentMatch
-    if (currentMatch) reveal(currentMatch)
-  }, [currentMatch, reveal])
+    if (claimReveal(currentMatch) && currentMatch) reveal(currentMatch)
+  }, [claimReveal, currentMatch, reveal])
 
   const layerOf = useMemo(() => {
     if (!open || matches.length === 0) return null
@@ -104,53 +104,21 @@ export function useSheetFind({
     }
   }, [open, matches, currentMatch])
 
-  /** 新一轮查找（打开 / 改查询 / 改选项）：从起点格找 */
-  const restart = useCallback((): void => {
-    setActive(null)
-    setFrom(origin)
-  }, [origin])
-
-  const openFind = useCallback(() => {
-    setOpen(true)
-    setFocusNonce((n) => n + 1)
-    restart()
-  }, [restart])
-
   const closeFind = useCallback(() => {
-    setOpen(false)
+    closeSession()
     onClose()
-  }, [onClose])
+  }, [closeSession, onClose])
 
   return {
     open,
-    openFind,
+    openFind: find.openFind,
     closeFind,
     layerOf,
     bar: {
-      query,
-      onQueryChange: (q) => {
-        setQuery(q)
-        restart()
-      },
-      focusNonce,
-      countLabel:
-        !open || query === ''
-          ? null
-          : matches.length === 0
-            ? '无结果'
-            : `${current + 1}/${matches.length}`,
-      caseSensitive,
-      onToggleCaseSensitive: () => {
-        setCaseSensitive((v) => !v)
-        restart()
-      },
-      wholeWord,
-      onToggleWholeWord: () => {
-        setWholeWord((v) => !v)
-        restart()
-      },
-      canNavigate: matches.length > 0,
-      onNavigate: (dir) => setActive((current + dir + matches.length) % matches.length),
+      ...find.bar,
+      ...cursor.barOf(query, current, matches.length),
+      regexp: regexpToggle ? find.bar.regexp : null,
+      invalidMessage: finder === null ? '无效的正则表达式' : null,
       onClose: closeFind
     }
   }

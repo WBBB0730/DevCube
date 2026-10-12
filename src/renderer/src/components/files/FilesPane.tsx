@@ -38,6 +38,7 @@ import {
 } from '@renderer/lib/cm6-setup'
 import { EditorView } from '@codemirror/view'
 import { useEditorFind } from '@renderer/lib/use-editor-find'
+import { useFindSession, type FindMemory, type FindSession } from '@renderer/lib/use-find-session'
 import { gitDiffGutter, type GitGutterHunkClickPayload } from '@renderer/lib/cm6-git-gutter'
 import { FilesFindWidget } from './FilesFindWidget'
 import {
@@ -318,6 +319,12 @@ export function FilesPane({
   const [treeVisible, setTreeVisible] = useState(true)
   /** Markdown / SVG / CSV 编辑 ↔ 预览两态；会话内保持，不持久化，默认预览（新建文件时切回编辑）。 */
   const [sourcePreview, setSourcePreview] = useState(true)
+  /**
+   * 查找（Cmd+F）跟着文件走：按文件各记一份（开关、查询与选项），切走再切回来原样恢复；编辑与预览共用一份。
+   * 会话内保持，不持久化；改名 / 删除时跟着改。
+   */
+  const [findMemory] = useState<FindMemory>(() => new Map())
+  const find = useFindSession(loaded?.path ?? null, findMemory)
   /** PDF / PPT 缩略图侧栏可见性（两者共用一个开关）；会话内保持，不持久化，默认显示。 */
   const [pageThumbnails, setPageThumbnails] = useState(true)
   /** 文件树右键菜单目标与条目操作弹窗（新建 / 重命名 / 删除）。 */
@@ -1499,6 +1506,12 @@ export function FilesPane({
         expandedRef.current = nextExpanded
         setExpanded(nextExpanded)
         setSelectedPath((prev) => (prev === null ? null : remap(prev)))
+        for (const [key, value] of [...findMemory]) {
+          const moved = remap(key)
+          if (moved === key) continue
+          findMemory.delete(key)
+          findMemory.set(moved, value)
+        }
         const nextRecent = recentPathsRef.current.map(remap)
         setRecentPaths(nextRecent)
         const cur = loadedRef.current
@@ -1551,6 +1564,7 @@ export function FilesPane({
         })
       }
       setSelectedPath((prev) => (prev !== null && gone(prev) ? null : prev))
+      for (const key of [...findMemory.keys()]) if (gone(key)) findMemory.delete(key)
       await refreshFromDisk()
     },
     [
@@ -1562,7 +1576,8 @@ export function FilesPane({
       openFile,
       flushSave,
       ensureDirLoaded,
-      setUi
+      setUi,
+      findMemory
     ]
   )
 
@@ -1686,6 +1701,7 @@ export function FilesPane({
               <FilesTextEditor
                 path={loaded.path}
                 content={loaded.content}
+                find={find}
                 baseline={
                   headText !== null && headText.path === loaded.path ? headText.content : null
                 }
@@ -1828,6 +1844,7 @@ export function FilesPane({
                 src={loaded.mediaUrl}
                 path={loaded.path}
                 active={visible}
+                find={find}
                 thumbnails={pageThumbnails}
                 onToggleThumbnails={() => setPageThumbnails((v) => !v)}
                 onPrev={goPrevImage}
@@ -1867,6 +1884,7 @@ export function FilesPane({
                   source={{ kind: 'xlsx', src: loaded.mediaUrl, size: loaded.size }}
                   path={loaded.path}
                   active={visible}
+                  find={find}
                 />
               </div>
             )}
@@ -2184,6 +2202,7 @@ export function FilesPane({
 function FilesTextEditor({
   path,
   content,
+  find,
   baseline,
   projectRoot,
   error,
@@ -2210,6 +2229,8 @@ function FilesTextEditor({
 }: {
   path: string
   content: string
+  /** 这个文件的查找会话：编辑与预览共用 */
+  find: FindSession
   /** HEAD 基线文本；null = 不显示 gutter diff 条纹 */
   baseline: string | null
   projectRoot: string
@@ -2245,25 +2266,24 @@ function FilesTextEditor({
   const svg = isSvgPath(path)
   const csv = isCsvPath(path)
   const theme = useApp((s) => s.theme)
-  const viewRef = useRef<EditorView | null>(null)
   /** SVG 预览态的看图相机：工具栏「适应」钮组驱动 */
   const svgRef = useRef<MediaPreviewHandle>(null)
   const [svgFit, setSvgFit] = useState<MediaFitMode | null>(null)
-  const [viewNonce, setViewNonce] = useState(0)
-  // 工具栏下拉关掉后焦点回编辑器；预览态编辑器未挂载（viewRef 可能是旧实例）则不动
+  /** 编辑器：建好新的即换（跳转与查找栏据此重试）；预览态编辑器未挂载，可能还是卸掉的旧实例 */
+  const [view, setView] = useState<EditorView | null>(null)
+  // 工具栏下拉关掉后焦点回编辑器；预览态编辑器未挂载（view 可能是旧实例）则不动
   const focusEditor = useCallback(() => {
-    const view = viewRef.current
     if (view?.dom.isConnected) view.focus()
-  }, [])
+  }, [view])
 
-  // 编辑器内查找栏（Cmd+F）
-  const find = useEditorFind(viewRef)
+  // 查找栏（Cmd+F）：这个文件的查找会话（FilesPane 按文件记），编辑与预览（Markdown / CSV）共用，切换不关、不清空；
+  // SVG 预览没有查找，查找栏先藏起，切回编辑原样出现
+  const findExtension = useEditorFind(view, find)
 
-  // 跳转须等 CodeMirror 挂载（key=path 换文件重建）；viewNonce 驱动重试。
-  // 预览态（Markdown / SVG / CSV）编辑器未挂载，viewRef 可能仍是上个文件的旧实例：留待切回编辑再应用。
+  // 跳转须等 CodeMirror 挂载（key=path 换文件重建）；建好新编辑器（view 换新）时重试。
+  // 预览态（Markdown / SVG / CSV）编辑器未挂载，view 可能仍是上个文件的旧实例：留待切回编辑再应用。
   useEffect(() => {
     if (!jump || jump.path !== path) return
-    const view = viewRef.current
     if (!view || !view.dom.isConnected) return
     if (jump.line !== undefined) {
       const doc = view.state.doc
@@ -2277,7 +2297,7 @@ function FilesTextEditor({
     }
     view.focus()
     onJumpDone()
-  }, [jump, path, viewNonce, onJumpDone])
+  }, [jump, path, view, onJumpDone])
   // 换 extensions 走的是 StateEffect.reconfigure，不重建 EditorState：文档 / 选区 / 滚动
   // 位置与撤销栈都在，切主题不打断编辑。
   const extensions = useMemo(
@@ -2287,10 +2307,10 @@ function FilesTextEditor({
       filesEditorConfig,
       filesGutters,
       languageExtensionForPath(path),
-      find.extension,
+      findExtension,
       ...(baseline === null ? [] : [gitDiffGutter(baseline, onHunkClick)])
     ],
-    [theme, path, baseline, onHunkClick, find.extension]
+    [theme, path, baseline, onHunkClick, findExtension]
   )
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -2318,7 +2338,13 @@ function FilesTextEditor({
       />
       {saveBar}
       {markdown && sourcePreview ? (
-        <FilesMarkdownPreview path={path} content={content} projectRoot={projectRoot} />
+        <FilesMarkdownPreview
+          path={path}
+          content={content}
+          projectRoot={projectRoot}
+          active={active}
+          find={find}
+        />
       ) : svg && sourcePreview ? (
         <FilesSvgPreview
           ref={svgRef}
@@ -2336,17 +2362,11 @@ function FilesTextEditor({
           source={{ kind: 'csv', content }}
           path={path}
           active={active}
+          find={find}
         />
       ) : (
         <>
-          {find.open && (
-            <FilesFindWidget
-              viewRef={viewRef}
-              content={content}
-              focusNonce={find.focusNonce}
-              onClose={find.close}
-            />
-          )}
+          {find.open && <FilesFindWidget view={view} content={content} find={find} />}
           <div className="files-codemirror min-h-0 flex-1 overflow-hidden bg-deepest">
             <CodeMirror
               key={path}
@@ -2356,10 +2376,7 @@ function FilesTextEditor({
               extensions={extensions}
               basicSetup={FILES_BASIC_SETUP}
               onChange={onChange}
-              onCreateEditor={(view) => {
-                viewRef.current = view
-                setViewNonce((n) => n + 1)
-              }}
+              onCreateEditor={(created) => setView(created)}
               className="h-full [&_.cm-editor]:h-full [&_.cm-editor]:outline-none"
             />
           </div>

@@ -11,7 +11,8 @@ const TOGGLE_BTN = 'flex size-6 shrink-0 items-center justify-center rounded tra
 export function FindBar({
   query,
   onQueryChange,
-  focusNonce,
+  focusPending,
+  onFocusHandled,
   countLabel,
   invalidMessage = null,
   caseSensitive,
@@ -26,8 +27,9 @@ export function FindBar({
 }: {
   query: string
   onQueryChange: (query: string) => void
-  /** +1 重新聚焦输入框（已开时再按 Cmd+F） */
-  focusNonce: number
+  /** 有一次待办的聚焦（打开查找、已开时再按 Cmd+F）：聚焦输入框并全选后调 onFocusHandled；恢复出来、切换编辑 / 预览时不抢焦点 */
+  focusPending: boolean
+  onFocusHandled: () => void
   /** 计数文案（如 `2/17`、`无结果`）；null 不显示 */
   countLabel: string | null
   /** 优先于计数显示的错误文案（如无效正则） */
@@ -46,9 +48,11 @@ export function FindBar({
   const inputRef = useRef<HTMLInputElement>(null)
 
   useEffect(() => {
+    if (!focusPending) return
     inputRef.current?.focus()
     inputRef.current?.select()
-  }, [focusNonce])
+    onFocusHandled()
+  }, [focusPending, onFocusHandled])
 
   const toggleCls = (active: boolean): string =>
     cn(

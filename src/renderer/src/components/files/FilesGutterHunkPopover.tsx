@@ -5,7 +5,6 @@
 // 滚动发生时弹窗已关，无须豁免逻辑。文档一变由 FilesPane 的 onChange 统一关闭。
 import { useEffect, useMemo } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
-import { EditorView } from '@codemirror/view'
 import { ChevronDown, ChevronUp, Copy, Undo2 } from 'lucide-react'
 import {
   currentGitGutterHunks,
@@ -101,12 +100,7 @@ export function FilesGutterHunkPopover({
   }
 
   const previewExtensions = useMemo(
-    () => [
-      filesEditorTheme[theme],
-      filesHighlighting[theme],
-      languageExtensionForPath(filePath),
-      EditorView.editable.of(false)
-    ],
+    () => [filesEditorTheme[theme], filesHighlighting[theme], languageExtensionForPath(filePath)],
     [theme, filePath]
   )
 
@@ -166,7 +160,8 @@ export function FilesGutterHunkPopover({
               value={hunk.oldLines.join('\n')}
               theme="none"
               basicSetup={false}
-              editable={false}
+              // 用 readOnly 而非 editable={false}：内容区仍可聚焦，才能选中复制
+              readOnly
               extensions={previewExtensions}
               className="[&_.cm-editor]:h-auto [&_.cm-editor]:outline-none"
             />

@@ -14,6 +14,7 @@ import {
   sheetWheelZoom,
   type SheetCellText
 } from './files-sheet'
+import { compileTextFind } from './text-find'
 
 beforeAll(() => {
   const require = createRequire(import.meta.url)
@@ -106,35 +107,10 @@ describe('sheetFindMatches', () => {
     { row: 3, col: 0, text: '-5 元' }
   ]
 
-  it('默认不分大小写，一格只算一次，保持行优先顺序', () => {
-    expect(sheetFindMatches(cells, 'total', { caseSensitive: false, wholeWord: false })).toEqual(
-      cells.slice(0, 4)
-    )
-  })
-
-  it('区分大小写', () => {
+  it('一格只算一次，保持行优先顺序', () => {
     expect(
-      sheetFindMatches(cells, 'Total', { caseSensitive: true, wholeWord: false }).map((c) => c.text)
-    ).toEqual(['Total'])
-  })
-
-  it('全词：两侧不能紧挨词字符（字母 / 数字 / 下划线，含中文）', () => {
-    expect(
-      sheetFindMatches(cells, 'total', { caseSensitive: false, wholeWord: true }).map((c) => c.text)
-    ).toEqual(['Total', 'total total'])
-    expect(
-      sheetFindMatches(cells, '合计', { caseSensitive: false, wholeWord: true }).map((c) => c.text)
-    ).toEqual(['合计：total_1'])
-  })
-
-  it('全词：查询两端不是词字符时那一端不要求词界', () => {
-    expect(
-      sheetFindMatches(cells, '-5', { caseSensitive: false, wholeWord: true }).map((c) => c.text)
-    ).toEqual(['-5 元'])
-  })
-
-  it('空查询没有命中', () => {
-    expect(sheetFindMatches(cells, '', { caseSensitive: false, wholeWord: false })).toEqual([])
+      sheetFindMatches(cells, compileTextFind('total', { caseSensitive: false, wholeWord: false })!)
+    ).toEqual(cells.slice(0, 4))
   })
 })
 
