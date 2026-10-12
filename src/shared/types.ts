@@ -848,6 +848,7 @@ export interface RunAPI extends GitAPI, GitHubAPI {
   // —— Files Tab ——
   filesListDir(projectPath: string, dirPath: string): Promise<FilesDirEntry[]>
   filesFilterTree(projectPath: string, query: string): Promise<FilesTreeFilterResult>
+  filesInvalidateIndex(projectPath: string): Promise<void>
   filesRead(projectPath: string, filePath: string): Promise<FilesReadResult>
   filesWrite(
     projectPath: string,

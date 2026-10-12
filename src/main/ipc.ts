@@ -1137,6 +1137,9 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   ipcMain.handle(IPC.filesFilterTree, (_e, projectPath: string, query: string) =>
     filterFilesTreeQuery(projectPath, query)
   )
+  ipcMain.handle(IPC.filesInvalidateIndex, (_e, projectPath: string) =>
+    invalidateFilesIndex(projectPath)
+  )
   ipcMain.handle(IPC.filesRead, (_e, projectPath: string, filePath: string) =>
     readFileEntry(projectPath, filePath)
   )

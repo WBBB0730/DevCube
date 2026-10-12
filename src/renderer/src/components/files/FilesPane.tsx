@@ -1292,28 +1292,35 @@ export function FilesPane({
   ])
 
   /**
-   * 服务器上的刷新要一会儿：进行中「刷新」钮的图标转圈、钮置灰，自动触发的也算；
-   * 结束后图标转回原位才恢复（RefreshButton）
+   * 主动刷新（手动、切回、窗口回到前台、自己的文件操作与上传之后）：进行中「刷新」钮的图标转圈、钮置灰，
+   * 结束后图标转回原位才恢复（RefreshButton）。本地不只靠监听通知（ADR-0011：系统的文件事件可能被压住、
+   * 迟迟不到），这里一并作废文件名索引、重拉 Git 标记，筛选结果与文件颜色同步跟上。
+   * 跟随监听通知的同步不走这里，免得构建等频繁变化时图标一直转。
    */
   const [refreshing, setRefreshing] = useState(0)
   const refreshFromDisk = useCallback(async () => {
-    if (!remote) return syncFromDisk()
     setRefreshing((n) => n + 1)
     try {
-      await syncFromDisk()
+      if (remote) {
+        await syncFromDisk()
+      } else {
+        await window.api.filesInvalidateIndex(rootPath)
+        await Promise.all([syncFromDisk(), refreshGitStatus()])
+      }
     } finally {
       setRefreshing((n) => n - 1)
     }
-  }, [remote, syncFromDisk])
+  }, [remote, rootPath, syncFromDisk, refreshGitStatus])
 
   useEffect(() => {
     if (!ready) return
     return serverId !== null
       ? subscribeServerEntriesChanged(serverId, () => void refreshFromDisk())
-      : subscribeFilesChanged(rootPath, () => void refreshFromDisk())
-  }, [ready, serverId, rootPath, refreshFromDisk])
+      : subscribeFilesChanged(rootPath, () => void syncFromDisk())
+  }, [ready, serverId, rootPath, refreshFromDisk, syncFromDisk])
 
-  // 服务器上的变化没人通知：切回这个 Tab、窗口回到前台、断线后连回来时各刷新一次（首次就绪时刚读过，跳过）。
+  // 切回这个 Tab、窗口回到前台、断线后连回来时各主动刷新一次（首次就绪时刚读过，跳过）：
+  // 服务器上的变化没人通知，本地的监听通知也可能迟迟不到（ADR-0011）。
   const refreshRef = useRef(refreshFromDisk)
   const flushSaveRef = useRef(flushSave)
   useLayoutEffect(() => {
@@ -1322,13 +1329,13 @@ export function FilesPane({
   })
   const refreshArmed = useRef(false)
   useEffect(() => {
-    if (!ready || !remote || !visible || !connected) return
+    if (!ready || !visible || !connected) return
     if (refreshArmed.current) void refreshRef.current()
     refreshArmed.current = true
     const onFocus = (): void => void refreshRef.current()
     window.addEventListener('focus', onFocus)
     return () => window.removeEventListener('focus', onFocus)
-  }, [ready, remote, visible, connected])
+  }, [ready, visible, connected])
 
   // 服务器上的文件有未保存的修改时登记到全局：断开、编辑或移除服务器、退出前据此先问（见 store）
   const unsavedName =
@@ -1997,15 +2004,14 @@ export function FilesPane({
                       onTypeFilterChange={host.onTypeFilterChange}
                     />
                   )}
-                  {remote ? (
-                    // 服务器上不给「全部展开」：从 / 递归展开等于把整台服务器扫一遍
-                    <RefreshButton
-                      refreshing={refreshing > 0}
-                      title="刷新"
-                      disabled={!connected}
-                      onClick={() => void refreshFromDisk()}
-                    />
-                  ) : (
+                  <RefreshButton
+                    refreshing={refreshing > 0}
+                    title="刷新"
+                    disabled={!connected}
+                    onClick={() => void refreshFromDisk()}
+                  />
+                  {/* 服务器上不给「全部展开」：从 / 递归展开等于把整台服务器扫一遍 */}
+                  {!remote && (
                     <button
                       type="button"
                       title="全部展开"
