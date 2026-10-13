@@ -233,6 +233,18 @@ sleep 120 & echo $! > marker.pid; wait
 
 相关检查入口：`src/main/runner.ts` 的 `openTerminal`、`emitOutput`、`createScreen`、`resize`、`getSessionBuffer`；`src/renderer/src/components/Console.tsx` 的 TerminalPane 初始化、FitAddon、实时输出消费、快照回放及可见性变化。
 
+**第二轮 正式构建真实界面验证：连续新建三次，没有复现持续滚动。** 在独立用户档案的临时 Electron 应用中加载 `79f19ec` 的实际 main、preload 和 renderer，使用 Playwright 操作实际「新建终端」菜单。每次观察 12 秒，记录主进程收到的 stdin/resize、前端收到的原始 session output、实际主进程快照和 xterm viewport。
+
+三次结果一致：每个终端 369 个 UTF-16 代码单元、3 个输出块，原始输出包含 28 次 LF；这些 LF 位于 ConPTY 的逐行 `ESC[K` 清理序列中，结尾为 `ESC[H` 回到左上角，而不是 shell 连续执行空命令。最终快照只有 94 个代码单元、0 次 LF。前端 viewport 的 `scrollTop=0`，`scrollHeight=clientHeight=638`，没有产生滚动历史。实际尺寸为 108 列、29 行，每个终端前端发送了 3 次相同尺寸的 resize，主进程已有相同尺寸早退逻辑。三次合计 9 次 resize、1107 个输出代码单元、9 块输出、84 次 LF，stdin 输入次数为 0，因而本组中没有终端自动应答循环。
+
+测试用户 `.bashrc`、`.profile` 与 `/etc/skel` 对应默认模板 `cmp` 均为 0，未发现自定义 shell 启动脚本差异。JetBrains Mono 字体实际已加载。本组是在新建临时档案和正式 React 构建下测试，尚不能覆盖用户现有档案、开发模式和全部窗口尺寸，也不能据此否定用户观察。
+
+代码另有一个需要继续验证的配置差异：前端 xterm 和主进程 headless xterm 均未提供 `windowsPty`。当前本机 ConPTY 使用 Windows 10 build 19045，小于 xterm 区分旧版 ConPTY 重排行为的 21376 门槛。安装包 typings 与 [xterm 源码](https://github.com/xtermjs/xterm.js/blob/master/src/common/buffer/Buffer.ts)说明该配置影响 resize 时的历史行与行重排。当前只是潜在关联，未证明它是用户大量空行的根因，不能直接以设置该选项作为已验证修复。
+
+操作限制与诊断差异：本轮没有启动 dev 服务，没有向用户的终端注入输入，也没有终止发行版。临时 app 自己拥有独立 `appData`，仅记录两类 IPC，不改变产品事件处理。第一次尝试隐藏窗口使 Chromium 暂停渲染帧，Playwright 等待按钮稳定性超时；这属于诊断方式限制，随后改用实际可见的临时窗口完成测试，并在结束后关闭。独立工作树通过 node_modules junction 复用现有依赖，跨盘 CSS 引用有 Inter/PDF 资源解析警告；终端使用的本地 JetBrains Mono 已验证加载，其他页面的视觉结果不在这一组的结论范围内。Playwright 注入的调试参数使诊断 app 目录额外显示为一个 Project；它只属于临时档案，不影响用户的 Project 列表。
+
+证据：[界面采样和原始输出](wsl-project-validation/terminal-production/result.json)、[完整诊断脚本](wsl-project-validation/terminal-production/diagnostic.cjs.txt)、[主进程观察入口](wsl-project-validation/terminal-production/bootstrap.cjs.txt)、[第一次新建画面](wsl-project-validation/terminal-production/round-1.png)、[第二次](wsl-project-validation/terminal-production/round-2.png)、[第三次](wsl-project-validation/terminal-production/round-3.png)。后续将针对开发模式、窗口尺寸、已有终端恢复与重复快照继续检查。
+
 #### 已通过的基础检查及其范围
 
 | 检查               | 结果与范围                                                                                              |
@@ -314,5 +326,7 @@ wsl.exe -d Ubuntu-24.04 --cd /mnt/e/Projects/Webstorm/DevCube/build/wsl --exec /
 #### 附件与检查空白
 
 初始全部已有结果、脚本和日志位于 [wsl project validation initial](wsl-project-validation/initial)。JSON 中保留当时的路径、PID、进程组和示例环境变量；这些是特定一次运行的证据，不是下一次运行可复用的操作目标。Go/Node 工具链归档、node_modules、编译后的大体积 CJS 和用户档案未提交。
+
+日志文本按仓库的 LF 约定存储，行尾空格和 stderr 的末尾空行是原始诊断输出的一部分；检查这类附件时不把它们当成代码格式缺陷。原始 ConPTY 控制字符、CR/LF 和进程输出在结果 JSON 的转义字符串中保存，不依赖普通文本日志的换行格式。
 
 待继续检查：用户报告的 Terminal 空行滚动；复杂路径形式的 Project 去重；目录重命名/搬入时的递归监听；文件名大小写、反斜杠和控制字符；工作树的独立与公共 gitdir；断开重连后的监听与探测恢复；运行会话的前台/后台与孙进程；大量文件搜索与取消；异常中断的恢复。文件夹选择器、资源管理器拖拽/右键、关闭 automount、inotify 上限、真实 VM 休眠和浏览器 localhost 转发仍没有完整实测覆盖。当前不启动 dev 服务，不改用户正在体验的 shell 配置、终端或发行版生命周期。

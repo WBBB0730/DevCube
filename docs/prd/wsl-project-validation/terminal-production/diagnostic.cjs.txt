@@ -1,0 +1,67 @@
+const { _electron: electron } = require('C:/Users/WBBB/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright')
+const { writeFileSync, mkdirSync } = require('node:fs')
+const { resolve, join } = require('node:path')
+const appDirectory = resolve('out/wsl-verification/ui-case')
+const resultsDirectory = resolve('out/wsl-verification/terminal-ui')
+mkdirSync(resultsDirectory, { recursive: true })
+
+async function main() {
+  const app = await electron.launch({
+    executablePath: resolve('node_modules/electron/dist/electron.exe'),
+    args: [appDirectory, '\\\\wsl.localhost\\Ubuntu-24.04\\home\\devcube\\devcube-wsl-verification\\terminal-ui'],
+    env: { ...process.env, ELECTRON_RENDERER_URL: '', NODE_ENV: 'production' },
+    timeout: 30000
+  })
+  const report = { source: '79f19ec', mode: 'production', cases: [], errors: [] }
+  try {
+    const page = await app.firstWindow()
+    page.on('pageerror', (error) => report.errors.push(String(error)))
+    console.log('WINDOW', await page.title())
+    const newButton = page.getByTitle('新建终端，或连接到服务器、数据源', { exact: true })
+    await newButton.waitFor({ state: 'visible', timeout: 30000 })
+    const terminalButtons = await page.locator('button').evaluateAll((buttons) => buttons.filter((button) => button.title.includes('终端')).map((button) => ({ title: button.title, text: button.textContent })))
+    console.log('DOM', JSON.stringify(terminalButtons))
+    await page.evaluate(() => {
+      window.__wslTerminalAudit = { outputs: [], bytes: 0, chunks: 0, linefeeds: 0 }
+      window.api.onSessionOutput((event) => {
+        const audit = window.__wslTerminalAudit
+        audit.bytes += event.data.length
+        audit.chunks++
+        audit.linefeeds += event.data.split('\n').length - 1
+        if (audit.outputs.length < 20000 && audit.bytes < 4000000) audit.outputs.push({ ms: Date.now(), ...event })
+      })
+    })
+    for (let round = 0; round < 3; round++) {
+      await newButton.click()
+      console.log('MENU', (await page.getByRole('menuitem').allTextContents()).join('|'))
+      await page.getByRole('menuitem', { name: '新建终端', exact: true }).click()
+      console.log('OPENED', round + 1)
+      const samples = []
+      for (let second = 0; second < 12; second++) {
+        await page.waitForTimeout(1000)
+        samples.push(await page.evaluate(async () => {
+          const terminals = await window.api.getTerminals()
+          const latest = terminals.at(-1)
+          const buffer = latest ? await window.api.getSessionBuffer(latest.key) : null
+          const viewports = Array.from(document.querySelectorAll('.xterm-viewport')).map((element) => ({ scrollTop: element.scrollTop, scrollHeight: element.scrollHeight, clientHeight: element.clientHeight, width: element.clientWidth }))
+          return { at: Date.now(), key: latest?.key, bytes: window.__wslTerminalAudit.bytes, chunks: window.__wslTerminalAudit.chunks, linefeeds: window.__wslTerminalAudit.linefeeds, snapshotBytes: buffer?.bytes, snapshotLength: buffer?.data.length, snapshotLinefeeds: buffer?.data.split('\n').length - 1, cols: buffer?.cols, rows: buffer?.rows, viewports }
+        }))
+      }
+      report.cases.push({ round: round + 1, samples })
+      console.log('SAMPLE', JSON.stringify(samples.at(-1)))
+      await page.screenshot({ path: join(resultsDirectory, `round-${round + 1}.png`) })
+    }
+    report.main = await app.evaluate(() => globalThis.wslUiAudit)
+    report.renderer = await page.evaluate(() => window.__wslTerminalAudit)
+    report.fonts = await page.evaluate(() => ({ jetbrains: document.fonts.check('13px "JetBrains Mono"'), status: document.fonts.status }))
+    writeFileSync(join(resultsDirectory, 'result.json'), JSON.stringify(report, null, 2))
+    await page.evaluate(async () => {
+      for (const terminal of await window.api.getTerminals()) await window.api.closeSession(terminal.key)
+    })
+    console.log('SUMMARY', JSON.stringify({ inputs: report.main.totalInputs, resizes: report.main.totalResizes, bytes: report.renderer.bytes, chunks: report.renderer.chunks, linefeeds: report.renderer.linefeeds }))
+  } finally {
+    writeFileSync(join(resultsDirectory, 'result.json'), JSON.stringify(report, null, 2))
+    await app.close()
+  }
+}
+main().catch((error) => { console.error(error); process.exitCode = 1 })

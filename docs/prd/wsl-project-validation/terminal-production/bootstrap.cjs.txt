@@ -1,0 +1,17 @@
+const { app, ipcMain } = require('electron')
+const { mkdirSync } = require('node:fs')
+const { resolve } = require('node:path')
+
+const data = resolve(__dirname, 'app-data-' + process.pid)
+mkdirSync(data, { recursive: true })
+app.setPath('appData', data)
+globalThis.wslUiAudit = { started: Date.now(), stdin: [], resizes: [], totalInputs: 0, totalResizes: 0 }
+ipcMain.on('session:stdin', (_event, key, data) => {
+  globalThis.wslUiAudit.totalInputs++
+  if (globalThis.wslUiAudit.stdin.length < 20000) globalThis.wslUiAudit.stdin.push({ ms: Date.now() - globalThis.wslUiAudit.started, key, data })
+})
+ipcMain.on('session:resize', (_event, key, cols, rows) => {
+  globalThis.wslUiAudit.totalResizes++
+  if (globalThis.wslUiAudit.resizes.length < 20000) globalThis.wslUiAudit.resizes.push({ ms: Date.now() - globalThis.wslUiAudit.started, key, cols, rows })
+})
+require('../../main/index.js')

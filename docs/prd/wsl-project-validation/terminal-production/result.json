@@ -1,0 +1,1094 @@
+{
+  "source": "79f19ec",
+  "mode": "production",
+  "cases": [
+    {
+      "round": 1,
+      "samples": [
+        {
+          "at": 1791857739950,
+          "key": "terminal:0c2af09a-1df6-47e4-b4c3-f366200143d6",
+          "bytes": 369,
+          "chunks": 3,
+          "linefeeds": 28,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857740963,
+          "key": "terminal:0c2af09a-1df6-47e4-b4c3-f366200143d6",
+          "bytes": 369,
+          "chunks": 3,
+          "linefeeds": 28,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857741972,
+          "key": "terminal:0c2af09a-1df6-47e4-b4c3-f366200143d6",
+          "bytes": 369,
+          "chunks": 3,
+          "linefeeds": 28,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857742985,
+          "key": "terminal:0c2af09a-1df6-47e4-b4c3-f366200143d6",
+          "bytes": 369,
+          "chunks": 3,
+          "linefeeds": 28,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857744000,
+          "key": "terminal:0c2af09a-1df6-47e4-b4c3-f366200143d6",
+          "bytes": 369,
+          "chunks": 3,
+          "linefeeds": 28,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857745014,
+          "key": "terminal:0c2af09a-1df6-47e4-b4c3-f366200143d6",
+          "bytes": 369,
+          "chunks": 3,
+          "linefeeds": 28,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857746029,
+          "key": "terminal:0c2af09a-1df6-47e4-b4c3-f366200143d6",
+          "bytes": 369,
+          "chunks": 3,
+          "linefeeds": 28,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857747044,
+          "key": "terminal:0c2af09a-1df6-47e4-b4c3-f366200143d6",
+          "bytes": 369,
+          "chunks": 3,
+          "linefeeds": 28,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857748058,
+          "key": "terminal:0c2af09a-1df6-47e4-b4c3-f366200143d6",
+          "bytes": 369,
+          "chunks": 3,
+          "linefeeds": 28,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857749072,
+          "key": "terminal:0c2af09a-1df6-47e4-b4c3-f366200143d6",
+          "bytes": 369,
+          "chunks": 3,
+          "linefeeds": 28,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857750085,
+          "key": "terminal:0c2af09a-1df6-47e4-b4c3-f366200143d6",
+          "bytes": 369,
+          "chunks": 3,
+          "linefeeds": 28,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857751096,
+          "key": "terminal:0c2af09a-1df6-47e4-b4c3-f366200143d6",
+          "bytes": 369,
+          "chunks": 3,
+          "linefeeds": 28,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "round": 2,
+      "samples": [
+        {
+          "at": 1791857752375,
+          "key": "terminal:b9a9a023-e939-4cd7-80a9-d9c55edf3bbc",
+          "bytes": 738,
+          "chunks": 6,
+          "linefeeds": 56,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857753393,
+          "key": "terminal:b9a9a023-e939-4cd7-80a9-d9c55edf3bbc",
+          "bytes": 738,
+          "chunks": 6,
+          "linefeeds": 56,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857754407,
+          "key": "terminal:b9a9a023-e939-4cd7-80a9-d9c55edf3bbc",
+          "bytes": 738,
+          "chunks": 6,
+          "linefeeds": 56,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857755419,
+          "key": "terminal:b9a9a023-e939-4cd7-80a9-d9c55edf3bbc",
+          "bytes": 738,
+          "chunks": 6,
+          "linefeeds": 56,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857756437,
+          "key": "terminal:b9a9a023-e939-4cd7-80a9-d9c55edf3bbc",
+          "bytes": 738,
+          "chunks": 6,
+          "linefeeds": 56,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857757448,
+          "key": "terminal:b9a9a023-e939-4cd7-80a9-d9c55edf3bbc",
+          "bytes": 738,
+          "chunks": 6,
+          "linefeeds": 56,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857758452,
+          "key": "terminal:b9a9a023-e939-4cd7-80a9-d9c55edf3bbc",
+          "bytes": 738,
+          "chunks": 6,
+          "linefeeds": 56,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857759463,
+          "key": "terminal:b9a9a023-e939-4cd7-80a9-d9c55edf3bbc",
+          "bytes": 738,
+          "chunks": 6,
+          "linefeeds": 56,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857760477,
+          "key": "terminal:b9a9a023-e939-4cd7-80a9-d9c55edf3bbc",
+          "bytes": 738,
+          "chunks": 6,
+          "linefeeds": 56,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857761490,
+          "key": "terminal:b9a9a023-e939-4cd7-80a9-d9c55edf3bbc",
+          "bytes": 738,
+          "chunks": 6,
+          "linefeeds": 56,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857762501,
+          "key": "terminal:b9a9a023-e939-4cd7-80a9-d9c55edf3bbc",
+          "bytes": 738,
+          "chunks": 6,
+          "linefeeds": 56,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857763505,
+          "key": "terminal:b9a9a023-e939-4cd7-80a9-d9c55edf3bbc",
+          "bytes": 738,
+          "chunks": 6,
+          "linefeeds": 56,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "round": 3,
+      "samples": [
+        {
+          "at": 1791857764751,
+          "key": "terminal:06d0eb21-4419-4ba3-9b77-0aec1ef8af24",
+          "bytes": 1107,
+          "chunks": 9,
+          "linefeeds": 84,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857765763,
+          "key": "terminal:06d0eb21-4419-4ba3-9b77-0aec1ef8af24",
+          "bytes": 1107,
+          "chunks": 9,
+          "linefeeds": 84,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857766774,
+          "key": "terminal:06d0eb21-4419-4ba3-9b77-0aec1ef8af24",
+          "bytes": 1107,
+          "chunks": 9,
+          "linefeeds": 84,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857767786,
+          "key": "terminal:06d0eb21-4419-4ba3-9b77-0aec1ef8af24",
+          "bytes": 1107,
+          "chunks": 9,
+          "linefeeds": 84,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857768796,
+          "key": "terminal:06d0eb21-4419-4ba3-9b77-0aec1ef8af24",
+          "bytes": 1107,
+          "chunks": 9,
+          "linefeeds": 84,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857769810,
+          "key": "terminal:06d0eb21-4419-4ba3-9b77-0aec1ef8af24",
+          "bytes": 1107,
+          "chunks": 9,
+          "linefeeds": 84,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857770824,
+          "key": "terminal:06d0eb21-4419-4ba3-9b77-0aec1ef8af24",
+          "bytes": 1107,
+          "chunks": 9,
+          "linefeeds": 84,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857771839,
+          "key": "terminal:06d0eb21-4419-4ba3-9b77-0aec1ef8af24",
+          "bytes": 1107,
+          "chunks": 9,
+          "linefeeds": 84,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857772848,
+          "key": "terminal:06d0eb21-4419-4ba3-9b77-0aec1ef8af24",
+          "bytes": 1107,
+          "chunks": 9,
+          "linefeeds": 84,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857773862,
+          "key": "terminal:06d0eb21-4419-4ba3-9b77-0aec1ef8af24",
+          "bytes": 1107,
+          "chunks": 9,
+          "linefeeds": 84,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857774877,
+          "key": "terminal:06d0eb21-4419-4ba3-9b77-0aec1ef8af24",
+          "bytes": 1107,
+          "chunks": 9,
+          "linefeeds": 84,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        },
+        {
+          "at": 1791857775889,
+          "key": "terminal:06d0eb21-4419-4ba3-9b77-0aec1ef8af24",
+          "bytes": 1107,
+          "chunks": 9,
+          "linefeeds": 84,
+          "snapshotBytes": 369,
+          "snapshotLength": 94,
+          "snapshotLinefeeds": 0,
+          "cols": 108,
+          "rows": 29,
+          "viewports": [
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 0,
+              "clientHeight": 0,
+              "width": 0
+            },
+            {
+              "scrollTop": 0,
+              "scrollHeight": 638,
+              "clientHeight": 638,
+              "width": 787
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "main": {
+    "started": 1791857736595,
+    "stdin": [],
+    "resizes": [
+      {
+        "ms": 2320,
+        "key": "terminal:0c2af09a-1df6-47e4-b4c3-f366200143d6",
+        "cols": 108,
+        "rows": 29
+      },
+      {
+        "ms": 2329,
+        "key": "terminal:0c2af09a-1df6-47e4-b4c3-f366200143d6",
+        "cols": 108,
+        "rows": 29
+      },
+      {
+        "ms": 2337,
+        "key": "terminal:0c2af09a-1df6-47e4-b4c3-f366200143d6",
+        "cols": 108,
+        "rows": 29
+      },
+      {
+        "ms": 14751,
+        "key": "terminal:b9a9a023-e939-4cd7-80a9-d9c55edf3bbc",
+        "cols": 108,
+        "rows": 29
+      },
+      {
+        "ms": 14756,
+        "key": "terminal:b9a9a023-e939-4cd7-80a9-d9c55edf3bbc",
+        "cols": 108,
+        "rows": 29
+      },
+      {
+        "ms": 14761,
+        "key": "terminal:b9a9a023-e939-4cd7-80a9-d9c55edf3bbc",
+        "cols": 108,
+        "rows": 29
+      },
+      {
+        "ms": 27131,
+        "key": "terminal:06d0eb21-4419-4ba3-9b77-0aec1ef8af24",
+        "cols": 108,
+        "rows": 29
+      },
+      {
+        "ms": 27137,
+        "key": "terminal:06d0eb21-4419-4ba3-9b77-0aec1ef8af24",
+        "cols": 108,
+        "rows": 29
+      },
+      {
+        "ms": 27144,
+        "key": "terminal:06d0eb21-4419-4ba3-9b77-0aec1ef8af24",
+        "cols": 108,
+        "rows": 29
+      }
+    ],
+    "totalInputs": 0,
+    "totalResizes": 9
+  },
+  "renderer": {
+    "outputs": [
+      {
+        "ms": 1791857738917,
+        "key": "terminal:0c2af09a-1df6-47e4-b4c3-f366200143d6",
+        "sid": "fe736f4e-e743-401c-9ae7-13dfeee5b2dd",
+        "data": "\u001b[2J\u001b[m\u001b[H\u001b]0;C:\\Windows\\System32\\wsl.exe\u0007\u001b[?25h",
+        "bytes": 48
+      },
+      {
+        "ms": 1791857738931,
+        "key": "terminal:0c2af09a-1df6-47e4-b4c3-f366200143d6",
+        "sid": "fe736f4e-e743-401c-9ae7-13dfeee5b2dd",
+        "data": "\u001b[25l\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\u001b[H\u001b[?25h",
+        "bytes": 205
+      },
+      {
+        "ms": 1791857738938,
+        "key": "terminal:0c2af09a-1df6-47e4-b4c3-f366200143d6",
+        "sid": "fe736f4e-e743-401c-9ae7-13dfeee5b2dd",
+        "data": "\u001b[?2004h\u001b[1m\u001b[92mdevcube@DESKTOP-UCOEUPJ\u001b[m:\u001b[1m\u001b[94m~/devcube-wsl-verification/terminal-ui\u001b[m$ \u001b]0;devcube@DESKTOP-UCOEUPJ: ~/devcube-wsl-verification/terminal-ui\u0007",
+        "bytes": 369
+      },
+      {
+        "ms": 1791857751356,
+        "key": "terminal:b9a9a023-e939-4cd7-80a9-d9c55edf3bbc",
+        "sid": "52ba0f17-4a7c-443a-8a2a-2c18bfa3fd12",
+        "data": "\u001b[2J\u001b[m\u001b[H\u001b]0;C:\\Windows\\System32\\wsl.exe\u0007\u001b[?25h",
+        "bytes": 48
+      },
+      {
+        "ms": 1791857751364,
+        "key": "terminal:b9a9a023-e939-4cd7-80a9-d9c55edf3bbc",
+        "sid": "52ba0f17-4a7c-443a-8a2a-2c18bfa3fd12",
+        "data": "\u001b[25l\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\u001b[H\u001b[?25h",
+        "bytes": 205
+      },
+      {
+        "ms": 1791857751404,
+        "key": "terminal:b9a9a023-e939-4cd7-80a9-d9c55edf3bbc",
+        "sid": "52ba0f17-4a7c-443a-8a2a-2c18bfa3fd12",
+        "data": "\u001b[?2004h\u001b[1m\u001b[92mdevcube@DESKTOP-UCOEUPJ\u001b[m:\u001b[1m\u001b[94m~/devcube-wsl-verification/terminal-ui\u001b[m$ \u001b]0;devcube@DESKTOP-UCOEUPJ: ~/devcube-wsl-verification/terminal-ui\u0007",
+        "bytes": 369
+      },
+      {
+        "ms": 1791857763740,
+        "key": "terminal:06d0eb21-4419-4ba3-9b77-0aec1ef8af24",
+        "sid": "c67d8dd9-b677-4013-9228-36709f8c4db2",
+        "data": "\u001b[2J\u001b[m\u001b[H\u001b]0;C:\\Windows\\System32\\wsl.exe\u0007\u001b[?25h",
+        "bytes": 48
+      },
+      {
+        "ms": 1791857763752,
+        "key": "terminal:06d0eb21-4419-4ba3-9b77-0aec1ef8af24",
+        "sid": "c67d8dd9-b677-4013-9228-36709f8c4db2",
+        "data": "\u001b[25l\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\r\n\u001b[K\u001b[H\u001b[?25h",
+        "bytes": 205
+      },
+      {
+        "ms": 1791857763787,
+        "key": "terminal:06d0eb21-4419-4ba3-9b77-0aec1ef8af24",
+        "sid": "c67d8dd9-b677-4013-9228-36709f8c4db2",
+        "data": "\u001b[?2004h\u001b[1m\u001b[92mdevcube@DESKTOP-UCOEUPJ\u001b[m:\u001b[1m\u001b[94m~/devcube-wsl-verification/terminal-ui\u001b[m$ \u001b]0;devcube@DESKTOP-UCOEUPJ: ~/devcube-wsl-verification/terminal-ui\u0007",
+        "bytes": 369
+      }
+    ],
+    "bytes": 1107,
+    "chunks": 9,
+    "linefeeds": 84
+  },
+  "fonts": {
+    "jetbrains": true,
+    "status": "loaded"
+  }
+}
