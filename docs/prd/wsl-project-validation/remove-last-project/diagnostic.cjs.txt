@@ -1,0 +1,33 @@
+const { _electron: electron } = require('C:/Users/WBBB/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright')
+const { writeFileSync } = require('node:fs')
+const { resolve } = require('node:path')
+async function main() {
+  const app = await electron.launch({ executablePath: resolve('node_modules/electron/dist/electron.exe'), args: [resolve('out/wsl-verification/ui-case'), '\\\\wsl.localhost\\Ubuntu-24.04\\home\\devcube\\devcube-wsl-verification\\terminal-ui'], env: { ...process.env, ELECTRON_RENDERER_URL: '', WSL_AUDIT_BUILD: 'production', NODE_ENV: 'production' }, timeout: 30000 })
+  const report = { samples: [] }
+  try {
+    const page = await app.firstWindow()
+    const treeLabel = page.getByRole('button', { name: 'terminal-ui', exact: true })
+    await treeLabel.waitFor({ state: 'visible' })
+    for (let attempt = 0; attempt < 30; attempt++) {
+      const state = await page.evaluate(() => window.api.getWslState('Ubuntu-24.04'))
+      if (state.status === 'connected') break
+      await page.waitForTimeout(300)
+    }
+    report.before = await page.evaluate(async () => ({ connection: await window.api.getWslState('Ubuntu-24.04'), workspace: await window.api.getWorkspaceUi(), terminals: await window.api.getTerminals(), sessions: await window.api.getSessions() }))
+    await treeLabel.click({ button: 'right' })
+    console.log('MENU', (await page.getByRole('menuitem').allTextContents()).join('|'))
+    await page.getByRole('menuitem', { name: '移除项目', exact: true }).click()
+    console.log('DIALOG', await page.getByRole('dialog').innerText())
+    await page.getByRole('button', { name: '移除', exact: true }).click()
+    for (let second = 0; second < 4; second++) {
+      await page.waitForTimeout(1000)
+      report.samples.push(await page.evaluate(async () => ({ connection: await window.api.getWslState('Ubuntu-24.04'), currentEntry: (await window.api.getWorkspaceUi()).currentEntryKey, terminals: await window.api.getTerminals(), sessions: await window.api.getSessions() })))
+    }
+    report.projectVisible = await page.getByText('terminal-ui', { exact: true }).count()
+    console.log('RESULT', JSON.stringify(report))
+  } finally {
+    writeFileSync('out/wsl-verification/remove-project.json', JSON.stringify(report, null, 2))
+    await app.close()
+  }
+}
+main().catch((error) => { console.error(error); process.exitCode = 1 })

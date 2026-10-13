@@ -141,6 +141,20 @@ Windows 盘上的项目、macOS 与 Linux 上的 DevCube 都不受影响。
 
 截至首次记录，已确认两个产品缺陷，另有一个用户报告的严重 Terminal 显示问题待复现。基础功能通过不等于 WSL 支持已完整验收，尤其不能把应用状态变为 `disconnected` 当成发行版里的小助手已经退出。
 
+**后续八轮检查后的当前结论：七个已复现问题均未修复。** WSL 003 已完成布局单变量对照，不能再按待复现处理；其他新增问题也有独立生产入口或重复小助手实测证据。
+
+| 编号    | 当前问题                                                 | 主要证据                                         |
+| ------- | -------------------------------------------------------- | ------------------------------------------------ |
+| WSL 001 | 命令型配置的独立后台进程组停止后残留                     | 生产 Runner 停止后 PID 仍在                      |
+| WSL 002 | 断开仅结束桥接进程，没有明确关闭小助手输入               | 三种关闭方式对照                                 |
+| WSL 003 | 带 padding 的 FitAddon 测量触发滚动条/resize/ConPTY 循环 | 正式与开发模式、padding 移除/恢复两组重复对照    |
+| WSL 004 | 等价 WSL 目录形式重复登记                                | 实际 projects/store 入口，4 种失败、3 种通过对照 |
+| WSL 005 | 改名子树仍报告旧路径，移出根后仍报告伪内部事件           | 两个独立目录及搬入/搬出对照                      |
+| WSL 006 | 权限失败静默遗漏子树，恢复权限后不重新监听               | 两个独立目录、兄弟目录成功对照                   |
+| WSL 007 | 最后一个 WSL Project 移除后连接未立即断开                | 真实菜单、确认框与 IPC 状态实测                  |
+
+符号链接的 Windows 目录判定和小助手空监听另外记录为兼容边界，不与以上七项产品行为问题合并计算。后续结论、脚本、测量数据和截图均在同一分支追加，未修改产品实现。
+
 #### 环境与路径
 
 | 项目                | 实际值                                                                |
@@ -326,6 +340,8 @@ padding 0 阶段的少量输出来自变化前已排队的最后一次 ConPTY �
 
 相关实现：`build/wsl/watch.go` 的 `handle` 对 Rename 只发 delete，新目录 create 时再 `addTree`，没有维护原子树的旧路径订阅；fsnotify 的 Linux inotify watch descriptor 仍对应原 inode，重加同一 inode 的名字不能替代完整的旧子树监听清理。主进程 `src/main/dir-watch.ts` 会把收到的错误 Linux 路径原样映射为 UNC，因此错名会进入应用事件通道。
 
+同时核对了本机实际下载的 fsnotify 1.10.1 源码 `backend_inotify.go`：`register` 调用 `InotifyAddWatch` 后，若该 watch descriptor 已在 `w.watches.wd` 中，直接返回旧的 `watch`。因此 `addTree(newName)` 对同一 inode 并不会自然把所有旧路径更新为新路径。本次没有修改第三方库，结论来自真实事件与安装版本源码的交叉验证。
+
 影响：按准确路径匹配的 Files Tab、已打开预览和文件内容变化可能没有跟进，或对已经不存在的旧目录刷新；目录搬出项目后还会把外部变化当作项目内事件。Git/索引有的通道会全量重读，未在这一组逐个验证实际面板最终表现，不能宣称所有面板必然完全不刷新。修复应重建/退订被改名或移出根的子树，并按新位置重新建立监听，不能只替换一次事件文案。
 
 证据：[第一次递归监听结果](wsl-project-validation/watch-cases/first-run.json)、[含搬出根对照的第二次结果](wsl-project-validation/watch-cases/second-run.json)、[第二次完整脚本](wsl-project-validation/watch-cases/diagnostic.ts.txt)、[原始输出](wsl-project-validation/watch-cases/watch-cases.stdout.txt)。所有搬移和文件写入均位于本轮临时目录，没有移动用户的源码。
@@ -351,6 +367,23 @@ padding 0 阶段的少量输出来自变化前已排队的最后一次 ConPTY �
 额外建立 `alias → real` 的 Linux 目录符号链接。在 Linux 侧可按目录访问，底层 `watch(alias)` 请求也返回成功，但真实 `real` 子树变化时 alias 的事件始终为空。`startDirWatch` 先用 `os.Stat` 接受了符号链接目录，随后 `WalkDir` 根条目是 symlink，`entry.IsDir()` 为 false，实际没有安装目录监听。
 
 同时，Windows Node 对这个 UNC alias 的 `stat(...).isDirectory()` 为 false，实际 `addProjectByPath(alias)` 返回 null，因而本机不能通过目前的项目入口把该目录链接登记为 WSL Project。本次将其记为兼容性边界和底层监听请求的静默空订阅，未将「已经登记的 WSL Project 必然发生此问题」作为结论，也未假定当前产品承诺解析所有 Linux 目录链接。若产品要支持这些常见目录链接，需要统一目录识别、文件访问和监听根解析；仅修底层 watcher 不会消除 Windows 文件访问这条限制。
+
+#### WSL 007 移除发行版的最后一个 Project 后连接未立即断开
+
+**状态：第八轮通过真实 renderer 菜单复现，尚未修复。** PRD 的连接生命周期明确要求该发行版的 WSL Project 全部移除时也断开；本次在没有终端、运行会话或其他活动窗口的独立诊断应用中验证这一条。
+
+1. 使用全新的临时 appData 打开唯一的 WSL Project `terminal-ui`，等待 Ubuntu 连接为 `connected`。此时 `terminals=[]`、`sessions=[]`，从未新建 Terminal 或运行配置。
+2. 在实际左树项目按钮上右键，选择「移除项目」。真实确认框提示只移除登记、不动磁盘文件；在该诊断档案中确认移除。
+3. 项目文字从界面消失，`workspace.currentEntryKey=null`，终端与运行会话仍为空。
+4. 每秒采样一次，共 4 秒，`getWslState('Ubuntu-24.04')` 四次均返回 `connected`。
+
+这与 WSL 002 不同：WSL 002 是已经调用 disconnect 却没有完成底层清理；此处尚未触发立即 disconnect 的逻辑。`src/main/ipc.ts` 的项目移除入口会销毁会话、清配置/缓存/工作台现场、忘掉探测并对齐监听，但没有检查该发行版是否已无 Project 并断开。`src/main/wsl.ts` 现有断开入口只有闲置到期和应用退出，当前条目清空只释放 current holder 后开始普通闲置计时。
+
+影响：所有 WSL Project 移除后仍等待普通闲置偏好；若设为「从不」可能一直保持连接。后一种情况本轮没有再实际等待无限时长，属于源代码路径所支持的推断，应与 4 秒状态实测区分。修复应在最后项目移除且该发行版没有其他合法在用来源时结束对应连接，同时仍需要 WSL 002 的实际小助手收尾；不能为了关闭一个发行版而结束用户其他发行版或仍在用的独立窗口。
+
+诊断脚本最初使用了不唯一的文本 locator，随后误选隐藏 tooltip，这两次分别产生 locator strict/visibility 错误；没有作为产品问题记录。根据实际 DOM 返回的项目按钮 role/name 改为精确定位后，完整菜单流程通过。临时 appData 后缀增加时间戳以避免 Windows PID 重用导致旧诊断档案混入。此组移除的是自建临时 Project 的登记，没有删除目录，也没有移除用户体验副本或用户开发版里的项目。
+
+证据：[移除前后实际状态](wsl-project-validation/remove-last-project/result.json)、[界面操作脚本](wsl-project-validation/remove-last-project/diagnostic.cjs.txt)、[独立档案启动入口](wsl-project-validation/remove-last-project/bootstrap.cjs.txt)。
 
 #### 已通过的基础检查及其范围
 

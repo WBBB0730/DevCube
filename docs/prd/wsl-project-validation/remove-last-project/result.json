@@ -1,0 +1,50 @@
+{
+  "samples": [
+    {
+      "connection": {
+        "status": "connected"
+      },
+      "currentEntry": null,
+      "terminals": [],
+      "sessions": []
+    },
+    {
+      "connection": {
+        "status": "connected"
+      },
+      "currentEntry": null,
+      "terminals": [],
+      "sessions": []
+    },
+    {
+      "connection": {
+        "status": "connected"
+      },
+      "currentEntry": null,
+      "terminals": [],
+      "sessions": []
+    },
+    {
+      "connection": {
+        "status": "connected"
+      },
+      "currentEntry": null,
+      "terminals": [],
+      "sessions": []
+    }
+  ],
+  "before": {
+    "connection": {
+      "status": "connected"
+    },
+    "workspace": {
+      "currentEntryKey": "\\\\wsl.localhost\\Ubuntu-24.04\\home\\devcube\\devcube-wsl-verification\\terminal-ui",
+      "selectedKey": null,
+      "activeTabByEntry": {},
+      "terminalsByEntry": {}
+    },
+    "terminals": [],
+    "sessions": []
+  },
+  "projectVisible": 0
+}
