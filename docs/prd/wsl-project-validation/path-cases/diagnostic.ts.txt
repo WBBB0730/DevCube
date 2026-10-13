@@ -1,0 +1,49 @@
+import { app } from 'electron'
+import { execFileSync } from 'node:child_process'
+import { mkdirSync, writeFileSync } from 'node:fs'
+import { resolve, join } from 'node:path'
+import { initStore, getProjects, setProjects } from '../../src/main/store'
+import { addProjectByPath } from '../../src/main/projects'
+import { linuxToWslPath } from '../../src/shared/wsl-path'
+
+const data = resolve(`out/wsl-verification/path-user-data-${process.pid}`)
+mkdirSync(data, { recursive: true })
+app.setPath('userData', data)
+app.setPath('sessionData', data)
+const distro = 'Ubuntu-24.04'
+const linuxRoot = `/home/devcube/devcube-wsl-verification/path-cases-${Date.now()}`
+const root = linuxToWslPath(distro, linuxRoot + '/real')
+const report: Record<string, unknown> = { linuxRoot, cases: [] }
+
+void (async () => {
+  execFileSync('C:/Windows/System32/wsl.exe', ['-d', distro, '--exec', 'mkdir', '-p', linuxRoot + '/real', linuxRoot + '/Case', linuxRoot + '/case'], { windowsHide: true })
+  execFileSync('C:/Windows/System32/wsl.exe', ['-d', distro, '--exec', 'ln', '-s', linuxRoot + '/real', linuxRoot + '/alias'], { windowsHide: true })
+  await app.whenReady()
+  await initStore()
+  const variants = [
+    ['same', root],
+    ['legacy host', root.replace('wsl.localhost', 'wsl$')],
+    ['host case', root.replace('wsl.localhost', 'WSL.LOCALHOST')],
+    ['distro case', root.replace(distro, distro.toLowerCase())],
+    ['forward slashes', root.replace(/\\/g, '/')],
+    ['trailing slash', root + '\\'],
+    ['dot segment', root + '\\.']
+  ]
+  for (const [name, alternative] of variants) {
+    setProjects([])
+    const first = addProjectByPath(root)
+    const second = addProjectByPath(alternative)
+    const result = { name, baseline: root, alternative, first, second, count: getProjects().length, paths: getProjects().map((project) => project.path) }
+    ;(report.cases as unknown[]).push(result)
+    console.log(JSON.stringify(result))
+  }
+  setProjects([])
+  addProjectByPath(linuxToWslPath(distro, linuxRoot + '/Case'))
+  addProjectByPath(linuxToWslPath(distro, linuxRoot + '/case'))
+  report.distinctLinuxCase = { count: getProjects().length, paths: getProjects().map((project) => project.path) }
+  report.symlinkAccepted = addProjectByPath(linuxToWslPath(distro, linuxRoot + '/alias'))
+  console.log('CONTROLS', JSON.stringify({ distinctLinuxCase: report.distinctLinuxCase, symlinkAccepted: report.symlinkAccepted }))
+})().catch((error) => { report.error = String(error); console.error(error) }).finally(() => {
+  writeFileSync('out/wsl-verification/path-cases.json', JSON.stringify(report, null, 2))
+  app.exit(report.error ? 1 : 0)
+})

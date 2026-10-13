@@ -292,6 +292,28 @@ padding 0 阶段的少量输出来自变化前已排队的最后一次 ConPTY �
 
 证据：[单变量诊断脚本](wsl-project-validation/terminal-layout/diagnostic.cjs.txt)、[原始 p-2 的空白画面](wsl-project-validation/terminal-layout/original.png)、[移除 padding 后](wsl-project-validation/terminal-layout/no-padding.png)、[恢复 p-2 再现](wsl-project-validation/terminal-layout/restored-padding.png)、[再次移除](wsl-project-validation/terminal-layout/no-padding-again.png)。
 
+#### WSL 004 同一目录的其他路径形式导致重复 Project
+
+**状态：第五轮通过实际项目登记入口复现，尚未修复。**
+
+在独立 Electron 用户档案中使用真实 `addProjectByPath` 和 store，每个案例先清空该诊断档案的 Projects，再登记同一个基准目录和一种等价路径。Linux 临时目录为 `/home/devcube/devcube-wsl-verification/path-cases-1791859154710/real`，没有修改用户的 Project 列表。
+
+| 第二次登记的路径形式                      | 实际 Project 数量 | 结论     |
+| ----------------------------------------- | ----------------- | -------- |
+| 完全相同                                  | 1                 | 通过     |
+| `wsl.localhost` 改为 `wsl$`               | 1                 | 通过     |
+| 主机名变为 `WSL.LOCALHOST`                | 1                 | 通过     |
+| 发行版 `Ubuntu-24.04` 改为 `ubuntu-24.04` | 2                 | 重复登记 |
+| UNC 的反斜杠全部改为正斜杠                | 2                 | 重复登记 |
+| 末尾增加反斜杠                            | 2                 | 重复登记 |
+| 末尾增加 `\.`                             | 2                 | 重复登记 |
+
+所有失败案例的两次登记均通过真实目录存在检查，不是不存在的路径被错误添加。当前 `canonicalWslPath` 只统一 UNC 主机前缀，并刻意保留原分隔符；`addProjectByPath` 直接用 `p.path === dir` 比较。发行版大小写、分隔符、末尾分隔符和点段因此没有成为同一 Project 的统一键。影响是同一目录在左树出现多个条目，其 Run Configuration、常驻 Tab 和其他按项目路径索引的状态也可能分开。
+
+必须保留的对照：Linux 的 `Case` 与 `case` 是两个实际目录，当前登记数量为 2，符合 Linux 路径大小写语义。修复不能简单把整条 UNC 路径全部转为小写；只能将主机/发行版身份按 Windows/WSL 语义匹配，并规范化分隔符、目录边界和点段，保留 Linux 路径部分的大小写。
+
+相关实现：`src/shared/wsl-path.ts` 的 `canonicalWslPath`；`src/main/projects.ts` 的 `addProjectByPath`；`src/shared/files-path.ts` 已有的逻辑路径规范化。证据：[完整登记结果](wsl-project-validation/path-cases/result.json)、[生产入口脚本](wsl-project-validation/path-cases/diagnostic.ts.txt)、[原始输出](wsl-project-validation/path-cases/path-cases.stdout.txt)。本组另记录到符号链接目录无法通过 Windows 的目录判定，后续单列兼容边界，不把它混为路径键规范化问题。
+
 #### 已通过的基础检查及其范围
 
 | 检查               | 结果与范围                                                                                              |
