@@ -2,6 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import {
   ChevronDown,
   ChevronUp,
+  ClipboardPaste,
+  Copy,
   Database,
   Eraser,
   FolderOpen,
@@ -76,6 +78,7 @@ import {
 import { ConnectSubmenu } from '@renderer/components/ConnectSubmenu'
 import { CenteredHint } from '@renderer/components/ui/centered-hint'
 import { DialogHostVisibleContext } from '@renderer/components/ui/dialog'
+import { ContextMenuItem, PointContextMenu } from '@renderer/components/ui/context-menu'
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -86,6 +89,7 @@ import { TOOLBAR_BTN, TOOLBAR_BTN_SM } from '@renderer/components/ui/toolbar'
 import { gitState, useGit } from '@renderer/git-store'
 import { createKeyedSubscription } from '@renderer/lib/keyed-subscription'
 import { isPrimaryModifierEvent, shortcutLabel, shortcutTitle } from '@renderer/lib/shortcut-label'
+import { terminalClipboardAction } from '@renderer/lib/terminal-clipboard'
 import { cn } from '@renderer/lib/utils'
 import { xtermThemes } from '@renderer/lib/xterm-theme'
 import { GitPane } from '@renderer/components/git/GitPane'
@@ -877,6 +881,18 @@ function writeDeduped(
   written.current = ev.bytes
 }
 
+/** 复制终端里选中的文字（没选中时不动剪贴板）。 */
+function copyTerminalSelection(term: Terminal): void {
+  const text = term.getSelection()
+  if (text) navigator.clipboard.writeText(text).catch(() => undefined)
+}
+
+/** 把剪贴板里的文字粘进终端：经 xterm 的 paste，括号粘贴与换行处理同直接粘贴。 */
+async function pasteIntoTerminal(term: Terminal): Promise<void> {
+  const text = await window.api.readClipboardText()
+  if (text) term.paste(text)
+}
+
 /**
  * 一块终端画布。mode='run' 绑定一条配置的会话（重跑经 runNonce 触发清屏回填、退出只读）；
  * mode='terminal' 绑定终端会话、始终可交互。切走用 visible=false 隐藏而非卸载。
@@ -906,6 +922,8 @@ function TerminalPane({
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState({ index: -1, count: 0 })
+  // 右键菜单：鼠标点与右键时是否有选中（决定「复制」可不可用）
+  const [menu, setMenu] = useState<{ x: number; y: number; hasSelection: boolean } | null>(null)
   // 仅 run 模式订阅自己会话的运行序号 / 状态；终端模式取常量，避免无谓触发（如别的配置重跑）。
   // 终端懒 spawn：会话从无到有时需重新回填快照（否则挂载时空缓冲会把 ready 置真并丢掉新 sid 输出）。
   const runNonce = useApp((s) => (mode === 'run' ? (s.runNonce[paneKey] ?? 0) : 0))
@@ -946,6 +964,16 @@ function TerminalPane({
       // macOS 只认 ⌘F：⌃F 是 shell 的「光标右移」，须交给终端
       if (e.type === 'keydown' && isPrimaryModifierEvent(e) && !e.altKey && e.key === 'f') {
         setSearchOpen(true)
+        return false
+      }
+      const clipboard =
+        e.type === 'keydown'
+          ? terminalClipboardAction(e, window.electron.process.platform, term.hasSelection())
+          : null
+      if (clipboard !== null) {
+        e.preventDefault() // 不再走浏览器自带的复制 / 粘贴，免得 Ctrl+V 粘两遍
+        if (clipboard === 'copy') copyTerminalSelection(term)
+        else void pasteIntoTerminal(term)
         return false
       }
       return true
@@ -1136,7 +1164,39 @@ function TerminalPane({
     <div className="relative h-full w-full p-2">
       {/* 留白在外层：FitAddon 按挂载元素的整个盒子算行列、不扣它的 padding，算大了会撑出滚动条，
           尺寸随之来回跳，shell 每次重画都把一行提示符挤进历史 */}
-      <div ref={containerRef} className="h-full w-full" />
+      <div
+        ref={containerRef}
+        className="h-full w-full"
+        onContextMenu={(e) => {
+          e.preventDefault()
+          setMenu({
+            x: e.clientX,
+            y: e.clientY,
+            hasSelection: termRef.current?.hasSelection() ?? false
+          })
+        }}
+      />
+      {menu && (
+        <PointContextMenu at={menu} onClose={() => setMenu(null)}>
+          <ContextMenuItem
+            disabled={!menu.hasSelection}
+            onClick={() => {
+              setMenu(null)
+              if (termRef.current) copyTerminalSelection(termRef.current)
+            }}
+          >
+            <Copy className="size-4" /> 复制
+          </ContextMenuItem>
+          <ContextMenuItem
+            onClick={() => {
+              setMenu(null)
+              if (termRef.current) void pasteIntoTerminal(termRef.current)
+            }}
+          >
+            <ClipboardPaste className="size-4" /> 粘贴
+          </ContextMenuItem>
+        </PointContextMenu>
+      )}
       {searchOpen && (
         <div className="absolute right-3 top-2 z-20 flex w-80 items-center gap-1 rounded-lg border border-[color:var(--border-input)] bg-elevated px-1.5 py-1 shadow-xl">
           <Search className="size-3.5 shrink-0 text-muted-foreground" />
