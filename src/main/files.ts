@@ -94,17 +94,15 @@ export function filesSysPath(projectPath: string, filePath: string): string {
 export async function listDir(projectPath: string, dirPath: string): Promise<FilesDirEntry[]> {
   const logical = within(projectPath, dirPath || '.')
   const sys = toSysPath(logical)
-  const names = await fs.readdir(sys)
+  // 类型随列目录一并取回（同 VS Code），不逐项 lstat：WSL 里的目录经文件共享访问，逐项查询要排队往返上千次
+  const dirents = await fs.readdir(sys, { withFileTypes: true })
   const entries: FilesDirEntry[] = []
-  for (const name of names) {
-    if (isIdeIgnoredEntryName(name)) continue
-    const childLogical = normalizePath(logical + '/' + name)
-    const st = await fs.lstat(toSysPath(childLogical)).catch(() => null)
-    if (!st) continue
+  for (const dirent of dirents) {
+    if (isIdeIgnoredEntryName(dirent.name)) continue
     entries.push({
-      name,
-      path: childLogical,
-      isDirectory: st.isDirectory()
+      name: dirent.name,
+      path: normalizePath(logical + '/' + dirent.name),
+      isDirectory: dirent.isDirectory()
     })
   }
   entries.sort(compareFilesDirEntries)
