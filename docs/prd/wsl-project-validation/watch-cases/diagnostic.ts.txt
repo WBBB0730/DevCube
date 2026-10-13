@@ -1,0 +1,62 @@
+import { spawn } from 'node:child_process'
+import { writeFileSync, statSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { WslConnections, type WslWatchEvent } from '../../src/main/wsl-connection'
+import { linuxToWslPath } from '../../src/shared/wsl-path'
+
+const distro = 'Ubuntu-24.04'
+const root = `/home/devcube/devcube-wsl-verification/watch-cases-${Date.now()}`
+const report: Record<string, unknown> = { root, cases: [], watchErrors: [], realEvents: [], aliasEvents: [], permissionEvents: [] }
+let child: ReturnType<typeof spawn>
+const connections = new WslConnections({ preflight: async () => null, spawnHelper: () => {
+  child = spawn('C:/Windows/System32/wsl.exe', ['-d', distro, '--cd', resolve('out/wsl-verification/ui-case/build/wsl/out'), '--exec', './devcube-wsl'], { windowsHide: true, env: { ...process.env, WSL_UTF8: '1' } })
+  return { stdin: child.stdin!, stdout: child.stdout!, stderr: child.stderr!, kill: () => { child.stdin!.end(); child.kill() }, exited: new Promise((resolve) => child.once('exit', () => resolve(null))) }
+}, timeoutMs: 60_000 })
+const unwatch: Array<() => Promise<void>> = []
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+async function exec(file: string, args: string[]): Promise<void> {
+  const result = await connections.exec(distro, file, args, { cwd: '/home/devcube' })
+  if (result.code !== 0) throw new Error(result.stderr.toString() || String(result.error))
+}
+async function record(name: string, events: WslWatchEvent[], action: () => Promise<void>): Promise<void> {
+  const start = events.length
+  await action()
+  await sleep(500)
+  const data = { name, events: events.slice(start) }
+  ;(report.cases as unknown[]).push(data)
+  console.log(JSON.stringify(data))
+}
+void (async () => {
+  await connections.connect(distro)
+  await exec('mkdir', ['-p', root + '/real/old/deep', root + '/incoming/sub', root + '/permissions/blocked/deep'])
+  await exec('ln', ['-s', root + '/real', root + '/alias'])
+  await exec('touch', [root + '/permissions/blocked/deep/existing.txt'])
+  await exec('chmod', ['000', root + '/permissions/blocked'])
+  for (const [path, field] of [[root + '/real', 'realEvents'], [root + '/alias', 'aliasEvents'], [root + '/permissions', 'permissionEvents']]) {
+    unwatch.push(await connections.watch(distro, path, (error, events) => {
+      if (error) (report.watchErrors as unknown[]).push({ path, error: error.message })
+      ;(report[field] as WslWatchEvent[]).push(...events)
+    }))
+  }
+  const real = report.realEvents as WslWatchEvent[]
+  await record('existing recursive directory', real, () => exec('touch', [root + '/real/old/deep/first.txt']))
+  await record('rename directory', real, () => exec('mv', [root + '/real/old', root + '/real/new']))
+  await record('edit below renamed directory', real, () => exec('touch', [root + '/real/new/deep/after-rename.txt']))
+  await record('move populated directory into root', real, () => exec('mv', [root + '/incoming', root + '/real/moved']))
+  await record('edit below moved directory', real, () => exec('touch', [root + '/real/moved/sub/after-move.txt']))
+  await record('create populated hierarchy immediately', real, () => exec('python3', ['-c', 'import os; from pathlib import Path; p=Path(__import__("sys").argv[1]); p.mkdir(parents=True); (p/"instant.txt").write_text("ok")', root + '/real/instant/a/b']))
+  await record('move renamed directory out of watched root', real, () => exec('mv', [root + '/real/new', root + '/outside']))
+  await record('edit outside watched root', real, () => exec('touch', [root + '/outside/deep/outside.txt']))
+  const permission = report.permissionEvents as WslWatchEvent[]
+  await record('restore directory permission', permission, () => exec('chmod', ['755', root + '/permissions/blocked']))
+  await record('edit under permission-restored directory', permission, () => exec('touch', [root + '/permissions/blocked/deep/after-permission.txt']))
+  await record('ordinary sibling control', permission, () => exec('touch', [root + '/permissions/control.txt']))
+  try { report.windowsAliasStat = { directory: statSync(linuxToWslPath(distro, root + '/alias')).isDirectory() } }
+  catch (error) { report.windowsAliasStat = { error: String(error), code: (error as NodeJS.ErrnoException).code } }
+  report.aliasWatchAccepted = true
+  console.log('FINAL', JSON.stringify({ watchErrors: report.watchErrors, aliasEvents: report.aliasEvents, windowsAliasStat: report.windowsAliasStat }))
+})().catch((error) => { report.error = String(error); console.error(error); process.exitCode = 1 }).finally(async () => {
+  for (const unsubscribe of unwatch) await unsubscribe().catch(() => {})
+  connections.disconnectAll()
+  writeFileSync('out/wsl-verification/watch-cases.json', JSON.stringify(report, null, 2))
+})

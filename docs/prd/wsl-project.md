@@ -314,6 +314,44 @@ padding 0 阶段的少量输出来自变化前已排队的最后一次 ConPTY �
 
 相关实现：`src/shared/wsl-path.ts` 的 `canonicalWslPath`；`src/main/projects.ts` 的 `addProjectByPath`；`src/shared/files-path.ts` 已有的逻辑路径规范化。证据：[完整登记结果](wsl-project-validation/path-cases/result.json)、[生产入口脚本](wsl-project-validation/path-cases/diagnostic.ts.txt)、[原始输出](wsl-project-validation/path-cases/path-cases.stdout.txt)。本组另记录到符号链接目录无法通过 Windows 的目录判定，后续单列兼容边界，不把它混为路径键规范化问题。
 
+#### WSL 005 目录重命名后递归监听仍使用旧路径
+
+**状态：第六轮在两个独立临时目录重复复现，尚未修复。**
+
+通过真实小助手递归监听 `real`，初始树为 `real/old/deep`。已有目录里的文件变化能正常收到。把 `real/old` 改名为 `real/new` 后，小助手报告旧目录 delete 和新目录 create；随后在真实 `real/new/deep/after-rename.txt` 创建文件，却报告 `real/old/deep/after-rename.txt` 的 create/update。
+
+进一步把 `real/new` 整体搬到监听根之外的同一测试基目录 `outside`。再修改实际 `outside/deep/outside.txt`，小助手仍报告伪装成监听根以内的旧路径 `real/old/deep/outside.txt`。这说明旧子目录监听没有完整退订，事件路径也没有随着实际目录位置更新，不是仅在改名瞬间出现的一次无害余震。
+
+对照：把另一个已存在的目录从根外搬入 `real/moved` 后，`moved/sub/after-move.txt` 能以正确新路径报告。新建多层目录并立即写入文件也在本机本次运行正确报告。不能把根外搬入或所有新目录场景笼统判为失败。
+
+相关实现：`build/wsl/watch.go` 的 `handle` 对 Rename 只发 delete，新目录 create 时再 `addTree`，没有维护原子树的旧路径订阅；fsnotify 的 Linux inotify watch descriptor 仍对应原 inode，重加同一 inode 的名字不能替代完整的旧子树监听清理。主进程 `src/main/dir-watch.ts` 会把收到的错误 Linux 路径原样映射为 UNC，因此错名会进入应用事件通道。
+
+影响：按准确路径匹配的 Files Tab、已打开预览和文件内容变化可能没有跟进，或对已经不存在的旧目录刷新；目录搬出项目后还会把外部变化当作项目内事件。Git/索引有的通道会全量重读，未在这一组逐个验证实际面板最终表现，不能宣称所有面板必然完全不刷新。修复应重建/退订被改名或移出根的子树，并按新位置重新建立监听，不能只替换一次事件文案。
+
+证据：[第一次递归监听结果](wsl-project-validation/watch-cases/first-run.json)、[含搬出根对照的第二次结果](wsl-project-validation/watch-cases/second-run.json)、[第二次完整脚本](wsl-project-validation/watch-cases/diagnostic.ts.txt)、[原始输出](wsl-project-validation/watch-cases/watch-cases.stdout.txt)。所有搬移和文件写入均位于本轮临时目录，没有移动用户的源码。
+
+#### WSL 006 子目录监听权限失败被静默忽略且恢复后不补订阅
+
+**状态：第七轮在两个独立临时目录重复复现，尚未修复。**
+
+1. 在自建测试目录建立 `permissions/blocked/deep/existing.txt`，将 `blocked` 权限设为 `000`。
+2. 以普通默认用户 `devcube` 通过小助手订阅 `permissions`。watch 请求成功，未收到任何 `watch/error`。
+3. 将 `blocked` 恢复为 `755`，收到该目录的一次 update。
+4. 在 `blocked/deep/after-permission.txt` 新建文件，等待 500 ms，相关事件为空。
+5. 在同一监听根的普通兄弟位置新建 `permissions/control.txt`，立刻收到 create/update。连接和整个根监听本身仍正常，缺失只位于之前不可读的子树。
+
+相关实现：`build/wsl/watch.go` 的 `addTree` 静默忽略 `WalkDir` 的读目录错误和 `w.Add` 的非 ENOSPC 错误；恢复权限产生的是 update/Chmod，`handle` 只在 create 新目录时 `addTree`，不补之前遗漏的目录。主进程没有收到错误，因此不能按既有监听错误流程强制刷新并进入恢复路径。
+
+影响：部分项目子树静默失去变化跟进，用户恢复权限以后也不会自行恢复。应区分目录在扫描期间被删除这类可忽略竞态和权限/资源错误，按既有监听错误契约反馈实际不完整的监听状态，并在可访问性恢复时补订阅或重建。没有修改全局 inotify 限制、发行版配置或用户真实目录权限；测试目录在清理前已经恢复为 755。
+
+证据与脚本与 WSL 005 共用，两次结果均有明确的空事件、兄弟目录成功对照和空 `watchErrors`。500 ms 是此处等待窗口，不是保证所有机器在该时间内完成所有监听恢复的产品 SLA；两个独立目录相同结果与源代码路径共同支持结论。
+
+#### 符号链接目录的兼容性观察
+
+额外建立 `alias → real` 的 Linux 目录符号链接。在 Linux 侧可按目录访问，底层 `watch(alias)` 请求也返回成功，但真实 `real` 子树变化时 alias 的事件始终为空。`startDirWatch` 先用 `os.Stat` 接受了符号链接目录，随后 `WalkDir` 根条目是 symlink，`entry.IsDir()` 为 false，实际没有安装目录监听。
+
+同时，Windows Node 对这个 UNC alias 的 `stat(...).isDirectory()` 为 false，实际 `addProjectByPath(alias)` 返回 null，因而本机不能通过目前的项目入口把该目录链接登记为 WSL Project。本次将其记为兼容性边界和底层监听请求的静默空订阅，未将「已经登记的 WSL Project 必然发生此问题」作为结论，也未假定当前产品承诺解析所有 Linux 目录链接。若产品要支持这些常见目录链接，需要统一目录识别、文件访问和监听根解析；仅修底层 watcher 不会消除 Windows 文件访问这条限制。
+
 #### 已通过的基础检查及其范围
 
 | 检查               | 结果与范围                                                                                              |

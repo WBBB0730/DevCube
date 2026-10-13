@@ -1,0 +1,203 @@
+{
+  "root": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403",
+  "cases": [
+    {
+      "name": "existing recursive directory",
+      "events": [
+        {
+          "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/old/deep/first.txt",
+          "type": "create"
+        },
+        {
+          "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/old/deep/first.txt",
+          "type": "update"
+        }
+      ]
+    },
+    {
+      "name": "rename directory",
+      "events": [
+        {
+          "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/old",
+          "type": "delete"
+        },
+        {
+          "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/new",
+          "type": "create"
+        },
+        {
+          "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/old",
+          "type": "delete"
+        }
+      ]
+    },
+    {
+      "name": "edit below renamed directory",
+      "events": [
+        {
+          "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/old/deep/after-rename.txt",
+          "type": "create"
+        },
+        {
+          "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/old/deep/after-rename.txt",
+          "type": "update"
+        }
+      ]
+    },
+    {
+      "name": "move populated directory into root",
+      "events": [
+        {
+          "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/moved",
+          "type": "create"
+        }
+      ]
+    },
+    {
+      "name": "edit below moved directory",
+      "events": [
+        {
+          "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/moved/sub/after-move.txt",
+          "type": "create"
+        },
+        {
+          "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/moved/sub/after-move.txt",
+          "type": "update"
+        }
+      ]
+    },
+    {
+      "name": "create populated hierarchy immediately",
+      "events": [
+        {
+          "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/instant",
+          "type": "create"
+        },
+        {
+          "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/instant/a",
+          "type": "create"
+        },
+        {
+          "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/instant/a/b",
+          "type": "create"
+        },
+        {
+          "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/instant/a/b/instant.txt",
+          "type": "create"
+        },
+        {
+          "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/instant/a/b/instant.txt",
+          "type": "update"
+        }
+      ]
+    },
+    {
+      "name": "restore directory permission",
+      "events": [
+        {
+          "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/permissions/blocked",
+          "type": "update"
+        }
+      ]
+    },
+    {
+      "name": "edit under permission-restored directory",
+      "events": []
+    },
+    {
+      "name": "ordinary sibling control",
+      "events": [
+        {
+          "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/permissions/control.txt",
+          "type": "create"
+        },
+        {
+          "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/permissions/control.txt",
+          "type": "update"
+        }
+      ]
+    }
+  ],
+  "watchErrors": [],
+  "realEvents": [
+    {
+      "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/old/deep/first.txt",
+      "type": "create"
+    },
+    {
+      "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/old/deep/first.txt",
+      "type": "update"
+    },
+    {
+      "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/old",
+      "type": "delete"
+    },
+    {
+      "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/new",
+      "type": "create"
+    },
+    {
+      "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/old",
+      "type": "delete"
+    },
+    {
+      "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/old/deep/after-rename.txt",
+      "type": "create"
+    },
+    {
+      "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/old/deep/after-rename.txt",
+      "type": "update"
+    },
+    {
+      "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/moved",
+      "type": "create"
+    },
+    {
+      "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/moved/sub/after-move.txt",
+      "type": "create"
+    },
+    {
+      "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/moved/sub/after-move.txt",
+      "type": "update"
+    },
+    {
+      "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/instant",
+      "type": "create"
+    },
+    {
+      "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/instant/a",
+      "type": "create"
+    },
+    {
+      "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/instant/a/b",
+      "type": "create"
+    },
+    {
+      "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/instant/a/b/instant.txt",
+      "type": "create"
+    },
+    {
+      "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/real/instant/a/b/instant.txt",
+      "type": "update"
+    }
+  ],
+  "aliasEvents": [],
+  "permissionEvents": [
+    {
+      "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/permissions/blocked",
+      "type": "update"
+    },
+    {
+      "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/permissions/control.txt",
+      "type": "create"
+    },
+    {
+      "path": "/home/devcube/devcube-wsl-verification/watch-cases-1791859348403/permissions/control.txt",
+      "type": "update"
+    }
+  ],
+  "windowsAliasStat": {
+    "directory": false
+  },
+  "aliasWatchAccepted": true
+}
