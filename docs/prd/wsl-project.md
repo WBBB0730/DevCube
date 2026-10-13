@@ -199,7 +199,7 @@ sleep 120 & echo $! > marker.pid; wait
 
 建议的修复目标：停止应覆盖属于该运行会话的所有进程组，并保留用户登录环境和交互 shell 的工具可用性。不能为了让一次 Bash 测试通过而破坏 zsh、fish 或 nvm 等登录环境。此处只记录目标，尚未选择或实施修法。
 
-证据：[生产 Runner 诊断](wsl-project-validation/initial/runner-diagnostic.json)、[直接进程组诊断](wsl-project-validation/initial/stop-diagnostic.json)、[生产 Runner 原始输出](wsl-project-validation/initial/electron-runner.stdout.log.txt)、[诊断脚本](wsl-project-validation/initial/electron-runner.ts.txt)。测试残留的进程已按其实际 PID/PGID 清理，没有结束用户正在体验的 Terminal。
+证据：[生产 Runner 诊断](wsl-project-validation/initial/runner-diagnostic.json)、[直接进程组诊断](wsl-project-validation/initial/stop-diagnostic.json)、[生产 Runner 原始输出](wsl-project-validation/initial/electron-runner.stdout.txt)、[诊断脚本](wsl-project-validation/initial/electron-runner.ts.txt)。测试残留的进程已按其实际 PID/PGID 清理，没有结束用户正在体验的 Terminal。
 
 #### WSL 002 断开连接后小助手未完成清理
 

@@ -1,0 +1,10 @@
+
+PASS 生产入口首次连接前的状态与探测缓存 
+PASS 生产项目登记入口将两种 WSL 前缀去重 
+CONNECTED 206 ms {"executable":"/mnt/e/Projects/Webstorm/DevCube/out/wsl-verification/build/wsl/out/devcube-wsl","shell":"/bin/bash","runDir":"/tmp/devcube-wsl-runs-3375256502"}
+PASS 生产 Git 入口使用 Linux Git 并映射仓库根 {"path":"git","version":"2.43.0"}
+PASS 生产探测入口读取 package.json 并刷新脚本 
+PASS 生产 Files 入口浏览、新建、保存、重命名、永久删除及越界拒绝 
+PASS 生产内容搜索入口经 Linux rg 返回结果并排除忽略项 [{"kind":"matches","seq":1,"matches":[{"rel":"main.txt","line":1,"text":"needle 中文","ranges":[[0,6]],"col":0,"endCol":6}]},{"kind":"done","seq":1,"limitHit":false,"error":null}]
+PASS 生产文件树筛选入口经 Linux rg 获取索引 
+RESULT 7 passed; 0 failed

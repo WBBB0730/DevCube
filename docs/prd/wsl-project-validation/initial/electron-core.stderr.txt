@@ -1,0 +1,4 @@
+FAIL 生产 Git 入口使用 Linux Git 并映射仓库根 AssertionError [ERR_ASSERTION]: The expression evaluated to a falsy value:
+
+  ok(git?.path.startsWith("/"))
+
