@@ -1,9 +1,11 @@
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
+import { FILES_OPEN_WITH_EXTS } from '../shared/files-kind'
 import {
-  openWithCapabilitiesArgs,
   openWithProgId,
+  openWithRegFile,
   openWithUserChoiceQueryArgs,
-  parseRegQueryValue
+  parseUserChoiceProgIds
 } from './default-opener-windows'
 
 describe('default-opener-windows', () => {
@@ -11,54 +13,80 @@ describe('default-opener-windows', () => {
     expect(openWithProgId('DevCube Beta', 'image')).toBe('DevCubeBeta.image')
   })
 
-  it('UserChoice 查询指向该扩展名的 ProgId 值', () => {
-    expect(openWithUserChoiceQueryArgs('png')).toEqual([
+  it('UserChoice 一次查全部扩展名', () => {
+    expect(openWithUserChoiceQueryArgs()).toEqual([
       'query',
-      'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts\\.png\\UserChoice',
+      'HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts',
+      '/s',
       '/v',
       'ProgId'
     ])
   })
 
-  it('解析 reg query 输出', () => {
+  it('解析批量查询输出：只认 UserChoice 键，扩展名转小写', () => {
+    const key =
+      'HKEY_CURRENT_USER\\Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\FileExts'
     const out = [
       '',
-      'HKEY_CURRENT_USER\\...\\UserChoice',
+      `${key}\\.PNG\\UserChoice`,
       '    Hash    REG_SZ    abc==',
       '    ProgId    REG_SZ    DevCube.image',
+      '',
+      `${key}\\.pdf\\UserChoiceLatest`,
+      '    ProgId    REG_SZ    MSEdgePDF',
+      '',
+      `${key}\\.md\\UserChoice`,
+      '    ProgId    REG_SZ    DevCube.text',
+      '',
+      '搜索结束: 找到 3 匹配。',
       ''
     ].join('\r\n')
-    expect(parseRegQueryValue(out, 'ProgId')).toBe('DevCube.image')
-    expect(parseRegQueryValue(out, 'Nope')).toBeNull()
+    const choices = parseUserChoiceProgIds(out)
+    expect(choices.get('png')).toBe('DevCube.image')
+    expect(choices.get('md')).toBe('DevCube.text')
+    expect(choices.has('pdf')).toBe(false)
   })
 
-  it('候选注册包含 Capabilities、RegisteredApplications 与各类 ProgId 及打开命令', () => {
-    const args = openWithCapabilitiesArgs('DevCube', ['C:\\App\\DevCube.exe'], {
+  it('候选注册的 .reg 含 ProgId、OpenWithProgids、Capabilities 与 RegisteredApplications', () => {
+    const reg = openWithRegFile('DevCube', ['C:\\App\\DevCube.exe'], {
       image: ['png'],
-      pdf: ['pdf']
+      text: ['md']
     })
-    const flat = args.map((a) => a.join(' '))
-    expect(flat).toContain(
-      'add HKCU\\Software\\RegisteredApplications /v DevCube /d Software\\DevCube\\Capabilities /f'
+    const lines = reg.split('\r\n')
+    expect(lines[0]).toBe('Windows Registry Editor Version 5.00')
+    expect(reg).toContain(
+      '[HKEY_CURRENT_USER\\Software\\Classes\\DevCube.text\\shell\\open\\command]\r\n' +
+        '@="\\"C:\\\\App\\\\DevCube.exe\\" \\"%1\\""'
     )
-    expect(flat).toContain(
-      'add HKCU\\Software\\DevCube\\Capabilities\\FileAssociations /v .png /d DevCube.image /f'
+    expect(reg).toContain(
+      '[HKEY_CURRENT_USER\\Software\\Classes\\.png\\OpenWithProgids]\r\n"DevCube.image"=hex(0):'
     )
-    expect(flat).toContain(
-      'add HKCU\\Software\\DevCube\\Capabilities\\FileAssociations /v .pdf /d DevCube.pdf /f'
+    // 先删整键再写，旧版本多登记的扩展名不残留
+    expect(reg).toContain(
+      '[-HKEY_CURRENT_USER\\Software\\DevCube\\Capabilities\\FileAssociations]\r\n\r\n' +
+        '[HKEY_CURRENT_USER\\Software\\DevCube\\Capabilities\\FileAssociations]\r\n' +
+        '".png"="DevCube.image"\r\n".md"="DevCube.text"'
     )
-    expect(flat).toContain(
-      'add HKCU\\Software\\Classes\\DevCube.image\\shell\\open\\command /ve /d "C:\\App\\DevCube.exe" "%1" /f'
+    expect(reg).toContain(
+      '[HKEY_CURRENT_USER\\Software\\RegisteredApplications]\r\n' +
+        '"DevCube"="Software\\\\DevCube\\\\Capabilities"'
     )
   })
 
   it('Dev 身份的打开命令为 electron.exe + 项目入口 + %1', () => {
-    const args = openWithCapabilitiesArgs('DevCube Dev', ['C:\\e\\electron.exe', 'C:\\run'], {
+    const reg = openWithRegFile('DevCube Dev', ['C:\\e\\electron.exe', 'C:\\run'], {
       pdf: ['pdf']
     })
-    const flat = args.map((a) => a.join(' '))
-    expect(flat).toContain(
-      'add HKCU\\Software\\Classes\\DevCubeDev.pdf\\shell\\open\\command /ve /d "C:\\e\\electron.exe" "C:\\run" "%1" /f'
+    expect(reg).toContain(
+      '[HKEY_CURRENT_USER\\Software\\Classes\\DevCubeDev.pdf\\shell\\open\\command]\r\n' +
+        '@="\\"C:\\\\e\\\\electron.exe\\" \\"C:\\\\run\\" \\"%1\\""'
     )
+  })
+
+  it('安装脚本卸载时清理的类别与「文件打开方式」类别一致', () => {
+    const nsh = readFileSync(new URL('../../build/installer.nsh', import.meta.url), 'utf8')
+    const body = nsh.match(/!macro devcubeForEachOpenWithCategory[^\n]*\n([\s\S]*?)!macroend/)
+    const categories = [...(body?.[1] ?? '').matchAll(/"\$\{ARG\}" "(\w+)"/g)].map((m) => m[1])
+    expect(categories).toEqual(Object.keys(FILES_OPEN_WITH_EXTS))
   })
 })

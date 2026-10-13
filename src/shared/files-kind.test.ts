@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  FILES_OPEN_WITH_EXTS,
   classifyFilesOpenKind,
   filesOpenKindFromMime,
   adjacentMediaPath,
@@ -36,6 +37,34 @@ describe('classifyFilesOpenKind', () => {
     expect(classifyFilesOpenKind('font.woff2')).toBe('other')
     expect(classifyFilesOpenKind('clip.mp4')).toBe('other')
     expect(classifyFilesOpenKind('track.mp3')).toBe('other')
+  })
+})
+
+describe('FILES_OPEN_WITH_EXTS · 文本', () => {
+  it('每个扩展名都按文本打开', () => {
+    for (const ext of FILES_OPEN_WITH_EXTS.text) {
+      expect(classifyFilesOpenKind(`a.${ext}`)).toBe('text')
+    }
+  })
+
+  it('不含网页、svg、CSV 与点文件名（这些仍按文本打开）', () => {
+    for (const name of ['html', 'htm', 'svg', 'csv', 'tsv', 'env', 'gitignore', 'npmrc']) {
+      expect(FILES_OPEN_WITH_EXTS.text).not.toContain(name)
+    }
+    expect(classifyFilesOpenKind('index.html')).toBe('text')
+    expect(classifyFilesOpenKind('.gitignore')).toBe('text')
+  })
+
+  it('CSV / TSV 归 Excel 组，打开仍走文本（不进 Excel 预览分流）', () => {
+    expect(FILES_OPEN_WITH_EXTS.xlsx).toContain('csv')
+    expect(FILES_OPEN_WITH_EXTS.xlsx).toContain('tsv')
+    expect(classifyFilesOpenKind('data.csv')).toBe('text')
+    expect(isXlsxPath('data.csv')).toBe(false)
+  })
+
+  it('各类之间没有重复的扩展名', () => {
+    const all = Object.values(FILES_OPEN_WITH_EXTS).flat()
+    expect(new Set(all).size).toBe(all.length)
   })
 })
 

@@ -244,7 +244,7 @@ app.whenReady().then(async () => {
     })
   }
 
-  // 已开启的系统入口与当前构建对齐（Windows 压缩右键扩展：DLL 换了版本或唤起命令变了就重新登记）；
+  // 系统入口与当前构建对齐（Windows：安装版登记文件打开方式候选；压缩右键扩展 DLL 换了版本或唤起命令变了就重新登记）；
   // 失败只记日志，不影响启动。
   syncSystemIntegration().catch((err) => {
     console.warn('[system-integration] sync failed', err)

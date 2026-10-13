@@ -61,7 +61,7 @@ CSV / TSV 仍在编辑器里打开，工具栏多一个与 Markdown 相同的「
 
 ## Implementation Decisions
 
-- 分流：主进程按魔数识别 SpreadsheetML 的四种 MIME（工作簿 / 模板，及两者的带宏版本）→ 打开类型 xlsx；老 .xls 与老 Word / PPT 同是 CFB 容器、魔数分不开，要内容是 CFB 且文件名是 .xls 才认（改了扩展名的其他老 Office 文件会在解析时失败、给出「无法预览」）。文件走既有 `dc-media` 协议 URL，同时带回文件大小供渲染层判断上限。五种扩展名并入「文件打开方式」同一张扩展名表（文件关联 Viewer / Alternate、设置里的「Excel」子项、预览窗口类型筛选「Excel」，CSV 仍归「文本」）；文件树图标与 CSV 同为表格；Linux 设默认用 freedesktop 登记的 MIME 原名。Excel 与 CSV 不进方向键媒体序列——方向键归表格移动选中格。
+- 分流：主进程按魔数识别 SpreadsheetML 的四种 MIME（工作簿 / 模板，及两者的带宏版本）→ 打开类型 xlsx；老 .xls 与老 Word / PPT 同是 CFB 容器、魔数分不开，要内容是 CFB 且文件名是 .xls 才认（改了扩展名的其他老 Office 文件会在解析时失败、给出「无法预览」）。文件走既有 `dc-media` 协议 URL，同时带回文件大小供渲染层判断上限。五种扩展名并入「文件打开方式」同一张扩展名表（文件关联 Viewer / Alternate、设置里的「Excel」子项、预览窗口类型筛选「Excel」，CSV / TSV 也归这一组）；文件树图标与 CSV 同为表格；Linux 设默认用 freedesktop 登记的 MIME 原名。Excel 与 CSV 不进方向键媒体序列——方向键归表格移动选中格。
 - 渲染引擎：react-xlsx（@extend-ai/react-xlsx），只读，用 DOM 渲染（默认的画布不画溢出到邻格的长文字、会丢居中的合并大标题）、在页面线程解析（后台线程里没有 DOMParser，条件格式、表格样式、合并标题会悄悄丢掉）。库自带的工具栏与标签不用，工具栏、查找栏、工作表标签、快捷键、缩放是 DevCube 自己的。选型见 ADR-0034。
 - 大小上限：页面线程解析时整个界面等它（900 KB 约 1.5 秒），所以 Excel 超过 10 MB 不解析，直接出占位（「文件较大 / 超过 10 MB 的表格不在此预览」+「在其他应用中打开」）。CSV 受编辑器 5 MB 的文本上限约束，不另设。
 - WebAssembly：解析核心（@dukelib/sheets-wasm）随应用打包到 resources/xlsx（开发态读 node_modules），经 `dc-media` 的应用资源通道读取（与 PDF.js 资源同一条通道）；CSP 的 `script-src` 加 `'wasm-unsafe-eval'`（只放开编译 WebAssembly，不放开字符串求值）。打包细节见 ADR-0034。
@@ -77,7 +77,7 @@ CSV / TSV 仍在编辑器里打开，工具栏多一个与 Markdown 相同的「
 
 ## Testing Decisions
 
-- 分流：四种 SpreadsheetML MIME → xlsx、CFB 容器仅文件名是 .xls 才认；Excel 扩展名判定、CSV / TSV 判定、可切预览的源文件含 CSV、方向键媒体序列不含表格（`files-kind.test.ts`）；文件树图标（`files-tree-icon.test.ts`）；预览窗口类型筛选归「Excel」、CSV 归「文本」（`files-type-filter.test.ts`）。「文件打开方式」的注册与设默认是逐类遍历同一张表的既有逻辑，新增一类不另配单测，注册效果装打包版人工验证。
+- 分流：四种 SpreadsheetML MIME → xlsx、CFB 容器仅文件名是 .xls 才认；Excel 扩展名判定、CSV / TSV 判定、可切预览的源文件含 CSV、方向键媒体序列不含表格（`files-kind.test.ts`）；文件树图标（`files-tree-icon.test.ts`）；预览窗口类型筛选归「Excel」（CSV / TSV 同）（`files-type-filter.test.ts`）。「文件打开方式」的注册与设默认是逐类遍历同一张表的既有逻辑，新增一类不另配单测，注册效果装打包版人工验证。
 - 纯逻辑表驱动单测（`files-sheet.test.ts`）：列名换算、CSV 解析（分隔符识别、TSV、引号里的逗号与换行、BOM 与末尾空行）、列宽估算、CSV 转工作簿后格子保持原文且无公式、换行格自动换行；查找命中一格只算一次（匹配规则与 Markdown 预览共用，单测见 `text-find.test.ts`）、从选中格起的首个命中；逐档与滚轮倍率、按锚点缩放后的滚动位置。转换测试在 Node 里直接初始化同一份 WebAssembly 跑真实引擎。
 - 补丁与渲染是第三方代码与浏览器行为，不在本仓库配单测。升级库重做补丁时的回归检查：
   - 取数：修正前后逐格比对文字与样式须完全一致（曾在 5 个文件、14 张工作表、每张 4 个滚动位置比对约 8.8 万格），并在正式构建里测大表顶部 / 中部 / 底部的滚动帧间隔。

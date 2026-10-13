@@ -1,5 +1,6 @@
 import { execFile } from 'node:child_process'
-import { access } from 'node:fs/promises'
+import { access, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
 import { app, shell } from 'electron'
@@ -12,16 +13,16 @@ import type { OpenWithFeatureId } from '../shared/system-integration'
 import { resolveReleaseEdition } from '../shared/release-edition'
 import type { IntegrationProfile } from './system-integration'
 import {
-  openWithCapabilitiesArgs,
   openWithProgId,
+  openWithRegFile,
   openWithUserChoiceQueryArgs,
-  parseRegQueryValue
+  parseUserChoiceProgIds
 } from './default-opener-windows'
 
 /**
- * 「文件打开方式」：把 DevCube 设为图片 / PDF / PPT / Excel / 音视频的默认打开程序（docs/prd/file-preview-window.md）。
+ * 「文件打开方式」：把 DevCube 设为图片 / PDF / PPT / Excel / 音视频 / 文本的默认打开程序（docs/prd/file-preview-window.md）。
  * - macOS：随包的 Swift 小助手调 NSWorkspace 官方接口，一键生效、不弹确认框。
- * - Windows：系统不允许程序改默认——注册为候选（HKCU Capabilities）后打开系统「默认应用」页由用户点选。
+ * - Windows：系统不允许程序改默认——注册为候选（HKCU，安装版启动时即登记）后打开系统「默认应用」页由用户点选。
  * - Linux：xdg-mime default。
  * 状态全部实时探测、不落盘。Dev 身份同其他入口一样以「DevCube Dev」分线：macOS 指向生成的
  * 「DevCube Dev.app」小壳（dev-opener-app，把文件转给运行中的 dev 实例），Windows 以 electron.exe + 项目入口
@@ -36,7 +37,8 @@ export const OPEN_WITH_CATEGORY: Record<OpenWithFeatureId, FilesOpenWithCategory
   openWithPptx: 'pptx',
   openWithXlsx: 'xlsx',
   openWithAudio: 'audio',
-  openWithVideo: 'video'
+  openWithVideo: 'video',
+  openWithText: 'text'
 }
 
 function exts(id: OpenWithFeatureId): readonly string[] {
@@ -97,19 +99,27 @@ async function reg(args: string[]): Promise<string> {
 
 async function winIsDefault(id: OpenWithFeatureId, appName: string): Promise<boolean> {
   const progId = openWithProgId(appName, OPEN_WITH_CATEGORY[id])
-  for (const ext of exts(id)) {
-    const current = await reg(openWithUserChoiceQueryArgs(ext))
-      .then((out) => parseRegQueryValue(out, 'ProgId'))
-      .catch(() => null)
-    if (current !== progId) return false
+  // 一个 ProgId 都没有时 reg query 以非零码退出
+  const choices = parseUserChoiceProgIds(await reg(openWithUserChoiceQueryArgs()).catch(() => ''))
+  return exts(id).every((ext) => choices.get(ext) === progId)
+}
+
+/** 把应用登记为全部类型的候选打开程序：只进「打开方式」与系统「默认应用」页，不改默认。 */
+export async function registerWindowsOpenWith(appName: string, launch: string[]): Promise<void> {
+  const dir = await mkdtemp(join(tmpdir(), 'devcube-open-with-'))
+  try {
+    const file = join(dir, 'open-with.reg')
+    // 「Version 5.00」格式的 .reg 是带 BOM 的 UTF-16LE，安装路径里有中文用户名也不乱码
+    const content = openWithRegFile(appName, launch, FILES_OPEN_WITH_EXTS)
+    await writeFile(file, `\ufeff${content}`, 'utf16le')
+    await reg(['import', file])
+  } finally {
+    await rm(dir, { recursive: true, force: true })
   }
-  return true
 }
 
 async function winRegisterAndOpenSettings(appName: string, launch: string[]): Promise<void> {
-  for (const args of openWithCapabilitiesArgs(appName, launch, FILES_OPEN_WITH_EXTS)) {
-    await reg(args)
-  }
+  await registerWindowsOpenWith(appName, launch)
   // Win11 支持深链到某个应用的默认项页；旧系统落到「默认应用」总页
   await shell.openExternal(
     `ms-settings:defaultapps?registeredAppUser=${encodeURIComponent(appName)}`
@@ -124,13 +134,16 @@ function linuxDesktopFile(): string {
 
 async function linuxIsDefault(id: OpenWithFeatureId): Promise<boolean> {
   const desktop = linuxDesktopFile()
-  for (const mime of FILES_OPEN_WITH_MIME[OPEN_WITH_CATEGORY[id]]) {
-    const { stdout } = await execFileAsync('xdg-mime', ['query', 'default', mime]).catch(() => ({
-      stdout: ''
-    }))
-    if (stdout.trim() !== desktop) return false
-  }
-  return true
+  // xdg-mime 一次只查一个 MIME，文本一类有几十个：并发查
+  const defaults = await Promise.all(
+    FILES_OPEN_WITH_MIME[OPEN_WITH_CATEGORY[id]].map((mime) =>
+      execFileAsync('xdg-mime', ['query', 'default', mime]).then(
+        ({ stdout }) => stdout.trim(),
+        () => ''
+      )
+    )
+  )
+  return defaults.every((d) => d === desktop)
 }
 
 async function linuxSetDefault(id: OpenWithFeatureId): Promise<void> {

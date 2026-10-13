@@ -12,7 +12,8 @@ export const SYSTEM_INTEGRATION_FEATURE_IDS = [
   'openWithPptx',
   'openWithXlsx',
   'openWithAudio',
-  'openWithVideo'
+  'openWithVideo',
+  'openWithText'
 ] as const
 
 /** 「文件打开方式」各类型子项（docs/prd/file-preview-window.md）：设为默认而非安装 / 移除 */
@@ -22,7 +23,8 @@ export const OPEN_WITH_FEATURE_IDS = [
   'openWithPptx',
   'openWithXlsx',
   'openWithAudio',
-  'openWithVideo'
+  'openWithVideo',
+  'openWithText'
 ] as const
 export type OpenWithFeatureId = (typeof OPEN_WITH_FEATURE_IDS)[number]
 

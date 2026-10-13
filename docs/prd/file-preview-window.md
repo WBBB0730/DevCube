@@ -4,11 +4,11 @@
 
 ## Problem Statement
 
-在 Finder / 资源管理器里双击一张图、一份 PDF、一段视频，打开的是系统自带或别的看图 / 阅读器。DevCube 的 **Files Tab** 明明已经把看图（缩放手感、超大图瓦片）、PDF（连续滚动、缩略图、查找）、音视频都做好了，却只能在「先把文件夹登记成 **Project**、再切到 Files Tab、再在树里找到文件」之后才用得上。我想把 DevCube 直接设成这些文件的默认打开方式，双击就用它看。
+在 Finder / 资源管理器里双击一张图、一份 PDF、一段视频、一个 README，打开的是系统自带或别的看图 / 阅读器 / 编辑器。DevCube 的 **Files Tab** 明明已经把看图（缩放手感、超大图瓦片）、PDF（连续滚动、缩略图、查找）、音视频、文本编辑与 Markdown 预览都做好了，却只能在「先把文件夹登记成 **Project**、再切到 Files Tab、再在树里找到文件」之后才用得上。我想把 DevCube 直接设成这些文件的默认打开方式，双击就用它看。
 
 ## Solution
 
-1. **设置里一键设为默认打开方式**：设置「系统集成」新增「文件打开方式」一行（与既有入口行同级），其下挂「图片 / PDF / PPT / Excel / 音频 / 视频」六个类型子项各自设为默认。安装后 DevCube 就出现在系统「打开方式」列表里；macOS 上按钮一键设为默认（应用自带一个小助手完成），Windows 上按钮注册为候选并打开系统「默认应用」页由用户点选（系统不允许程序自己改默认），Linux 用 `xdg-mime` 设默认。
+1. **设置里一键设为默认打开方式**：设置「系统集成」新增「文件打开方式」一行（与既有入口行同级），其下挂「图片 / PDF / PPT / Excel / 音频 / 视频 / 文本」七个类型子项各自设为默认。安装后（Windows 为装完首次启动后）DevCube 就出现在系统「打开方式」列表里；macOS 上按钮一键设为默认（应用自带一个小助手完成），Windows 上按钮注册为候选并打开系统「默认应用」页由用户点选（系统不允许程序自己改默认），Linux 用 `xdg-mime` 设默认。
 2. **双击文件 = 一个 Preview Window（预览窗口）**：DevCube 被系统带着一个**文件**路径拉起时，为该文件开一个独立窗口——一文件一窗、可多开、不进项目列表、关掉不留痕。窗口内容就是 Files Tab 本身（左正文 + 右文件树 + 工具栏，文本可编辑、图片 / SVG / PDF / PPT / 音视频内嵌预览、SVG 与 Markdown 的编辑 ↔ 预览切换），只做一张明确的差异清单：没有 Git Tab、Terminal、运行会话、内容搜索，根可上翻，多一颗「添加为项目」。
 3. **树的根 = 文件所在文件夹**，树空白区右键「上一级文件夹」可逐级上翻、目录右键「进入此文件夹」可再收回；文件恰好落在某个已登记 Project 内时，根直接取该项目根。
 4. **树顶栏专属控件**：预览窗口的树顶栏（筛选框那一行）并入按类型（图片 / PDF / PPT / Excel / 音视频 / 文本 / 其他）多选筛选，不另起一行。主窗口 Files Tab 没有。
@@ -20,15 +20,15 @@
 
 ### 设为默认打开方式
 
-1. As a 用户, I want 装好 DevCube 后 Finder / 资源管理器的「打开方式」列表里就有 DevCube, so that 不用任何设置就能用它临时打开一张图
-2. As a 用户, I want 在设置「系统集成」里看到「图片 / PDF / PPT / Excel / 音频 / 视频」六个子项并各自设为默认, so that 可以只把 PDF 交给 DevCube、图片仍用系统看图
+1. As a 用户, I want 装好 DevCube（Windows 上启动过一次）后 Finder / 资源管理器的「打开方式」列表里就有 DevCube, so that 不用任何设置就能用它临时打开一张图
+2. As a 用户, I want 在设置「系统集成」里看到「图片 / PDF / PPT / Excel / 音频 / 视频 / 文本」七个子项并各自设为默认, so that 可以只把 PDF 或代码、Markdown 交给 DevCube、图片仍用系统看图
 3. As a macOS 用户, I want 点「设为默认」一下就生效、不用再去「显示简介」里改, so that 设置真的是一键
 4. As a Windows 用户, I want 点按钮后 DevCube 出现在系统「默认应用」页里且页面直接打开到 DevCube 那一行, so that 系统不让程序改默认时我也只需点一下
 5. As a Linux 用户, I want 文件管理器「用其他应用打开」里有 DevCube 且设置里可设为默认, so that 主流发行版也有同样入口
 6. As a 用户, I want 每一行实时显示状态（未设为默认时是「设置」按钮，已是默认时是带勾的「默认」）, so that 一眼看出当前状态而不是靠记忆
-7. As a 用户, I want 安装 DevCube 本身不会偷偷抢走任何文件类型的默认程序, so that 只有我在设置里点了才会变
+7. As a 用户, I want 安装 DevCube 本身不会改掉我选过的默认程序, so that 只有我在设置里点了才会变
 8. As a 用户, I want 正式版与 Beta 都能作为打开方式、互不抢注, so that 双装时各自独立（对齐 Release Edition 隔离）
-9. As a 用户, I want 设为默认的类型范围与 Files Tab 能内嵌预览的一致（位图、SVG、PDF、PPT、Excel、Chromium 可播的音视频）, so that 不会出现「设成默认却打开一个占位」
+9. As a 用户, I want 设为默认的类型范围与 Files Tab 能打开的一致（位图、SVG、PDF、PPT、Excel 与 CSV、Chromium 可播的音视频，以及代码、Markdown 等常见文本）, so that 不会出现「设成默认却打开一个占位」
 10. As a 开发者, I want 未打包的 Dev 身份也能在设置里把「DevCube Dev」设为默认打开方式, so that 开发时能验证整条链路且不影响已安装的正式版
 
 ### 打开与窗口
@@ -89,11 +89,11 @@
 
 ### 打开方式注册与设默认
 
-- **声明**：打包配置按 Release Edition 声明六组扩展名的文件关联，扩展名表与 Files Tab 类型判定同源（`svg` 归图片组，虽然它的打开分流仍是文本；PPT 组含放映版 / 模板 / 带宏版本，Excel 组含模板 / 带宏版本与老 .xls，宏都不执行）。安装只让 DevCube 出现在「打开方式」列表、绝不自动成为默认（ADR-0031）：macOS 文档类型角色 Viewer、LSHandlerRank Alternate；Windows 由 NSIS 按 electron-builder 的 ProgID 规则注册（portable 走设置开关经 `reg.exe` 写 HKCU，与右键菜单同一机制）；Linux 声明 freedesktop shared-mime-info 登记的 MIME 原名（如 PPT 带宏版本的 `macroEnabled` 大小写）。
+- **声明**：按 Release Edition 为七组扩展名登记打开方式，扩展名表与 Files Tab 类型判定同源（`svg` 归图片组，虽然它的打开分流仍是文本；PPT 组含放映版 / 模板 / 带宏版本，Excel 组含模板 / 带宏版本与老 .xls（宏都不执行），以及 CSV / TSV——打开即表格预览，原默认多是表格软件，不该随代码一起交出去；文本组是 Files 文本扩展名里真正的扩展名，不含 html / htm——双击网页应交给浏览器，也不含 `.gitignore`、`.env` 这类点文件名——系统眼里它们没有扩展名，无扩展名的 Dockerfile 等同理覆盖不到）。安装只让 DevCube 出现在「打开方式」列表、不改用户选过的默认（ADR-0031；macOS 上用户没选过、系统也不认识的扩展名，系统可能自己挑中 DevCube）：macOS 写进 Info.plist，文档类型角色 Viewer、LSHandlerRank Alternate；Windows 安装包不写（electron-builder 的文件关联会顺手把各扩展名的默认程序改成本应用），由应用经 `reg import` 在 HKCU 一次登记候选（各类 ProgId 按 Edition 区分 + 各扩展名 OpenWithProgids + Capabilities），安装版每次启动对齐、便携版与 Dev 在点「设置」时登记，真卸载时安装包清掉，v1.10–v1.15 安装包留下的默认值残留在安装 / 更新时清掉；Linux 声明 freedesktop shared-mime-info 登记的 MIME 原名（如 PPT 带宏版本的 `macroEnabled` 大小写；文本类中规范名在新旧版本间改过的 javascript / yaml / shellscript 新旧都写）。
 - **macOS 设默认**：Electron 只有协议的默认程序接口，文件类型由随包的 `swiftc` 单文件命令行小助手调 NSWorkspace 官方接口（不弹确认框），助手随应用签名公证；设置行状态由它实时探测，按钮对该类全部扩展名逐个设置；「已是默认」按 bundle id 判定（用户搬动 / 多份拷贝仍算）。LaunchServices 只接受声明了该类型的应用（未声明的设默认静默无效、也不进「打开方式」），Dev 跑的 Electron.app 什么都没声明，所以 Dev 身份由数据目录里生成的「DevCube Dev.app」小壳承接（收到文件转给运行中的 dev 实例，未运行则只拉起空 Electron，与快速操作同一口径），dev **启动时**就同步并注册它（Electron 路径与声明都不变则跳过）。Dev 下助手需先 `pnpm build:mac-helper` 编译，否则该行显示不可用。不引入 Xcode 工程、扩展或额外权限（与 ADR-0025 拒绝 FinderSync 的理由不冲突）。
-- **Windows 设默认**：Win8 起系统用用户级签名锁住默认程序选择，程序不可改；不做伪造签名类 hack。按钮 = 用 reg.exe 在 HKCU 注册为候选（打开命令与右键菜单同源），再打开 `ms-settings:defaultapps`（Win11 深链到 DevCube 条目）；状态读 `FileExts\<ext>\UserChoice` 的 ProgId 是否为本应用。
-- **Linux 设默认**：`xdg-mime default <desktop 文件> <mime…>`，状态用 `xdg-mime query default`。系统集成栏目在 Linux 上因此可见，仅含此项；Dev 没有 desktop 文件，不可用。
-- **设置 UI**：「系统集成」一列平铺、无分区小标题。「文件打开方式」与既有入口行同级占一行（自身无按钮），其下六个类型子项各占一行，只有类型名（完整扩展名对用户没有决策价值，收进名字旁 `Info` 图标的 hover）与一颗两字按钮「设置」（完整动作与 Windows 的落差挂 hover）；已是默认的子项不摆按钮，改带勾灰字「默认」。**子项不做成分段条 / 开关组**：设为默认是单向且不可撤销的系统级动作，按钮必须写着动作名，选择控件「可来回切」的视觉承诺与之相悖。状态全部实时探测、不落盘。视觉细节见 DESIGN.md。
+- **Windows 设默认**：Win8 起系统用用户级签名锁住默认程序选择，程序不可改；不做伪造签名类 hack。按钮 = 登记候选（同上，打开命令与右键菜单同源），再打开 `ms-settings:defaultapps`（Win11 深链到 DevCube 条目）；状态一次读出全部 `FileExts\<ext>\UserChoice` 的 ProgId，逐个扩展名比对是否为本应用。
+- **Linux 设默认**：`xdg-mime default <desktop 文件> <mime…>`，状态用 `xdg-mime query default`（一次只查一个 MIME，逐个并发）。系统集成栏目在 Linux 上因此可见，仅含此项；Dev 没有 desktop 文件，不可用。
+- **设置 UI**：「系统集成」一列平铺、无分区小标题。「文件打开方式」与既有入口行同级占一行（自身无按钮），其下七个类型子项各占一行，只有类型名（完整扩展名对用户没有决策价值，收进名字旁 `Info` 图标的 hover）与一颗两字按钮「设置」（完整动作与 Windows 的落差挂 hover）；已是默认的子项不摆按钮，改带勾灰字「默认」。**子项不做成分段条 / 开关组**：设为默认是单向且不可撤销的系统级动作，按钮必须写着动作名，选择控件「可来回切」的视觉承诺与之相悖。状态全部实时探测、不落盘。视觉细节见 DESIGN.md。
 
 ### External Open 收文件
 
@@ -115,7 +115,7 @@
 
 ### 类型筛选
 
-- **判定**：仅按扩展名归类（图片 / PDF / PPT / Excel / 音视频 / 文本 / 其他；CSV 归「文本」），复用 Files Tab 类型判定的扩展名表，`svg` 归「图片」；音频与视频在这里并作「音视频」一类，只有设默认时分开。不读魔数（树列举不能付出每文件读头的成本）。无扩展名或未知扩展名归「其他」。
+- **判定**：仅按扩展名归类（图片 / PDF / PPT / Excel / 音视频 / 文本 / 其他；CSV / TSV 归「Excel」，与「文件打开方式」分组一致），复用 Files Tab 类型判定的扩展名表，`svg` 归「图片」；音频与视频在这里并作「音视频」一类，只有设默认时分开。不读魔数（树列举不能付出每文件读头的成本）。无扩展名或未知扩展名归「其他」。
 - **UI**：树顶栏右侧钮组最左一个筛选按钮，弹出七项多选菜单；默认全选，非全选时按钮点亮；菜单内「全部」快捷项恢复全选。清空路径筛选（Esc）不清类型筛选。
 - **语义**：作用于树的**展示层**——目录恒显示，文件按类别过滤；与路径筛选取交集。方向键切媒体按可见树序走，因此也受它约束；不影响「最近打开」。
 - **持久化**：集合由预览窗口壳持有，换根保留、关窗即忘；不落盘。
@@ -128,7 +128,7 @@
 - **根解析**：给定文件路径 + 已登记项目列表 → 初始根（最深匹配项目根 / 父目录）；「上一级文件夹」到文件系统根为止。
 - **根授权表**：登记 / 替换 / 撤销后各路径的放行判定；路径穿越仍被拒。
 - **类型筛选纯函数**：给定目录条目 + 勾选集合 → 目录恒保留、文件按类别过滤；与路径筛选结果树的组合。
-- **投影生成器**：macOS 助手命令行、Windows Capabilities 注册表脚本、Linux xdg-mime 命令，产物包含关键要素（bundle id / ProgID / desktop 文件名 / 扩展名表）；三类扩展名表与 Files Tab 类型判定表一致（同一来源）。
+- **投影生成器**：macOS 助手命令行、Windows 候选登记的 .reg 文本与 UserChoice 批量解析、Linux xdg-mime 命令，产物包含关键要素（bundle id / ProgID / desktop 文件名 / 扩展名表）；各类扩展名表与 Files Tab 类型判定表一致（同一来源），文本组每个扩展名都按文本打开、不含网页 / svg / 点文件名；Windows 安装脚本卸载时清理的类别与类别表一致。
 - **设置行状态映射**：探测结果 → 「设置」按钮或带勾的「默认」。
 
 不为 BrowserWindow 创建、open-file 事件挂接、真实注册表 / LaunchServices / xdg 写 e2e。
@@ -136,7 +136,8 @@
 ## Out of Scope
 
 - Windows 一键设默认（系统禁止，只做注册 + 跳系统设置）。
-- 按单个扩展名细选设默认（只按图片 / PDF / PPT / Excel / 音频 / 视频这几类）。
+- 按单个扩展名细选设默认（只按图片 / PDF / PPT / Excel / 音频 / 视频 / 文本这几类）。
+- 点开头的文件（`.gitignore`、`.env` 等）与无扩展名文件（Dockerfile、Makefile 等）设默认：系统按扩展名关联，覆盖不到。
 - 预览窗口里的 Git Tab、Terminal、运行会话、Content Search、内层多文件 Tab。
 - 预览窗口状态持久化（树展开 / 最近打开 / 当前文件）。
 - 幻灯片 / 自动播放、图片编辑、PDF 标注。

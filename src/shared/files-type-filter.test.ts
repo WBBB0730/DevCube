@@ -15,7 +15,7 @@ const entry = (name: string, isDirectory = false): FilesDirEntry => ({
 })
 
 describe('filesTypeCategory', () => {
-  it('按扩展名归类；svg 算图片；PPT / Excel 含模板 / 带宏等变体；CSV 算文本；音视频按可播容器表', () => {
+  it('按扩展名归类；svg 算图片；PPT / Excel 含模板 / 带宏等变体；CSV / TSV 算 Excel；音视频按可播容器表', () => {
     expect(filesTypeCategory('a.png')).toBe('image')
     expect(filesTypeCategory('icon.SVG')).toBe('image')
     expect(filesTypeCategory('spec.pdf')).toBe('pdf')
@@ -25,7 +25,8 @@ describe('filesTypeCategory', () => {
     expect(filesTypeCategory('book.xlsx')).toBe('xlsx')
     expect(filesTypeCategory('macro.XLSM')).toBe('xlsx')
     expect(filesTypeCategory('old.xls')).toBe('xlsx')
-    expect(filesTypeCategory('data.csv')).toBe('text')
+    expect(filesTypeCategory('data.csv')).toBe('xlsx')
+    expect(filesTypeCategory('data.TSV')).toBe('xlsx')
     expect(filesTypeCategory('clip.mp4')).toBe('av')
     expect(filesTypeCategory('track.flac')).toBe('av')
     expect(filesTypeCategory('app.ts')).toBe('text')

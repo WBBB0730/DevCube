@@ -35,17 +35,98 @@ const XLSX_MIME = new Set([
 ])
 
 /**
- * 「文件打开方式」各类扩展名（无点、小写）：打包时的文件关联声明、设置里的设为默认、
- * 树顶类型筛选共用同一张表，保证「设成默认的类型」恒能在 Files 面板内嵌预览。
- * 图片含 svg（打开分流仍为 text，Files 编辑器另给编辑 ↔ 预览）；音视频只列 Chromium 可播的容器。
+ * 「文件打开方式 · 文本」的扩展名（无点、小写），也是 Files 文本判定的主体。
+ * 不含 html / htm（双击网页应交给浏览器）、svg（归图片组）与 CSV / TSV（归 Excel 组），这些另并入文本判定；
+ * `.ts` / `.mts` 在 macOS 上与 MPEG-2 视频同属一个系统类型，设默认会连带这类视频（ADR-0031）。
+ */
+const TEXT_OPEN_WITH_EXTS = [
+  'txt',
+  'md',
+  'markdown',
+  'json',
+  'jsonc',
+  'js',
+  'jsx',
+  'mjs',
+  'cjs',
+  'ts',
+  'tsx',
+  'mts',
+  'cts',
+  'css',
+  'scss',
+  'sass',
+  'less',
+  'xml',
+  'yml',
+  'yaml',
+  'toml',
+  'ini',
+  'cfg',
+  'conf',
+  'sh',
+  'bash',
+  'zsh',
+  'fish',
+  'ps1',
+  'py',
+  'rb',
+  'go',
+  'rs',
+  'java',
+  'kt',
+  'kts',
+  'c',
+  'h',
+  'cpp',
+  'cc',
+  'hpp',
+  'cs',
+  'php',
+  'swift',
+  'sql',
+  'graphql',
+  'vue',
+  'svelte',
+  'astro',
+  'lock',
+  'log'
+] as const
+
+/** CSV / TSV：按文本打开（Files 打开即表格预览），「文件打开方式」与树顶类型筛选归 Excel 组。 */
+const CSV_EXTS = ['csv', 'tsv'] as const
+
+/**
+ * 当文本打开的点文件名（整个名字即扩展名）。系统按扩展名关联文件，这类文件在系统眼里没有扩展名，
+ * 所以不进「文件打开方式」。
+ */
+const TEXT_DOTFILES = [
+  '.editorconfig',
+  '.gitignore',
+  '.gitattributes',
+  '.dockerignore',
+  '.npmrc',
+  '.nvmrc',
+  '.prettierrc',
+  '.eslintrc',
+  '.babelrc',
+  '.env'
+]
+
+/**
+ * 「文件打开方式」各类扩展名（无点、小写）：登记打开方式（macOS 打包声明、Windows 应用自行登记）、
+ * 设置里的设为默认、树顶类型筛选共用同一张表，保证「设成默认的类型」恒能在 Files 面板内预览或编辑。
+ * 图片含 svg、Excel 含 CSV / TSV（打开分流仍为 text，Files 编辑器另给编辑 ↔ 预览）；音视频只列 Chromium 可播的容器。
+ * 增删类别时同步 build/installer.nsh 卸载时清理的 ProgId 列表。
  */
 export const FILES_OPEN_WITH_EXTS = {
   image: [...IMAGE_EXT].map((e) => e.slice(1)).concat('svg'),
   pdf: ['pdf'],
   pptx: PPTX_EXTS,
-  xlsx: XLSX_EXTS,
+  xlsx: [...XLSX_EXTS, ...CSV_EXTS],
   audio: ['mp3', 'm4a', 'aac', 'wav', 'flac', 'ogg', 'oga'],
-  video: ['mp4', 'webm', 'ogv']
+  video: ['mp4', 'webm', 'ogv'],
+  text: TEXT_OPEN_WITH_EXTS
 } as const satisfies Record<string, readonly string[]>
 
 export type FilesOpenWithCategory = keyof typeof FILES_OPEN_WITH_EXTS
@@ -79,10 +160,47 @@ export const FILES_OPEN_WITH_MIME: Record<FilesOpenWithCategory, readonly string
     'application/vnd.openxmlformats-officedocument.spreadsheetml.template',
     'application/vnd.ms-excel.sheet.macroEnabled.12',
     'application/vnd.ms-excel.template.macroEnabled.12',
-    'application/vnd.ms-excel'
+    'application/vnd.ms-excel',
+    'text/csv',
+    'text/tab-separated-values'
   ],
   audio: ['audio/mpeg', 'audio/mp4', 'audio/aac', 'audio/x-wav', 'audio/flac', 'audio/ogg'],
-  video: ['video/mp4', 'video/webm', 'video/ogg']
+  video: ['video/mp4', 'video/webm', 'video/ogg'],
+  // 规范名在新旧版本间改过的（javascript / yaml / shellscript）新旧两个都写，老发行版才认得出
+  text: [
+    'text/plain',
+    'text/markdown',
+    'application/json',
+    'text/javascript',
+    'application/javascript',
+    'application/typescript',
+    'text/css',
+    'text/x-scss',
+    'text/x-sass',
+    'application/xml',
+    'application/yaml',
+    'application/x-yaml',
+    'application/toml',
+    'text/x-shellscript',
+    'application/x-shellscript',
+    'application/x-fishscript',
+    'application/x-powershell',
+    'text/x-python',
+    'text/x-python3',
+    'application/x-ruby',
+    'text/x-go',
+    'text/rust',
+    'text/x-java',
+    'text/x-kotlin',
+    'text/x-csrc',
+    'text/x-chdr',
+    'text/x-c++src',
+    'text/x-c++hdr',
+    'text/x-csharp',
+    'application/x-php',
+    'application/sql',
+    'text/x-log'
+  ]
 }
 
 /**
@@ -119,73 +237,9 @@ const IMAGE_MIME = new Set([
 ])
 
 /** 常见文本 / 源码扩展名；未知扩展名由调用方再用内容嗅探补判。 */
-const TEXT_EXT = new Set([
-  '.txt',
-  '.md',
-  '.markdown',
-  '.json',
-  '.jsonc',
-  '.js',
-  '.jsx',
-  '.mjs',
-  '.cjs',
-  '.ts',
-  '.tsx',
-  '.mts',
-  '.cts',
-  '.css',
-  '.scss',
-  '.sass',
-  '.less',
-  '.html',
-  '.htm',
-  '.xml',
-  '.svg',
-  '.yml',
-  '.yaml',
-  '.toml',
-  '.ini',
-  '.cfg',
-  '.conf',
-  '.env',
-  '.sh',
-  '.bash',
-  '.zsh',
-  '.fish',
-  '.ps1',
-  '.py',
-  '.rb',
-  '.go',
-  '.rs',
-  '.java',
-  '.kt',
-  '.kts',
-  '.c',
-  '.h',
-  '.cpp',
-  '.cc',
-  '.hpp',
-  '.cs',
-  '.php',
-  '.swift',
-  '.sql',
-  '.graphql',
-  '.vue',
-  '.svelte',
-  '.astro',
-  '.lock',
-  '.log',
-  '.csv',
-  '.tsv',
-  '.editorconfig',
-  '.gitignore',
-  '.gitattributes',
-  '.dockerignore',
-  '.npmrc',
-  '.nvmrc',
-  '.prettierrc',
-  '.eslintrc',
-  '.babelrc'
+const TEXT_EXT: ReadonlySet<string> = new Set([
+  ...[...TEXT_OPEN_WITH_EXTS, ...CSV_EXTS, 'html', 'htm', 'svg'].map((e) => `.${e}`),
+  ...TEXT_DOTFILES
 ])
 
 /** 无扩展名但常当文本打开的文件名（小写比较）。 */

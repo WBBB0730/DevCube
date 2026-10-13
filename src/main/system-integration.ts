@@ -11,7 +11,7 @@ import {
   type SystemIntegrationFeatureId,
   type SystemIntegrationState
 } from '../shared/system-integration'
-import { probeOpenWith, setOpenWithDefault } from './default-opener'
+import { probeOpenWith, registerWindowsOpenWith, setOpenWithDefault } from './default-opener'
 import {
   DEV_OPENER_APP_ID,
   devElectronAppPath,
@@ -295,9 +295,17 @@ export async function applySystemIntegration(
   }
 }
 
-/** 启动时对齐已开启的入口（目前只有 Windows 压缩右键扩展需要：DLL 换了版本或唤起命令变了就重新登记）。 */
+/**
+ * 启动时对齐 Windows 入口：
+ * - 安装版登记「文件打开方式」候选（安装包不写，见 ADR-0031；便携版与 Dev 只在设置里点按钮时登记）；
+ * - 已开启的压缩右键扩展：DLL 换了版本或唤起命令变了就重新登记。
+ */
 export async function syncSystemIntegration(): Promise<void> {
   if (process.platform !== 'win32') return
   const profile = integrationProfile()
-  await syncWindowsCompressMenu(profile, compressMenuDll(), profile.windowsLaunch)
+  const installed = app.isPackaged && !process.env.PORTABLE_EXECUTABLE_FILE
+  await Promise.all([
+    installed && registerWindowsOpenWith(profile.productName, profile.windowsLaunch),
+    syncWindowsCompressMenu(profile, compressMenuDll(), profile.windowsLaunch)
+  ])
 }

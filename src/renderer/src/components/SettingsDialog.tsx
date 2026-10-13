@@ -68,7 +68,8 @@ const OPEN_WITH_LABEL: Record<OpenWithFeatureId, string> = {
   openWithPptx: 'PPT',
   openWithXlsx: 'Excel',
   openWithAudio: '音频',
-  openWithVideo: '视频'
+  openWithVideo: '视频',
+  openWithText: '文本'
 }
 
 /** 完整扩展名只在 `Info` 图标的 hover 里给：日常用不着，摊在版面上是噪声。 */
@@ -106,6 +107,7 @@ function integrationCopy(
     openWithXlsx: { label: OPEN_WITH_LABEL.openWithXlsx, info: extList('xlsx'), buttonHint },
     openWithAudio: { label: OPEN_WITH_LABEL.openWithAudio, info: extList('audio'), buttonHint },
     openWithVideo: { label: OPEN_WITH_LABEL.openWithVideo, info: extList('video'), buttonHint },
+    openWithText: { label: OPEN_WITH_LABEL.openWithText, info: extList('text'), buttonHint },
     quickAction: {
       label: 'Finder',
       desc: `在 Finder 的「快速操作」中添加「在 ${state.productName} 中打开」`
