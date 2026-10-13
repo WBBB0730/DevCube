@@ -225,7 +225,7 @@ sleep 120 & echo $! > marker.pid; wait
 
 #### WSL 003 用户报告新建 Terminal 后持续刷空行
 
-**状态：用户报告，正在复现；尚不能确认具体根因。**
+**状态：已在真实 renderer 与 ConPTY 链路复现；已确认 resize 循环，正在继续定位布局触发条件。尚未修复。**
 
 用户描述：新建 Terminal 时，整个终端区域快速持续向下刷很久，滚动很多以后才停止，最终出现大量像连续按回车产生的空行。严重程度由用户明确描述为「非常严重」。目前没有精确持续时间、空行数量或原始终端输出，不能将它当作 WSL 001 或 WSL 002 的已知结果直接解释。
 
@@ -244,6 +244,26 @@ sleep 120 & echo $! > marker.pid; wait
 操作限制与诊断差异：本轮没有启动 dev 服务，没有向用户的终端注入输入，也没有终止发行版。临时 app 自己拥有独立 `appData`，仅记录两类 IPC，不改变产品事件处理。第一次尝试隐藏窗口使 Chromium 暂停渲染帧，Playwright 等待按钮稳定性超时；这属于诊断方式限制，随后改用实际可见的临时窗口完成测试，并在结束后关闭。独立工作树通过 node_modules junction 复用现有依赖，跨盘 CSS 引用有 Inter/PDF 资源解析警告；终端使用的本地 JetBrains Mono 已验证加载，其他页面的视觉结果不在这一组的结论范围内。Playwright 注入的调试参数使诊断 app 目录额外显示为一个 Project；它只属于临时档案，不影响用户的 Project 列表。
 
 证据：[界面采样和原始输出](wsl-project-validation/terminal-production/result.json)、[完整诊断脚本](wsl-project-validation/terminal-production/diagnostic.cjs.txt)、[主进程观察入口](wsl-project-validation/terminal-production/bootstrap.cjs.txt)、[第一次新建画面](wsl-project-validation/terminal-production/round-1.png)、[第二次](wsl-project-validation/terminal-production/round-2.png)、[第三次](wsl-project-validation/terminal-production/round-3.png)。后续将针对开发模式、窗口尺寸、已有终端恢复与重复快照继续检查。
+
+**第三轮 已复现 resize 导致的持续刷屏。** 在相同源码 `79f19ec` 上单独构建包含 React development 与 StrictMode 的 renderer，依然用本地构建文件启动，没有启动 dev 服务。临时窗口设为用户实际保存的 1102×722；第二个终端另外切换过 720×480 和 1102×722 共 8 次，随后停止人工调整。第一次新建就已经出现循环，因此那 8 次调整不是最初问题出现的前提。
+
+三次新建每次观察约 12 秒，累计原始输出/采样如下：
+
+| 第几次新建 | 累计输出代码单元 | 累计输出块 | 累计 LF | 最新会话快照 LF |
+| ---------- | ---------------- | ---------- | ------- | --------------- |
+| 1          | 196068           | 788        | 21587   | 128             |
+| 2          | 406281           | 1632       | 44588   | 140             |
+| 3          | 606507           | 2436       | 66647   | 126             |
+
+主进程共收到 9608 次 resize、0 次 stdin。尺寸的主要分布为 `110×29` 4795 次、`108×28` 3307 次、`109×28` 1487 次，其余只有少量窗口调整对应值。首个终端在第一次发送 `109×28` 后，很快进入 `109×28 → 110×29 → 109×28 → 110×29`，相邻变化通常只隔几毫秒。在没有任何键盘/终端输入的情况下仍持续产生输出，排除了「不断按回车」或自动终端应答是本组直接原因。
+
+链路已经得到证据支持：容器/测量尺寸反复变化 → 前端 ResizeObserver/FitAddon 反复发不同尺寸 → 主进程相同尺寸早退无法拦截交替值 → ConPTY 不断调整并重画屏幕 → 输出携带大量清行与换行 → headless buffer 的快照也累积额外行。该快照不是单纯前端显示的重复回放。三张截图均出现大面积空白和滚动条，与用户描述的终端区域持续刷空行一致。
+
+仍需区分：本次同时改变了 React 模式和窗口的 2 像素差异，不能仅凭这一轮把根因归为 StrictMode。下一步保持正式 React 构建也设为 1102×722，并记录 ResizeObserver contentRect、计算样式、父容器 padding、全局滚动条和 Canvas 几何；用单变量对照确定布局反馈的来源。普通终端自动应答和 shell 启动脚本已在本组排除，`windowsPty` 是否加剧历史行污染仍是另一个问题，不应替代尺寸循环的根因调查。
+
+本轮报告在最后刷新页面后，renderer 端临时采集对象被重置，汇总打印遇到 `undefined.bytes`，属于诊断脚本收尾错误。此前三次的持续采样、9608 条主进程 resize 记录和截图均已保存；原始全部输出块没有在刷新前归档，不能声称这个 JSON 保存了 606507 个代码单元的完整原始输出。下一轮先保存采集对象再刷新。诊断应用在 finally 中关闭，未改动产品源码或用户档案。
+
+证据：[开发模式采样与全部 resize](wsl-project-validation/terminal-development/result.json)、[诊断脚本](wsl-project-validation/terminal-development/diagnostic.cjs.txt)、[构建配置](wsl-project-validation/terminal-development/development.config.ts.txt)、[第一次刷空白画面](wsl-project-validation/terminal-development/round-1.png)、[第二次](wsl-project-validation/terminal-development/round-2.png)、[第三次](wsl-project-validation/terminal-development/round-3.png)。
 
 #### 已通过的基础检查及其范围
 

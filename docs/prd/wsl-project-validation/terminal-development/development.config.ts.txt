@@ -1,0 +1,19 @@
+import { resolve } from 'node:path'
+import original from '../../electron.vite.config'
+
+export default {
+  ...original,
+  main: {
+    ...original.main,
+    build: { ...original.main?.build, outDir: resolve('out/wsl-verification/development/main') }
+  },
+  preload: {
+    ...original.preload,
+    build: { ...original.preload?.build, outDir: resolve('out/wsl-verification/development/preload') }
+  },
+  renderer: {
+    ...original.renderer,
+    define: { 'process.env.NODE_ENV': '"development"' },
+    build: { ...original.renderer?.build, outDir: resolve('out/wsl-verification/development/renderer') }
+  }
+}
