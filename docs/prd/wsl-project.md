@@ -225,7 +225,7 @@ sleep 120 & echo $! > marker.pid; wait
 
 #### WSL 003 用户报告新建 Terminal 后持续刷空行
 
-**状态：已在真实 renderer 与 ConPTY 链路复现；已确认 resize 循环，正在继续定位布局触发条件。尚未修复。**
+**状态：已复现并通过重复单变量对照确认布局反馈根因，正式与开发模式均可触发。尚未修复。**
 
 用户描述：新建 Terminal 时，整个终端区域快速持续向下刷很久，滚动很多以后才停止，最终出现大量像连续按回车产生的空行。严重程度由用户明确描述为「非常严重」。目前没有精确持续时间、空行数量或原始终端输出，不能将它当作 WSL 001 或 WSL 002 的已知结果直接解释。
 
@@ -264,6 +264,33 @@ sleep 120 & echo $! > marker.pid; wait
 本轮报告在最后刷新页面后，renderer 端临时采集对象被重置，汇总打印遇到 `undefined.bytes`，属于诊断脚本收尾错误。此前三次的持续采样、9608 条主进程 resize 记录和截图均已保存；原始全部输出块没有在刷新前归档，不能声称这个 JSON 保存了 606507 个代码单元的完整原始输出。下一轮先保存采集对象再刷新。诊断应用在 finally 中关闭，未改动产品源码或用户档案。
 
 证据：[开发模式采样与全部 resize](wsl-project-validation/terminal-development/result.json)、[诊断脚本](wsl-project-validation/terminal-development/diagnostic.cjs.txt)、[构建配置](wsl-project-validation/terminal-development/development.config.ts.txt)、[第一次刷空白画面](wsl-project-validation/terminal-development/round-1.png)、[第二次](wsl-project-validation/terminal-development/round-2.png)、[第三次](wsl-project-validation/terminal-development/round-3.png)。
+
+**第四轮 正式构建与单变量对照确认根因。** 正式 React 构建也设为 1102×722 后立即复现，因此不是 React StrictMode 专有问题。又加载用户原 Windows 源码已有的正式 renderer 产物（避免独立工作树 node_modules junction 和 CSS 资源解析警告成为混杂因素），相同窗口尺寸仍复现。该 renderer 是最初构建的 `c06e415`；其 TerminalPane 实现与 `79f19ec` 相同。
+
+直接根因是 **FitAddon 的测量父容器包含未扣除的 padding，溢出后触发外层 Panel 的自动滚动条反馈**：
+
+1. TerminalPane 当前 JSX 是外层 `relative h-full w-full`，内层带 `ref={containerRef}` 的 `h-full w-full p-2`。ResizeObserver 观察内层，xterm 也挂在内层，padding 为四边 8 px，box-sizing 为 border-box。
+2. 当前 `@xterm/addon-fit` 的 `proposeDimensions()` 读取 xterm 父元素的计算 width/height，却只扣除 xterm 元素自身的 padding，再扣固定滚动条宽度，没有扣除父元素 `p-2` 的 16 px。它因此按比真实内容区更大的空间计算行列。
+3. 真实采样中，带 padding 的父容器宽 814.25 px、高 635.333 px，内容区至少再扣左右/上下共 16 px；xterm screen 却宽 807 px、高 638 px。容器出现 `scrollWidth=815 > clientWidth=814`、`scrollHeight=646 > clientHeight=635` 的溢出。
+4. 祖先中有 react-resizable-panels 的 Panel DOM，计算样式 `overflow-x:auto; overflow-y:auto`。滚动条出现后可用区域减少约 8 px，改变被观察容器的尺寸；FitAddon 再次 fit 后滚动条条件反转。宽高在约 `814.25×635.333` 与 `822.25×643.333` 间交替，带来不同的行列数。body 实测 overflow 为 hidden，因此不是 body 的 overflow 设置丢失。
+5. 每次不同尺寸都会穿过主进程的相同尺寸早退，调用 ConPTY resize。ConPTY 连续清行/重画产生大量 LF，并污染缓冲区历史。前端未发送任何 stdin，空行不是实际 shell 连续执行空命令。
+
+仅在独立诊断窗口的 DOM 上把测量父容器 padding 从原样变为 `0px`，没有改文件或产品实现。移除 padding 后容器内容区可容纳 screen，滚动条反馈立即停止；恢复原 CSS 后循环再次出现；再次移除又停止。两个独立正式 renderer 环境都完成了这一组可逆对照。
+
+| 环境               | 阶段           | 3 秒内 resize 增量 | LF 增量 | 输出代码单元增量 |
+| ------------------ | -------------- | ------------------ | ------- | ---------------- |
+| 独立工作树正式构建 | 原始 p-2       | 714                | 5335    | 48374            |
+| 独立工作树正式构建 | padding 0      | 0                  | 28      | 252              |
+| 独立工作树正式构建 | 恢复 p-2       | 718                | 5396    | 48913            |
+| 独立工作树正式构建 | 再次 padding 0 | 0                  | 28      | 252              |
+
+padding 0 阶段的少量输出来自变化前已排队的最后一次 ConPTY 重画；后续不再持续增长。历史里已经产生的空行不因改变 padding 自动消失，不能把停止增长等同于修复旧缓冲区内容。原 Windows renderer 的完整对照数值、内容区域和祖先滚动容器记录在 [original renderer](wsl-project-validation/terminal-layout/original-renderer.json)；独立构建完整原始输出、主进程 resize、ResizeObserver 几何记录在 [isolated build](wsl-project-validation/terminal-layout/isolated-build.json)。本组在刷新前就保存了全部采集对象，没有上一轮的收尾丢失问题。
+
+修复方向应消除错误测量和布局反馈：将留白放在不被 FitAddon 测量的外层，给真正的终端挂载/观察元素无 padding 的内容区域，并核对终端面板的溢出约束。不能只给 resize 加延迟/限速，也不能把差一列一行的变化全部忽略，那会掩盖测量错误并影响正常调整窗口。前端 xterm 与主进程 headless xterm 的 Windows ConPTY 兼容选项可另行评估；它们不是本轮尺寸循环的根因。
+
+下一步验收应覆盖正式/开发模式、150% 显示缩放下的分数像素、相邻窗口尺寸、最小窗口、切 Tab、拖面板、已有终端恢复、长提示符和输出历史。期望正常新建收敛到稳定尺寸，闲置时不反复发送 resize，停止的界面与主进程快照均没有持续空行污染。当前记录分支只保存诊断结果，不修改 JSX、库或产品配置。
+
+证据：[单变量诊断脚本](wsl-project-validation/terminal-layout/diagnostic.cjs.txt)、[原始 p-2 的空白画面](wsl-project-validation/terminal-layout/original.png)、[移除 padding 后](wsl-project-validation/terminal-layout/no-padding.png)、[恢复 p-2 再现](wsl-project-validation/terminal-layout/restored-padding.png)、[再次移除](wsl-project-validation/terminal-layout/no-padding-again.png)。
 
 #### 已通过的基础检查及其范围
 

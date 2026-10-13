@@ -1,0 +1,79 @@
+const { _electron: electron } = require('C:/Users/WBBB/.cache/codex-runtimes/codex-primary-runtime/dependencies/node/node_modules/playwright')
+const { writeFileSync, mkdirSync } = require('node:fs')
+const { resolve, join } = require('node:path')
+const { pathToFileURL } = require('node:url')
+const development = process.argv.includes('--development')
+const originalRenderer = process.argv.includes('--original-renderer')
+const output = resolve(`out/wsl-verification/layout-${originalRenderer ? 'original-renderer' : development ? 'development' : 'production'}`)
+mkdirSync(output, { recursive: true })
+
+async function main() {
+  const rendererUrl = originalRenderer ? pathToFileURL('E:/Projects/Webstorm/DevCube/out/renderer/index.html').href : ''
+  const app = await electron.launch({ executablePath: resolve('node_modules/electron/dist/electron.exe'), args: [resolve('out/wsl-verification/ui-case'), '\\\\wsl.localhost\\Ubuntu-24.04\\home\\devcube\\devcube-wsl-verification\\terminal-ui'], env: { ...process.env, ELECTRON_RENDERER_URL: rendererUrl, NODE_ENV: development ? 'development' : 'production', WSL_AUDIT_BUILD: development ? 'development' : 'production' }, timeout: 30000 })
+  const report = { mode: development ? 'React development' : 'production', originalRenderer, rendererUrl, window: [1102, 722], phases: [], errors: [] }
+  try {
+    const page = await app.firstWindow()
+    page.on('pageerror', (error) => report.errors.push(String(error)))
+    await page.getByTitle('新建终端，或连接到服务器、数据源', { exact: true }).waitFor({ state: 'visible' })
+    await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1102, 722))
+    await page.evaluate(() => {
+      window.__layoutAudit = { outputs: [], bytes: 0, chunks: 0, linefeeds: 0, geometries: [], geometryCount: 0 }
+      window.api.onSessionOutput((event) => {
+        const audit = window.__layoutAudit
+        audit.bytes += event.data.length
+        audit.chunks++
+        audit.linefeeds += event.data.split('\n').length - 1
+        if (audit.outputs.length < 20000 && audit.bytes < 4000000) audit.outputs.push(event)
+      })
+      window.__readGeometry = () => {
+        const term = document.querySelector('.xterm')
+        const container = term?.parentElement
+        if (!container) return null
+        const style = getComputedStyle(container)
+        const screen = term.querySelector('.xterm-screen')
+        const rect = container.getBoundingClientRect()
+        const ancestors = []
+        for (let node = container.parentElement; node && ancestors.length < 7; node = node.parentElement) {
+          const css = getComputedStyle(node)
+          ancestors.push({ tag: node.tagName, id: node.id, className: node.className, clientWidth: node.clientWidth, clientHeight: node.clientHeight, scrollWidth: node.scrollWidth, scrollHeight: node.scrollHeight, overflowX: css.overflowX, overflowY: css.overflowY })
+        }
+        return { at: Date.now(), width: rect.width, height: rect.height, clientWidth: container.clientWidth, clientHeight: container.clientHeight, scrollWidth: container.scrollWidth, scrollHeight: container.scrollHeight, cssWidth: style.width, cssHeight: style.height, padding: style.padding, boxSizing: style.boxSizing, overflow: style.overflow, screenWidth: screen?.getBoundingClientRect().width, screenHeight: screen?.getBoundingClientRect().height, bodyWidth: document.body.clientWidth, bodyScrollHeight: document.body.scrollHeight, bodyOverflow: getComputedStyle(document.body).overflow, ancestors }
+      }
+    })
+    await page.getByTitle('新建终端，或连接到服务器、数据源', { exact: true }).click()
+    await page.getByRole('menuitem', { name: '新建终端', exact: true }).click()
+    await page.locator('.xterm').waitFor({ state: 'visible' })
+    await page.evaluate(() => {
+      const observer = new ResizeObserver((entries) => {
+        const audit = window.__layoutAudit
+        audit.geometryCount++
+        if (audit.geometries.length < 2000) audit.geometries.push({ ...window.__readGeometry(), observedWidth: entries[0].contentRect.width, observedHeight: entries[0].contentRect.height })
+      })
+      observer.observe(document.querySelector('.xterm').parentElement)
+      window.__layoutObserver = observer
+    })
+    for (const phase of ['original', 'no-padding', 'restored-padding', 'no-padding-again']) {
+      if (phase !== 'original') await page.evaluate((phase) => { document.querySelector('.xterm').parentElement.style.padding = phase.startsWith('no-padding') ? '0px' : '' }, phase)
+      const before = await page.evaluate(() => ({ bytes: window.__layoutAudit.bytes, linefeeds: window.__layoutAudit.linefeeds, chunks: window.__layoutAudit.chunks, geometryCount: window.__layoutAudit.geometryCount }))
+      const beforeMain = await app.evaluate(() => globalThis.wslUiAudit.totalResizes)
+      await page.waitForTimeout(3000)
+      const after = await page.evaluate(async () => {
+        const terminal = (await window.api.getTerminals()).at(-1)
+        const snapshot = await window.api.getSessionBuffer(terminal.key)
+        return { bytes: window.__layoutAudit.bytes, linefeeds: window.__layoutAudit.linefeeds, chunks: window.__layoutAudit.chunks, geometryCount: window.__layoutAudit.geometryCount, geometry: window.__readGeometry(), snapshotBytes: snapshot.bytes, snapshotLinefeeds: snapshot.data.split('\n').length - 1, cols: snapshot.cols, rows: snapshot.rows }
+      })
+      const afterMain = await app.evaluate(() => globalThis.wslUiAudit.totalResizes)
+      const data = { phase, before, after, resizeDelta: afterMain - beforeMain, bytesDelta: after.bytes - before.bytes, linefeedsDelta: after.linefeeds - before.linefeeds }
+      report.phases.push(data)
+      console.log('PHASE', JSON.stringify(data))
+      await page.screenshot({ path: join(output, `${phase}.png`) })
+    }
+    report.main = await app.evaluate(() => globalThis.wslUiAudit)
+    report.renderer = await page.evaluate(() => window.__layoutAudit)
+    await page.evaluate(async () => { window.__layoutObserver.disconnect(); for (const terminal of await window.api.getTerminals()) await window.api.closeSession(terminal.key) })
+  } finally {
+    writeFileSync(join(output, 'result.json'), JSON.stringify(report, null, 2))
+    await app.close()
+  }
+}
+main().catch((error) => { console.error(error); process.exitCode = 1 })
