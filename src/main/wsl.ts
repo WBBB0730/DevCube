@@ -6,7 +6,7 @@ import { join, posix } from 'node:path'
 import { app, type BrowserWindow } from 'electron'
 import type { WslConnectionState } from '../shared/wsl'
 import { wslDistroOf } from '../shared/wsl-path'
-import { getAppPrefs } from './store'
+import { getAppPrefs, getProjects } from './store'
 import {
   WslConnections,
   type WslExecOptions,
@@ -61,7 +61,11 @@ function spawnHelper(distro: string): WslHelperProcess {
     stdin: child.stdin,
     stdout: child.stdout,
     stderr: child.stderr,
-    kill: () => child.kill(),
+    // 先关小助手的输入：它读到输入结束才收尾退出并结束它起的进程。只结束 wsl.exe，发行版里的小助手收不到（Windows 实测）
+    kill: () => {
+      child.stdin.end()
+      child.kill()
+    },
     exited: new Promise((resolve) => {
       child.once('exit', () => resolve(null))
       child.once('error', (e) => resolve(e.message))
@@ -98,9 +102,20 @@ export function holdWsl(distro: string, holder: string): void {
   void connections.connect(distro).catch(() => undefined)
 }
 
-/** 某个来源放下这个发行版：最后一个放下时开始闲置计时。 */
+/** 某个来源放下这个发行版：最后一个放下时开始闲置计时；发行版已没有 WSL 项目则立即断开。 */
 export function releaseWsl(distro: string, holder: string): void {
   idle.release(distro, holder)
+  disconnectWslWithoutProject(distro)
+}
+
+/**
+ * 发行版的 WSL 项目已全部移除且没有来源在用：立即断开，不等闲置。移除项目时调用；项目下的终端、运行会话
+ * 要等进程退出才放下，届时经 releaseWsl 再判断一次。
+ */
+export function disconnectWslWithoutProject(distro: string): void {
+  if (idle.isInUse(distro)) return
+  if (getProjects().some((p) => wslDistroOf(p.path)?.toLowerCase() === distro.toLowerCase())) return
+  connections.disconnect(distro)
 }
 
 /** 在发行版里执行一条命令（不经 shell），必要时先连上；结果与本机 git 子进程同形，永不 throw。 */

@@ -220,8 +220,10 @@ app.whenReady().then(async () => {
     else files.push(t.path)
   }
   for (const path of dirs) {
-    if (addProjectByPath(path) !== null) {
-      setWorkspaceUi({ ...getWorkspaceUi(), currentEntryKey: path, selectedKey: null })
+    // 当前条目用登记后的路径（WSL 路径已统一写法），与左树条目对得上
+    const projectPath = addProjectByPath(path)
+    if (projectPath !== null) {
+      setWorkspaceUi({ ...getWorkspaceUi(), currentEntryKey: projectPath, selectedKey: null })
     }
   }
 

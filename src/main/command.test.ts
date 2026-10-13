@@ -222,11 +222,25 @@ describe('runHeaderShellFor', () => {
 })
 
 describe('buildShellInvocation', () => {
-  it('posix 用登录交互 shell 执行，加载 PATH/nvm', () => {
+  it('posix 用登录交互 shell 执行，加载 PATH/nvm；先关掉作业控制，后台任务与 shell 同组', () => {
     expect(buildShellInvocation('pnpm run dev', 'darwin', { posixShell: '/bin/zsh' })).toEqual({
       file: '/bin/zsh',
-      args: ['-l', '-i', '-c', 'pnpm run dev']
+      args: ['-l', '-i', '-c', 'set +m; pnpm run dev']
     })
+  })
+  it('fish 用自己的写法关掉作业控制，认不出的 shell 原样执行', () => {
+    expect(buildShellInvocation('a & b', 'linux', { posixShell: '/usr/bin/fish' }).args).toEqual([
+      '-l',
+      '-i',
+      '-c',
+      'status job-control none; a & b'
+    ])
+    expect(buildShellInvocation('a & b', 'linux', { posixShell: '/usr/bin/nu' }).args).toEqual([
+      '-l',
+      '-i',
+      '-c',
+      'a & b'
+    ])
   })
   it('无 $SHELL 时回退 /bin/zsh', () => {
     expect(buildShellInvocation('ls', 'linux', {}).file).toBe('/bin/zsh')
@@ -367,7 +381,7 @@ describe('buildWslShellSession / buildWslRunInvocation', () => {
         ...['--exec', '/mnt/c/DevCube/resources/wsl/devcube-wsl', 'launch'],
         ...['--run-dir', '/tmp/devcube-wsl-runs-1', '--id', 'sid-1'],
         ...['--env', 'PORT=3000', '--env', 'NODE_OPTIONS=--a=b c', '--'],
-        ...['/bin/zsh', '-l', '-i', '-c', 'pnpm dev']
+        ...['/bin/zsh', '-l', '-i', '-c', 'set +m; pnpm dev']
       ]
     })
   })

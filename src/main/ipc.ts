@@ -287,6 +287,7 @@ import { markQuitAllowed } from './app-shutdown'
 import { isPathUnderGrantedRoot } from './files-roots'
 import { toSysPath } from './sys-path'
 import {
+  disconnectWslWithoutProject,
   getWslState,
   onWslState,
   reconnectWsl,
@@ -548,6 +549,10 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     clearRepoRootCache(path)
     clearProjectWorktreeOf(path)
     forgetWslDiscovery(path)
+    // 移除的是当前项目时放下它所在的发行版；该发行版已没有 WSL 项目则立即断开
+    setWslCurrentEntry(getWorkspaceUi().currentEntryKey)
+    const distro = wslDistroOf(path)
+    if (distro !== null) disconnectWslWithoutProject(distro)
     refreshWatchers()
     return buildTree()
   })

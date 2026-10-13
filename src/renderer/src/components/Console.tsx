@@ -1133,8 +1133,10 @@ function TerminalPane({
           : `${results.count}`
 
   return (
-    <div className="relative h-full w-full">
-      <div ref={containerRef} className="h-full w-full p-2" />
+    <div className="relative h-full w-full p-2">
+      {/* 留白在外层：FitAddon 按挂载元素的整个盒子算行列、不扣它的 padding，算大了会撑出滚动条，
+          尺寸随之来回跳，shell 每次重画都把一行提示符挤进历史 */}
+      <div ref={containerRef} className="h-full w-full" />
       {searchOpen && (
         <div className="absolute right-3 top-2 z-20 flex w-80 items-center gap-1 rounded-lg border border-[color:var(--border-input)] bg-elevated px-1.5 py-1 shadow-xl">
           <Search className="size-3.5 shrink-0 text-muted-foreground" />

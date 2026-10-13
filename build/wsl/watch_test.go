@@ -74,6 +74,63 @@ func TestDirWatchRecursiveIncludingNewDirs(t *testing.T) {
 	sink.waitFor(t, deep, "delete")
 }
 
+func (s *eventSink) has(path string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, e := range s.events {
+		if e.Path == path {
+			return true
+		}
+	}
+	return false
+}
+
+func TestDirWatchFollowsRenamedAndMovedOutDirs(t *testing.T) {
+	base, _ := filepath.EvalSymlinks(t.TempDir())
+	root := filepath.Join(base, "root")
+	if err := os.MkdirAll(filepath.Join(root, "old", "deep"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sink := &eventSink{}
+	w, err := startDirWatch(root, sink.add, func(string) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer w.close()
+
+	// 改名后，子目录里的变化按新路径报告
+	renamed := filepath.Join(root, "new")
+	if err := os.Rename(filepath.Join(root, "old"), renamed); err != nil {
+		t.Fatal(err)
+	}
+	sink.waitFor(t, renamed, "create")
+	time.Sleep(100 * time.Millisecond)
+	inner := filepath.Join(renamed, "deep", "after.txt")
+	if err := os.WriteFile(inner, []byte("1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sink.waitFor(t, inner, "create")
+	if sink.has(filepath.Join(root, "old", "deep", "after.txt")) {
+		t.Fatalf("改名后仍按旧路径报告：%+v", sink.events)
+	}
+
+	// 移出根后，其中的变化不再报告
+	outside := filepath.Join(base, "outside")
+	if err := os.Rename(renamed, outside); err != nil {
+		t.Fatal(err)
+	}
+	sink.waitFor(t, renamed, "delete")
+	if err := os.WriteFile(filepath.Join(outside, "deep", "later.txt"), []byte("1"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(300 * time.Millisecond)
+	for _, path := range []string{"old", "new"} {
+		if sink.has(filepath.Join(root, path, "deep", "later.txt")) {
+			t.Fatalf("移出根后仍在报告：%+v", sink.events)
+		}
+	}
+}
+
 func TestDirWatchRejectsMissingRoot(t *testing.T) {
 	if _, err := startDirWatch(filepath.Join(t.TempDir(), "missing"), func([]watchEvent) {}, func(string) {}); err == nil {
 		t.Fatal("目录不存在应报错")

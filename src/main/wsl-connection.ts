@@ -136,7 +136,7 @@ export class WslConnections {
     return this.connect(distro)
   }
 
-  /** 断开（含正在连的、清掉失败状态）：结束 wsl.exe，小助手随标准输入关闭而退出并结束它起的进程。 */
+  /** 断开（含正在连的、清掉失败状态）：关掉小助手的输入并结束 wsl.exe，小助手随即退出并结束它起的进程。 */
   disconnect(distro: string): void {
     const entry = this.entries.get(distro.toLowerCase())
     if (!entry) return

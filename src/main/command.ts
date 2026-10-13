@@ -257,7 +257,20 @@ export function buildShellInvocation(
     if (shell === 'cmd') return { file, args: ['/d', '/s', '/c', command] }
     return { file, args: ['-NoLogo', '-Command', command] }
   }
-  return { file: options.posixShell || '/bin/zsh', args: ['-l', '-i', '-c', command] }
+  const shell = options.posixShell || '/bin/zsh'
+  return { file: shell, args: ['-l', '-i', '-c', withoutJobControl(shell, command)] }
+}
+
+/**
+ * 运行配置的命令先关掉作业控制：`-i` 是为了读到 .zshrc / .bashrc 里的 nvm 等，但交互 shell 默认开着作业控制，
+ * `&` 起的后台任务各自成组，停止时只结束 shell 那一组就漏掉它们；关掉后都留在同一组，一并结束。
+ * 认得出的 shell 才加（POSIX 一族 `set +m`，fish `status job-control none`），其余原样。
+ */
+function withoutJobControl(shell: string, command: string): string {
+  const name = posix.basename(shell)
+  if (['sh', 'bash', 'zsh', 'dash', 'ksh'].includes(name)) return `set +m; ${command}`
+  if (name === 'fish') return `status job-control none; ${command}`
+  return command
 }
 
 /** Terminal（自由 shell）的调用：一个登录交互 shell，不带 `-c`——像用户手开一个终端。 */
@@ -333,7 +346,7 @@ export function buildWslRunInvocation(o: WslRunInvocation): { file: string; args
     args: [
       ...['-d', o.distro, '--cd', o.cwd, '--exec', o.helper],
       ...['launch', '--run-dir', o.runDir, '--id', o.id, ...env, '--'],
-      ...[o.shell, '-l', '-i', '-c', o.command]
+      ...[o.shell, '-l', '-i', '-c', withoutJobControl(o.shell, o.command)]
     ]
   }
 }
