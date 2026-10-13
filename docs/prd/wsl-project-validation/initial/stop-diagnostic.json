@@ -1,0 +1,9 @@
+{
+  "childPid": "781",
+  "parentPgid": "761",
+  "before": "    PID    PPID    PGID STAT COMMAND\n    761     760     761 Ss+  /bin/bash -l -i -c sleep 120 & echo $! > stop-diag.pid; echo READY; wait\n    781     761     781 S    sleep 120\n",
+  "term": true,
+  "afterTerm": "    PID    PPID    PGID STAT COMMAND\n    761     760     761 Ss+  /bin/bash -l -i -c sleep 120 & echo $! > stop-diag.pid; echo READY; wait\n    781     761     781 S    sleep 120\n",
+  "kill": true,
+  "afterKill": "    PID    PPID    PGID STAT COMMAND\n    781     760     781 S    sleep 120\n"
+}

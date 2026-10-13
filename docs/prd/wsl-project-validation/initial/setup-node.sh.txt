@@ -1,0 +1,12 @@
+#!/usr/bin/env bash
+set -euo pipefail
+tar -xJf /mnt/e/Projects/Webstorm/DevCube/out/wsl-verification/tools/node-v24.21.0-linux-x64.tar.xz -C /opt
+for command in node npm npx; do
+  ln -sf "/opt/node-v24.21.0-linux-x64/bin/$command" "/usr/local/bin/$command"
+done
+hash -r
+npm install --global --prefix /opt/node-v24.21.0-linux-x64 pnpm@10.30.3 --no-audit --no-fund
+ln -sf /opt/node-v24.21.0-linux-x64/bin/pnpm /usr/local/bin/pnpm
+node --version
+npm --version
+pnpm --version

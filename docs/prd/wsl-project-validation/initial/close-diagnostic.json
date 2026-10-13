@@ -1,0 +1,26 @@
+[
+  {
+    "mode": "kill",
+    "runDir": "/tmp/devcube-wsl-runs-2122996098",
+    "status": {
+      "status": "disconnected"
+    },
+    "helperCleanupCompleted": false
+  },
+  {
+    "mode": "end-and-kill",
+    "runDir": "/tmp/devcube-wsl-runs-2053350282",
+    "status": {
+      "status": "disconnected"
+    },
+    "helperCleanupCompleted": true
+  },
+  {
+    "mode": "end",
+    "runDir": "/tmp/devcube-wsl-runs-598955829",
+    "status": {
+      "status": "disconnected"
+    },
+    "helperCleanupCompleted": true
+  }
+]

@@ -1,0 +1,137 @@
+import { app } from 'electron'
+import assert from 'node:assert/strict'
+import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import { initStore, getProjects, setAppPrefs } from '../../src/main/store'
+import { addProjectByPath } from '../../src/main/projects'
+import { connectWsl, closeAllWsl, getWslState, onWslState, wslExec } from '../../src/main/wsl'
+import { projectDiscovery, refreshWslDiscovery } from '../../src/main/wsl-discovery'
+import { findGit, resolveRepoRoot, gitOutputToLocal, execGit } from '../../src/main/git-exec'
+import { listDir, createEntry, writeFileEntry, renameEntry, trashEntry, fileExists, filterFilesTreeQuery } from '../../src/main/files'
+import { startContentSearch, stopContentSearch } from '../../src/main/content-search'
+import { DEFAULT_CONTENT_SEARCH_OPTIONS } from '../../src/shared/content-search'
+import { normalizePath } from '../../src/shared/files-path'
+import { linuxToWslPath } from '../../src/shared/wsl-path'
+
+const repoRoot = resolve('.')
+const dataDir = join(repoRoot, `out/wsl-verification/electron-user-data-${process.pid}`)
+mkdirSync(dataDir, { recursive: true })
+app.setPath('userData', dataDir)
+app.setPath('sessionData', dataDir)
+const distro = 'Ubuntu-24.04'
+const fixture = JSON.parse(readFileSync(join(repoRoot, 'out/wsl-verification/results.json'), 'utf8'))
+const root = linuxToWslPath(distro, fixture.linuxRoot)
+const results: Array<{ name: string; status: string; detail?: unknown }> = []
+
+async function check(name: string, fn: () => Promise<unknown>): Promise<void> {
+  try {
+    const detail = await fn()
+    results.push({ name, status: 'passed', detail })
+    console.log('PASS', name, detail === undefined ? '' : JSON.stringify(detail))
+  } catch (error) {
+    results.push({ name, status: 'failed', detail: String(error) })
+    console.error('FAIL', name, String(error))
+  }
+}
+
+async function main(): Promise<void> {
+  await app.whenReady()
+  await initStore()
+  setAppPrefs({ wslIdleMinutes: 5 })
+  await check('生产入口首次连接前的状态与探测缓存', async () => {
+    assert.equal(getWslState(distro).status, 'disconnected')
+    assert.equal(projectDiscovery(root), null)
+  })
+  await check('生产项目登记入口将两种 WSL 前缀去重', async () => {
+    assert.equal(addProjectByPath(root), root)
+    assert.equal(addProjectByPath(root.replace('wsl.localhost', 'wsl$')), root)
+    assert.equal(getProjects().length, 1)
+  })
+  const started = Date.now()
+  const info = await connectWsl(distro)
+  console.log('CONNECTED', Date.now() - started, 'ms', JSON.stringify(info))
+  await check('生产 Git 入口使用 Linux Git 并映射仓库根', async () => {
+    const git = await findGit(root)
+    assert.equal(git?.path, 'git')
+    const version = await wslExec(distro, 'git', ['--version'], { cwd: fixture.linuxRoot })
+    assert.equal(version.stdout.toString().trim(), `git version ${git.version}`)
+    const result = await execGit(root, ['rev-parse', '--show-toplevel'])
+    assert.equal(result.code, 0, result.stderr)
+    assert.equal(normalizePath(gitOutputToLocal(root, result.stdout.toString().trim())), normalizePath(root))
+    assert.equal(normalizePath((await resolveRepoRoot(root))!), normalizePath(root))
+    return git
+  })
+  await check('生产探测入口读取 package.json 并刷新脚本', async () => {
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'wsl-verification', scripts: { verify: 'node verify-env.cjs' } }))
+    await refreshWslDiscovery(root)
+    assert.equal(projectDiscovery(root)?.scripts?.verify, 'node verify-env.cjs')
+    writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'wsl-verification', scripts: { updated: 'node verify-env.cjs' } }))
+    await refreshWslDiscovery(root)
+    assert.equal(projectDiscovery(root)?.scripts?.updated, 'node verify-env.cjs')
+    assert.equal(projectDiscovery(root)?.scripts?.verify, undefined)
+  })
+  await check('生产 Files 入口浏览、新建、保存、重命名、永久删除及越界拒绝', async () => {
+    assert.ok((await listDir(root, root)).some((entry) => entry.name === 'main.txt'))
+    const entry = await createEntry(root, root, '生产文件验证.txt', 'file')
+    await writeFileEntry(root, entry.path, '生产入口中文内容\n')
+    const renamed = await renameEntry(root, entry.path, '已重命名.txt')
+    assert.equal(await fileExists(root, renamed.path), true)
+    await trashEntry(root, renamed.path)
+    assert.equal(await fileExists(root, renamed.path), false)
+    await assert.rejects(listDir(root, '/etc'), /路径越界/)
+  })
+  await check('生产内容搜索入口经 Linux rg 返回结果并排除忽略项', async () => {
+    const events: unknown[] = []
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('内容搜索超时')), 15_000)
+      startContentSearch(root, 'needle', DEFAULT_CONTENT_SEARCH_OPTIONS, 1, (event) => {
+        events.push(event)
+        if (event.kind === 'done') {
+          clearTimeout(timeout)
+          event.error ? reject(new Error(event.error)) : resolve()
+        }
+      })
+    })
+    const serialized = JSON.stringify(events)
+    assert.ok(serialized.includes('main.txt'))
+    assert.ok(!serialized.includes('ignored/skip.txt'))
+    return events
+  })
+  await check('生产文件树筛选入口经 Linux rg 获取索引', async () => {
+    const result = await filterFilesTreeQuery(root, 'main')
+    assert.ok(JSON.stringify(result).includes('main.txt'))
+  })
+  if (process.argv.includes('--quick')) return
+  await check('真实 5 分钟闲置断开并保留探测缓存', async () => {
+    assert.equal(getWslState(distro).status, 'connected')
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => { unsubscribe(); reject(new Error('闲置超过 5 分钟仍未断开')) }, 310_000)
+      const unsubscribe = onWslState((name, state) => {
+        if (name.toLowerCase() === distro.toLowerCase() && state.status === 'disconnected') {
+          clearTimeout(timeout)
+          unsubscribe()
+          resolve()
+        }
+      })
+      console.log('WAITING_IDLE', new Date().toISOString())
+    })
+    assert.equal(projectDiscovery(root)?.scripts?.updated, 'node verify-env.cjs')
+  })
+  await check('生产入口闲置后再次使用自动重连', async () => {
+    const result = await wslExec(distro, 'id', ['-un'], { cwd: fixture.linuxRoot })
+    assert.equal(result.code, 0)
+    assert.equal(result.stdout.toString().trim(), 'devcube')
+    assert.equal(getWslState(distro).status, 'connected')
+  })
+}
+
+void main().catch((error) => {
+  results.push({ name: 'production setup', status: 'failed', detail: String(error) })
+  console.error(error)
+}).finally(() => {
+  stopContentSearch()
+  closeAllWsl()
+  writeFileSync(join(repoRoot, `out/wsl-verification/electron-results${process.argv.includes('--quick') ? '-quick' : ''}.json`), JSON.stringify(results, null, 2))
+  console.log('RESULT', results.filter((result) => result.status === 'passed').length, 'passed;', results.filter((result) => result.status === 'failed').length, 'failed')
+  app.exit(results.some((result) => result.status === 'failed') ? 1 : 0)
+})

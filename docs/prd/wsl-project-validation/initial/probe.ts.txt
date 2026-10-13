@@ -1,0 +1,22 @@
+import { existsSync } from 'node:fs'
+import { isStoreWsl, readWslDistros, wslPreflightReason } from '../../src/main/wsl-preflight'
+
+async function main(): Promise<void> {
+  const facts = {
+    storeWsl: await isStoreWsl('C:/Windows/System32/wsl.exe'),
+    distros: await readWslDistros(),
+    helperPresent: existsSync('build/wsl/out/devcube-wsl')
+  }
+  console.log(JSON.stringify({ facts, ubuntu: wslPreflightReason('Ubuntu-24.04', facts) }, null, 2))
+  try {
+    const pty = await import('node-pty')
+    console.log('node-pty loaded:', typeof pty.spawn)
+  } catch (error) {
+    console.log('node-pty unavailable:', String(error))
+  }
+}
+
+void main().catch((error) => {
+  console.error(error)
+  process.exitCode = 1
+})

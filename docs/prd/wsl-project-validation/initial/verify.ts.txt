@@ -1,0 +1,273 @@
+import assert from 'node:assert/strict'
+import { spawn, execFileSync, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { existsSync, mkdirSync, readFileSync, writeFileSync, renameSync, unlinkSync } from 'node:fs'
+import { join, resolve } from 'node:path'
+import * as pty from 'node-pty'
+import { WslConnections, type WslHelperProcess, type WslWatchEvent } from '../../src/main/wsl-connection'
+import { isStoreWsl, readWslDistros, wslPreflightReason } from '../../src/main/wsl-preflight'
+import { buildWslRunInvocation, buildWslShellSession } from '../../src/main/command'
+import { linuxToWslPath, wslToLinuxPath } from '../../src/shared/wsl-path'
+
+const distro = 'Ubuntu-24.04'
+const wslExe = 'C:/Windows/System32/wsl.exe'
+const repoRoot = resolve('.')
+const helperDir = join(repoRoot, 'build/wsl/out')
+const linuxRoot = `/home/devcube/devcube-wsl-verification/中文 空格's project-${Date.now()}`
+const windowsRoot = linuxToWslPath(distro, linuxRoot)
+const results: Array<{ name: string; status: string; ms: number; detail?: unknown }> = []
+const children: ChildProcessWithoutNullStreams[] = []
+let spawnCount = 0
+
+const connections = new WslConnections({
+  preflight: async (name) => wslPreflightReason(name, {
+    storeWsl: await isStoreWsl(wslExe),
+    distros: await readWslDistros(),
+    helperPresent: existsSync(join(helperDir, 'devcube-wsl'))
+  }),
+  spawnHelper(name): WslHelperProcess {
+    spawnCount++
+    const child = spawn(wslExe, ['-d', name, '--cd', helperDir, '--exec', './devcube-wsl'], {
+      windowsHide: true,
+      env: { ...process.env, WSL_UTF8: '1' }
+    })
+    children.push(child)
+    return {
+      stdin: child.stdin, stdout: child.stdout, stderr: child.stderr,
+      kill: () => child.kill(),
+      exited: new Promise((resolve) => {
+        child.once('exit', () => resolve(null))
+        child.once('error', (error) => resolve(error.message))
+      })
+    }
+  },
+  timeoutMs: 60_000
+})
+
+async function waitFor(check: () => boolean | Promise<boolean>, timeoutMs = 8000): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!(await check())) {
+    assert.ok(Date.now() < deadline, '等待实际行为超时')
+    await new Promise((resolve) => setTimeout(resolve, 80))
+  }
+}
+
+async function check(name: string, action: () => Promise<unknown>): Promise<void> {
+  const start = Date.now()
+  try {
+    const detail = await action()
+    results.push({ name, status: 'passed', ms: Date.now() - start, detail })
+    console.log('PASS', name, Date.now() - start, 'ms', detail === undefined ? '' : JSON.stringify(detail))
+  } catch (error) {
+    results.push({ name, status: 'failed', ms: Date.now() - start, detail: String(error) })
+    console.error('FAIL', name, String(error))
+    process.exitCode = 1
+  }
+}
+
+async function exec(file: string, args: string[] = [], cwd = linuxRoot, env?: Record<string, string>): Promise<string> {
+  const result = await connections.exec(distro, file, args, { cwd, env })
+  assert.equal(result.error, null)
+  assert.equal(result.code, 0, result.stderr.toString())
+  return result.stdout.toString('utf8')
+}
+
+function runPty(file: string, args: string[], input?: string): Promise<string> {
+  return new Promise((resolve, reject) => {
+    let output = ''
+    const terminal = pty.spawn(file, args, {
+      name: 'xterm-256color', cols: 88, rows: 25,
+      cwd: repoRoot, env: { ...process.env, TERM: 'xterm-256color', WSL_UTF8: '1', LANG: 'zh_CN.UTF-8' }
+    })
+    const timeout = setTimeout(() => {
+      terminal.kill()
+      reject(new Error('ConPTY 会话超时：' + output.slice(-1000)))
+    }, 20_000)
+    let sent = false
+    terminal.onData((data) => {
+      output += data
+      if (input && !sent && output.includes('$ ')) {
+        sent = true
+        terminal.resize(103, 31)
+        terminal.write(input)
+      }
+    })
+    terminal.onExit(({ exitCode }) => {
+      clearTimeout(timeout)
+      if (exitCode === 0) resolve(output)
+      else reject(new Error(`ConPTY 退出 ${exitCode}: ${output}`))
+    })
+  })
+}
+
+async function main(): Promise<void> {
+  mkdirSync(windowsRoot, { recursive: true })
+  let info = await connections.connect(distro)
+  await check('真实预检、登录用户与并发连接复用', async () => {
+    const [first, second] = await Promise.all([connections.connect(distro), connections.connect(distro.toLowerCase())])
+    assert.deepEqual(first, second)
+    assert.equal(spawnCount, 1)
+    assert.equal((await exec('id', ['-un'])).trim(), 'devcube')
+    return info
+  })
+  await check('JSON-RPC 参数、复杂环境变量、中文标准输入和输出', async () => {
+    const value = '中文 space "double" \'single\' $dollar C:\\dir\\file = end'
+    const result = await connections.exec(distro, 'node', ['-e', 'process.stdin.on("data",d=>process.stdout.write(JSON.stringify({value:process.env.VERIFY_VALUE,cwd:process.cwd(),stdin:d.toString()})))'], {
+      cwd: linuxRoot, env: { VERIFY_VALUE: value }, input: Buffer.from('中文输入\n')
+    })
+    assert.equal(result.error, null)
+    assert.equal(result.code, 0, result.stderr.toString())
+    assert.deepEqual(JSON.parse(result.stdout.toString()), { value, cwd: linuxRoot, stdin: '中文输入\n' })
+  })
+  await check('找不到工具时返回 ENOENT', async () => {
+    const result = await connections.exec(distro, 'devcube-verification-missing-tool', [], { cwd: linuxRoot })
+    assert.equal((result.error as NodeJS.ErrnoException)?.code, 'ENOENT')
+  })
+  await check('Windows UNC 读写、Linux 路径与私有区字符互转', async () => {
+    const linuxFile = `${linuxRoot}/中文:问号?.txt`
+    const windowsFile = linuxToWslPath(distro, linuxFile)
+    writeFileSync(windowsFile, '中文路径验证\n')
+    assert.equal(wslToLinuxPath(windowsFile)?.path, linuxFile)
+    assert.equal(await exec('cat', [linuxFile]), '中文路径验证\n')
+    assert.equal((await connections.readFile(distro, linuxFile))?.toString(), '中文路径验证\n')
+    assert.ok((await connections.readDir(distro, linuxRoot)).names.includes('中文:问号?.txt'))
+    return { linuxFile, windowsFile }
+  })
+  await check('发行版内 Git、忽略规则、可执行位与工作树', async () => {
+    writeFileSync(join(windowsRoot, '.gitignore'), 'ignored/\n')
+    writeFileSync(join(windowsRoot, 'main.txt'), 'needle 中文\n')
+    await exec('git', ['init', '-b', 'main'])
+    await exec('git', ['config', 'user.name', 'DevCube Verification'])
+    await exec('git', ['config', 'user.email', 'verification@example.invalid'])
+    await exec('git', ['add', '.'])
+    await exec('git', ['commit', '-m', 'test: WSL verification fixture'])
+    assert.equal(await exec('git', ['status', '--porcelain']), '')
+    await exec('chmod', ['+x', 'main.txt'])
+    assert.match(await exec('git', ['diff', '--summary']), /100644 => 100755/)
+    await exec('git', ['checkout', '--', 'main.txt'])
+    mkdirSync(join(windowsRoot, 'ignored'), { recursive: true })
+    writeFileSync(join(windowsRoot, 'ignored', 'skip.txt'), 'needle ignored\n')
+    assert.match(await exec('git', ['check-ignore', 'ignored/skip.txt']), /ignored\/skip.txt/)
+    const worktree = '/home/devcube/devcube-wsl-verification/中文 worktree'
+    await exec('git', ['worktree', 'add', '-b', 'verify-worktree', worktree])
+    const listed = await exec('git', ['worktree', 'list', '--porcelain'])
+    assert.ok(listed.includes(worktree))
+    assert.ok(existsSync(join(linuxToWslPath(distro, worktree), 'main.txt')))
+    await exec('git', ['worktree', 'remove', worktree])
+    return (await exec('git', ['--version'])).trim()
+  })
+  await check('Linux ripgrep 非 TTY 搜索、中文路径和 Git 忽略', async () => {
+    const rg = info.executable.replace(/devcube-wsl$/, 'rg')
+    const result = await exec(rg, ['--json', '--fixed-strings', 'needle', '.'])
+    const matches = result.split('\n').filter(Boolean).map((line) => JSON.parse(line)).filter((event) => event.type === 'match')
+    assert.ok(matches.some((event) => event.data.path.text === './main.txt'))
+    assert.ok(matches.every((event) => !event.data.path.text.includes('ignored')))
+    return { matches: matches.length, version: (await exec(rg, ['--version'])).split('\n')[0] }
+  })
+  await check('inotify 递归监听 Windows 写入、新目录、重命名和删除', async () => {
+    const events: WslWatchEvent[] = []
+    const errors: string[] = []
+    const unwatch = await connections.watch(distro, linuxRoot, (error, batch) => {
+      if (error) errors.push(error.message)
+      events.push(...batch)
+    })
+    try {
+      const dir = join(windowsRoot, 'new-中文')
+      mkdirSync(dir)
+      await waitFor(() => events.some((event) => event.path === `${linuxRoot}/new-中文` && event.type === 'create'))
+      const file = join(dir, 'file.txt')
+      writeFileSync(file, 'first')
+      await waitFor(() => events.some((event) => event.path.endsWith('/new-中文/file.txt') && event.type === 'create'))
+      writeFileSync(file, 'second')
+      await waitFor(() => events.some((event) => event.path.endsWith('/new-中文/file.txt') && event.type === 'update'))
+      renameSync(file, join(dir, 'renamed.txt'))
+      await waitFor(() => events.some((event) => event.path.endsWith('/new-中文/renamed.txt') && event.type === 'create'))
+      unlinkSync(join(dir, 'renamed.txt'))
+      await waitFor(() => events.some((event) => event.path.endsWith('/new-中文/renamed.txt') && event.type === 'delete'))
+      assert.deepEqual(errors, [])
+      return { events: events.length }
+    } finally {
+      await unwatch()
+    }
+  })
+  const envScript = 'console.log("VERIFY_JSON:"+JSON.stringify({cwd:process.cwd(),value:process.env.VERIFY_VALUE,user:process.env.USER,platform:process.platform}));'
+  writeFileSync(join(windowsRoot, 'verify-env.cjs'), envScript)
+  await check('ConPTY 运行配置经过 Windows 命令行保留完整环境变量', async () => {
+    const value = '中文 space "double" \'single\' $dollar C:\\dir\\file = end'
+    const invocation = buildWslRunInvocation({ wslExe, distro, cwd: linuxRoot, helper: info.executable, runDir: info.runDir, id: 'verify-env', shell: info.shell, command: 'node verify-env.cjs', env: { VERIFY_VALUE: value } })
+    const output = await runPty(invocation.file, invocation.args)
+    const clean = output.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+    const match = /VERIFY_JSON:(\{[\s\S]*?\})/.exec(clean)
+    assert.ok(match, clean)
+    const data = JSON.parse(match[1].replace(/[\r\n]/g, ''))
+    assert.equal(data.value, value)
+    assert.equal(data.cwd, linuxRoot)
+    assert.equal(data.platform, 'linux')
+    connections.forgetRun(distro, 'verify-env')
+    return data
+  })
+  await check('默认 shell 终端、ConPTY resize、中文与 ANSI 颜色', async () => {
+    const invocation = buildWslShellSession(wslExe, distro, linuxRoot)
+    const output = await runPty(invocation.file, invocation.args, "printf '\\nVERIFY_SIZE:'; stty size; printf '\\033[31m中文颜色\\033[0m\\n'; node verify-env.cjs; exit\r")
+    const clean = output.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, '')
+    assert.match(clean, /VERIFY_SIZE:31 103/)
+    assert.ok(clean.includes('中文颜色'))
+    assert.ok(output.includes('\x1b[31m'))
+    assert.ok(clean.includes('"platform":"linux"'))
+  })
+  await check('运行会话停止时结束整个 Linux 进程组', async () => {
+    const invocation = buildWslRunInvocation({ wslExe, distro, cwd: linuxRoot, helper: info.executable, runDir: info.runDir, id: 'verify-stop', shell: info.shell, command: 'sleep 60 & echo $! > child.pid; wait' })
+    const terminal = pty.spawn(invocation.file, invocation.args, { name: 'xterm-256color', cols: 80, rows: 24, cwd: repoRoot, env: { ...process.env, WSL_UTF8: '1' } })
+    let output = ''
+    let exited = false
+    terminal.onData((data) => { output += data })
+    terminal.onExit(() => { exited = true })
+    const childPidPath = join(windowsRoot, 'child.pid')
+    try {
+      try {
+        await waitFor(() => existsSync(childPidPath), 15000)
+      } catch (error) {
+        throw new Error(String(error) + '\nPTY output: ' + output)
+      }
+      const childPid = readFileSync(childPidPath, 'utf8').trim()
+      assert.equal(await connections.killRun(distro, 'verify-stop', 'SIGTERM'), true)
+      await waitFor(async () => {
+        const result = await connections.exec(distro, 'ps', ['-p', childPid, '-o', 'stat='], { cwd: linuxRoot })
+        return result.code === 1 || result.stdout.toString().trim().startsWith('Z')
+      })
+      connections.forgetRun(distro, 'verify-stop')
+      return { childPid, stopped: true }
+    } finally {
+      if (!exited) terminal.kill()
+    }
+  })
+  await check('取消 JSON-RPC 命令时一起结束其子进程', async () => {
+    const marker = `${linuxRoot}/cancel-survived`
+    const abort = new AbortController()
+    const result = connections.exec(distro, 'bash', ['-c', '(sleep 2; touch "$1") & sleep 60', '--', marker], { cwd: linuxRoot, signal: abort.signal })
+    setTimeout(() => abort.abort(), 300)
+    assert.equal((await result).code, -1)
+    await new Promise((resolve) => setTimeout(resolve, 2400))
+    assert.equal(existsSync(linuxToWslPath(distro, marker)), false)
+  })
+  await check('小助手断开后清理登记目录，再用时自动重连', async () => {
+    const oldRunDir = info.runDir
+    connections.disconnect(distro)
+    assert.equal(connections.state(distro).status, 'disconnected')
+    await waitFor(() => !existsSync(linuxToWslPath(distro, oldRunDir)))
+    info = await connections.connect(distro)
+    assert.notEqual(info.runDir, oldRunDir)
+    assert.equal((await exec('id', ['-un'])).trim(), 'devcube')
+    return { spawnCount }
+  })
+}
+
+void main().catch((error) => {
+  console.error('验证前置条件失败', error)
+  process.exitCode = 1
+  results.push({ name: 'verification setup', status: 'failed', ms: 0, detail: String(error) })
+}).finally(() => {
+  connections.disconnectAll()
+  for (const child of children) child.stdin.end()
+  writeFileSync(join(repoRoot, 'out/wsl-verification/results.json'), JSON.stringify({ distro, linuxRoot, results }, null, 2))
+  console.log('RESULT', results.filter((result) => result.status === 'passed').length, 'passed;', results.filter((result) => result.status === 'failed').length, 'failed')
+})

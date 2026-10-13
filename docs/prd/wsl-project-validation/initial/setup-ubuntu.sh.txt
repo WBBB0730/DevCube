@@ -1,0 +1,18 @@
+#!/usr/bin/env bash
+set -euo pipefail
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -qq
+apt-get install -y -qq git nodejs npm ca-certificates curl build-essential locales
+if ! id devcube >/dev/null 2>&1; then
+  useradd --create-home --shell /bin/bash devcube
+fi
+locale-gen zh_CN.UTF-8
+tar -xzf /mnt/e/Projects/Webstorm/DevCube/out/wsl-verification/tools/go1.26.9.linux-amd64.tar.gz -C /usr/local
+ln -sf /usr/local/go/bin/go /usr/local/bin/go
+install -d -o devcube -g devcube /home/devcube/devcube-wsl-verification
+printf '\nInstalled tool versions:\n'
+git --version
+node --version
+npm --version
+go version
+getent passwd devcube

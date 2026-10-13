@@ -117,6 +117,8 @@ Windows 盘上的项目、macOS 与 Linux 上的 DevCube 都不受影响。
 - 探测缓存与引用型配置对账：未连上或读不到时不删。
 - 小助手自身（Go）对执行、监听、进程组结束与通信协议做单元测试。
 
+另按用户要求进行 Windows 实机验证，并在固定分支 `codex/wsl-windows-validation` 持续记录、提交和推送。手工验证的命令、临时脚本与原始输出作为本 PRD 的附件保存，不加入 CI 的端到端测试套件。验证只记录问题，尚未授权修改产品实现。
+
 ## Out of Scope
 
 - Windows 盘上的项目在 WSL 里跑（「+」菜单里开 WSL 终端），以后再议。
@@ -132,3 +134,185 @@ Windows 盘上的项目、macOS 与 Linux 上的 DevCube 都不受影响。
 
 - 开发机是 macOS，以下需在 Windows 11 / Windows 10 + WSL 2 上实测：文件夹选择器、拖入与右键返回的路径形式；Windows 10 系统自带的 `wsl.exe` 是否支持 `--cd`（不支持则归入「不是 Microsoft Store 版」）；关闭 automount 时的报错；首次连接与 WSL 冷启动的等待时长；ConPTY 里 `wsl.exe` 终端的尺寸、中文与颜色；命令与环境变量的值（含引号、空格、`$`、反斜杠）经 Windows 命令行传给 `wsl.exe` 后原样到达；停止运行配置后发行版里无残留进程；大仓库的 Git Tab、搜索与监听开销及 inotify 上限；闲置断开后 WSL 能自行休眠；Windows 浏览器经 `localhost` 打开 WSL 里的 dev server（WSL 2 默认转发，Vite 等只绑 `::1` 时需绑 `127.0.0.1`）；Git Tab 不再出现属主可疑与权限误报。
 - 参考：VS Code 的 WSL 扩展（发行版里跑 server，打开窗口即连，关窗 5 分钟后 server 退出）；JetBrains（IJent 按发行版共享、直到 IDE 退出；旧版用 WSL 里的 git 与 fsnotifier-wsl；2025.2 起最近项目列表不再唤醒 WSL）；Zed（WSL 当作远程连接，在发行版里跑 remote server，列表不唤醒 WSL，恢复会话即连）。三家都不提供「连接」按钮。
+
+### Windows 实机验证记录
+
+2026 年 10 月 13 日，时区为 Asia/Shanghai。最初实测基线为 `c06e41513f00bb972423b4ca1b6ed60bc2618707`。后续检查固定以 `79f19ecebf399ab971fe92baebe433a888556040` 建立独立工作树，避免影响用户正在体验的 Windows 开发版和 Ubuntu 中的源码副本。两者之间新增了 Files Tab 的刷新兜底与 Markdown 预览改动；WSL 连接、小助手和运行会话相关实现未变化。
+
+截至首次记录，已确认两个产品缺陷，另有一个用户报告的严重 Terminal 显示问题待复现。基础功能通过不等于 WSL 支持已完整验收，尤其不能把应用状态变为 `disconnected` 当成发行版里的小助手已经退出。
+
+#### 环境与路径
+
+| 项目                | 实际值                                                                |
+| ------------------- | --------------------------------------------------------------------- |
+| Windows             | Windows 10，10.0.19045.6456                                           |
+| CPU                 | AMD Ryzen 7 8845H，8 核、16 个逻辑处理器，固件虚拟化开启              |
+| 物理内存            | 约 32 GB                                                              |
+| 分页文件            | 系统自动管理，`C:\pagefile.sys`，分配 24 GB                           |
+| WSL                 | Microsoft Store 版 2.6.3.0，内核 6.6.87.2-1                           |
+| 初始发行版          | 仅 `docker-desktop`，停止，WSL 2                                      |
+| 新装发行版          | `Ubuntu-24.04`，WSL 2                                                 |
+| Ubuntu 默认测试用户 | `devcube`，UID/GID 1000，默认 shell `/bin/bash`                       |
+| 最终工具版本        | Node.js 24.21.0 LTS、npm 11.19.0、pnpm 10.30.3、Git 2.43.0、Go 1.26.9 |
+| Linux ripgrep       | `@vscode/ripgrep-linux-x64` 包 1.18.0，二进制报告 ripgrep 15.0.0      |
+| Windows 源码        | `E:\Projects\Webstorm\DevCube`                                        |
+| Ubuntu 体验副本     | `/home/devcube/DevCube`                                               |
+| 体验副本 UNC        | `\\wsl.localhost\Ubuntu-24.04\home\devcube\DevCube`                   |
+| 原始验证产物        | Windows 源码的 `out/wsl-verification`                                 |
+| 小助手构建产物      | Windows 源码的 `build/wsl/out/devcube-wsl` 与 `rg`                    |
+| Windows 开发版数据  | `%APPDATA%\DevCube Dev`，与安装版 `%APPDATA%\DevCube` 分开            |
+
+Ubuntu 默认仓库先装出的 Node.js 是 18.19.1、npm 是 9.2.0。随后安装了经 SHA256 校验的官方 Linux Node.js 24.21.0 归档，并将 `/usr/local/bin/node`、`npm`、`npx` 链接到 `/opt/node-v24.21.0-linux-x64/bin`，pnpm 固定为 Windows 侧正在使用的 10.30.3。原始基础测试先在 Node 18 上完成；最后重新验证了 Node 24 下的工具发现、ConPTY 命令和环境变量传递。
+
+Windows Go 工具链放在源码的 `out/wsl-verification/tools/go`，只在构建命令的进程环境中加入 PATH，没有修改 Windows 全局 PATH。Linux Go 位于 `/usr/local/go`，`/usr/local/bin/go` 是其链接。未设置 Git 全局提交身份；手工测试仓库使用仓库级 `DevCube Verification <verification@example.invalid>` 身份。
+
+#### WSL 001 命令型运行配置停止后后台子进程仍存活
+
+**状态：已在真实生产 Runner 入口复现，尚未修复。**
+
+复现命令为：
+
+```sh
+sleep 120 & echo $! > marker.pid; wait
+```
+
+1. 在 WSL Project 下建立 **命令型 Run Configuration**，工作目录为发行版内项目目录，命令使用上面的内容。
+2. 运行后读取 `marker.pid`，并在发行版里用 `ps -p <pid> -o pid,ppid,pgid,sid,stat,args` 检查后台 `sleep`。
+3. 调用实际 `runner.stop(key)`：先 SIGTERM，2 秒未退出再 SIGKILL。
+4. 等待 3.5 秒。Run Session 显示「进程已结束，退出代码为 9」，但后台 `sleep 120` 仍在运行。
+
+实际生产入口的一次记录：
+
+```text
+停止前：PID 501，PPID 482，PGID 501，SID 482，STAT S，sleep 120
+停止后：PID 501，PPID 481，PGID 501，SID 482，STAT S，sleep 120
+会话输出：进程已结束，退出代码为 9
+```
+
+小助手的直接 ConPTY 诊断还记录到：Bash PID/PGID 761，后台 `sleep` PID/PGID 781。SIGTERM 请求返回成功时两者仍在；SIGKILL 请求返回成功后 Bash 不在，`sleep` 仍在。交互式 Bash 的后台作业进入了独立进程组，仅对登记的 Bash 进程组发信号无法覆盖它。`killRun` 返回成功只表示发信号成功，不表示整个运行会话的子进程树已退出。
+
+相关实现：`src/main/runner.ts` 的 `runWsl`、`wslRunProcess`、`stop`；`src/main/command.ts` 的 `buildWslRunInvocation`；`build/wsl/launch.go` 的 `Setpgid` 与 `syscall.Exec`；`build/wsl/runs.go` 的 `syscall.Kill(-pgid, signal)`。
+
+边界与对照：实际生产入口中 `npm run verify_stop` 的后台 `sleep` 与 npm/脚本 shell 留在同一进程组，停止后没有残留；普通 Terminal 关闭也通过了同类检查。因此当前证据明确覆盖命令型配置直接启动交互式 shell 后台作业的情况，不能笼统声称所有脚本停止都会失败。仍需覆盖前台长期进程、显式 `setsid` / `nohup`、孙进程和其他用户默认 shell。
+
+影响：Run Session 已显示结束，实际任务仍运行；若该子进程持有端口或资源，下一次运行可能失败。不能仅靠 Windows 侧 `wsl.exe` 退出或界面会话状态判断清理完成。
+
+建议的修复目标：停止应覆盖属于该运行会话的所有进程组，并保留用户登录环境和交互 shell 的工具可用性。不能为了让一次 Bash 测试通过而破坏 zsh、fish 或 nvm 等登录环境。此处只记录目标，尚未选择或实施修法。
+
+证据：[生产 Runner 诊断](wsl-project-validation/initial/runner-diagnostic.json)、[直接进程组诊断](wsl-project-validation/initial/stop-diagnostic.json)、[生产 Runner 原始输出](wsl-project-validation/initial/electron-runner.stdout.log.txt)、[诊断脚本](wsl-project-validation/initial/electron-runner.ts.txt)。测试残留的进程已按其实际 PID/PGID 清理，没有结束用户正在体验的 Terminal。
+
+#### WSL 002 断开连接后小助手未完成清理
+
+**状态：真实 Windows 到 WSL 小助手连接中稳定复现，尚未修复。**
+
+生产 `spawnHelper` 的 `kill` 实现只调用 `child.kill()`。主进程连接状态随后变为 `disconnected`，但在该 Windows Node 进程仍存活、标准输入流仍持有的情况下，发行版里的小助手没有收到输入结束，其运行会话登记目录两秒后仍存在。
+
+对照实验只改变临时验证连接的结束方式，没有修改产品源码：
+
+| 结束方式                          | 应用状态       | 两秒后小助手登记目录已删除 |
+| --------------------------------- | -------------- | -------------------------- |
+| `child.kill()`                    | `disconnected` | 否                         |
+| `child.stdin.end(); child.kill()` | `disconnected` | 是                         |
+| `child.stdin.end()`               | `disconnected` | 是                         |
+
+相关实现：`src/main/wsl.ts` 的 `spawnHelper`；`src/main/wsl-connection.ts` 的 `disconnect`；`build/wsl/server.go` 的标准输入输出服务与断开清理；`build/wsl/runs.go` 的 `killAll`。协议设计本身以标准输入关闭作为小助手退出条件，当前 Windows 桥接进程的结束方式没有明确触发该条件。
+
+影响：逻辑上已经闲置断开，实际小助手仍可能继续持有监听与运行会话资源，削弱让 WSL 休眠的目的。此前真实 5 分钟计时测试只证明状态切换、缓存保留和再次使用重连成功，没有证明实际 VM 已休眠。
+
+建议的修复目标：明确关闭输入通信通道，使小助手按协议收尾；若有异常退出超时，再结束桥接进程，并验证发行版里没有该小助手和运行会话残留。先关闭标准输入的对照实验已通过，但尚未修改产品实现。
+
+证据：[结束方式对照](wsl-project-validation/initial/close-diagnostic.json)、[诊断脚本](wsl-project-validation/initial/diagnose-close.ts.txt)、[基础实测结果](wsl-project-validation/initial/results.json)。
+
+#### WSL 003 用户报告新建 Terminal 后持续刷空行
+
+**状态：用户报告，正在复现；尚不能确认具体根因。**
+
+用户描述：新建 Terminal 时，整个终端区域快速持续向下刷很久，滚动很多以后才停止，最终出现大量像连续按回车产生的空行。严重程度由用户明确描述为「非常严重」。目前没有精确持续时间、空行数量或原始终端输出，不能将它当作 WSL 001 或 WSL 002 的已知结果直接解释。
+
+待区分的路径：发行版登录启动脚本产生输出；ConPTY 的 ANSI 清屏、游标移动和尺寸协商；主进程 headless xterm 序列化；前端快照与实时输出去重；xterm 的终端应答被写回 PTY 后形成交互循环；布局变化导致重复 resize 和 shell 重画。下一轮记录原始输出与输入、resize 次数、快照内容和前端实际显示，分别定位输出来源。
+
+相关检查入口：`src/main/runner.ts` 的 `openTerminal`、`emitOutput`、`createScreen`、`resize`、`getSessionBuffer`；`src/renderer/src/components/Console.tsx` 的 TerminalPane 初始化、FitAddon、实时输出消费、快照回放及可见性变化。
+
+#### 已通过的基础检查及其范围
+
+| 检查               | 结果与范围                                                                                              |
+| ------------------ | ------------------------------------------------------------------------------------------------------- |
+| 现有相关单元测试   | 18 个文件、365 项通过、3 项按平台条件跳过；不是全仓库测试数量                                           |
+| TypeScript 检查    | Node 与 Web 两侧通过                                                                                    |
+| 正式构建           | `electron-vite build` 成功；CSS 优化器对现有 `::highlight` 伪元素有两条警告，没有改动                   |
+| Windows 小助手构建 | `pnpm build:wsl-helper` 成功，Linux x64 静态程序与同包版本 rg 已产出                                    |
+| Linux Go 检查      | `go vet ./...` 和 `go test -race -count=1 ./...` 通过，后者用时 5.992 秒                                |
+| 预检与复用         | 真实 WSL 版本、注册表发行版读取通过；同发行版大小写不同的并发连接共用小助手                             |
+| 协议               | JSON-RPC 输出、退出码、ENOENT、中文标准输入、流式输出、复杂环境变量通过                                 |
+| 路径与文件共享     | 中文、空格、单引号；Linux `:`、`?` 与 Windows 私有区字符互转和读写通过                                  |
+| Git                | Linux Git、仓库根反向映射、忽略判断、可执行位、工作树添加与移除通过                                     |
+| 搜索               | Linux rg 在非 TTY 标准输入条件下返回文件结果，忽略 `ignored/`；生产 Content Search 及文件树筛选入口通过 |
+| 监听               | Windows 经 UNC 创建、改写、新增目录、重命名、删除时收到递归 inotify 事件                                |
+| 生产 Files 入口    | 浏览、新建、保存、重命名、永久删除与越界拒绝通过                                                        |
+| 探测               | package.json 的脚本读取和更新通过；未连上时缓存为 null                                                  |
+| ConPTY             | 中文、ANSI 颜色、尺寸从 88×25 变为 103×31、Linux 默认 shell 通过                                        |
+| Windows 命令行传参 | 中文、空格、双引号、单引号、`$`、反斜杠、`=` 的环境变量值通过                                           |
+| 取消协议命令       | AbortSignal 取消后同进程组的后台任务不再写出延迟标记文件                                                |
+| 闲置状态机实测     | 设置为 5 分钟后真实等待触发 `disconnected`，探测缓存保留，再次使用自动重连通过；不证明小助手已清理      |
+| 最后一次冷启动     | 新装 Ubuntu 单独停止后重新连接，包含 WSL 启动和小助手初始化用时 2342 ms；这是单次样本，不是性能基准     |
+
+生产核心入口的第一次临时脚本误将 `findGit` 的 `path` 假定为 Linux 绝对路径，产生一项假失败；实际实现合法返回 `{ path: 'git', version: '2.43.0' }`。改为验证实际 Linux Git 版本及仓库路径映射后，快速复测 7 项全通过，另一次长测的闲置和重连通过。附件保留错误断言的原始输出与纠正后的结果，不能把第一次 `electron-results.json` 里的 Git 假失败算成产品缺陷。
+
+#### 环境配置与操作记录
+
+以下是执行动作与命令的完整语义记录。脚本保留了实测时使用的绝对路径，需要在另一台机器上复现时替换路径。原始二进制和依赖缓存不提交；脚本、结果 JSON 与已有日志在附件中保存。
+
+1. 阅读项目约定、MEMORY、词汇表、WSL PRD、ADR 0055、现有 WSL 测试、构建脚本和相关运行代码；检查 Git 状态与应用进程。最初源码工作区干净。
+2. 执行 `wsl.exe --version`、`wsl.exe --list --verbose`、`wsl.exe --list --online` 和 `wsl.exe --help`，确认 Store WSL、WSL 2 与 `--cd` 支持。没有把 Docker 发行版当成开发用 Ubuntu。
+3. 分两批执行相关 Vitest 文件。第一批 11 个文件 155 项通过，第二批 7 个文件 210 项通过、3 项跳过；`pnpm typecheck` 通过。
+4. 检查当前已安装的 DevCube `resources`，未发现 `wsl` 目录，因此没有用该安装版作为当前源码的验证基线。构建当前源码的正式 renderer 与 main，没有启动 dev 服务。
+5. 查询 Context7 的微软 WSL 文档，并对照本机 `--help`。用户明确授权配置 Ubuntu 后，执行 `wsl.exe --install -d Ubuntu-24.04 --no-launch --web-download --version 2`。
+6. Ubuntu 下载完成，但虚拟机注册失败：`Wsl/InstallDistro/Service/RegisterDistro/CreateVm/HCS/0x800705aa`，系统资源不足。此时 Windows 约有 7 GB 空闲物理内存、约 21 GB 空闲虚拟内存，自动分页已启用，BIOS 虚拟化与 hypervisor 存在。不能据此认定普通内存耗尽。
+7. 读取 WSL/Hyper-V 日志列表与近时段事件；匹配查询没有返回有关错误事件，未伪造日志结论。对照 [微软 WSL 问题 5231](https://github.com/microsoft/WSL/issues/5231) 与 [官方配置文档](https://learn.microsoft.com/en-us/windows/wsl/wsl-config)，在之前不存在的 `%USERPROFILE%\.wslconfig` 写入下面的配置。在所有发行版均停止的前提下执行 `wsl.exe --shutdown`，重试安装成功。这是本机有效的配置，不等于已确定 HCS 错误的完整根因。
+
+   ```ini
+   [wsl2]
+   processors=4
+   ```
+
+   该配置作用于所有 WSL 2 发行版，包括 Docker。没有修改 Windows 内存上限、分页文件或 BIOS，没有重启电脑、关闭用户其他应用，也没有删除 Docker 发行版。
+
+8. 从 `https://go.dev/dl/?mode=json` 选择符合 `build/wsl/go.mod` 的 Go 1.26 分支补丁版本 1.26.9，下载官方 Windows 和 Linux 归档，分别验证 SHA256：Windows 为 `d722201a9c0c086d1610e111c48203009af690892ed708072bd5ae20160e7a59`，Linux 为 `42d158b4d8f7b61ac0a830567c940a86098fb7aac52e467a5ebec03ef5cc2f8d`。
+9. 将 Windows Go 的 bin 仅加到构建进程 PATH，执行 `pnpm build:wsl-helper`。小助手大小 2654370 字节，Linux rg 大小 5728032 字节。构建有 Node DEP0190 的 `shell: true` 提示，未将提示当成 WSL 功能验证失败。
+10. 以 `wsl.exe -d Ubuntu-24.04 -u root --exec /bin/bash <setup-ubuntu.sh>` 安装 `git nodejs npm ca-certificates curl build-essential locales`，生成 `zh_CN.UTF-8`，创建 `devcube` 用户，安装 Linux Go。随后执行 `wsl.exe --manage Ubuntu-24.04 --set-default-user devcube` 并验证 UID/GID。完整脚本见 [setup ubuntu](wsl-project-validation/initial/setup-ubuntu.sh.txt)。没有保存或设置用户密码，也没有修改 Windows 全局 Node。
+11. 在 Ubuntu 建立独立临时目录 `/home/devcube/devcube-wsl-verification`，每轮基础测试使用带时间戳的中文、空格和单引号项目目录。文件、Git 提交、工作树与运行进程都属于这些验证目录，没有在用户真实源码仓库里提交测试数据。
+12. 用真实 `wsl.exe` 和仓库 `WslConnections` 运行协议验证。第一次 ConPTY 环境变量断言误把按屏幕宽度折行的 JSON 当成原始一行；修正临时解析后传参通过。首次默认 Terminal 还触发 Ubuntu 新实例初始化，脚本在提示符准备前发送输入导致超时；改为等提示符出现再写入，Terminal 验证通过。这两次不是产品缺陷的证据。
+13. 基础测试脚本经过 TypeScript 直接运行和 esbuild 临时打包两种入口，最后 10 项通过、2 项失败。两项失败对应 WSL 001/002，随后又用实际生产入口和独立诊断确认。相关脚本：[verify](wsl-project-validation/initial/verify.ts.txt)、[协议结果](wsl-project-validation/initial/results.json)。
+14. 创建无主窗口的独立 Electron 验证入口，使用临时 userData/sessionData，避免改写用户正式版或开发版档案。加载实际 store、projects、wsl、git-exec、files、content-search、discovery、runner 模块。小助手按该验证 app 的 getAppPath 放置；renderer 不参与这一轮，因此不能据此宣称 Terminal 显示问题已通过。
+15. 生产核心入口分别验证项目登记、Git、Files、探测、搜索与索引。真实闲置测试在 04:58:26 开始等待，约 05:03:26 收到断开，再次执行 `id -un` 自动重连通过。时间来自日志 UTC 换算为 Asia/Shanghai。
+16. 生产 Runner 临时打包第一次遇到 Electron Vite 的 `?modulePath` worker 导入，普通 esbuild 不能直接处理。用临时构建插件将它指向已正式构建的 SQLite worker 路径后完成打包；没有修改生产加载器或 SQLite 实现。误启动的无效临时 Electron 进程按其确定的 PID 清理。
+17. 生产 Runner 检查 npm 脚本、命令型配置和普通 Terminal 关闭。仅命令型后台进程场景残留。node-pty 的辅助进程在部分已结束控制台上报告 `AttachConsole failed`；相关 stderr 完整保留。这尚未作为一个独立产品缺陷定性，因为还需要核对 Windows 控制台退出与终止时序。
+18. 进行结束小助手的三组对照，确认先关闭标准输入可清理登记目录。每次只结束本轮的小助手，没有终止用户正在体验的连接。
+19. 查询 Node 官方版本元数据与文档，下载 Node.js 24.21.0 Linux x64 归档，对照 `SHASUMS256.txt` 校验，安装并配置 pnpm 10.30.3。见 [setup node](wsl-project-validation/initial/setup-node.sh.txt)。
+20. 在用户尚未开始持续体验该 Ubuntu 前，单独 `wsl.exe --terminate Ubuntu-24.04`，再次测冷启动、工具版本和 Node 24 下的 ConPTY 环境变量传递。结束时关闭本轮输入通道并停止测试发行版。未终止 Docker。Node/ConPTY 的部分临时验证进程未自然退出，最后仅按验证脚本命令行匹配其自身 PID 清理，未清理用户应用。
+21. 用户要求复制源码用于体验后，以 Ubuntu `devcube` 用户用 tar 将 Windows 源码和 `.git` 复制到 `/home/devcube/DevCube`。排除 `node_modules`、`out`、`dist`、`.cache`、`.idea`、构建二进制、增量缓存与日志，目标不存在才创建，不覆盖既有目录。复制后 HEAD 与原仓库均为 `c06e415`，Git 工作区干净，约 20 MB，`package.json`、`pnpm-lock.yaml`、`src/main/wsl.ts` 逐字节相同。未复制 Windows 依赖，也未替用户运行 `pnpm install`。
+22. tar 对少数 `.git` 元数据报告时间戳超前约 20 秒；复制、HEAD 和内容比较均成功。没有擅自改系统时钟。完整复制脚本见 [copy project](wsl-project-validation/initial/copy-project.sh.txt)。
+23. 用 Windows 仓库现有正式构建启动未打包的 Electron：`electron.exe . \\wsl.localhost\Ubuntu-24.04\home\devcube\DevCube`。开发版单实例入口将该目录登记并设为当前 Project；验证档案的 `workspaceUi.currentEntryKey` 为该 UNC，现有开发版窗口 `DevCube — DevCube` 有有效窗口句柄且响应，WSL 小助手实际启动。没有启动 `electron-vite dev` 或任何 dev 服务，没有修改产品源码。
+24. 用户继续开发后 Windows main 更新为 `79f19ec`，体验副本仍是复制时的 `c06e415`，后续必须分别注明版本。为记录和继续检查创建独立工作树，并固定分支 `codex/wsl-windows-validation`，后续增量记录在同一分支提交和推送。
+
+#### 命令复现入口
+
+现有检查命令：
+
+```powershell
+pnpm exec vitest run src/shared/wsl-path.test.ts src/shared/path.test.ts src/main/wsl-preflight.test.ts src/main/wsl-connection.test.ts src/main/wsl-idle.test.ts src/main/command.test.ts src/main/discovery.test.ts src/main/configs.test.ts src/main/git-exec.test.ts src/main/git-argv.test.ts src/main/project-watch-classify.test.ts src/main/project-watch-schedule.test.ts src/main/rg.test.ts src/main/projects.test.ts src/main/external-open.test.ts
+pnpm exec vitest run src/shared/files-path.test.ts src/shared/files-tree-search.test.ts src/shared/content-search.test.ts src/main/content-search.test.ts src/main/compress-scan.test.ts src/main/git-actions.test.ts src/main/git-data.test.ts
+pnpm typecheck
+pnpm exec electron-vite build
+pnpm build:wsl-helper
+wsl.exe -d Ubuntu-24.04 --cd /mnt/e/Projects/Webstorm/DevCube/build/wsl --exec /usr/local/go/bin/go vet ./...
+wsl.exe -d Ubuntu-24.04 --cd /mnt/e/Projects/Webstorm/DevCube/build/wsl --exec /usr/local/go/bin/go test -race -count=1 ./...
+```
+
+第一条 Vitest 命令中部分历史名称不存在，Vitest 实际执行了 11 个匹配文件；其余不应被计入覆盖。手工验证文件以 `.txt` 归档，复现时将它们复制回源码的 `out/wsl-verification` 并去掉最后的 `.txt`。只有在自身测试目录中执行，尤其不要把旧的 PID 记录用于结束当前系统进程。
+
+#### 附件与检查空白
+
+初始全部已有结果、脚本和日志位于 [wsl project validation initial](wsl-project-validation/initial)。JSON 中保留当时的路径、PID、进程组和示例环境变量；这些是特定一次运行的证据，不是下一次运行可复用的操作目标。Go/Node 工具链归档、node_modules、编译后的大体积 CJS 和用户档案未提交。
+
+待继续检查：用户报告的 Terminal 空行滚动；复杂路径形式的 Project 去重；目录重命名/搬入时的递归监听；文件名大小写、反斜杠和控制字符；工作树的独立与公共 gitdir；断开重连后的监听与探测恢复；运行会话的前台/后台与孙进程；大量文件搜索与取消；异常中断的恢复。文件夹选择器、资源管理器拖拽/右键、关闭 automount、inotify 上限、真实 VM 休眠和浏览器 localhost 转发仍没有完整实测覆盖。当前不启动 dev 服务，不改用户正在体验的 shell 配置、终端或发行版生命周期。

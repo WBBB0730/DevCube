@@ -1,0 +1,90 @@
+import { app } from 'electron'
+import { mkdirSync, readFileSync, writeFileSync, existsSync } from 'node:fs'
+import { resolve, join } from 'node:path'
+import { initStore, setConfigs } from '../../src/main/store'
+import { addProjectByPath } from '../../src/main/projects'
+import { connectWsl, closeAllWsl, wslExec } from '../../src/main/wsl'
+import { refreshWslDiscovery } from '../../src/main/wsl-discovery'
+import { run, stop, openTerminal, closeSession, writeStdin, getSessionBuffer, killAllSessions } from '../../src/main/runner'
+import { scriptKey, configKey } from '../../src/shared/runnable'
+import { SCRIPT_SOURCE } from '../../src/shared/discover-source'
+import { linuxToWslPath } from '../../src/shared/wsl-path'
+
+const repo = resolve('.')
+const data = join(repo, `out/wsl-verification/runner-user-data-${process.pid}`)
+mkdirSync(data, { recursive: true })
+app.setPath('userData', data)
+app.setPath('sessionData', data)
+const distro = 'Ubuntu-24.04'
+const fixture = JSON.parse(readFileSync('out/wsl-verification/results.json', 'utf8'))
+const root = linuxToWslPath(distro, fixture.linuxRoot)
+const runMarker = `runner-child-${process.pid}.pid`
+const commandMarker = `runner-command-child-${process.pid}.pid`
+const terminalMarker = `terminal-shell-${process.pid}.pid`
+const terminalChildMarker = `terminal-child-${process.pid}.pid`
+const report: Record<string, unknown> = {}
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+async function waitFor(check: () => boolean): Promise<void> {
+  const end = Date.now() + 15000
+  while (!check()) {
+    if (Date.now() > end) throw new Error('生产 Runner 等待超时')
+    await sleep(100)
+  }
+}
+async function ps(pids: string): Promise<string> {
+  const result = await wslExec(distro, 'ps', ['-p', pids, '-o', 'pid,ppid,pgid,sid,stat,args'], { cwd: fixture.linuxRoot })
+  return result.stdout.toString()
+}
+async function main(): Promise<void> {
+  await app.whenReady()
+  await initStore()
+  addProjectByPath(root)
+  await connectWsl(distro)
+  writeFileSync(join(root, 'package.json'), JSON.stringify({ name: 'runner-verification', scripts: { verify_stop: `sleep 120 & echo $! > ${runMarker}; wait` } }))
+  await refreshWslDiscovery(root)
+  const key = scriptKey(root, SCRIPT_SOURCE, 'verify_stop')
+  await run({ type: 'script', projectPath: root, source: SCRIPT_SOURCE, name: 'verify_stop' })
+  await waitFor(() => existsSync(join(root, runMarker)))
+  const child = readFileSync(join(root, runMarker), 'utf8').trim()
+  const before = await ps(child)
+  stop(key)
+  await sleep(3500)
+  const after = await ps(child)
+  report.run = { child, before, after, survived: after.includes('sleep 120'), buffer: getSessionBuffer(key).data }
+  console.log('RUN', JSON.stringify(report.run))
+  const group = await wslExec(distro, 'ps', ['-p', child, '-o', 'pgid='], { cwd: fixture.linuxRoot })
+  const pgid = group.stdout.toString().trim()
+  if (/^\d+$/.test(pgid)) await wslExec(distro, '/bin/kill', ['-KILL', `-${pgid}`], { cwd: fixture.linuxRoot })
+  const config = { id: 'wsl-stop-verification', kind: 'command' as const, projectPath: root, name: 'Stop verification', command: `sleep 120 & echo $! > ${commandMarker}; wait` }
+  setConfigs([config])
+  const commandKey = configKey(config)
+  await run({ type: 'config', id: config.id })
+  await waitFor(() => existsSync(join(root, commandMarker)))
+  const commandChild = readFileSync(join(root, commandMarker), 'utf8').trim()
+  const commandBefore = await ps(commandChild)
+  stop(commandKey)
+  await sleep(3500)
+  const commandAfter = await ps(commandChild)
+  report.command = { child: commandChild, before: commandBefore, after: commandAfter, survived: commandAfter.includes('sleep 120'), buffer: getSessionBuffer(commandKey).data }
+  console.log('COMMAND', JSON.stringify(report.command))
+  await wslExec(distro, '/bin/kill', ['-KILL', commandChild], { cwd: fixture.linuxRoot })
+  const terminal = openTerminal(root)
+  await waitFor(() => getSessionBuffer(terminal).data.includes('devcube@'))
+  writeStdin(terminal, `echo $$ > ${terminalMarker}; sleep 120 & echo $! > ${terminalChildMarker}\r`)
+  await waitFor(() => existsSync(join(root, terminalChildMarker)))
+  const shell = readFileSync(join(root, terminalMarker), 'utf8').trim()
+  const terminalChild = readFileSync(join(root, terminalChildMarker), 'utf8').trim()
+  const terminalBefore = await ps(`${shell},${terminalChild}`)
+  closeSession(terminal)
+  await sleep(3000)
+  const terminalAfter = await ps(`${shell},${terminalChild}`)
+  report.terminal = { shell, child: terminalChild, before: terminalBefore, after: terminalAfter, survived: terminalAfter.includes('sleep 120') || terminalAfter.includes('/bin/bash') }
+  console.log('TERMINAL', JSON.stringify(report.terminal))
+  await wslExec(distro, '/bin/kill', ['-KILL', shell, terminalChild], { cwd: fixture.linuxRoot })
+}
+void main().catch((error) => { report.error = String(error); console.error(error) }).finally(() => {
+  killAllSessions()
+  closeAllWsl()
+  writeFileSync('out/wsl-verification/runner-diagnostic.json', JSON.stringify(report, null, 2))
+  app.exit(report.error ? 1 : 0)
+})

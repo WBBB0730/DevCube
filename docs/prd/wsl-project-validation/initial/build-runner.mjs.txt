@@ -1,0 +1,20 @@
+import { build } from 'esbuild'
+import { readdirSync } from 'node:fs'
+import { resolve } from 'node:path'
+
+const worker = readdirSync('out/main').find((name) => name.startsWith('data-source-sqlite-worker-'))
+await build({
+  entryPoints: ['out/wsl-verification/electron-runner.ts'],
+  outfile: 'out/wsl-verification/electron-runner.cjs',
+  bundle: true,
+  platform: 'node',
+  format: 'cjs',
+  packages: 'external',
+  plugins: [{
+    name: 'verification-worker-path',
+    setup(build) {
+      build.onResolve({ filter: /\?modulePath$/ }, () => ({ path: resolve('out/main', worker), namespace: 'worker-path' }))
+      build.onLoad({ filter: /.*/, namespace: 'worker-path' }, ({ path }) => ({ contents: `export default ${JSON.stringify(path)}`, loader: 'js' }))
+    }
+  }]
+})

@@ -1,0 +1,91 @@
+{
+  "distro": "Ubuntu-24.04",
+  "linuxRoot": "/home/devcube/devcube-wsl-verification/中文 空格's project-1791838703012",
+  "results": [
+    {
+      "name": "真实预检、登录用户与并发连接复用",
+      "status": "passed",
+      "ms": 3,
+      "detail": {
+        "executable": "/mnt/e/Projects/Webstorm/DevCube/build/wsl/out/devcube-wsl",
+        "shell": "/bin/bash",
+        "runDir": "/tmp/devcube-wsl-runs-1275008900"
+      }
+    },
+    {
+      "name": "JSON-RPC 参数、复杂环境变量、中文标准输入和输出",
+      "status": "passed",
+      "ms": 361
+    },
+    {
+      "name": "找不到工具时返回 ENOENT",
+      "status": "passed",
+      "ms": 97
+    },
+    {
+      "name": "Windows UNC 读写、Linux 路径与私有区字符互转",
+      "status": "passed",
+      "ms": 10,
+      "detail": {
+        "linuxFile": "/home/devcube/devcube-wsl-verification/中文 空格's project-1791838703012/中文:问号?.txt",
+        "windowsFile": "\\\\wsl.localhost\\Ubuntu-24.04\\home\\devcube\\devcube-wsl-verification\\中文 空格's project-1791838703012\\中文问号.txt"
+      }
+    },
+    {
+      "name": "发行版内 Git、忽略规则、可执行位与工作树",
+      "status": "passed",
+      "ms": 149,
+      "detail": "git version 2.43.0"
+    },
+    {
+      "name": "Linux ripgrep 非 TTY 搜索、中文路径和 Git 忽略",
+      "status": "passed",
+      "ms": 43,
+      "detail": {
+        "matches": 1,
+        "version": "ripgrep 15.0.0 (rev 3a612f88b8)"
+      }
+    },
+    {
+      "name": "inotify 递归监听 Windows 写入、新目录、重命名和删除",
+      "status": "passed",
+      "ms": 440,
+      "detail": {
+        "events": 8
+      }
+    },
+    {
+      "name": "ConPTY 运行配置经过 Windows 命令行保留完整环境变量",
+      "status": "passed",
+      "ms": 1257,
+      "detail": {
+        "cwd": "/home/devcube/devcube-wsl-verification/中文 空格's project-1791838703012",
+        "value": "中文 space \"double\" 'single' $dollar C:\\dir\\file = end",
+        "user": "devcube",
+        "platform": "linux"
+      }
+    },
+    {
+      "name": "默认 shell 终端、ConPTY resize、中文与 ANSI 颜色",
+      "status": "passed",
+      "ms": 1251
+    },
+    {
+      "name": "运行会话停止时结束整个 Linux 进程组",
+      "status": "failed",
+      "ms": 8333,
+      "detail": "AssertionError [ERR_ASSERTION]: 等待实际行为超时"
+    },
+    {
+      "name": "取消 JSON-RPC 命令时一起结束其子进程",
+      "status": "passed",
+      "ms": 2714
+    },
+    {
+      "name": "小助手断开后清理登记目录，再用时自动重连",
+      "status": "failed",
+      "ms": 8047,
+      "detail": "AssertionError [ERR_ASSERTION]: 等待实际行为超时"
+    }
+  ]
+}

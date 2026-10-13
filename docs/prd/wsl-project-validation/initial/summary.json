@@ -1,0 +1,255 @@
+{
+  "date": "2026-10-13",
+  "environment": {
+    "wslConfig": "C:\\Users\\WBBB\\.wslconfig",
+    "distro": "Ubuntu-24.04",
+    "wsl": "2.6.3.0",
+    "user": "devcube",
+    "go": "1.26.9",
+    "git": "2.43.0",
+    "pnpm": "10.30.3",
+    "node": "24.21.0",
+    "virtualProcessors": 4,
+    "windows": "Windows 10 19045.6456",
+    "npm": "11.19.0"
+  },
+  "checks": {
+    "actualConnectionProtocol": {
+      "distro": "Ubuntu-24.04",
+      "linuxRoot": "/home/devcube/devcube-wsl-verification/中文 空格's project-1791838703012",
+      "results": [
+        {
+          "name": "真实预检、登录用户与并发连接复用",
+          "status": "passed",
+          "ms": 3,
+          "detail": {
+            "executable": "/mnt/e/Projects/Webstorm/DevCube/build/wsl/out/devcube-wsl",
+            "shell": "/bin/bash",
+            "runDir": "/tmp/devcube-wsl-runs-1275008900"
+          }
+        },
+        {
+          "name": "JSON-RPC 参数、复杂环境变量、中文标准输入和输出",
+          "status": "passed",
+          "ms": 361
+        },
+        {
+          "name": "找不到工具时返回 ENOENT",
+          "status": "passed",
+          "ms": 97
+        },
+        {
+          "name": "Windows UNC 读写、Linux 路径与私有区字符互转",
+          "status": "passed",
+          "ms": 10,
+          "detail": {
+            "linuxFile": "/home/devcube/devcube-wsl-verification/中文 空格's project-1791838703012/中文:问号?.txt",
+            "windowsFile": "\\\\wsl.localhost\\Ubuntu-24.04\\home\\devcube\\devcube-wsl-verification\\中文 空格's project-1791838703012\\中文问号.txt"
+          }
+        },
+        {
+          "name": "发行版内 Git、忽略规则、可执行位与工作树",
+          "status": "passed",
+          "ms": 149,
+          "detail": "git version 2.43.0"
+        },
+        {
+          "name": "Linux ripgrep 非 TTY 搜索、中文路径和 Git 忽略",
+          "status": "passed",
+          "ms": 43,
+          "detail": {
+            "matches": 1,
+            "version": "ripgrep 15.0.0 (rev 3a612f88b8)"
+          }
+        },
+        {
+          "name": "inotify 递归监听 Windows 写入、新目录、重命名和删除",
+          "status": "passed",
+          "ms": 440,
+          "detail": {
+            "events": 8
+          }
+        },
+        {
+          "name": "ConPTY 运行配置经过 Windows 命令行保留完整环境变量",
+          "status": "passed",
+          "ms": 1257,
+          "detail": {
+            "cwd": "/home/devcube/devcube-wsl-verification/中文 空格's project-1791838703012",
+            "value": "中文 space \"double\" 'single' $dollar C:\\dir\\file = end",
+            "user": "devcube",
+            "platform": "linux"
+          }
+        },
+        {
+          "name": "默认 shell 终端、ConPTY resize、中文与 ANSI 颜色",
+          "status": "passed",
+          "ms": 1251
+        },
+        {
+          "name": "运行会话停止时结束整个 Linux 进程组",
+          "status": "failed",
+          "ms": 8333,
+          "detail": "AssertionError [ERR_ASSERTION]: 等待实际行为超时"
+        },
+        {
+          "name": "取消 JSON-RPC 命令时一起结束其子进程",
+          "status": "passed",
+          "ms": 2714
+        },
+        {
+          "name": "小助手断开后清理登记目录，再用时自动重连",
+          "status": "failed",
+          "ms": 8047,
+          "detail": "AssertionError [ERR_ASSERTION]: 等待实际行为超时"
+        }
+      ]
+    },
+    "platformConditionalTestsSkipped": 3,
+    "linuxGoRaceTests": "passed",
+    "relatedUnitTestsPassed": 365,
+    "idleDisconnect": "真实 5 分钟计时触发 disconnected，探测缓存保留，再次使用自动重连通过",
+    "typecheck": "passed",
+    "finalEnvironment": {
+      "coldStartMs": 2342,
+      "environment": [
+        "devcube",
+        "v24.21.0",
+        "11.19.0",
+        "10.30.3",
+        "git version 2.43.0",
+        "go version go1.26.9 linux/amd64",
+        "4"
+      ],
+      "conptyPassed": true
+    },
+    "windowsHelperBuild": "passed",
+    "productionCore": [
+      {
+        "name": "生产入口首次连接前的状态与探测缓存",
+        "status": "passed"
+      },
+      {
+        "name": "生产项目登记入口将两种 WSL 前缀去重",
+        "status": "passed"
+      },
+      {
+        "name": "生产 Git 入口使用 Linux Git 并映射仓库根",
+        "status": "passed",
+        "detail": {
+          "path": "git",
+          "version": "2.43.0"
+        }
+      },
+      {
+        "name": "生产探测入口读取 package.json 并刷新脚本",
+        "status": "passed"
+      },
+      {
+        "name": "生产 Files 入口浏览、新建、保存、重命名、永久删除及越界拒绝",
+        "status": "passed"
+      },
+      {
+        "name": "生产内容搜索入口经 Linux rg 返回结果并排除忽略项",
+        "status": "passed",
+        "detail": [
+          {
+            "kind": "matches",
+            "seq": 1,
+            "matches": [
+              {
+                "rel": "main.txt",
+                "line": 1,
+                "text": "needle 中文",
+                "ranges": [[0, 6]],
+                "col": 0,
+                "endCol": 6
+              }
+            ]
+          },
+          {
+            "kind": "done",
+            "seq": 1,
+            "limitHit": false,
+            "error": null
+          }
+        ]
+      },
+      {
+        "name": "生产文件树筛选入口经 Linux rg 获取索引",
+        "status": "passed"
+      }
+    ],
+    "productionBuild": "passed",
+    "linuxGoVet": "passed"
+  },
+  "defects": [
+    {
+      "name": "命令型配置停止后后台子进程残留",
+      "source": ["src/main/runner.ts:804", "build/wsl/launch.go:66", "build/wsl/runs.go:67"],
+      "evidence": "应用报告退出代码 9 后，sleep 仍在运行；子进程与 Bash 使用不同进程组",
+      "diagnostic": {
+        "run": {
+          "child": "470",
+          "before": "    PID    PPID    PGID     SID STAT COMMAND\n    470     469     435     435 S+   sleep 120\n",
+          "after": "    PID    PPID    PGID     SID STAT COMMAND\n",
+          "survived": false,
+          "buffer": "\u001b[90m/home/devcube/devcube-wsl-verification/中文 空格's project-1791838703012 $\u001b[0m \u001b[97;1mnpm r\r\nun verify_stop\r\n\r\n\u001b[0m> verify_stop\r\n> sleep 120 & echo $! > runner-child-42708.pid; wait\r\n\r\n\r\n\r\n进程已结束，退出代码为 15\u001b[1B\u001b[25D"
+        },
+        "command": {
+          "child": "501",
+          "before": "    PID    PPID    PGID     SID STAT COMMAND\n    501     482     501     482 S    sleep 120\n",
+          "after": "    PID    PPID    PGID     SID STAT COMMAND\n    501     481     501     482 S    sleep 120\n",
+          "survived": true,
+          "buffer": "\u001b[90m/home/devcube/devcube-wsl-verification/中文 空格's project-1791838703012 $\u001b[0m \u001b[97;1msleep\r\n 120 & echo $! > runner-command-child-42708.pid; wait\r\n\u001b[0m[1] 501\r\n\r\n进程已结束，退出代码为 9\u001b[1B\u001b[24D"
+        },
+        "terminal": {
+          "shell": "515",
+          "child": "529",
+          "before": "    PID    PPID    PGID     SID STAT COMMAND\n    515     514     515     515 Ss+  -bash\n    529     515     529     515 S    sleep 120\n",
+          "after": "    PID    PPID    PGID     SID STAT COMMAND\n",
+          "survived": false
+        }
+      },
+      "reproduction": "sleep 120 & echo $! > marker.pid; wait"
+    },
+    {
+      "name": "断开后小助手清理未完成",
+      "source": "src/main/wsl.ts:63",
+      "evidence": "仅 child.kill() 后两秒登记目录仍存在；先 stdin.end() 再 kill() 或仅 stdin.end() 均完成清理",
+      "diagnostic": [
+        {
+          "mode": "kill",
+          "runDir": "/tmp/devcube-wsl-runs-2122996098",
+          "status": {
+            "status": "disconnected"
+          },
+          "helperCleanupCompleted": false
+        },
+        {
+          "mode": "end-and-kill",
+          "runDir": "/tmp/devcube-wsl-runs-2053350282",
+          "status": {
+            "status": "disconnected"
+          },
+          "helperCleanupCompleted": true
+        },
+        {
+          "mode": "end",
+          "runDir": "/tmp/devcube-wsl-runs-598955829",
+          "status": {
+            "status": "disconnected"
+          },
+          "helperCleanupCompleted": true
+        }
+      ]
+    }
+  ],
+  "unverified": [
+    "文件夹选择器、资源管理器拖拽与右键入口",
+    "大型仓库性能与 inotify 上限",
+    "关闭 automount 的真实错误提示",
+    "浏览器 localhost 访问运行服务（未启动 dev 服务）"
+  ],
+  "repositoryChanges": "没有修改产品代码或仓库文档；验证产物位于已忽略的 out/wsl-verification 与 build/wsl/out"
+}

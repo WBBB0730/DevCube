@@ -1,0 +1,53 @@
+import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
+import { existsSync, readFileSync, writeFileSync } from 'node:fs'
+import { resolve, join } from 'node:path'
+import * as pty from 'node-pty'
+import { WslConnections } from '../../src/main/wsl-connection'
+import { buildWslRunInvocation } from '../../src/main/command'
+import { linuxToWslPath } from '../../src/shared/wsl-path'
+
+const distro = 'Ubuntu-24.04'
+const repo = resolve('.')
+const fixture = JSON.parse(readFileSync('out/wsl-verification/results.json', 'utf8'))
+const root = linuxToWslPath(distro, fixture.linuxRoot)
+const helper = spawn('C:/Windows/System32/wsl.exe', ['-d', distro, '--cd', join(repo, 'build/wsl/out'), '--exec', './devcube-wsl'], { windowsHide: true, env: { ...process.env, WSL_UTF8: '1' } })
+const connections = new WslConnections({ preflight: async () => null, spawnHelper: () => ({ stdin: helper.stdin, stdout: helper.stdout, stderr: helper.stderr, kill: () => helper.kill(), exited: new Promise((resolve) => helper.once('exit', () => resolve(null))) }), timeoutMs: 60_000 })
+
+async function main(): Promise<void> {
+  const info = await connections.connect(distro)
+  const invocation = buildWslRunInvocation({ wslExe: 'C:/Windows/System32/wsl.exe', distro, cwd: fixture.linuxRoot, helper: info.executable, runDir: info.runDir, id: 'stop-diag', shell: info.shell, command: 'sleep 120 & echo $! > stop-diag.pid; echo READY; wait' })
+  const terminal = pty.spawn(invocation.file, invocation.args, { cols: 100, rows: 30, cwd: repo, env: { ...process.env, WSL_UTF8: '1' } })
+  let exited = false
+  terminal.onExit(() => { exited = true })
+  terminal.onData((data) => console.log('PTY', JSON.stringify(data)))
+  const deadline = Date.now() + 15000
+  while (!existsSync(join(root, 'stop-diag.pid'))) {
+    assert.ok(Date.now() < deadline)
+    await new Promise((resolve) => setTimeout(resolve, 100))
+  }
+  const childPid = readFileSync(join(root, 'stop-diag.pid'), 'utf8').trim()
+  const parentPgid = readFileSync(linuxToWslPath(distro, `${info.runDir}/stop-diag`), 'utf8').trim()
+  const ps = async () => {
+    const result = await connections.exec(distro, 'ps', ['-p', `${parentPgid},${childPid}`, '-o', 'pid,ppid,pgid,stat,args'], { cwd: fixture.linuxRoot })
+    return result.stdout.toString()
+  }
+  const before = await ps()
+  const term = await connections.killRun(distro, 'stop-diag', 'SIGTERM')
+  await new Promise((resolve) => setTimeout(resolve, 500))
+  const afterTerm = await ps()
+  const kill = await connections.killRun(distro, 'stop-diag', 'SIGKILL')
+  await new Promise((resolve) => setTimeout(resolve, 500))
+  const afterKill = await ps()
+  const report = { childPid, parentPgid, before, term, afterTerm, kill, afterKill }
+  console.log(JSON.stringify(report, null, 2))
+  writeFileSync('out/wsl-verification/stop-diagnostic.json', JSON.stringify(report, null, 2))
+  await connections.exec(distro, '/bin/kill', ['-KILL', childPid], { cwd: fixture.linuxRoot })
+  connections.forgetRun(distro, 'stop-diag')
+  helper.stdin.end()
+  await new Promise((resolve) => setTimeout(resolve, 400))
+  connections.disconnectAll()
+  if (!exited) terminal.kill()
+}
+
+void main().catch((error) => { console.error(error); process.exitCode = 1; helper.stdin.end(); connections.disconnectAll() })

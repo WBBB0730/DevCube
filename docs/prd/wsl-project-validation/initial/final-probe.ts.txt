@@ -1,0 +1,48 @@
+import assert from 'node:assert/strict'
+import { spawn } from 'node:child_process'
+import { readFileSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import * as pty from 'node-pty'
+import { WslConnections } from '../../src/main/wsl-connection'
+import { isStoreWsl, readWslDistros, wslPreflightReason } from '../../src/main/wsl-preflight'
+import { buildWslRunInvocation } from '../../src/main/command'
+
+const distro = 'Ubuntu-24.04'
+const fixture = JSON.parse(readFileSync('out/wsl-verification/results.json', 'utf8'))
+let child: ReturnType<typeof spawn>
+const connections = new WslConnections({
+  preflight: async (distro) => wslPreflightReason(distro, { storeWsl: await isStoreWsl('C:/Windows/System32/wsl.exe'), distros: await readWslDistros(), helperPresent: true }),
+  spawnHelper: () => {
+    child = spawn('C:/Windows/System32/wsl.exe', ['-d', distro, '--cd', resolve('build/wsl/out'), '--exec', './devcube-wsl'], { windowsHide: true, env: { ...process.env, WSL_UTF8: '1' } })
+    return { stdin: child.stdin!, stdout: child.stdout!, stderr: child.stderr!, kill: () => { child.stdin!.end(); child.kill() }, exited: new Promise((resolve) => child.once('exit', () => resolve(null))) }
+  },
+  timeoutMs: 60_000
+})
+
+void (async () => {
+  const started = Date.now()
+  const info = await connections.connect(distro)
+  const coldStartMs = Date.now() - started
+  const env = await connections.exec(distro, '/bin/bash', ['-lc', 'id -un; node --version; npm --version; pnpm --version; git --version; go version; getconf _NPROCESSORS_ONLN'], { cwd: fixture.linuxRoot })
+  assert.equal(env.code, 0, env.stderr.toString())
+  assert.match(env.stdout.toString(), /v24\.21\.0/)
+  assert.match(env.stdout.toString(), /10\.30\.3/)
+  const value = '中文 "hello" $PATH C:\\dir\\file'
+  const invocation = buildWslRunInvocation({ wslExe: 'C:/Windows/System32/wsl.exe', distro, cwd: fixture.linuxRoot, helper: info.executable, runDir: info.runDir, id: 'final-env', shell: info.shell, command: 'node verify-env.cjs', env: { VERIFY_VALUE: value } })
+  const output = await new Promise<string>((resolve, reject) => {
+    const terminal = pty.spawn(invocation.file, invocation.args, { cols: 240, rows: 30, cwd: process.cwd(), env: { ...process.env, WSL_UTF8: '1' } })
+    let output = ''
+    const timeout = setTimeout(() => { terminal.kill(); reject(new Error('ConPTY 超时')) }, 15000)
+    terminal.onData((data) => { output += data })
+    terminal.onExit(({ exitCode }) => { clearTimeout(timeout); exitCode === 0 ? resolve(output) : reject(new Error(output)) })
+  })
+  const match = /VERIFY_JSON:(\{[\s\S]*?\})/.exec(output.replace(/\x1b\[[0-?]*[ -/]*[@-~]/g, ''))
+  assert.ok(match, output)
+  const actual = JSON.parse(match[1].replace(/[\r\n]/g, ''))
+  assert.equal(actual.value, value)
+  assert.equal(actual.platform, 'linux')
+  connections.forgetRun(distro, 'final-env')
+  const report = { coldStartMs, environment: env.stdout.toString().trim().split('\n'), conptyPassed: true }
+  writeFileSync('out/wsl-verification/final-environment.json', JSON.stringify(report, null, 2))
+  console.log(JSON.stringify(report, null, 2))
+})().catch((error) => { console.error(error); process.exitCode = 1 }).finally(() => connections.disconnectAll())

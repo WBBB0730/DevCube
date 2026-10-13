@@ -1,0 +1,23 @@
+{
+  "run": {
+    "child": "470",
+    "before": "    PID    PPID    PGID     SID STAT COMMAND\n    470     469     435     435 S+   sleep 120\n",
+    "after": "    PID    PPID    PGID     SID STAT COMMAND\n",
+    "survived": false,
+    "buffer": "\u001b[90m/home/devcube/devcube-wsl-verification/中文 空格's project-1791838703012 $\u001b[0m \u001b[97;1mnpm r\r\nun verify_stop\r\n\r\n\u001b[0m> verify_stop\r\n> sleep 120 & echo $! > runner-child-42708.pid; wait\r\n\r\n\r\n\r\n进程已结束，退出代码为 15\u001b[1B\u001b[25D"
+  },
+  "command": {
+    "child": "501",
+    "before": "    PID    PPID    PGID     SID STAT COMMAND\n    501     482     501     482 S    sleep 120\n",
+    "after": "    PID    PPID    PGID     SID STAT COMMAND\n    501     481     501     482 S    sleep 120\n",
+    "survived": true,
+    "buffer": "\u001b[90m/home/devcube/devcube-wsl-verification/中文 空格's project-1791838703012 $\u001b[0m \u001b[97;1msleep\r\n 120 & echo $! > runner-command-child-42708.pid; wait\r\n\u001b[0m[1] 501\r\n\r\n进程已结束，退出代码为 9\u001b[1B\u001b[24D"
+  },
+  "terminal": {
+    "shell": "515",
+    "child": "529",
+    "before": "    PID    PPID    PGID     SID STAT COMMAND\n    515     514     515     515 Ss+  -bash\n    529     515     529     515 S    sleep 120\n",
+    "after": "    PID    PPID    PGID     SID STAT COMMAND\n",
+    "survived": false
+  }
+}

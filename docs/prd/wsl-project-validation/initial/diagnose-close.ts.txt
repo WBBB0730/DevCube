@@ -1,0 +1,38 @@
+import { spawn } from 'node:child_process'
+import { existsSync, writeFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { WslConnections } from '../../src/main/wsl-connection'
+import { linuxToWslPath } from '../../src/shared/wsl-path'
+
+const distro = 'Ubuntu-24.04'
+const reports: unknown[] = []
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+async function check(mode: 'kill' | 'end-and-kill' | 'end'): Promise<void> {
+  const child = spawn('C:/Windows/System32/wsl.exe', ['-d', distro, '--cd', resolve('build/wsl/out'), '--exec', './devcube-wsl'], { windowsHide: true, env: { ...process.env, WSL_UTF8: '1' } })
+  const connections = new WslConnections({
+    preflight: async () => null,
+    spawnHelper: () => ({ stdin: child.stdin, stdout: child.stdout, stderr: child.stderr, kill: () => {
+      if (mode !== 'kill') child.stdin.end()
+      if (mode !== 'end') child.kill()
+    }, exited: new Promise((resolve) => child.once('exit', () => resolve(null))) }),
+    timeoutMs: 60_000
+  })
+  const info = await connections.connect(distro)
+  const dir = linuxToWslPath(distro, info.runDir)
+  connections.disconnect(distro)
+  await sleep(2000)
+  const report = { mode, runDir: info.runDir, status: connections.state(distro), helperCleanupCompleted: !existsSync(dir) }
+  reports.push(report)
+  console.log(JSON.stringify(report))
+  child.stdin.end()
+  await sleep(500)
+  if (child.exitCode === null) child.kill()
+}
+
+void (async () => {
+  await check('kill')
+  await check('end-and-kill')
+  await check('end')
+  writeFileSync('out/wsl-verification/close-diagnostic.json', JSON.stringify(reports, null, 2))
+})().catch((error) => { console.error(error); process.exitCode = 1 })

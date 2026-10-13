@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+set -euo pipefail
+source_dir=/mnt/e/Projects/Webstorm/DevCube
+target_dir=/home/devcube/DevCube
+if [[ -e "$target_dir" ]]; then
+  printf '目标已存在，停止以免覆盖：%s\n' "$target_dir" >&2
+  exit 1
+fi
+mkdir "$target_dir"
+tar -C "$source_dir" \
+  --exclude='./node_modules' --exclude='./out' --exclude='./dist' \
+  --exclude='./.cache' --exclude='./.idea' --exclude='./.eslintcache' \
+  --exclude='./scripts/out' --exclude='./build/wsl/out' \
+  --exclude='./build/mac/default-app-helper' --exclude='./build/win/compress-menu.dll' \
+  --exclude='*.tsbuildinfo' --exclude='*.log*' \
+  -cf - . | tar --no-same-owner -C "$target_dir" -xf -
+printf 'Source HEAD: '
+git -C "$source_dir" rev-parse HEAD
+printf 'Copied HEAD: '
+git -C "$target_dir" rev-parse HEAD
+printf 'Copied working tree status:\n'
+git -C "$target_dir" status --short
+printf 'Copied source size: '
+du -sh "$target_dir"
+printf 'Key file integrity:\n'
+for name in package.json pnpm-lock.yaml src/main/wsl.ts; do
+  cmp "$source_dir/$name" "$target_dir/$name"
+  printf 'OK %s\n' "$name"
+done
