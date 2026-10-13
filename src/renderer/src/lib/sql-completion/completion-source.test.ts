@@ -1,5 +1,5 @@
 // CodeMirror 补全源：只取光标所在的语句、注释里不补、按引擎的次序原样列出。
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import {
   CompletionContext,
   type CompletionResult,
@@ -86,10 +86,15 @@ describe('sqlCompletionSource', () => {
   })
 
   it('语法树还没解析到光标所在的语句时，先解析完再切出这条（光标后的 FROM 也算上）', () => {
-    // 没有编辑器时状态只解析开头约 3000 个字符
-    const before = 'SELECT * FROM orders;\n'.repeat(500)
-    const result = complete(`${before}SELECT | FROM users`, true)!
-    expect(result.options.slice(0, 2).map((o) => o.label)).toEqual(['email', 'id'])
+    // 没有编辑器时状态只解析开头约 3000 个字符。冻住时钟，补全时的解析预算不随机器快慢用完（慢的 CI 上 50ms 解析不完）
+    vi.useFakeTimers({ toFake: ['Date'] })
+    try {
+      const before = 'SELECT * FROM orders;\n'.repeat(500)
+      const result = complete(`${before}SELECT | FROM users`, true)!
+      expect(result.options.slice(0, 2).map((o) => o.label)).toEqual(['email', 'id'])
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('分号之后是新的语句', () => {
