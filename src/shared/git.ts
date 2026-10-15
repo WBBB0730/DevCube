@@ -701,6 +701,11 @@ export interface GitAPI {
   /** 仓库内容变化（.git 变动 / 动作完成）：渲染端应重新 gitLoad 该项目 */
   onGitChanged(cb: (projectPath: string) => void): () => void
   /**
+   * 作废项目所在仓库的工作区快照（ADR-0056）：主动刷新（手动、切回、自己的文件操作之后）先调它，
+   * 随后的读取重新取；跟随 git:changed 的刷新不必调（主进程推送前已作废）。
+   */
+  gitInvalidateWorkingTree(projectPath: string): Promise<void>
+  /**
    * 重验项目的仓库根（绕过缓存）：init / .git 删除后状态跟进的手动入口
    * （Git Tab 变为可见、非仓库态点刷新）。变化时主进程对齐 watcher 并推 git:changed。
    */

@@ -235,6 +235,7 @@ export const IPC = {
   gitViewPrefsGet: 'git:view-prefs-get',
   gitViewPrefsSet: 'git:view-prefs-set',
   gitChanged: 'git:changed',
+  gitInvalidateWorkingTree: 'git:invalidate-working-tree',
   gitRevalidate: 'git:revalidate',
   gitDefaultBranch: 'git:default-branch',
   /**

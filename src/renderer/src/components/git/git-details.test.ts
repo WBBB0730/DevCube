@@ -13,6 +13,9 @@ import {
   fileRowTitle,
   filesInSelection,
   flattenFileTree,
+  linkFileTree,
+  sliceWindow,
+  windowFileTree,
   currentBlockIndex,
   normalizeCompare,
   pathspecOf,
@@ -24,7 +27,8 @@ import {
   uncommittedDiffEndpoints,
   workingTreeStatusByPath,
   type DiffEndpointContext,
-  type DiffReconcileExpanded
+  type DiffReconcileExpanded,
+  type FileTreeWindowNode
 } from './git-details'
 
 /** 快捷构造一个文件变更。 */
@@ -226,6 +230,92 @@ describe('buildFileTree + flattenFileTree', () => {
 
   it('空文件列表得到空行集', () => {
     expect(flattenFileTree(buildFileTree([]), new Set())).toEqual([])
+  })
+})
+
+describe('linkFileTree + windowFileTree（开窗）', () => {
+  // 0 a/  1 a/b/  2 y1  3 y2  4 x1  5 x2  6 c/  7 z1  8 top.md
+  const rows = flattenFileTree(
+    buildFileTree([
+      fc('a/x1.ts'),
+      fc('a/x2.ts'),
+      fc('a/b/y1.ts'),
+      fc('a/b/y2.ts'),
+      fc('c/z1.ts'),
+      fc('top.md')
+    ]),
+    new Set()
+  )
+  const links = linkFileTree(rows)
+
+  /** 计划的形状：占位记「首行下标+行数」，文件记名，目录记 { 名: 子级 } */
+  const shape = (nodes: FileTreeWindowNode[]): unknown[] =>
+    nodes.map((n) =>
+      n.kind === 'gap'
+        ? `gap ${n.key}+${n.rows}`
+        : n.kind === 'file'
+          ? n.row.name
+          : { [n.row.name]: shape(n.children) }
+    )
+  /** 计划占的总行数（目录头 + 子级 + 占位） */
+  const height = (nodes: FileTreeWindowNode[]): number =>
+    nodes.reduce(
+      (sum, n) =>
+        sum + (n.kind === 'gap' ? n.rows : n.kind === 'file' ? 1 : 1 + height(n.children)),
+      0
+    )
+
+  it('每行的上级目录与子树末尾', () => {
+    expect(rows.map((r) => r.name)).toEqual([
+      'a',
+      'b',
+      'y1.ts',
+      'y2.ts',
+      'x1.ts',
+      'x2.ts',
+      'c',
+      'z1.ts',
+      'top.md'
+    ])
+    expect(links.parents).toEqual([-1, 0, 1, 1, 0, 0, -1, 6, -1])
+    expect(links.ends).toEqual([6, 4, 3, 4, 5, 6, 8, 8, 9])
+  })
+
+  it('全部可见时照原样嵌套、没有占位', () => {
+    expect(shape(windowFileTree(rows, links, 0, rows.length))).toEqual([
+      { a: [{ b: ['y1.ts', 'y2.ts'] }, 'x1.ts', 'x2.ts'] },
+      { c: ['z1.ts'] },
+      'top.md'
+    ])
+  })
+
+  it('窗内的行带上全部上级目录（吸顶要它们），窗外整段并成占位', () => {
+    expect(shape(windowFileTree(rows, links, 3, 5))).toEqual([
+      { a: [{ b: ['gap 2+1', 'y2.ts'] }, 'x1.ts', 'gap 5+1'] },
+      'gap 6+3'
+    ])
+  })
+
+  it('任意区间下占的总行数都不变（滚动高度与 sticky 约束框不变）', () => {
+    for (let start = 0; start <= rows.length; start++) {
+      for (let end = start; end <= rows.length; end++) {
+        expect(height(windowFileTree(rows, links, start, end))).toBe(rows.length)
+      }
+    }
+  })
+
+  it('空区间或越界时整段占位，空树什么都不画', () => {
+    expect(shape(windowFileTree(rows, links, 0, 0))).toEqual(['gap 0+9'])
+    expect(shape(windowFileTree(rows, links, 20, 30))).toEqual(['gap 0+9'])
+    expect(windowFileTree([], linkFileTree([]), 0, 10)).toEqual([])
+  })
+})
+
+describe('sliceWindow', () => {
+  it('整体区间换成段内下标并裁到段内', () => {
+    expect(sliceWindow({ start: 5, end: 20 }, 3, 10)).toEqual({ start: 2, end: 10 })
+    expect(sliceWindow({ start: 0, end: 2 }, 3, 10)).toEqual({ start: 0, end: 0 })
+    expect(sliceWindow({ start: 30, end: 40 }, 3, 10)).toEqual({ start: 10, end: 10 })
   })
 })
 

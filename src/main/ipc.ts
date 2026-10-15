@@ -255,6 +255,7 @@ import {
   loadRepo
 } from './git-data'
 import { runGitAction } from './git-actions'
+import { invalidateWorkingTree } from './git-working-tree'
 import {
   cancelGitHubLogin,
   getCheckRuns,
@@ -351,8 +352,12 @@ function treeSnapshot(): TreeSnapshot {
   return { tree: buildTree(), servers: listServerNodes(), dataSources: listDataSourceNodes() }
 }
 
-/** 某项目的仓库内容变化（.git 变动 / git 动作完成）：通知渲染端软刷新其图谱。 */
-function emitGitChanged(projectPath: string): void {
+/**
+ * 某项目的仓库内容变化（.git 变动 / git 动作完成）：先作废工作区快照，再通知渲染端软刷新其图谱。
+ * 处理器在返回前 await 它：通知先于结果送达渲染端（动作的软刷新据此后发先至、落地后才收遮罩）。
+ */
+async function emitGitChanged(projectPath: string): Promise<void> {
+  await invalidateWorkingTree(projectPath)
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send(IPC.gitChanged, projectPath)
   }
@@ -427,7 +432,7 @@ async function refreshProjectWatchers(): Promise<void> {
 function onGitWatcherChange(projectPath: string): void {
   void revalidateRepoRoot(projectPath).then(async ({ changed }) => {
     if (changed) await refreshProjectWatchers()
-    emitGitChanged(projectPath)
+    await emitGitChanged(projectPath)
   })
 }
 
@@ -1209,7 +1214,7 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     loadRepo(projectPath, options, resolveRepoSettings(getGitSettings(projectPath)))
   )
   ipcMain.handle(IPC.gitDetails, (_e, projectPath: string, request: GitDetailsRequest) =>
-    getDetails(projectPath, request, true)
+    getDetails(projectPath, request)
   )
   ipcMain.handle(IPC.gitFileDiff, (_e, projectPath: string, request: GitDiffRequest) =>
     getFileDiff(projectPath, request)
@@ -1221,8 +1226,8 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     getTagDetails(projectPath, tagName)
   )
   ipcMain.handle(IPC.gitRepoConfig, (_e, projectPath: string) => getRepoConfig(projectPath))
-  // 写操作：单通道判别联合。完成后无论成败都推 git:changed（部分成功也要刷新）；
-  // opts.silent 时跳过——渲染端自刷新的静默动作（暂存/提交/撤销）避免并发 load 竞态。
+  // 写操作：单通道判别联合。完成后无论成败都作废工作区快照、推 git:changed（部分成功也要刷新）；
+  // opts.silent 时不推——渲染端自刷新的静默动作（暂存/提交/撤销）避免并发 load 竞态，但快照照样作废。
   ipcMain.handle(
     IPC.gitAction,
     async (_e, projectPath: string, action: GitAction, opts?: { silent?: boolean }) => {
@@ -1233,16 +1238,21 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
         await revalidateRepoRoot(projectPath)
         await refreshProjectWatchers()
       }
-      if (opts?.silent !== true) emitGitChanged(projectPath)
+      if (opts?.silent === true) await invalidateWorkingTree(projectPath)
+      else await emitGitChanged(projectPath)
       return result
     }
+  )
+  // 主动刷新（手动、切回、窗口回到前台、自己的文件操作之后）：作废工作区快照，随后的读取重新取
+  ipcMain.handle(IPC.gitInvalidateWorkingTree, (_e, projectPath: string) =>
+    invalidateWorkingTree(projectPath)
   )
   // 重验仓库根（Git Tab 变为可见 / 非仓库态点刷新）：变化则对齐 watcher 并推 git:changed
   ipcMain.handle(IPC.gitRevalidate, async (_e, projectPath: string) => {
     const { changed } = await revalidateRepoRoot(projectPath)
     if (changed) {
       await refreshProjectWatchers()
-      emitGitChanged(projectPath)
+      await emitGitChanged(projectPath)
     }
     return changed
   })

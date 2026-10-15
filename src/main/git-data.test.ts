@@ -315,18 +315,11 @@ describe('buildFileDiffArgs', () => {
 })
 
 describe('buildStatusArgs', () => {
-  it('展示未跟踪文件时 --untracked-files=all，否则 no', () => {
-    expect(buildStatusArgs(true)).toEqual([
+  it('逐个列出未跟踪文件，-z 输出', () => {
+    expect(buildStatusArgs()).toEqual([
       'status',
       '-s',
       '--untracked-files=all',
-      '--porcelain',
-      '-z'
-    ])
-    expect(buildStatusArgs(false)).toEqual([
-      'status',
-      '-s',
-      '--untracked-files=no',
       '--porcelain',
       '-z'
     ])

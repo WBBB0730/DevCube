@@ -32,6 +32,7 @@ import {
   tokenizeBody
 } from './git-details'
 import { StickyTree, ROW_HEIGHT, type FolderRow, type FileRow } from './GitFileTree'
+import { useVisibleRange } from './use-visible-range'
 import { CommitForm, UncommittedFileSections } from './GitCommitPanel'
 import { GitCheckIcon } from './GitCheckIcon'
 import { useCheckRuns } from './use-github-checks'
@@ -150,15 +151,14 @@ export function GitCommitDetails({
             <ResizableHandle {...split.handleProps} />
             {/* 右栏：文件树。key 绑定展开目标：切换提交即重置开合状态，同目标刷新则保留；
               提交面板模式换成两段文件树（目标恒为 '*'，开合状态在组件内自然保留） */}
-            {/* 两种文件树都用 StickyTree 的嵌套 sticky 逐级吸顶（目录头随滚动钉在容器顶）：
-              提交面板自持滚动容器（UncommittedFileSections 内 h-full overflow-auto），此处只给
-              高度约束；详情树的滚动容器 = 面板本身（库给面板内层 overflow:auto），sticky 即相对它定位。 */}
+            {/* 两种文件树都用 StickyTree 的嵌套 sticky 逐级吸顶（目录头随滚动钉在容器顶），并按可见区间开窗：
+              两者都自持滚动容器（h-full overflow-auto，开窗按它取可见区间），此处只给高度约束。 */}
             {isCommitPanel ? (
               <ResizablePanel style={{ overflow: 'hidden' }}>
                 <UncommittedFileSections projectPath={projectPath} />
               </ResizablePanel>
             ) : (
-              <ResizablePanel className="pb-2">
+              <ResizablePanel style={{ overflow: 'hidden' }}>
                 <FileTreePane
                   key={`${exp.hash}|${exp.compareWith ?? ''}`}
                   projectPath={projectPath}
@@ -388,6 +388,9 @@ function FileTreePane({
   const [closed, setClosed] = useState<ReadonlySet<string>>(new Set())
   const tree = useMemo(() => buildFileTree(files), [files])
   const rows = useMemo(() => flattenFileTree(tree, closed), [tree, closed])
+  /** 自持的滚动容器：开窗按它取可见区间 */
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const visible = useVisibleRange({ scrollRef, count: rows.length, size: () => ROW_HEIGHT })
   // 当前打开 diff 的文件身份（端点 + 路径）：据此高亮被选中的文件行
   const selectedKey = useGit((s) => {
     const d = gitState(s, projectPath).diffView
@@ -516,5 +519,14 @@ function FileTreePane({
     )
   }
 
-  return <StickyTree rows={rows} renderFolder={renderFolder} renderFile={renderFile} />
+  return (
+    <div ref={scrollRef} className="h-full overflow-auto pb-2">
+      <StickyTree
+        rows={rows}
+        visible={visible}
+        renderFolder={renderFolder}
+        renderFile={renderFile}
+      />
+    </div>
+  )
 }

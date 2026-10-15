@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   assembleCommits,
-  countPorcelainStatus,
+  countStatusEntriesZ,
   generateFileChanges,
   GIT_LOG_SEPARATOR,
   parseBranches,
@@ -15,7 +15,6 @@ import {
   parseStatusFilesZ,
   parseTagDetails,
   parseFileDiff,
-  countLinesInBuffer,
   parseWorktreeList,
   markCurrentWorktree
 } from './git-parse'
@@ -184,17 +183,21 @@ describe('parseLog', () => {
   })
 })
 
-describe('countPorcelainStatus', () => {
-  it('输出以换行结尾，行数减一即变更条数', () => {
-    expect(countPorcelainStatus(' M a.ts\n?? b.ts\n')).toBe(2)
+describe('countStatusEntriesZ', () => {
+  it('每条记录计一条', () => {
+    expect(countStatusEntriesZ(' M a.ts\0?? b.ts\0')).toBe(2)
   })
 
   it('空输出计 0', () => {
-    expect(countPorcelainStatus('')).toBe(0)
+    expect(countStatusEntriesZ('')).toBe(0)
+  })
+
+  it('重命名记录后跟的原路径段不另算一条', () => {
+    expect(countStatusEntriesZ('R  new.ts\0old.ts\0?? c.ts\0')).toBe(2)
   })
 
   it('冲突记录照常计入（与提交面板冲突桶口径一致）', () => {
-    expect(countPorcelainStatus('UU both.txt\nAA add.txt\n M other.ts\n')).toBe(3)
+    expect(countStatusEntriesZ('UU both.txt\0AA add.txt\0 M other.ts\0')).toBe(3)
   })
 })
 
@@ -535,28 +538,6 @@ describe('parseFileDiff', () => {
     })
     expect(diff.binary).toBe(true)
     expect(diff.raw).toBe('')
-  })
-})
-
-describe('countLinesInBuffer', () => {
-  it('空内容为 0 行', () => {
-    expect(countLinesInBuffer(new Uint8Array(0))).toBe(0)
-  })
-
-  it('末行有换行符按换行数计', () => {
-    expect(countLinesInBuffer(new TextEncoder().encode('a\nb\n'))).toBe(2)
-  })
-
-  it('末行无换行符也算一行（numstat 口径）', () => {
-    expect(countLinesInBuffer(new TextEncoder().encode('a\nb'))).toBe(2)
-  })
-
-  it('前 8000 字节含 NUL 判为二进制返回 null', () => {
-    expect(countLinesInBuffer(new Uint8Array([104, 0, 105]))).toBeNull()
-  })
-
-  it('UTF-16 风格内容（隔字节 NUL）判为二进制', () => {
-    expect(countLinesInBuffer(new Uint8Array([104, 0, 101, 0, 108, 0]))).toBeNull()
   })
 })
 

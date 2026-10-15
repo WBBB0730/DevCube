@@ -38,9 +38,17 @@ export interface GitExecResult {
  * GIT_TERMINAL_PROMPT=0：防止任何命令意外等待终端输入（读取类命令全部离线）。
  * GIT_EDITOR=true：会拉编辑器的命令（rebase/cherry-pick/revert --continue 等）
  * 直接零修改退出、git 用默认信息——应用内 git 永不交互，交互式变基走 Terminal 不经此处。
+ * GIT_OPTIONAL_LOCKS=0：不做需要拿锁的顺带操作（如 status 顺手改写 index），免得读状态改动 .git、
+ * 被项目监听当成变化再刷新一轮，也不与用户终端里的 git 抢锁；命令本身要做的事不受影响（ADR-0056）。
  */
 function gitEnv(shellEnv: NodeJS.ProcessEnv): NodeJS.ProcessEnv {
-  return { ...process.env, ...shellEnv, GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true' }
+  return {
+    ...process.env,
+    ...shellEnv,
+    GIT_TERMINAL_PROMPT: '0',
+    GIT_EDITOR: 'true',
+    GIT_OPTIONAL_LOCKS: '0'
+  }
 }
 
 /**
@@ -284,8 +292,8 @@ export function gitOutputToLocal(cwd: string, path: string): string {
   return wsl !== null && path.startsWith('/') ? linuxToWslPath(wsl.distro, path) : path
 }
 
-/** 发行版里 git 的环境：登录环境由小助手带上，这里只叠加 gitEnv 里的两条（应用内 git 永不交互）。 */
-const WSL_GIT_ENV = { GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true' }
+/** 发行版里 git 的环境：登录环境由小助手带上，这里只叠加 gitEnv 里的三条（含义见 gitEnv）。 */
+const WSL_GIT_ENV = { GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true', GIT_OPTIONAL_LOCKS: '0' }
 
 /** 找不到 git 时换成指明发行版的提示；其余错误原样。 */
 function wslGitError(distro: string, error: Error | null): Error | null {

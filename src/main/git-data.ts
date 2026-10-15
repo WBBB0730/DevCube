@@ -16,7 +16,7 @@ import {
 } from './git-exec'
 import {
   assembleCommits,
-  countPorcelainStatus,
+  countStatusEntriesZ,
   EOL_REGEX,
   generateFileChanges,
   GIT_FORMAT_DETAILS,
@@ -31,7 +31,6 @@ import {
   parseNumStatZ,
   parseRefs,
   parseStashes,
-  countLinesInBuffer,
   parseStatusFilesZ,
   parseTagDetails,
   parseFileDiff,
@@ -39,6 +38,7 @@ import {
   markCurrentWorktree
 } from './git-parse'
 import type { GitRefData, GitStash } from './git-parse'
+import { WorkingTreeReads } from './git-working-tree'
 import { GIT_INDEX, UNCOMMITTED, imageMimeOf } from '../shared/git'
 import type {
   GitDetailsRequest,
@@ -278,9 +278,9 @@ export function buildFileDiffArgs(
   }
 }
 
-/** 未提交明细的 status 参数（data-read.md §5.2）：-z 下 rename 原路径是独立 NUL 段。 */
-export function buildStatusArgs(showUntracked: boolean): string[] {
-  return ['status', '-s', `--untracked-files=${showUntracked ? 'all' : 'no'}`, '--porcelain', '-z']
+/** 工作区状态的 status 参数（data-read.md §5.2）：-z 下 rename 原路径是独立 NUL 段。 */
+export function buildStatusArgs(): string[] {
+  return ['status', '-s', '--untracked-files=all', '--porcelain', '-z']
 }
 
 /**
@@ -406,6 +406,13 @@ async function runGit(cwd: string, args: string[]): Promise<RunResult> {
   const result = await execGit(cwd, args)
   if (result.code !== 0) return { ok: false, error: getErrorMessage(result) }
   return { ok: true, stdout: result.stdout.toString('utf8') }
+}
+
+/** 工作区状态：未提交详情、与工作区比较、图谱的未提交计数共用一份（ADR-0056）。 */
+const statusReads = new WorkingTreeReads<RunResult>((result) => result.ok)
+
+function readStatus(root: string): Promise<RunResult> {
+  return statusReads.read(root, () => runGit(root, buildStatusArgs()))
 }
 
 /** 按 EOL 分行并去掉结尾换行产生的最后一个空段。 */
@@ -535,9 +542,7 @@ async function loadUnbornHead(
       )
     ),
     runGit(root, buildShowRefArgs(settings.showRemoteBranches)),
-    SHOW_UNCOMMITTED_CHANGES
-      ? runGit(root, ['status', '--untracked-files=all', '--porcelain'])
-      : Promise.resolve(null)
+    SHOW_UNCOMMITTED_CHANGES ? readStatus(root) : Promise.resolve(null)
   ])
   if (!logRes.ok) {
     return loadResult({
@@ -573,7 +578,7 @@ async function loadUnbornHead(
     {
       maxCommits: options.maxCommits,
       showTags: settings.showTags,
-      uncommittedChanges: statusRes !== null ? countPorcelainStatus(statusRes.stdout) : 0,
+      uncommittedChanges: statusRes !== null ? countStatusEntriesZ(statusRes.stdout) : 0,
       unbornHead: true
     }
   )
@@ -684,7 +689,7 @@ export async function loadRepo(
   if (SHOW_UNCOMMITTED_CHANGES && headHash !== null) {
     const headIndex = records.findIndex((r) => r.hash === headHash)
     if (headIndex !== -1 && headIndex < options.maxCommits) {
-      const statusRes = await runGit(root, ['status', '--untracked-files=all', '--porcelain'])
+      const statusRes = await readStatus(root)
       if (!statusRes.ok) {
         return loadResult({
           isRepo: true,
@@ -695,7 +700,7 @@ export async function loadRepo(
           error: statusRes.error
         })
       }
-      uncommittedChanges = countPorcelainStatus(statusRes.stdout)
+      uncommittedChanges = countStatusEntriesZ(statusRes.stdout)
     }
   }
   const { commits, moreCommitsAvailable, tags } = assembleCommits(
@@ -728,54 +733,25 @@ export async function loadRepo(
 
 // —— getDetails：提交 / 未提交 / stash 详情与两点比较 ——
 
-/** 未跟踪文件行数补算的大小上限：超过则跳过（保持无统计），防超大文件拖慢未提交刷新。 */
-const UNTRACKED_COUNT_MAX_BYTES = 8 * 1024 * 1024
-
-/**
- * 给列表中 status 追加的未跟踪（U）文件补行数（additions=行数、deletions=0）：git 不为
- * untracked 提供 numstat，读工作区文件按 numstat 口径数行；二进制 / 超大 / 读取失败保持
- * null（沿用「二进制无行数」的既有语义）。isDir 目录条目跳过。就地修改传入列表。
- */
-async function fillUntrackedLineCounts(root: string, files: GitFileChange[]): Promise<void> {
-  await Promise.all(
-    files
-      .filter((f) => f.type === 'U' && f.isDir !== true && f.additions === null)
-      .map(async (f) => {
-        try {
-          const absPath = join(root, f.newFilePath)
-          const info = await stat(absPath)
-          if (!info.isFile() || info.size > UNTRACKED_COUNT_MAX_BYTES) return
-          const lines = countLinesInBuffer(await readFile(absPath))
-          if (lines !== null) {
-            f.additions = lines
-            f.deletions = 0
-          }
-        } catch {
-          // 读取失败（权限 / 文件已消失）：保持无统计
-        }
-      })
-  )
-}
-
 /** 文件变更列表加载结果（name-status + numstat + 可选 status 三路合成）。 */
 type FileChangesResult = { ok: true; fileChanges: GitFileChange[] } | { ok: false; error: string }
 
 /**
- * 并行跑 name-status / numstat（statusArgs 非 null 时再加一路 status -z），
+ * 并行跑 name-status / numstat（withStatus 时再叠加工作区状态），
  * 合成 GitFileChange[]（data-read.md §7.2-§7.5）。to 为空串表示与工作区比较。
  */
 async function loadFileChanges(
   root: string,
   fromHash: string,
   toHash: string,
-  statusArgs: string[] | null
+  withStatus: boolean
 ): Promise<FileChangesResult> {
   const { args: nameStatusArgs, diffTree } = buildDiffArgs('--name-status', fromHash, toHash)
   const { args: numStatArgs } = buildDiffArgs('--numstat', fromHash, toHash)
   const [nameStatusRes, numStatRes, statusRes] = await Promise.all([
     runGit(root, nameStatusArgs),
     runGit(root, numStatArgs),
-    statusArgs !== null ? runGit(root, statusArgs) : Promise.resolve(null)
+    withStatus ? readStatus(root) : Promise.resolve(null)
   ])
   if (!nameStatusRes.ok) return { ok: false, error: nameStatusRes.error }
   if (!numStatRes.ok) return { ok: false, error: numStatRes.error }
@@ -786,9 +762,43 @@ async function loadFileChanges(
     parseNumStatZ(numStatRes.stdout, diffTree),
     statusFiles
   )
-  // status 追加的未跟踪文件补行数（仅与工作区比较时存在，其余场景空集零开销）
-  await fillUntrackedLineCounts(root, fileChanges)
   return { ok: true, fileChanges }
+}
+
+/** 未提交两段列表的加载结果。 */
+type UncommittedResult =
+  { ok: true; uncommitted: GitUncommittedDetails } | { ok: false; error: string }
+
+/** 未提交详情：提交面板与 Files Tab 着色共用一份（ADR-0056）。 */
+const uncommittedReads = new WorkingTreeReads<UncommittedResult>((result) => result.ok)
+
+/**
+ * 未提交两段列表（ADR-0006）：五路并行取素材——已暂存 name-status/numstat + 未暂存
+ * name-status/numstat + 工作区状态。未跟踪文件不统计行数：git 不为它们提供 numstat（ADR-0056）。
+ */
+async function loadUncommitted(root: string): Promise<UncommittedResult> {
+  const [stagedNS, stagedNum, wtNS, wtNum, statusRes] = await Promise.all([
+    runGit(root, buildUncommittedDiffArgs('--name-status', 'staged')),
+    runGit(root, buildUncommittedDiffArgs('--numstat', 'staged')),
+    runGit(root, buildUncommittedDiffArgs('--name-status', 'unstaged')),
+    runGit(root, buildUncommittedDiffArgs('--numstat', 'unstaged')),
+    readStatus(root)
+  ])
+  if (!stagedNS.ok) return { ok: false, error: stagedNS.error }
+  if (!stagedNum.ok) return { ok: false, error: stagedNum.error }
+  if (!wtNS.ok) return { ok: false, error: wtNS.error }
+  if (!wtNum.ok) return { ok: false, error: wtNum.error }
+  if (!statusRes.ok) return { ok: false, error: statusRes.error }
+  return {
+    ok: true,
+    uncommitted: assembleUncommitted(
+      stagedNS.stdout,
+      stagedNum.stdout,
+      wtNS.stdout,
+      wtNum.stdout,
+      statusRes.stdout
+    )
+  }
 }
 
 /**
@@ -798,8 +808,7 @@ async function loadFileChanges(
  */
 export async function getDetails(
   projectPath: string,
-  request: GitDetailsRequest,
-  showUntracked: boolean
+  request: GitDetailsRequest
 ): Promise<GitDetailsResult> {
   const root = await resolveRepoRoot(projectPath)
   if (root === null)
@@ -811,7 +820,7 @@ export async function getDetails(
       root,
       request.fromHash,
       withWorking ? '' : request.toHash,
-      withWorking ? buildStatusArgs(showUntracked) : null
+      withWorking
     )
     if (!result.ok) {
       return { details: null, fileChanges: null, uncommitted: null, error: result.error }
@@ -819,34 +828,12 @@ export async function getDetails(
     return { details: null, fileChanges: result.fileChanges, uncommitted: null, error: null }
   }
   if (request.kind === 'uncommitted') {
-    // 提交面板不需要伪提交元信息（details / fileChanges 恒为 null），
-    // 五路并行取两段素材：已暂存 name-status/numstat + 未暂存 name-status/numstat + status
-    const [stagedNS, stagedNum, wtNS, wtNum, statusRes] = await Promise.all([
-      runGit(root, buildUncommittedDiffArgs('--name-status', 'staged')),
-      runGit(root, buildUncommittedDiffArgs('--numstat', 'staged')),
-      runGit(root, buildUncommittedDiffArgs('--name-status', 'unstaged')),
-      runGit(root, buildUncommittedDiffArgs('--numstat', 'unstaged')),
-      runGit(root, buildStatusArgs(showUntracked))
-    ])
-    if (!stagedNS.ok)
-      return { details: null, fileChanges: null, uncommitted: null, error: stagedNS.error }
-    if (!stagedNum.ok)
-      return { details: null, fileChanges: null, uncommitted: null, error: stagedNum.error }
-    if (!wtNS.ok) return { details: null, fileChanges: null, uncommitted: null, error: wtNS.error }
-    if (!wtNum.ok)
-      return { details: null, fileChanges: null, uncommitted: null, error: wtNum.error }
-    if (!statusRes.ok)
-      return { details: null, fileChanges: null, uncommitted: null, error: statusRes.error }
-    const uncommitted = assembleUncommitted(
-      stagedNS.stdout,
-      stagedNum.stdout,
-      wtNS.stdout,
-      wtNum.stdout,
-      statusRes.stdout
-    )
-    // status 追加的未跟踪文件补行数（只会出现在未暂存段）
-    await fillUntrackedLineCounts(root, uncommitted.unstaged)
-    return { details: null, fileChanges: null, uncommitted, error: null }
+    // 提交面板不需要伪提交元信息（details / fileChanges 恒为 null）
+    const result = await uncommittedReads.read(root, () => loadUncommitted(root))
+    if (!result.ok) {
+      return { details: null, fileChanges: null, uncommitted: null, error: result.error }
+    }
+    return { details: null, fileChanges: null, uncommitted: result.uncommitted, error: null }
   }
   // commit / stash：详情基础（git show --quiet）与文件变更两路（+stash 第三父一路）全部并行
   const fromHash =
@@ -865,10 +852,10 @@ export async function getDetails(
       request.hash,
       `--format=${GIT_FORMAT_DETAILS}`
     ]),
-    loadFileChanges(root, fromHash, request.hash, null),
+    loadFileChanges(root, fromHash, request.hash, false),
     // stash 第三父提交专存未跟踪文件：from=to 走 diff-tree --root 取其文件列表
     untrackedHash !== null
-      ? loadFileChanges(root, untrackedHash, untrackedHash, null)
+      ? loadFileChanges(root, untrackedHash, untrackedHash, false)
       : Promise.resolve(null)
   ])
   if (!showRes.ok)

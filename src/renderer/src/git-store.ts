@@ -537,7 +537,9 @@ export const useGit = create<GitStoreState>((set, get) => {
       if (refreshing.has(projectPath)) return
       refreshing.add(projectPath)
       try {
-        // 1) 先软刷新：本地图谱原地更新，不置全局 loading（数据未变时表格零重渲染）
+        // 1) 先软刷新：本地图谱原地更新，不置全局 loading（数据未变时表格零重渲染）。
+        //    主动刷新不只信监听通知，先作废工作区快照，未提交计数与详情重新取（ADR-0056）
+        await window.api.gitInvalidateWorkingTree(projectPath)
         await get().load(projectPath)
         // 2) 无远程可 fetch：软刷新即全部语义
         if (gitState(get(), projectPath).remotes.length === 0) return

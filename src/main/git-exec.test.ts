@@ -62,7 +62,7 @@ describe('WSL 仓库', () => {
     const ok = await execGit(root, ['branch', '--show-current'])
     expect(wslExec).toHaveBeenLastCalledWith('Ubuntu', 'git', ['branch', '--show-current'], {
       cwd: '/home/me/web',
-      env: { GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true' },
+      env: { GIT_TERMINAL_PROMPT: '0', GIT_EDITOR: 'true', GIT_OPTIONAL_LOCKS: '0' },
       input: undefined
     })
     expect(ok.stdout.toString()).toBe('main\n')

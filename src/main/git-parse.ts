@@ -302,10 +302,20 @@ export function parseLog(stdout: string): GitCommitRecord[] {
 
 // —— §5 未提交更改 ——
 
-/** 解析 `git status --porcelain`（非 -z）：输出以换行结尾，行数减一即变更条数。 */
-export function countPorcelainStatus(stdout: string): number {
-  const lines = stdout.split(EOL_REGEX)
-  return lines.length > 1 ? lines.length - 1 : 0
+/** 数 `git status -s --porcelain -z` 的变更条数：R/C 记录的原路径是紧随其后的独立 NUL 段，不另算一条。 */
+export function countStatusEntriesZ(stdout: string): number {
+  const segments = stdout.split('\0')
+  let count = 0
+  let i = 0
+  while (i < segments.length) {
+    const segment = segments[i]
+    if (segment === '' || segment.length < 4) break // 防御：porcelain 记录至少 "XY <path>"
+    count++
+    const c1 = segment[0]
+    const c2 = segment[1]
+    i += c1 === 'R' || c2 === 'R' || c1 === 'C' || c2 === 'C' ? 2 : 1
+  }
+  return count
 }
 
 /** git status -z 中的已删除 / 未跟踪 / 冲突文件明细（供未提交详情合成 D / U / 冲突项）。 */
@@ -658,25 +668,6 @@ export function parseFileDiff(
 ): DiffFileData {
   const binary = stdout.split(EOL_REGEX).some((line) => BINARY_DIFF_REGEX.test(line))
   return { ...file, binary, raw: binary ? '' : stdout }
-}
-
-// —— 未跟踪文件行数（git 不为 untracked 提供 numstat，读工作区文件补算） ——
-
-/** 二进制探测窗口：与 git 的启发式一致，前 8000 字节内含 NUL 即视为二进制。 */
-const BINARY_PROBE_BYTES = 8000
-
-/**
- * 数一段文件内容的行数（numstat 口径：末行无换行符也算一行；空内容为 0 行）；
- * 前 8000 字节含 NUL 判为二进制返回 null（对齐 git numstat 输出 "-\t-" 的语义）。
- */
-export function countLinesInBuffer(buf: Uint8Array): number | null {
-  if (buf.length === 0) return 0
-  const probeEnd = Math.min(buf.length, BINARY_PROBE_BYTES)
-  for (let i = 0; i < probeEnd; i++) if (buf[i] === 0) return null
-  let lines = 0
-  for (let i = 0; i < buf.length; i++) if (buf[i] === 10) lines++
-  if (buf[buf.length - 1] !== 10) lines++ // 末行无换行符
-  return lines
 }
 
 // —— §9.5 config --list -z ——

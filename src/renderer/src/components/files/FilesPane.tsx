@@ -539,7 +539,10 @@ export function FilesPane({
       setSaveError(null)
       // 写成了即不再冲突（服务器上已删除的，保存即重新创建）
       setConflict(null)
-      if (!remote) void refreshGitStatus()
+      if (!remote) {
+        // 自己刚写的文件：不等监听通知，作废工作区快照后立即重拉 Git 标记
+        void window.api.gitInvalidateWorkingTree(rootPath).then(refreshGitStatus)
+      }
       return true
     } catch (e) {
       setSaveError(ipcErrorMessage(e))
@@ -547,7 +550,7 @@ export function FilesPane({
     } finally {
       setSaving(false)
     }
-  }, [backend, remote, refreshGitStatus])
+  }, [backend, remote, rootPath, refreshGitStatus])
 
   const scheduleIdleSave = useCallback(() => {
     if (idleTimer.current) clearTimeout(idleTimer.current)
@@ -1301,7 +1304,7 @@ export function FilesPane({
   /**
    * 主动刷新（手动、切回、窗口回到前台、自己的文件操作与上传之后）：进行中「刷新」钮的图标转圈、钮置灰，
    * 结束后图标转回原位才恢复（RefreshButton）。本地不只靠监听通知（ADR-0011：系统的文件事件可能被压住、
-   * 迟迟不到），这里一并作废文件名索引、重拉 Git 标记，筛选结果与文件颜色同步跟上。
+   * 迟迟不到），这里一并作废文件名索引与工作区快照、重拉 Git 标记，筛选结果与文件颜色同步跟上。
    * 跟随监听通知的同步不走这里，免得构建等频繁变化时图标一直转。
    */
   const [refreshing, setRefreshing] = useState(0)
@@ -1311,7 +1314,10 @@ export function FilesPane({
       if (remote) {
         await syncFromDisk()
       } else {
-        await window.api.filesInvalidateIndex(rootPath)
+        await Promise.all([
+          window.api.filesInvalidateIndex(rootPath),
+          window.api.gitInvalidateWorkingTree(rootPath)
+        ])
         await Promise.all([syncFromDisk(), refreshGitStatus()])
       }
     } finally {

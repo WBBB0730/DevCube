@@ -281,6 +281,8 @@ const api: RunAPI = {
   gitGetViewPrefs: () => ipcRenderer.invoke(IPC.gitViewPrefsGet),
   gitSetViewPrefs: (patch) => ipcRenderer.invoke(IPC.gitViewPrefsSet, patch),
   onGitChanged: (cb) => subscribe(IPC.gitChanged, cb),
+  gitInvalidateWorkingTree: (projectPath) =>
+    ipcRenderer.invoke(IPC.gitInvalidateWorkingTree, projectPath),
   gitRevalidate: (projectPath) => ipcRenderer.invoke(IPC.gitRevalidate, projectPath),
   gitDefaultBranch: (projectPath) => ipcRenderer.invoke(IPC.gitDefaultBranch, projectPath),
 

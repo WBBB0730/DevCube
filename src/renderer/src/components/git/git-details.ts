@@ -162,6 +162,90 @@ export function flattenFileTree(root: FileTreeFolder, closed: ReadonlySet<string
   return rows
 }
 
+/** 展平行的树结构：每行的上级目录行（顶层为 -1）与子树末尾（不含；文件即下一行）。 */
+export interface FileTreeLinks {
+  parents: number[]
+  ends: number[]
+}
+
+/** 一次扫描建出 FileTreeLinks（展平即深度优先，子孙是紧随其后 depth 更深的连续行）。 */
+export function linkFileTree(rows: readonly FileTreeRow[]): FileTreeLinks {
+  const parents = new Array<number>(rows.length)
+  const ends = new Array<number>(rows.length)
+  /** 子树尚未结束的目录行，栈顶最深 */
+  const open: number[] = []
+  for (let i = 0; i < rows.length; i++) {
+    while (open.length > 0 && rows[open[open.length - 1]].depth >= rows[i].depth) {
+      ends[open[open.length - 1]] = i
+      open.pop()
+    }
+    parents[i] = open.length > 0 ? open[open.length - 1] : -1
+    if (rows[i].kind === 'folder') open.push(i)
+    else ends[i] = i + 1
+  }
+  for (const folder of open) ends[folder] = rows.length
+  return { parents, ends }
+}
+
+/** 开窗后的渲染计划：窗内的行（目录带子级）与并成一段的窗外行（gap，key 为首行下标）。 */
+export type FileTreeWindowNode =
+  | { kind: 'gap'; key: number; rows: number }
+  | {
+      kind: 'folder'
+      row: Extract<FileTreeRow, { kind: 'folder' }>
+      children: FileTreeWindowNode[]
+    }
+  | { kind: 'file'; row: Extract<FileTreeRow, { kind: 'file' }> }
+
+/**
+ * 按可见行区间 [start, end) 开窗（虚拟滚动）：窗内的行连同它们的上级目录照常嵌套，其余整段并成占位——
+ * 目录子树（sticky 目录头的约束框）高度不变，逐级吸顶照旧；渲染量只与窗内行数和层级深度有关。
+ */
+export function windowFileTree(
+  rows: readonly FileTreeRow[],
+  links: FileTreeLinks,
+  start: number,
+  end: number
+): FileTreeWindowNode[] {
+  const { parents, ends } = links
+  if (start >= rows.length || end <= start) {
+    return rows.length === 0 ? [] : [{ kind: 'gap', key: 0, rows: rows.length }]
+  }
+  const walk = (parent: number, from: number, to: number): FileTreeWindowNode[] => {
+    // 本层第一个要画的行：窗口起点所在的那个同层行（从起点沿上级目录爬到本层）
+    let first = from
+    if (start > from) {
+      first = start
+      while (parents[first] !== parent) first = parents[first]
+    }
+    const nodes: FileTreeWindowNode[] = []
+    if (first > from) nodes.push({ kind: 'gap', key: from, rows: first - from })
+    let i = first
+    while (i < to && i < end) {
+      const row = rows[i]
+      nodes.push(
+        row.kind === 'folder'
+          ? { kind: 'folder', row, children: walk(i, i + 1, ends[i]) }
+          : { kind: 'file', row }
+      )
+      i = ends[i]
+    }
+    if (i < to) nodes.push({ kind: 'gap', key: i, rows: to - i })
+    return nodes
+  }
+  return walk(-1, 0, rows.length)
+}
+
+/** 整体区间 [start, end) 里属于某段的部分，换成段内下标（段从 offset 起、共 count 条）。 */
+export function sliceWindow(
+  range: { start: number; end: number },
+  offset: number,
+  count: number
+): { start: number; end: number } {
+  const clamp = (n: number): number => Math.min(Math.max(n - offset, 0), count)
+  return { start: clamp(range.start), end: clamp(range.end) }
+}
+
 /** 文件的 pathspec：重命名（R）需同时覆盖旧 / 新两端（git add / reset），其余仅新路径。 */
 export function pathspecOf(file: GitFileChange): string[] {
   return file.type === 'R' ? [file.oldFilePath, file.newFilePath] : [file.newFilePath]

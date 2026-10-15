@@ -6,7 +6,7 @@
 // 链路 = git add = 标记已解决，解决后经软刷新自然流入已暂存段。
 // 两个组件由 GitCommitDetails 的左右栏分别挂载；暂存类操作走 runQuietAction 静默即时
 // （无进行中遮罩，PRD「静默即时」），错误由 GitDialogs 的错误框统一呈现。
-import { useMemo, useRef, useState, type ReactNode } from 'react'
+import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronRight, Ellipsis, File as FileIcon, Folder } from 'lucide-react'
 import type { GitFileChange } from '@shared/git'
 import { gitState, useGit } from '@renderer/git-store'
@@ -25,11 +25,13 @@ import {
   filesInSelection,
   flattenFileTree,
   pathspecOf,
+  sliceWindow,
   treeRowKeys,
   uncommittedDiffEndpoints,
   type FileTreeRow
 } from './git-details'
 import { StickyTree, ROW_HEIGHT, type FolderRow, type FileRow } from './GitFileTree'
+import { useVisibleRange } from './use-visible-range'
 
 /** selector 稳定空引用：uncommitted 未落地时避免每次返回新数组触发无谓重渲染。 */
 const EMPTY_FILES: GitFileChange[] = []
@@ -50,6 +52,39 @@ type SectionSelection = {
 
 /** shift 范围选锚点：独立于选区存在（文件行普通单击只记锚点不写选区，Finder 语义）。 */
 type SectionAnchor = { section: 'staged' | 'unstaged'; key: string }
+
+/** 两段间分隔线（my-1 h-px）与底部留白条（h-2）的高度：开窗的位置模型按它们算，改样式须同步。 */
+const SEPARATOR_HEIGHT = 9
+const TAIL_HEIGHT = 8
+
+/** 一段的开合：收起的目录（folderPath）与整段折叠，默认全展开（未提交面板目标恒为 '*'，软刷新不重挂，开合自然保留）。 */
+interface SectionView {
+  closed: ReadonlySet<string>
+  open: boolean
+  toggleFolder: (folderPath: string) => void
+  toggleOpen: () => void
+}
+
+function useSectionView(): SectionView {
+  const [closed, setClosed] = useState<ReadonlySet<string>>(new Set())
+  const [open, setOpen] = useState(true)
+  const toggleFolder = useCallback((folderPath: string): void => {
+    setClosed((prev) => {
+      const next = new Set(prev)
+      if (next.has(folderPath)) next.delete(folderPath)
+      else next.add(folderPath)
+      return next
+    })
+  }, [])
+  const toggleOpen = useCallback((): void => setOpen((v) => !v), [])
+  return { closed, open, toggleFolder, toggleOpen }
+}
+
+/** 一段在滚动容器里占的内容条数：折叠为 0，展开时空段一条占位、否则为树的行数。 */
+function sectionBodyCount(view: SectionView, files: number, rows: number): number {
+  if (!view.open) return 0
+  return files === 0 ? 1 : rows
+}
 
 // —— 左栏：提交表单 ——
 
@@ -346,6 +381,49 @@ export function UncommittedFileSections({
     }
   }
 
+  // 两段的开合与展平行提到这里：开窗要知道两段各占多少条，才能算出它们在同一个滚动容器里的位置
+  const stagedView = useSectionView()
+  const unstagedView = useSectionView()
+  const stagedTree = useMemo(() => buildFileTree(rawStaged), [rawStaged])
+  const unstagedTree = useMemo(() => buildFileTree(unstagedFiles), [unstagedFiles])
+  const stagedRows = useMemo(
+    () => flattenFileTree(stagedTree, stagedView.closed),
+    [stagedTree, stagedView.closed]
+  )
+  const unstagedRows = useMemo(
+    () => flattenFileTree(unstagedTree, unstagedView.closed),
+    [unstagedTree, unstagedView.closed]
+  )
+  const stagedBody = sectionBodyCount(stagedView, rawStaged.length, stagedRows.length)
+  const unstagedBody = sectionBodyCount(unstagedView, unstagedFiles.length, unstagedRows.length)
+  /**
+   * 开窗的位置模型（须与下方 DOM 一一对应）：已暂存标题、其内容、分隔线、未暂存标题、其内容、底部留白条。
+   * 两段条数一变就换一套 key / 尺寸函数，tanstack virtual 据 key 函数的换新重算位置。
+   */
+  const layout = useMemo(() => {
+    const separator = stagedBody + 1
+    const unstagedHeader = separator + 1
+    const tail = unstagedHeader + unstagedBody + 1
+    const itemKey = (i: number): string => {
+      if (i === 0) return 'staged'
+      if (i < separator) return `staged-${i - 1}`
+      if (i === separator) return 'separator'
+      if (i === unstagedHeader) return 'unstaged'
+      if (i < tail) return `unstaged-${i - unstagedHeader - 1}`
+      return 'tail'
+    }
+    const size = (i: number): number =>
+      i === separator ? SEPARATOR_HEIGHT : i === tail ? TAIL_HEIGHT : ROW_HEIGHT
+    return { count: tail + 1, itemKey, size, unstagedBodyStart: unstagedHeader + 1 }
+  }, [stagedBody, unstagedBody])
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const range = useVisibleRange({
+    scrollRef,
+    count: layout.count,
+    size: layout.size,
+    itemKey: layout.itemKey
+  })
+
   /** 两段起点锚 ref：点标题经锚 scrollIntoView 定位（标题恒 sticky，直接滚它不动）。 */
   const stagedAnchorRef = useRef<HTMLDivElement>(null)
   const unstagedAnchorRef = useRef<HTMLDivElement>(null)
@@ -356,13 +434,16 @@ export function UncommittedFileSections({
 
   // 根层是唯一滚动容器（h-full overflow-auto）；两段标题以「全部内容」为约束框做双向 sticky：
   // 已暂存钉顶、未暂存未到时钉底预告 / 滚到时钉在已暂存下方，故两段标题恒可见，目录在其下逐级
-  // 吸顶。点标题经锚 scrollIntoView 跳到对应段；末尾留白条给底部一点 padding。
+  // 吸顶。点标题经锚 scrollIntoView 跳到对应段；末尾留白条给底部一点 padding。两段树按可见区间开窗。
   return (
-    <div className="h-full overflow-auto">
+    <div ref={scrollRef} className="h-full overflow-auto">
       <FileSection
         projectPath={projectPath}
         section="staged"
         files={rawStaged}
+        rows={stagedRows}
+        visible={sliceWindow(range, 1, stagedRows.length)}
+        view={stagedView}
         pending={pending}
         locked={locked}
         onToggle={(targets, section) => void runToggle(targets, section, false)}
@@ -380,6 +461,9 @@ export function UncommittedFileSections({
         projectPath={projectPath}
         section="unstaged"
         files={unstagedFiles}
+        rows={unstagedRows}
+        visible={sliceWindow(range, layout.unstagedBodyStart, unstagedRows.length)}
+        view={unstagedView}
         pending={pending}
         locked={locked}
         onToggle={(targets, section) => void runToggle(targets, section, false)}
@@ -400,13 +484,15 @@ export function UncommittedFileSections({
 
 /**
  * 单段文件树（已暂存 / 未暂存）：区头即 SourceTree 的「全部」开关——已暂存区头点击
- * 全取消（unstage-paths []）、未暂存区头点击全部暂存（stage-paths []）。文件夹开合为
- * 组件内 state（未提交面板目标恒为 '*'，软刷新不重挂，开合自然保留）。
+ * 全取消（unstage-paths []）、未暂存区头点击全部暂存（stage-paths []）。开合与展平行由父组件持有（开窗定位用）。
  */
 function FileSection({
   projectPath,
   section,
   files,
+  rows,
+  visible,
+  view,
   pending,
   locked,
   onToggle,
@@ -421,6 +507,12 @@ function FileSection({
   projectPath: string
   section: 'staged' | 'unstaged'
   files: GitFileChange[]
+  /** 本段展平行（已按 view.closed 收起） */
+  rows: FileTreeRow[]
+  /** 要画的行区间（开窗） */
+  visible: { start: number; end: number }
+  /** 本段开合 */
+  view: SectionView
   /** 乐观勾选态：newFilePath → 目标段；含此文件即复选框按目标态原地翻转（不移段） */
   pending: ReadonlyMap<string, 'staged' | 'unstaged'>
   /** 有暂存操作在途：禁用本段所有暂存类控件（复选框 / 区头「全部」） */
@@ -442,9 +534,6 @@ function FileSection({
   /** 点标题：滚动到本段 */
   onHeaderClick: () => void
 }): React.JSX.Element {
-  const [closed, setClosed] = useState<ReadonlySet<string>>(new Set())
-  /** 整段折叠态（标题行即本段顶级目录）：默认展开，折叠时段内容整体隐藏。 */
-  const [sectionOpen, setSectionOpen] = useState(true)
   /** 标题行与目录行的双击折叠共用：同一串连续点击必落在同一行。 */
   const isDoubleClick = useDoubleClick()
   /**
@@ -465,8 +554,6 @@ function FileSection({
     const ep = uncommittedDiffEndpoints(section)
     return d.fromHash === ep.fromHash && d.toHash === ep.toHash ? d.file.newFilePath : null
   })
-  const tree = useMemo(() => buildFileTree(files), [files])
-  const rows = useMemo(() => flattenFileTree(tree, closed), [tree, closed])
   const isStaged = section === 'staged'
   /** 复选框有效勾选态：pending 中的文件按目标段翻转，否则按所在段（isStaged）。 */
   const fileChecked = (file: GitFileChange): boolean => {
@@ -486,15 +573,6 @@ function FileSection({
   /** 本段标题上方的 sticky 标题数（含自身）：已暂存 1、未暂存 2（其上还有已暂存标题）。
    *  段内目录的吸顶 top 与层叠 z 都据它下推，故未暂存段目录钉在两条标题之下。 */
   const headerLevels = isStaged ? 1 : 2
-
-  const toggleFolder = (folderPath: string): void => {
-    setClosed((prev) => {
-      const next = new Set(prev)
-      if (next.has(folderPath)) next.delete(folderPath)
-      else next.add(folderPath)
-      return next
-    })
-  }
 
   const openFileDiff = (file: GitFileChange): void => {
     void useGit.getState().openDiff(projectPath, file, secFrom, secTo)
@@ -610,7 +688,7 @@ function FileSection({
         }}
         onClick={(e) => {
           selectRow(e, row)
-          if (isDoubleClick(e)) toggleFolder(row.folderPath)
+          if (isDoubleClick(e)) view.toggleFolder(row.folderPath)
         }}
         onContextMenu={(e) => openRowMenu(e, row)}
       >
@@ -619,7 +697,7 @@ function FileSection({
           className="flex shrink-0"
           onClick={(e) => {
             e.stopPropagation()
-            toggleFolder(row.folderPath)
+            view.toggleFolder(row.folderPath)
           }}
         >
           <ChevronRight
@@ -747,7 +825,7 @@ function FileSection({
         title="点击跳到此段"
         onClick={(e) => {
           onHeaderClick()
-          if (isDoubleClick(e)) setSectionOpen((v) => !v)
+          if (isDoubleClick(e)) view.toggleOpen()
         }}
       >
         {/* chevron 单独响应折叠：stopPropagation 防止连带触发跳转 */}
@@ -755,13 +833,13 @@ function FileSection({
           className="flex shrink-0"
           onClick={(e) => {
             e.stopPropagation()
-            setSectionOpen((v) => !v)
+            view.toggleOpen()
           }}
         >
           <ChevronRight
             className={cn(
               'size-3.5 text-[color:var(--fg-icon)] transition-transform',
-              sectionOpen && 'rotate-90'
+              view.open && 'rotate-90'
             )}
           />
         </span>
@@ -777,7 +855,7 @@ function FileSection({
           {isStaged ? '已暂存文件' : '未暂存文件'} ({files.length})
         </span>
       </div>
-      {sectionOpen &&
+      {view.open &&
         (files.length === 0 ? (
           // 空段占位：pl 对齐顶层行（8 + 一级 16），并补一个 chevron 列占位（size-3.5 + gap），
           // 使提示文字与顶层文件行 chevron 之后的内容同列
@@ -789,7 +867,12 @@ function FileSection({
             {isStaged ? '无已暂存文件' : '无未暂存文件'}
           </div>
         ) : (
-          <StickyTree rows={rows} renderFolder={renderFolder} renderFile={renderFile} />
+          <StickyTree
+            rows={rows}
+            visible={visible}
+            renderFolder={renderFolder}
+            renderFile={renderFile}
+          />
         ))}
     </>
   )
