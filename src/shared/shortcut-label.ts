@@ -161,7 +161,16 @@ export const SHORTCUT = {
   /** 数据源控制台执行光标所在的语句或选中的部分（docs/prd/database.md）：渲染层自持，不进 matchAppShortcut */
   runStatement: { mod: true, key: 'Enter' } satisfies ShortcutChord,
   cycleTabNext: { ctrl: true, key: 'Tab' } satisfies ShortcutChord,
-  cycleTabPrev: { ctrl: true, shift: true, key: 'Tab' } satisfies ShortcutChord
+  cycleTabPrev: { ctrl: true, shift: true, key: 'Tab' } satisfies ShortcutChord,
+  // 以下为各视图自持的键（不进 matchAppShortcut），设置的快捷键列表与按钮 title 都要用；只在列表里出现的就地写在列表里
+  /** 查找栏里的下一个 / 上一个（Files、Git、终端、数据源的查找栏） */
+  findNext: { key: 'Enter' } satisfies ShortcutChord,
+  findPrev: { shift: true, key: 'Enter' } satisfies ShortcutChord,
+  /** Git Diff：下一处 / 上一处改动、上一个 / 下一个文件（对齐 WebStorm） */
+  diffNextBlock: { key: 'F7' } satisfies ShortcutChord,
+  diffPrevBlock: { shift: true, key: 'F7' } satisfies ShortcutChord,
+  diffPrevFile: { alt: true, key: 'ArrowLeft' } satisfies ShortcutChord,
+  diffNextFile: { alt: true, key: 'ArrowRight' } satisfies ShortcutChord
 } as const
 
 /** Files 文件树删除：macOS ⌘⌫（同 Finder），Windows / Linux Delete。 */

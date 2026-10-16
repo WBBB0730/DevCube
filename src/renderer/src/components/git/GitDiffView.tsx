@@ -25,6 +25,7 @@ import {
   type GitFileStatus,
   type GitImageResult
 } from '@shared/git'
+import { SHORTCUT } from '@shared/shortcut-label'
 import { gitState, useGit } from '@renderer/git-store'
 import { useFiles } from '@renderer/files-store'
 import { useApp } from '@renderer/store'
@@ -272,7 +273,7 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
         <div className="flex shrink-0 items-center gap-0.5">
           <button
             type="button"
-            title={shortcutTitle('上一处改动', { shift: true, key: 'F7' })}
+            title={shortcutTitle('上一处改动', SHORTCUT.diffPrevBlock)}
             disabled={!hasTextBody || !blockNav.prev}
             onClick={() => goBlock('prev')}
             className={HEADER_BTN}
@@ -281,7 +282,7 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
           </button>
           <button
             type="button"
-            title={shortcutTitle('下一处改动', { key: 'F7' })}
+            title={shortcutTitle('下一处改动', SHORTCUT.diffNextBlock)}
             disabled={!hasTextBody || !blockNav.next}
             onClick={() => goBlock('next')}
             className={HEADER_BTN}
@@ -291,7 +292,7 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
           <div className="mx-0.5 h-3 w-px shrink-0 bg-[var(--border-input)]" role="separator" />
           <button
             type="button"
-            title={shortcutTitle('上一个文件', { alt: true, key: 'ArrowLeft' })}
+            title={shortcutTitle('上一个文件', SHORTCUT.diffPrevFile)}
             disabled={navIndex <= 0}
             onClick={() => goFile(-1)}
             className={HEADER_BTN}
@@ -300,7 +301,7 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
           </button>
           <button
             type="button"
-            title={shortcutTitle('下一个文件', { alt: true, key: 'ArrowRight' })}
+            title={shortcutTitle('下一个文件', SHORTCUT.diffNextFile)}
             disabled={navIndex === -1 || navIndex >= navSequence.length - 1}
             onClick={() => goFile(1)}
             className={HEADER_BTN}

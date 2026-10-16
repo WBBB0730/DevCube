@@ -5,8 +5,10 @@
 import { useEffect, useRef } from 'react'
 import { BookOpen, ChevronDown, ChevronUp, Search, X } from 'lucide-react'
 import { UNCOMMITTED, type GitCommit } from '@shared/git'
+import { SHORTCUT } from '@shared/shortcut-label'
 import { gitState, useGit } from '@renderer/git-store'
 import { TOOLBAR_BTN_SM } from '@renderer/components/ui/toolbar'
+import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
 
 export interface FindOptions {
@@ -267,7 +269,7 @@ export function GitFindWidget({ projectPath }: { projectPath: string }): React.J
         </button>
         <button
           type="button"
-          title="上一个匹配 (Shift+Enter)"
+          title={shortcutTitle('上一个匹配', SHORTCUT.findPrev)}
           disabled={matchCount === 0}
           onClick={() => navigate(-1)}
           className={TOOLBAR_BTN_SM}
@@ -276,7 +278,7 @@ export function GitFindWidget({ projectPath }: { projectPath: string }): React.J
         </button>
         <button
           type="button"
-          title="下一个匹配 (Enter)"
+          title={shortcutTitle('下一个匹配', SHORTCUT.findNext)}
           disabled={matchCount === 0}
           onClick={() => navigate(1)}
           className={TOOLBAR_BTN_SM}

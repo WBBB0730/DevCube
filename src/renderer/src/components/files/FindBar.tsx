@@ -2,7 +2,9 @@
 // 编辑器查找栏形态，非悬浮层）；控件样式与终端搜索框 / 内容搜索面板同族。引擎由调用方提供。
 import { useEffect, useRef } from 'react'
 import { CaseSensitive, ChevronDown, ChevronUp, Regex, Search, WholeWord, X } from 'lucide-react'
+import { SHORTCUT } from '@shared/shortcut-label'
 import { TOOLBAR_BTN_SM } from '@renderer/components/ui/toolbar'
+import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
 
 // 方形开关钮（同内容搜索面板）；导航钮（上 / 下一个、关闭）用工具栏小图标钮，同 Git 查找部件
@@ -122,7 +124,7 @@ export function FindBar({
       )}
       <button
         type="button"
-        title="上一个匹配 (Shift+Enter)"
+        title={shortcutTitle('上一个匹配', SHORTCUT.findPrev)}
         disabled={!canNavigate}
         onClick={() => onNavigate(-1)}
         className={TOOLBAR_BTN_SM}
@@ -131,7 +133,7 @@ export function FindBar({
       </button>
       <button
         type="button"
-        title="下一个匹配 (Enter)"
+        title={shortcutTitle('下一个匹配', SHORTCUT.findNext)}
         disabled={!canNavigate}
         onClick={() => onNavigate(1)}
         className={TOOLBAR_BTN_SM}

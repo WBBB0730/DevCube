@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { AppUpdateState } from '@shared/app-update-state'
-import { APP_SHORTCUT_LIST } from '@shared/app-shortcut-list'
+import { appShortcutGroupsFor } from '@shared/app-shortcut-list'
 import {
   OPEN_WITH_FEATURE_IDS,
   type OpenWithFeatureId,
@@ -29,7 +29,6 @@ import {
   SelectValue
 } from '@renderer/components/ui/select'
 import { SegmentedControl } from '@renderer/components/ui/segmented-control'
-import { shortcutLabel } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
 import { useApp } from '@renderer/store'
 import { useGitHub } from '@renderer/github-store'
@@ -638,25 +637,31 @@ export function SettingsDialog({
           )}
 
           {section === 'keymap' && (
-            <div className="space-y-1">
-              {APP_SHORTCUT_LIST.map((row) => {
-                const keys = row.formatKeys
-                  ? row.formatKeys(window.electron.process.platform)
-                  : row.chord
-                    ? shortcutLabel(row.chord)
-                    : ''
-                return (
-                  <div
-                    key={row.label}
-                    className="flex h-8 items-center justify-between gap-4 rounded px-2 hover:bg-row-hover"
-                  >
-                    <span>{row.label}</span>
-                    <span className="font-mono text-[12px] font-semibold text-[color:var(--fg-muted)]">
-                      {keys}
-                    </span>
+            // 按场景分组：组标题同 Git 仓库设置的区块小标题（12px、muted），组与组之间一条浅色分隔线（同菜单分隔线）
+            <div>
+              {appShortcutGroupsFor(platform).map((group, i) => (
+                <section
+                  key={group.title}
+                  className={cn(i > 0 && 'mt-3 border-t border-[color:var(--border-input)] pt-3')}
+                >
+                  <div className="mb-1 px-2 text-[12px] font-medium text-muted-foreground">
+                    {group.title}
                   </div>
-                )
-              })}
+                  <div className="space-y-1">
+                    {group.rows.map((row) => (
+                      <div
+                        key={row.label}
+                        className="flex h-8 items-center justify-between gap-4 rounded px-2 hover:bg-row-hover"
+                      >
+                        <span>{row.label}</span>
+                        <span className="font-mono text-[12px] font-semibold text-[color:var(--fg-muted)]">
+                          {row.keys}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </section>
+              ))}
             </div>
           )}
         </main>

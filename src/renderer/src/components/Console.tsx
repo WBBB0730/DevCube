@@ -1226,7 +1226,7 @@ function TerminalPane({
           )}
           <button
             type="button"
-            title="上一个 (Shift+Enter)"
+            title={shortcutTitle('上一个', SHORTCUT.findPrev)}
             onClick={() => runFind('prev')}
             className={TOOLBAR_BTN_SM}
           >
@@ -1234,7 +1234,7 @@ function TerminalPane({
           </button>
           <button
             type="button"
-            title="下一个 (Enter)"
+            title={shortcutTitle('下一个', SHORTCUT.findNext)}
             onClick={() => runFind('next')}
             className={TOOLBAR_BTN_SM}
           >
