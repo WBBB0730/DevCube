@@ -4,6 +4,7 @@ import {
   DEFAULT_FILES_UI,
   type FilesDirEntry,
   type FilesReadResult,
+  type FilesTransferResult,
   type FilesUiState
 } from '@shared/files'
 import type { ServerFileVersion, ServerFilesWriteResult } from '@shared/server-files'
@@ -42,6 +43,10 @@ export interface FilesBackend {
   ): Promise<FilesWriteResult>
   create(dir: string, name: string, kind: 'file' | 'directory'): Promise<FilesDirEntry>
   rename(path: string, newName: string): Promise<{ path: string }>
+  /** 移到 destDir 下；目标处已有同名条目且 replace 为假时给 conflict（docs/prd/files-tree-move-copy.md） */
+  move(path: string, destDir: string, replace: boolean): Promise<FilesTransferResult>
+  /** 复制到 destDir 下（来源可在根外）；服务器上没有复制，为 null */
+  copy: ((source: string, destDir: string, replace: boolean) => Promise<FilesTransferResult>) | null
   /** 本机移到回收站；服务器上删除（不可恢复） */
   remove(path: string): Promise<void>
   getUi(): Promise<FilesUiState>
@@ -61,6 +66,8 @@ export function localFilesBackend(rootPath: string, persist: boolean): FilesBack
     write: (path, content) => window.api.filesWrite(rootPath, path, content),
     create: (dir, name, kind) => window.api.filesCreate(rootPath, dir, name, kind),
     rename: (path, newName) => window.api.filesRename(rootPath, path, newName),
+    move: (path, destDir, replace) => window.api.filesMove(rootPath, path, destDir, replace),
+    copy: (source, destDir, replace) => window.api.filesCopy(rootPath, source, destDir, replace),
     remove: (path) => window.api.filesTrash(rootPath, path),
     getUi: () => (persist ? window.api.filesGetUi(rootPath) : Promise.resolve(DEFAULT_FILES_UI)),
     setUi: (patch) => {
@@ -89,6 +96,8 @@ export function serverFilesBackend(serverId: string): FilesBackend {
     write: (path, content, base) => window.api.serverFilesWrite(serverId, path, content, base),
     create: (dir, name, kind) => window.api.serverFilesCreate(serverId, dir, name, kind),
     rename: (path, newName) => window.api.serverFilesRename(serverId, path, newName),
+    move: (path, destDir, replace) => window.api.serverFilesMove(serverId, path, destDir, replace),
+    copy: null,
     remove: (path) => window.api.serverFilesDelete(serverId, path),
     getUi: () => window.api.serverFilesGetUi(serverId),
     setUi: (patch) => void window.api.serverFilesSetUi(serverId, patch)

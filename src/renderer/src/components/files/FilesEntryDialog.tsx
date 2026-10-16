@@ -5,23 +5,14 @@ import { useRef, useState } from 'react'
 import { ConfirmDialog, FormDialogShell } from '@renderer/components/ui/form-dialog'
 import { Input } from '@renderer/components/ui/input'
 import { ipcErrorMessage } from '@renderer/lib/ipc-error'
-
-export type FilesEntryDialogRequest =
-  | { kind: 'create-file'; dir: string }
-  | { kind: 'create-dir'; dir: string }
-  | { kind: 'rename'; path: string; isDirectory: boolean }
-  /** 本机：移到回收站（可恢复） */
-  | { kind: 'trash'; path: string; isDirectory: boolean }
-  /** 服务器上，或 WSL 发行版里（distro）：没有回收站，删了即不可恢复 */
-  | { kind: 'delete'; path: string; isDirectory: boolean; distro?: string }
+import type { FilesEntryDialogRequest, FilesRemovalRequest } from './files-entry-request'
 
 /** 条目名；根自身（`/`）原样 */
 function baseName(p: string): string {
   return p.slice(p.lastIndexOf('/') + 1) || p
 }
 
-type RemovalRequest = Extract<FilesEntryDialogRequest, { kind: 'trash' | 'delete' }>
-type NameRequest = Exclude<FilesEntryDialogRequest, RemovalRequest>
+type NameRequest = Exclude<FilesEntryDialogRequest, FilesRemovalRequest>
 
 /** WebStorm 式提示语：完整语句说明目标与动作（B 类外壳无标题栏，提示语即说明）。 */
 function messageFor(request: NameRequest): string {
@@ -35,11 +26,21 @@ function messageFor(request: NameRequest): string {
   }
 }
 
+/** 删除确认的问句：一项写名字，多项写数量 */
+function removalTitle(request: FilesRemovalRequest): string {
+  const [only] = request.entries
+  if (request.entries.length > 1 || only === undefined) return `删除 ${request.entries.length} 项？`
+  return `删除${only.isDirectory ? '文件夹' : '文件'} “${baseName(only.path)}”？`
+}
+
 /** 删除确认的后果：本机移到回收站（可恢复），服务器上与 WSL 发行版里删了即不可恢复 */
-function removalMessage(request: RemovalRequest): string {
+function removalMessage(request: FilesRemovalRequest): string {
   if (request.kind === 'trash') return '将移到回收站。'
   const from = request.distro === undefined ? '服务器上' : ` ${request.distro} 中`
-  return `将从${from}删除${request.isDirectory ? '它及其中的全部内容' : '它'}，删除后无法恢复。`
+  const many = request.entries.length > 1
+  const withContent = request.entries.some((e) => e.isDirectory)
+  const what = many ? '它们' : '它'
+  return `将从${from}删除${withContent ? `${what}及其中的全部内容` : what}，删除后无法恢复。`
 }
 
 const PRIMARY_LABEL: Record<NameRequest['kind'], string> = {
@@ -96,7 +97,7 @@ export function FilesEntryDialog({
   if (request.kind === 'trash' || request.kind === 'delete') {
     return (
       <ConfirmDialog
-        title={`删除${request.isDirectory ? '文件夹' : '文件'} “${baseName(request.path)}”？`}
+        title={removalTitle(request)}
         message={removalMessage(request)}
         buttons={[{ label: '删除', disabled: busy, onClick: submit }]}
         onCancel={busy ? () => undefined : onClose}

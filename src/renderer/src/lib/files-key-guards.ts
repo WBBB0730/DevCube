@@ -18,6 +18,14 @@ export function editableTarget(el: EventTarget | null): boolean {
   return el.closest('input, textarea, select, [contenteditable="true"]') !== null
 }
 
+/**
+ * 事件目标在 Files 文件树里（树的滚动区标着 data-files-tree）：方向键只看焦点，焦点在树上全归树，
+ * 正文的切媒体、翻页让位（docs/prd/files-tree-move-copy.md「方向键归属」）
+ */
+export function filesTreeTarget(el: EventTarget | null): boolean {
+  return el instanceof Element && el.closest('[data-files-tree]') !== null
+}
+
 /** 无修饰键的方向键 → -1（← / ↑）或 1（→ / ↓）；其它为 null */
 export function arrowDirection(e: KeyboardEvent): -1 | 1 | null {
   if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return null

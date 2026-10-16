@@ -148,18 +148,22 @@ export interface TransferConflictRequest {
 
 export type TransferConflictAction = 'replace' | 'skip'
 
-export interface TransferConflictResponse {
-  id: string
+/** 同名时用户的回答：替换还是跳过，是否对其余同名项同样处理 */
+export interface ConflictAnswer {
   action: TransferConflictAction
   applyToRest: boolean
 }
 
+export interface TransferConflictResponse extends ConflictAnswer {
+  id: string
+}
+
 /**
- * 一次传输里的同名处理：勾了「对其余同名项同样处理」之后不再问，照那次的选择处理；
+ * 一次传输（或文件树的一次移动 / 复制）里的同名处理：勾了「对其余同名项同样处理」之后不再问，照那次的选择处理；
  * 没勾就每个都问（ask 返回用户的回答）。
  */
 export function createConflictPolicy(): {
-  resolve: (ask: () => Promise<TransferConflictResponse>) => Promise<TransferConflictAction>
+  resolve: (ask: () => Promise<ConflictAnswer>) => Promise<TransferConflictAction>
 } {
   let remembered: TransferConflictAction | null = null
   return {

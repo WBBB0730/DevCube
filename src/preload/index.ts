@@ -157,6 +157,8 @@ const api: RunAPI = {
     ipcRenderer.invoke(IPC.serverFilesCreate, serverId, dir, name, kind),
   serverFilesRename: (serverId, path, newName) =>
     ipcRenderer.invoke(IPC.serverFilesRename, serverId, path, newName),
+  serverFilesMove: (serverId, path, destDir, replace) =>
+    ipcRenderer.invoke(IPC.serverFilesMove, serverId, path, destDir, replace),
   serverFilesDelete: (serverId, path) => ipcRenderer.invoke(IPC.serverFilesDelete, serverId, path),
   onServerFilesEntriesChanged: (cb) => subscribe(IPC.serverFilesEntriesChanged, cb),
   serverFilesGetUi: (serverId) => ipcRenderer.invoke(IPC.serverFilesGetUi, serverId),
@@ -165,8 +167,8 @@ const api: RunAPI = {
     ipcRenderer.invoke(IPC.serverFilesUpload, serverId, remoteDir, localPaths),
   serverFilesUploadPick: (serverId, remoteDir, kind) =>
     ipcRenderer.invoke(IPC.serverFilesUploadPick, serverId, remoteDir, kind),
-  serverFilesDownload: (serverId, path, isDirectory) =>
-    ipcRenderer.invoke(IPC.serverFilesDownload, serverId, path, isDirectory),
+  serverFilesDownload: (serverId, entries) =>
+    ipcRenderer.invoke(IPC.serverFilesDownload, serverId, entries),
   getServerTransfers: (serverId) => ipcRenderer.invoke(IPC.serverTransfersGet, serverId),
   onServerTransfersChanged: (cb) => subscribe(IPC.serverTransfersChanged, cb),
   cancelServerTransfer: (serverId, id) =>
@@ -251,8 +253,16 @@ const api: RunAPI = {
     ipcRenderer.invoke(IPC.filesRename, projectPath, entryPath, newName),
   filesTrash: (projectPath, entryPath) =>
     ipcRenderer.invoke(IPC.filesTrash, projectPath, entryPath),
-  filesCopyFile: (path) => ipcRenderer.invoke(IPC.filesCopyFile, path),
-  filesCompress: (path) => ipcRenderer.invoke(IPC.filesCompress, path),
+  filesMove: (projectPath, source, destDir, replace) =>
+    ipcRenderer.invoke(IPC.filesMove, projectPath, source, destDir, replace),
+  filesCopy: (projectPath, source, destDir, replace) =>
+    ipcRenderer.invoke(IPC.filesCopy, projectPath, source, destDir, replace),
+  filesCopyToClipboard: (paths, cut) => ipcRenderer.invoke(IPC.filesCopyToClipboard, paths, cut),
+  filesReadClipboard: () => ipcRenderer.invoke(IPC.filesReadClipboard),
+  filesCutPaths: () => ipcRenderer.invoke(IPC.filesCutPaths),
+  onFilesCutChanged: (cb) => subscribe(IPC.filesCutChanged, cb),
+  filesStartDrag: (paths) => ipcRenderer.send(IPC.filesStartDrag, paths),
+  filesCompress: (paths) => ipcRenderer.invoke(IPC.filesCompress, paths),
   filesGetUi: (projectPath) => ipcRenderer.invoke(IPC.filesGetUi, projectPath),
   filesSetUi: (projectPath, patch) => ipcRenderer.invoke(IPC.filesSetUi, projectPath, patch),
   onFilesChanged: (cb) => subscribe(IPC.filesChanged, cb),

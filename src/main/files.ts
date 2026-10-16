@@ -13,7 +13,15 @@ import {
   sniffTextBuffer,
   type FilesOpenKind
 } from '../shared/files-kind'
-import { normalizePath, resolveWithinProject } from '../shared/files-path'
+import {
+  isAbsolutePath,
+  joinLogicalPath,
+  lastPathSegment,
+  logicalParentPath,
+  normalizePath,
+  resolveWithinProject
+} from '../shared/files-path'
+import { copyNameCandidate, isSelfOrInside, moveDropAllowed } from '../shared/files-tree-ops'
 import { isIdeIgnoredEntryName } from '../shared/files-tree-filter'
 import { filterFilesListTree, type FilesTreeFilterResult } from '../shared/files-tree-search'
 import {
@@ -24,6 +32,7 @@ import {
   compareFilesDirEntries,
   type FilesDirEntry,
   type FilesReadResult,
+  type FilesTransferResult,
   type FilesUiState
 } from '../shared/files'
 import {
@@ -34,7 +43,7 @@ import {
 import { ensureImagePreview, ensureImagePyramid } from './files-image-pyramid'
 import { getFilesIndex } from './files-index'
 import { execGit, resolveRepoRoot } from './git-exec'
-import { isGrantedFilesRoot } from './files-roots'
+import { isGrantedFilesRoot, isPathUnderGrantedRoot } from './files-roots'
 import { toSysPath } from './sys-path'
 import { wslDistroOf } from '../shared/wsl-path'
 
@@ -355,8 +364,100 @@ export async function renameEntry(
 export async function trashEntry(projectPath: string, entryPath: string): Promise<void> {
   const logical = within(projectPath, entryPath)
   if (logical === normalizePath(projectPath)) throw new Error('不能删除根文件夹')
+  await removeEntry(logical)
+}
+
+/** 移到回收站；WSL 发行版里没有回收站，直接删除（见 trashEntry） */
+async function removeEntry(logical: string): Promise<void> {
   if (wslDistroOf(logical) !== null) await fs.rm(toSysPath(logical), { recursive: true })
   else await shell.trashItem(toSysPath(logical))
+}
+
+/** 条目在不在（坏掉的符号链接也算在） */
+async function entryExists(logical: string): Promise<boolean> {
+  return fs.lstat(toSysPath(logical)).then(
+    () => true,
+    () => false
+  )
+}
+
+/**
+ * 移动与复制的落点（docs/prd/files-tree-move-copy.md）：目标处已有同名条目时，没说替换即交回渲染端去问，
+ * 替换则原有条目先移到回收站（WSL 里直接删除）。
+ */
+async function clearTarget(target: string, replace: boolean): Promise<boolean> {
+  if (!(await entryExists(target))) return true
+  if (!replace) return false
+  await removeEntry(target)
+  return true
+}
+
+/** 复制一个条目（文件夹递归）；符号链接复制链接本身，不跟随 */
+async function copyTree(source: string, target: string): Promise<void> {
+  await fs.cp(toSysPath(source), toSysPath(target), {
+    recursive: true,
+    errorOnExist: true,
+    force: false,
+    verbatimSymlinks: true
+  })
+}
+
+/**
+ * 把 source 移到 destDir 下。source 须在任一授权根内、且不是根自身（剪切后换到别的项目粘贴，来源在另一个根里）；
+ * destDir 须在本树的根内。落回原处等于没动；跨卷（重命名报 EXDEV）时复制过去再删掉原处的。
+ */
+export async function moveEntry(
+  projectPath: string,
+  sourcePath: string,
+  destDir: string,
+  replace: boolean
+): Promise<FilesTransferResult> {
+  const dest = within(projectPath, destDir)
+  const source = normalizePath(sourcePath)
+  if (!isPathUnderGrantedRoot(source)) throw new Error('路径越界')
+  if (isGrantedFilesRoot(source)) throw new Error('不能移动根文件夹')
+  if (isSelfOrInside(source, dest)) throw new Error('不能移到它自己里面')
+  if (!moveDropAllowed(source, dest)) return { path: source }
+  const target = joinLogicalPath(dest, lastPathSegment(source))
+  if (!(await clearTarget(target, replace))) return { conflict: true }
+  try {
+    await fs.rename(toSysPath(source), toSysPath(target))
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== 'EXDEV') throw e
+    await copyTree(source, target)
+    await fs.rm(toSysPath(source), { recursive: true })
+  }
+  return { path: target }
+}
+
+/**
+ * 把 source 复制到 destDir 下。source 可在根外（Finder 拖进来、粘贴别处复制的），destDir 须在本树的根内；
+ * 复制回原处时按全应用统一的编号避开（「a (2).txt」）。
+ */
+export async function copyEntry(
+  projectPath: string,
+  sourcePath: string,
+  destDir: string,
+  replace: boolean
+): Promise<FilesTransferResult> {
+  const dest = within(projectPath, destDir)
+  const source = normalizePath(sourcePath)
+  if (!isAbsolutePath(source)) throw new Error('路径越界')
+  if (isSelfOrInside(source, dest)) throw new Error('不能复制到它自己里面')
+  const name = lastPathSegment(source)
+  const stat = await fs.lstat(toSysPath(source)).catch(() => {
+    throw new Error(`找不到 “${name}”`)
+  })
+  let target = joinLogicalPath(dest, name)
+  if (logicalParentPath(source) === dest) {
+    for (let seq = 2; await entryExists(target); seq++) {
+      target = joinLogicalPath(dest, copyNameCandidate(name, stat.isDirectory(), seq))
+    }
+  } else if (!(await clearTarget(target, replace))) {
+    return { conflict: true }
+  }
+  await copyTree(source, target)
+  return { path: target }
 }
 
 export async function fileExists(projectPath: string, filePath: string): Promise<boolean> {

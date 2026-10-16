@@ -7,9 +7,9 @@ import { cn } from '@renderer/lib/utils'
 
 /** 树行固定高（h-8）；虚拟滚动按此定位，改行高须同步 TREE_ROW */
 export const TREE_ROW_H = 32
-/** 树行底样（不含状态底色，状态见 TreeRow） */
+/** 树行底样（不含状态底色，状态见 TreeRow）；不画焦点框（同其他控件），键盘停在哪一行靠选中底色看 */
 const TREE_ROW =
-  'flex h-8 w-full cursor-pointer items-center gap-1 rounded px-1.5 text-left text-[13px] text-foreground transition-colors'
+  'flex h-8 w-full cursor-pointer items-center gap-1 rounded px-1.5 text-left text-[13px] text-foreground outline-none transition-colors'
 /** 行内图标（文件夹 / 对象类型等）：14px、`--fg-icon` */
 export const TREE_ICON = 'size-3.5 shrink-0 text-[color:var(--fg-icon)]'
 /** 从别处拖进来时的落点行：行底 + 主色描边 */
@@ -24,6 +24,8 @@ function TreeIndent({ depth }: { depth: number }): React.JSX.Element | null {
 /**
  * 树行：缩进 + 展开箭头槽（叶子留空占位）+ 图标 + 名称（+ 名称后的补充文字）。
  * 行底按状态：落点 > 选中（`--selection-row`，名称转 `--fg-primary`）> 右键菜单打开中（保持 hover 底）> hover。
+ * dimmed（Files 里被剪切、等着粘贴）时图标与名称半透明。可拖动的行给 draggable 与 onDragStart。
+ * 给 onToggle 即点展开箭头单独开合（不经行的 onClick），行本身的单击另作他用（如 Files 单击只选中）。
  */
 export function TreeRow({
   depth,
@@ -36,8 +38,12 @@ export function TreeRow({
   selected,
   menuActive = false,
   dropTarget = false,
+  dimmed = false,
+  draggable,
   onClick,
-  onContextMenu
+  onToggle,
+  onContextMenu,
+  onDragStart
 }: {
   depth: number
   /** 可展开节点的开合；不给即叶子（箭头槽留空） */
@@ -54,8 +60,14 @@ export function TreeRow({
   menuActive?: boolean
   /** 从别处拖进来的落点就是它 */
   dropTarget?: boolean
-  onClick: () => void
+  /** 图标与名称半透明（Files 里被剪切、等着粘贴） */
+  dimmed?: boolean
+  draggable?: boolean
+  onClick: (e: React.MouseEvent) => void
+  /** 点展开箭头：只开合，不触发行的 onClick */
+  onToggle?: () => void
   onContextMenu?: (e: React.MouseEvent) => void
+  onDragStart?: (e: React.DragEvent) => void
 }): React.JSX.Element {
   return (
     <button
@@ -69,22 +81,38 @@ export function TreeRow({
             ? 'bg-[var(--selection-row)]'
             : menuActive
               ? 'bg-[var(--bg-row-hover)]'
-              : 'hover:bg-[var(--bg-row-hover)]'
+              : 'hover:bg-[var(--bg-row-hover)]',
+        dimmed && '[&>svg]:opacity-50'
       )}
+      draggable={draggable}
       onClick={onClick}
       onContextMenu={onContextMenu}
+      onDragStart={onDragStart}
     >
       <TreeIndent depth={depth} />
       {expanded === undefined ? (
         <span className="size-3.5 shrink-0" />
       ) : (
-        <span className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground">
+        <span
+          className="flex size-3.5 shrink-0 items-center justify-center text-muted-foreground"
+          onClick={
+            onToggle &&
+            ((e) => {
+              e.stopPropagation()
+              onToggle()
+            })
+          }
+        >
           <ChevronRight className={cn('size-3.5 transition-transform', expanded && 'rotate-90')} />
         </span>
       )}
       {icon}
       <span
-        className={cn('min-w-0 truncate transition-colors', extra === undefined && 'flex-1')}
+        className={cn(
+          'min-w-0 truncate transition-colors',
+          extra === undefined && 'flex-1',
+          dimmed && 'opacity-50'
+        )}
         style={{ color: selected ? 'var(--fg-primary)' : nameColor }}
       >
         {name}

@@ -19,7 +19,7 @@ import {
   useState
 } from 'react'
 import { GalleryHorizontal, GalleryVertical, Scan } from 'lucide-react'
-import { editableTarget, overlayOpen } from '@renderer/lib/files-key-guards'
+import { editableTarget, filesTreeTarget, overlayOpen } from '@renderer/lib/files-key-guards'
 import { cn } from '@renderer/lib/utils'
 import { isPrimaryModifierEvent, shortcutTitle } from '@renderer/lib/shortcut-label'
 import type { FilesImagePyramid } from '@shared/files-image-tiles'
@@ -562,7 +562,7 @@ export function FilesMediaPreview({
       ) {
         return
       }
-      if (editableTarget(e.target) || overlayOpen()) return
+      if (editableTarget(e.target) || filesTreeTarget(e.target) || overlayOpen()) return
       if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') onPrev?.()
       else onNext?.()
       e.preventDefault()

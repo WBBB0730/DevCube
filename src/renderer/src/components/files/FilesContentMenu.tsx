@@ -56,7 +56,7 @@ export function FilesContentMenu({
           <ContextMenuItem
             onClick={() => {
               onClose()
-              void window.api.filesCopyFile(menu.path)
+              void window.api.filesCopyToClipboard([menu.path], false)
             }}
           >
             <Files className="size-4" /> 复制文件

@@ -7,7 +7,13 @@ import type { AppUpdateState, DevUpdatePreview } from './app-update-state'
 import type { ConnectionTestResult } from './connection'
 import type { ContentSearchEvent, ContentSearchOptions } from './content-search'
 import type { DiscoverSource } from './discover-source'
-import type { FilesDirEntry, FilesReadResult, FilesUiState } from './files'
+import type {
+  FilesDirEntry,
+  FilesEntryRef,
+  FilesReadResult,
+  FilesTransferResult,
+  FilesUiState
+} from './files'
 import type { FilesImagePreview, FilesImagePyramid } from './files-image-tiles'
 import type { FilesTreeFilterResult } from './files-tree-search'
 import type { GitAPI, GitRepoSettings, GitViewPrefs } from './git'
@@ -704,6 +710,13 @@ export interface RunAPI extends GitAPI, GitHubAPI {
     kind: 'file' | 'directory'
   ): Promise<FilesDirEntry>
   serverFilesRename(serverId: string, path: string, newName: string): Promise<{ path: string }>
+  /** 移到 destDir 下（SFTP 跨目录改名）；目标处已有同名条目且 replace 为假时给 conflict */
+  serverFilesMove(
+    serverId: string,
+    path: string,
+    destDir: string,
+    replace: boolean
+  ): Promise<FilesTransferResult>
   /** 删除（不可恢复）；文件夹连同内容 */
   serverFilesDelete(serverId: string, path: string): Promise<void>
   /** 上传完成等：该服务器的文件树应重新读已展开的目录 */
@@ -718,8 +731,8 @@ export interface RunAPI extends GitAPI, GitHubAPI {
     remoteDir: string,
     kind: 'file' | 'directory'
   ): Promise<void>
-  /** 下载：文件弹保存对话框，文件夹选目标目录（取消即不下载） */
-  serverFilesDownload(serverId: string, path: string, isDirectory: boolean): Promise<void>
+  /** 下载：单个文件弹保存对话框，文件夹或多项选目标目录（取消即不下载） */
+  serverFilesDownload(serverId: string, entries: FilesEntryRef[]): Promise<void>
   getServerTransfers(serverId: string): Promise<ServerTransfer[]>
   onServerTransfersChanged(cb: (event: ServerTransfersEvent) => void): () => void
   cancelServerTransfer(serverId: string, id: string): Promise<void>
@@ -872,10 +885,38 @@ export interface RunAPI extends GitAPI, GitHubAPI {
   filesRename(projectPath: string, entryPath: string, newName: string): Promise<{ path: string }>
   /** 移入系统回收站（文件或目录） */
   filesTrash(projectPath: string, entryPath: string): Promise<void>
-  /** 「复制文件」：把文件 / 文件夹本身放进系统剪贴板（系统路径；只放行授权根内） */
-  filesCopyFile(path: string): Promise<void>
-  /** 「压缩」：为该条目开一个压缩窗口（系统路径；只放行授权根内） */
-  filesCompress(path: string): Promise<void>
+  /**
+   * 把 source（任一授权根内、不是根自身）移到 destDir 下；目标处已有同名条目且 replace 为假时给 conflict，
+   * replace 时原有条目先移到回收站（WSL 里直接删除）
+   */
+  filesMove(
+    projectPath: string,
+    source: string,
+    destDir: string,
+    replace: boolean
+  ): Promise<FilesTransferResult>
+  /** 把 source（可在根外，如 Finder 拖进来的）复制到 destDir 下；复制回原处自动编号，其余同 filesMove */
+  filesCopy(
+    projectPath: string,
+    source: string,
+    destDir: string,
+    replace: boolean
+  ): Promise<FilesTransferResult>
+  /**
+   * 「复制」「剪切」「复制文件」：把文件 / 文件夹本身放进系统剪贴板（只放行授权根内）；
+   * cut 为真即记下这一批，粘贴时剪贴板里仍是它们就移动
+   */
+  filesCopyToClipboard(paths: string[], cut: boolean): Promise<void>
+  /** 粘贴：系统剪贴板里的文件（逻辑路径；没有文件即空），cut 为真即剪切的那一批（读过即撤掉剪切） */
+  filesReadClipboard(): Promise<{ paths: string[]; cut: boolean }>
+  /** 剪切还在等粘贴的那一批（先核对剪贴板，已被别处换掉即撤掉）；没有即空 */
+  filesCutPaths(): Promise<string[]>
+  /** 剪切的那一批变了（剪切、粘贴、别处复制了东西）：被剪切的行淡显 */
+  onFilesCutChanged(cb: (paths: string[]) => void): () => void
+  /** 从文件树拖出：交给系统原生文件拖拽（在 dragstart 里调，只放行授权根内） */
+  filesStartDrag(paths: string[]): void
+  /** 「压缩」：为所选条目开一个压缩窗口（只放行授权根内） */
+  filesCompress(paths: string[]): Promise<void>
   filesGetUi(projectPath: string): Promise<FilesUiState>
   filesSetUi(projectPath: string, patch: Partial<FilesUiState>): Promise<FilesUiState>
   /** 项目文件树相关磁盘变化：渲染端应重拉已缓存目录并同步当前打开文件 */

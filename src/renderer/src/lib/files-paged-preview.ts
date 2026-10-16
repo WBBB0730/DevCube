@@ -4,7 +4,7 @@
  * 渲染引擎各管各的，这里只把用户操作翻译成回调（docs/prd/files-pdf-preview.md、files-pptx-preview.md、files-xlsx-preview.md）。
  */
 import { useEffect, useRef, useState, type RefObject } from 'react'
-import { editableTarget, overlayOpen } from './files-key-guards'
+import { editableTarget, filesTreeTarget, overlayOpen } from './files-key-guards'
 import { zoomFromWheel } from './files-media-zoom'
 import { isPrimaryModifierEvent } from './shortcut-label'
 
@@ -84,7 +84,7 @@ export function usePagedPreviewKeys({
         (e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
         (onPrevFile || onNextFile)
       ) {
-        if (editableTarget(target) || overlayOpen()) return
+        if (editableTarget(target) || filesTreeTarget(target) || overlayOpen()) return
         e.preventDefault()
         e.stopPropagation()
         if (e.key === 'ArrowLeft') onPrevFile?.()
@@ -92,7 +92,14 @@ export function usePagedPreviewKeys({
         return
       }
       if (plain && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
-        if (!getPage || !goToPage || editableTarget(target) || overlayOpen()) return
+        if (
+          !getPage ||
+          !goToPage ||
+          editableTarget(target) ||
+          filesTreeTarget(target) ||
+          overlayOpen()
+        )
+          return
         const at = getPage()
         if (!at) return
         e.preventDefault()

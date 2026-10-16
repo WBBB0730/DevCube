@@ -5,27 +5,39 @@ import {
   FILES_TEXT_MAX_BYTES,
   pushRecentPath,
   type FilesDirEntry,
+  type FilesEntryRef,
   type FilesUiState
 } from '@shared/files'
 import { flattenFilesTree, type FilesTreeRow } from '@shared/files-tree-flatten'
+import { wslDistroOf } from '@shared/wsl-path'
 import type { GitFileStatus } from '@shared/git'
 import {
   childPathPrefix,
   joinLogicalPath,
+  lastPathSegment,
   logicalParentPath,
   normalizePath,
   remapPathPrefix
 } from '@shared/files-path'
+import {
+  allUnderRoot,
+  copyDropAllowed,
+  moveDropAllowed,
+  topLevelPaths
+} from '@shared/files-tree-ops'
 import { mergeReloadedDirs, resolveOpenTextDiskSync } from '@shared/files-watch'
 import {
+  createConflictPolicy,
   resolveRemoteInput,
   sameServerFileVersion,
   uploadTargetDir,
+  type ConflictAnswer,
   type ServerFileVersion,
   type ServerFilesReadProgress
 } from '@shared/server-files'
-import { SHORTCUT } from '@shared/shortcut-label'
+import { deleteEntryShortcut, SHORTCUT } from '@shared/shortcut-label'
 import { createKeyedSubscription } from '@renderer/lib/keyed-subscription'
+import { useDoubleClick } from '@renderer/lib/double-click'
 import { useRememberedPanel } from '@renderer/lib/remembered-panel'
 import { isPrimaryModifierEvent, shortcutTitle } from '@renderer/lib/shortcut-label'
 import {
@@ -66,12 +78,30 @@ import {
   MediaFitButtons,
   type MediaPreviewHandle
 } from './FilesMediaPreview'
-import { FilesEntryDialog, type FilesEntryDialogRequest } from './FilesEntryDialog'
+import { FilesEntryDialog } from './FilesEntryDialog'
+import { removalRequest, type FilesEntryDialogRequest } from './files-entry-request'
 import {
   FilesTreeMenu,
+  type FilesTreeClipboardActions,
   type FilesTreeMenuTarget,
   type FilesTreeServerActions
 } from './FilesTreeMenu'
+import { SameNameDialog } from '@renderer/components/TransferConflictDialog'
+import { useFilesCut } from '@renderer/lib/files-cut'
+import {
+  EMPTY_SELECTION,
+  dropHidden,
+  remapSelection,
+  selectAll,
+  selectedInOrder,
+  selectOnly,
+  selectPaths,
+  selectRange,
+  toggleSelected,
+  treeArrowAction,
+  type TreeKeyRow,
+  type TreeSelection
+} from '@renderer/lib/files-tree-selection'
 import { FilesPdfPreview } from './FilesPdfPreview'
 import { FilesPptxPreview } from './FilesPptxPreview'
 import { FilesSheetPreview } from './FilesSheetPreview'
@@ -79,7 +109,12 @@ import { SqliteFileView } from '@renderer/components/database/SqliteFileView'
 import { FilesToolbar } from './FilesToolbar'
 import { FilesContentMenu, type FilesContentMenuTarget } from './FilesContentMenu'
 import { FilesTreeIcon } from './FilesTreeIcon'
-import { arrowDirection, editableTarget, overlayOpen } from '@renderer/lib/files-key-guards'
+import {
+  arrowDirection,
+  editableTarget,
+  filesTreeTarget,
+  overlayOpen
+} from '@renderer/lib/files-key-guards'
 import { filterFilesTreeByType, type FilesTypeCategory } from '@shared/files-type-filter'
 import { FILES_ALL_TYPES, PreviewTypeFilterButton } from './PreviewTreeControls'
 import { relPathUnderRoot } from '@renderer/lib/files-paths'
@@ -96,7 +131,7 @@ import { useApp } from '@renderer/store'
 import { BAR_INPUT_ICON, BarInput } from '@renderer/components/ui/bar-input'
 import { Button } from '@renderer/components/ui/button'
 import { CenteredHint } from '@renderer/components/ui/centered-hint'
-import { ConfirmDialog } from '@renderer/components/ui/form-dialog'
+import { ConfirmDialog, ErrorDialog } from '@renderer/components/ui/form-dialog'
 import { RefreshButton, TOOLBAR_BTN } from '@renderer/components/ui/toolbar'
 import {
   TREE_ICON,
@@ -152,6 +187,13 @@ const subscribeServerReadProgress = createKeyedSubscription(
 
 const IDLE_SAVE_MS = 2000
 const FILTER_DEBOUNCE_MS = 200
+/** 拖动悬停在收起的文件夹上多久自动展开 */
+const DRAG_EXPAND_MS = 600
+/** 拖动靠近树的上下边缘多近开始滚、每次滚多少 */
+const DRAG_SCROLL_EDGE = 24
+const DRAG_SCROLL_STEP = 12
+/** 服务器的树内拖动携带的条目路径（JSON）；服务器上的文件不在本机，不走系统文件拖拽 */
+const SERVER_TREE_DRAG = 'application/x-devcube-server-paths'
 
 /** 文件树的行在定位里认的键：路径；提示行不能被定位 */
 const filesRowKey = (row: FilesTreeRow): string | undefined => (row.notice ? undefined : row.path)
@@ -285,7 +327,11 @@ export function FilesPane({
   const storeKey = host.kind === 'server' ? host.entryKey : rootPath
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set())
   const [childrenByDir, setChildrenByDir] = useState<Record<string, FilesDirEntry[]>>({})
-  const [selectedPath, setSelectedPath] = useState<string | null>(null)
+  /**
+   * 文件树的选中（可多选）与焦点行（docs/prd/files-tree-move-copy.md「选中」）：独立于正文打开的文件，
+   * 打开文件时换成它；树上只有这一种高亮
+   */
+  const [selection, setSelection] = useState<TreeSelection>(EMPTY_SELECTION)
   const [loaded, setLoaded] = useState<Loaded>(null)
   const [saveError, setSaveError] = useState<string | null>(null)
   const [conflict, setConflict] = useState<FilesConflict | null>(null)
@@ -311,10 +357,19 @@ export function FilesPane({
   /** 服务器：树顶「前往路径」的输入与出错原因 */
   const [goQuery, setGoQuery] = useState('')
   const [goError, setGoError] = useState<string | null>(null)
-  /** 服务器：从本机拖进来时的目标目录（高亮该目录行） */
+  /** 拖进来（树内拖动、从 Finder 拖入）时的目标目录（高亮该目录行） */
   const [dropDir, setDropDir] = useState<string | null>(null)
+  /** 移动 / 复制遇到同名：等用户选「替换 / 跳过」 */
+  const [sameName, setSameName] = useState<{
+    message: string
+    batch: boolean
+    answer: (answer: ConflictAnswer) => void
+  } | null>(null)
+  /** 移动、复制、粘贴、删除多项等没有自己弹窗的操作出错 */
+  const [opError, setOpError] = useState<string | null>(null)
 
   const loadedRef = useRef(loaded)
+  const selectionRef = useRef(selection)
   const recentPathsRef = useRef(recentPaths)
   const expandedRef = useRef(expanded)
   const childrenByDirRef = useRef(childrenByDir)
@@ -375,13 +430,14 @@ export function FilesPane({
 
   useLayoutEffect(() => {
     loadedRef.current = loaded
+    selectionRef.current = selection
     recentPathsRef.current = recentPaths
     expandedRef.current = expanded
     childrenByDirRef.current = childrenByDir
     filterViewRef.current = filterView
     openingRef.current = opening
     dirNoticesRef.current = dirNotices
-  }, [loaded, recentPaths, expanded, childrenByDir, filterView, opening, dirNotices])
+  }, [loaded, selection, recentPaths, expanded, childrenByDir, filterView, opening, dirNotices])
 
   // 隐藏时丢弃临时过滤（服务器为「前往路径」的输入）、gutter 弹窗与最近打开下拉；其它 Files 状态继续常驻。
   const [filterVisible, setFilterVisible] = useState(visible)
@@ -432,8 +488,34 @@ export function FilesPane({
     () => flattenFilesTree(rootLogical, displayChildren, displayExpanded, dirNotices),
     [rootLogical, displayChildren, displayExpanded, dirNotices]
   )
-  // 选中项一变即定位（打开文件、显式定位；点目录只改展开，不滚）；面板切走或树隐藏时先挂着，目标行尚未进树
-  // （目录加载中）时也挂着，出现即滚到
+  /** 树上能选中、能用键盘走到的行（不含提示行），自上而下 */
+  const keyRows = useMemo<TreeKeyRow[]>(
+    () =>
+      flatRows
+        .filter((r) => !r.notice)
+        .map((r) => ({
+          path: r.path,
+          isDirectory: r.isDirectory,
+          expanded: r.isDirectory && displayExpanded.has(r.path)
+        })),
+    [flatRows, displayExpanded]
+  )
+  const navPaths = useMemo(() => keyRows.map((r) => r.path), [keyRows])
+  const keyRowByPath = useMemo(() => new Map(keyRows.map((r) => [r.path, r])), [keyRows])
+  // 原本看得见、现在看不见的（父文件夹被收起、被筛掉、已删除）移出选中：渲染期比对上一次看得见的行（React
+  // 「渲染中调整 state」模式，非 effect）。筛选结果还没到时树是空的，不算
+  const visiblePaths = useMemo(() => new Set(navPaths), [navPaths])
+  const rowsSettled = !(filtering && filterView === null)
+  const [seenVisible, setSeenVisible] = useState(visiblePaths)
+  if (rowsSettled && seenVisible !== visiblePaths) {
+    setSeenVisible(visiblePaths)
+    setSelection((prev) => dropHidden(prev, seenVisible, visiblePaths))
+  }
+  /** 被剪切、等着粘贴的条目：图标与名称半透明 */
+  const cutPaths = useFilesCut()
+
+  // 焦点行一变即定位（打开文件、显式定位、键盘移动；点目录只改展开，行本就在视口里不滚）；面板切走或树隐藏时先挂着，
+  // 目标行尚未进树（目录加载中）时也挂着，出现即滚到
   const {
     scrollRef: treeScrollRef,
     virtualizer: rowVirtualizer,
@@ -444,7 +526,7 @@ export function FilesPane({
     rowKey: filesRowKey,
     getItemKey: (i) => flatRows[i].path,
     enabled: visible && treeVisible,
-    follow: selectedPath
+    follow: selection.focus
   })
 
   const refreshGitStatus = useCallback(async () => {
@@ -599,13 +681,14 @@ export function FilesPane({
         if (seq !== openSeqRef.current) return
       }
       // 树上的选中先切过去，不等读完（服务器上的文件要下载一会儿）；被取消时退回正文所在的那个
-      setSelectedPath(filePath)
+      setSelection(selectOnly(filePath))
       if (remote) setOpening({ path: filePath, progress: null })
       try {
         const result = await backend.read(filePath, opts?.openLarge)
         if (seq !== openSeqRef.current) return
         if (result.kind === 'canceled') {
-          setSelectedPath(loadedRef.current?.path ?? null)
+          const shown = loadedRef.current?.path
+          setSelection(shown === undefined ? EMPTY_SELECTION : selectOnly(shown))
           return
         }
         setLoaded(loadedFrom(result))
@@ -622,7 +705,7 @@ export function FilesPane({
         if (seq !== openSeqRef.current) return
         setSaveError(ipcErrorMessage(e))
         setLoaded(null)
-        setSelectedPath(null)
+        setSelection(EMPTY_SELECTION)
         persistUi(null, [...expandedRef.current])
         // 服务器上已经不在的从「最近打开」里去掉（本地的在启动时剔除）
         if (serverId !== null) {
@@ -883,7 +966,7 @@ export function FilesPane({
     const onKey = (e: KeyboardEvent): void => {
       const dir = arrowDirection(e)
       if (dir === null) return
-      if (editableTarget(e.target) || overlayOpen()) return
+      if (editableTarget(e.target) || filesTreeTarget(e.target) || overlayOpen()) return
       e.preventDefault()
       e.stopPropagation()
       void goAdjacentMedia(dir)
@@ -946,8 +1029,8 @@ export function FilesPane({
     async (logical: string, isDirectory: boolean): Promise<void> => {
       setTreeVisible(true)
       const next = await expandToPath(logical, isDirectory)
-      setSelectedPath(logical)
-      // 已是选中项时不会跟随定位，显式再滚一次
+      setSelection(selectOnly(logical))
+      // 已是焦点行时不会跟随定位，显式再滚一次
       scrollToRow(logical)
       const openPath = loadedRef.current?.path ?? null
       persistUi(openPath, [...next])
@@ -959,7 +1042,7 @@ export function FilesPane({
     async (logical: string) => {
       await expandToFile(logical)
       await openFile(logical)
-      // 已是当前文件时 selectedPath 不变、不会跟随定位，须显式再滚一次（同「在文件树中显示」）
+      // 已是当前文件时焦点行不变、不会跟随定位，须显式再滚一次（同「在文件树中显示」）
       scrollToRow(logical)
       // 焦点进正文：文本进编辑器直接可键入（非文本不渲染编辑器，请求自然落空）
       setEditorJump({ path: logical, nonce: ++editorJumpNonce.current })
@@ -977,11 +1060,15 @@ export function FilesPane({
     }
   }, [])
 
+  /** 清掉筛选：回到整棵树并定位到打开的文件（没有打开的就是焦点行），选中换成它 */
   const exitFilter = useCallback(async () => {
     updateFilterQuery('')
-    const open = loadedRef.current?.path ?? selectedPath
-    if (open) await expandToFile(open)
-  }, [expandToFile, selectedPath, updateFilterQuery])
+    const open = loadedRef.current?.path ?? selectionRef.current.focus
+    if (open) {
+      await expandToFile(open)
+      setSelection(selectOnly(open))
+    }
+  }, [expandToFile, updateFilterQuery])
 
   // 防抖扫盘过滤
   useEffect(() => {
@@ -1218,7 +1305,6 @@ export function FilesPane({
 
     const clearOpen = (): void => {
       setLoaded(null)
-      setSelectedPath(null)
       setConflict(null)
       const nextRecent = recentPathsRef.current.filter((p) => p !== path)
       setRecentPaths(nextRecent)
@@ -1395,15 +1481,38 @@ export function FilesPane({
     return () => window.removeEventListener('keydown', onKey)
   }, [savable])
 
-  /** 树行 / 空白区右键 → 打开条目菜单（服务器意外断开期间不给：菜单里全是要连接才能做的事）。 */
+  /** 菜单、键盘作用的条目：选中的、去掉被包含的、按树上自上而下的顺序 */
+  const selectedEntries = useCallback(
+    (): FilesEntryRef[] =>
+      topLevelPaths(selectedInOrder(selectionRef.current, navPaths)).map((path) => ({
+        path,
+        isDirectory: keyRowByPath.get(path)?.isDirectory ?? false
+      })),
+    [keyRowByPath, navPaths]
+  )
+
+  /**
+   * 树行 / 空白区右键 → 打开条目菜单（服务器意外断开期间不给：菜单里全是要连接才能做的事）。右键在已选中的行上，
+   * 菜单作用于全部选中；在没选中的行上，选中换成这一行；在空白区清空选中、作用于根。
+   */
   const openTreeMenu = useCallback(
     (path: string, isDirectory: boolean, e: React.MouseEvent) => {
       e.preventDefault()
       e.stopPropagation()
       if (!connected) return
-      setTreeMenu({ x: e.clientX, y: e.clientY, path, isDirectory })
+      let entries: FilesEntryRef[]
+      if (path === rootLogical) {
+        setSelection(EMPTY_SELECTION)
+        entries = []
+      } else if (selectionRef.current.paths.has(path)) {
+        entries = selectedEntries()
+      } else {
+        setSelection(selectOnly(path))
+        entries = [{ path, isDirectory }]
+      }
+      setTreeMenu({ x: e.clientX, y: e.clientY, path, isDirectory, entries })
     },
-    [connected]
+    [connected, rootLogical, selectedEntries]
   )
 
   // —— 服务器宿主：上传 / 下载 / 在 SSH 终端中打开 / 前往路径 / 断开 ——
@@ -1416,8 +1525,7 @@ export function FilesPane({
         : {
             onUpload: (dir, kind) =>
               void window.api.serverFilesUploadPick(host.serverId, dir, kind),
-            onDownload: (path, isDirectory) =>
-              void window.api.serverFilesDownload(host.serverId, path, isDirectory),
+            onDownload: (entries) => void window.api.serverFilesDownload(host.serverId, entries),
             onOpenInSshTerminal: host.onOpenInSshTerminal
           },
     [host]
@@ -1461,35 +1569,82 @@ export function FilesPane({
     if (await useApp.getState().resolveServerUnsaved(host.serverId)) host.onDisconnect()
   }, [host])
 
-  /** 从本机拖进来：落点即行上标的目录（目录行即自身，文件行即所在目录，根行即根）；空白处不接受。 */
-  const dropDirOf = (e: React.DragEvent): string | null =>
-    (e.target as HTMLElement).closest<HTMLElement>('[data-drop-dir]')?.dataset.dropDir ?? null
-  const acceptsDrop = (e: React.DragEvent): boolean =>
-    remote && connected && e.dataTransfer.types.includes('Files')
-  const onTreeDragOver = (e: React.DragEvent): void => {
-    if (!acceptsDrop(e)) return
-    const dir = dropDirOf(e)
-    setDropDir(dir)
-    if (dir === null) return
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'copy'
-  }
-  const onTreeDragLeave = (e: React.DragEvent): void => {
-    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setDropDir(null)
-  }
-  const onTreeDrop = (e: React.DragEvent): void => {
-    setDropDir(null)
-    if (serverId === null || !acceptsDrop(e)) return
-    const dir = dropDirOf(e)
-    if (dir === null) return
-    e.preventDefault()
-    const paths = [...e.dataTransfer.files].map((f) => window.drop.getPathForFile(f))
-    void window.api.serverFilesUpload(serverId, dir, paths.filter(Boolean)).catch(reportError)
-  }
+  /**
+   * 移动（含重命名）落定之后：展开集、选中、查找与阅读位置、最近打开按路径前缀重映射；打开的文件受影响时先切到新路径
+   * （本机重新打开；服务器上就地换路径——不重新下载，未保存的编辑也还在，改路径不改内容与修改时间）。再从磁盘刷新树
+   * （反过来刷新会把旧路径判「已消失」误清），补载换了 key 的已展开目录。没有移动的（复制之后）只刷新。
+   */
+  const applyMoves = useCallback(
+    async (pairs: readonly { from: string; to: string }[]): Promise<void> => {
+      const moved = pairs.filter((m) => m.from !== m.to)
+      if (moved.length > 0) {
+        const remap = (p: string): string => {
+          for (const { from, to } of moved) {
+            const next = remapPathPrefix(p, from, to)
+            if (next !== p) return next
+          }
+          return p
+        }
+        const nextExpanded = new Set([...expandedRef.current].map(remap))
+        expandedRef.current = nextExpanded
+        setExpanded(nextExpanded)
+        setSelection((prev) => remapSelection(prev, remap))
+        remapPathKeys(findMemory, remap)
+        remapPathKeys(viewMemory, remap)
+        const nextRecent = recentPathsRef.current.map(remap)
+        setRecentPaths(nextRecent)
+        const cur = loadedRef.current
+        const openRemapped = cur === null ? null : remap(cur.path)
+        setUi({ openPath: openRemapped, expandedPaths: [...nextExpanded], recentPaths: nextRecent })
+        if (cur !== null && openRemapped !== null && openRemapped !== cur.path) {
+          if (remote) {
+            const relocated = { ...cur, path: openRemapped }
+            loadedRef.current = relocated
+            setLoaded(relocated)
+          } else {
+            await openFile(openRemapped, { force: true })
+          }
+        }
+      }
+      await refreshFromDisk()
+      for (const dir of expandedRef.current) {
+        if (moved.some((m) => dir === m.to || dir.startsWith(m.to + '/'))) {
+          await ensureDirLoaded(dir).catch(() => undefined)
+        }
+      }
+    },
+    [findMemory, viewMemory, setUi, remote, openFile, refreshFromDisk, ensureDirLoaded]
+  )
+
+  /** 条目没了（删除）：打开的文件在其中就清空正文（撤掉挂起的自动保存，免得写回来），查找与阅读位置一并丢掉 */
+  const applyRemovals = useCallback(
+    (paths: readonly string[]): void => {
+      const gone = (p: string): boolean => paths.some((r) => p === r || p.startsWith(r + '/'))
+      const cur = loadedRef.current
+      if (cur !== null && gone(cur.path)) {
+        if (idleTimer.current) {
+          clearTimeout(idleTimer.current)
+          idleTimer.current = null
+        }
+        setLoaded(null)
+        setConflict(null)
+        const nextRecent = recentPathsRef.current.filter((p) => !gone(p))
+        setRecentPaths(nextRecent)
+        setUi({
+          openPath: null,
+          expandedPaths: [...expandedRef.current].filter((p) => !gone(p)),
+          recentPaths: nextRecent
+        })
+      }
+      dropPathKeys(findMemory, gone)
+      dropPathKeys(viewMemory, gone)
+    },
+    [setUi, findMemory, viewMemory]
+  )
 
   /**
    * 条目操作执行（弹窗确认后）：主进程落盘 → 本地状态联动 → 统一从磁盘刷新树。
-   * 抛错交由弹窗就地展示（弹窗保持打开）。
+   * 抛错交由弹窗就地展示（弹窗保持打开）；删除多项时已删掉一部分再出错，关掉弹窗另行报错（再点删除会撞上已删掉的）。
    */
   const submitEntryDialog = useCallback(
     async (req: FilesEntryDialogRequest, name: string) => {
@@ -1520,67 +1675,23 @@ export function FilesPane({
         const { path: newPath } = await backend.rename(req.path, name)
         setEntryDialog(null)
         if (newPath === req.path) return
-        const remap = (p: string): string => remapPathPrefix(p, req.path, newPath)
-        const nextExpanded = new Set([...expandedRef.current].map(remap))
-        expandedRef.current = nextExpanded
-        setExpanded(nextExpanded)
-        setSelectedPath((prev) => (prev === null ? null : remap(prev)))
-        remapPathKeys(findMemory, remap)
-        remapPathKeys(viewMemory, remap)
-        const nextRecent = recentPathsRef.current.map(remap)
-        setRecentPaths(nextRecent)
-        const cur = loadedRef.current
-        const openRemapped = cur === null ? null : remap(cur.path)
-        setUi({
-          openPath: openRemapped,
-          expandedPaths: [...nextExpanded],
-          recentPaths: nextRecent
-        })
-        // 先把打开文件切到新路径，refreshFromDisk 才不会把旧路径当「已消失」清掉。
-        // 服务器上的就地换路径：不重新下载，未保存的编辑也还在（改名不改内容与修改时间）
-        if (cur !== null && openRemapped !== null && openRemapped !== cur.path) {
-          if (remote) {
-            const moved = { ...cur, path: openRemapped }
-            loadedRef.current = moved
-            setLoaded(moved)
-          } else {
-            await openFile(openRemapped, { force: true })
-          }
-        }
-        await refreshFromDisk()
-        // 重命名子树下已展开的目录换了 key，补载新路径的目录列表
-        for (const dir of nextExpanded) {
-          if (dir === newPath || dir.startsWith(newPath + '/')) {
-            await ensureDirLoaded(dir).catch(() => undefined)
-          }
-        }
+        await applyMoves([{ from: req.path, to: newPath }])
         return
       }
 
-      // 本机移到回收站，服务器上直接删除
-      await backend.remove(req.path)
-      setEntryDialog(null)
-      const gone = (p: string): boolean => p === req.path || p.startsWith(req.path + '/')
-      const cur = loadedRef.current
-      if (cur !== null && gone(cur.path)) {
-        // 撤掉挂起的自动保存，避免把刚删除的文件写回来
-        if (idleTimer.current) {
-          clearTimeout(idleTimer.current)
-          idleTimer.current = null
+      // 本机移到回收站，服务器上直接删除；逐项执行
+      const done: string[] = []
+      try {
+        for (const entry of req.entries) {
+          await backend.remove(entry.path)
+          done.push(entry.path)
         }
-        setLoaded(null)
-        setConflict(null)
-        const nextRecent = recentPathsRef.current.filter((p) => !gone(p))
-        setRecentPaths(nextRecent)
-        setUi({
-          openPath: null,
-          expandedPaths: [...expandedRef.current].filter((p) => !gone(p)),
-          recentPaths: nextRecent
-        })
+      } catch (e) {
+        if (done.length === 0) throw e
+        setOpError(ipcErrorMessage(e))
       }
-      setSelectedPath((prev) => (prev !== null && gone(prev) ? null : prev))
-      dropPathKeys(findMemory, gone)
-      dropPathKeys(viewMemory, gone)
+      setEntryDialog(null)
+      applyRemovals(done)
       await refreshFromDisk()
     },
     [
@@ -1591,11 +1702,113 @@ export function FilesPane({
       expandToFile,
       openFile,
       flushSave,
-      ensureDirLoaded,
-      setUi,
-      findMemory,
-      viewMemory
+      applyMoves,
+      applyRemovals
     ]
+  )
+
+  /** 移动、复制的同名询问：替换后原有的本机进回收站，WSL 与服务器上无法恢复 */
+  const irreversibleReplace = remote || wslDistroOf(rootLogical) !== null
+  const askSameName = useCallback(
+    (name: string, batch: boolean): Promise<ConflictAnswer> =>
+      new Promise((resolve) =>
+        setSameName({
+          message: `目标文件夹里已有 “${name}”。要替换它吗？${
+            irreversibleReplace ? '替换后原有的无法恢复。' : '原有的将移到回收站。'
+          }`,
+          batch,
+          answer: (answer) => {
+            setSameName(null)
+            resolve(answer)
+          }
+        })
+      ),
+    [irreversibleReplace]
+  )
+
+  /**
+   * 逐项移动 / 复制到 destDir（docs/prd/files-tree-move-copy.md）：去掉被包含的与落点不成立的；同名逐个问「替换 / 跳过」，
+   * 可对其余同名项一次决定；某项出错即停，已完成的保留。之后联动（移动的按新路径重映射）、从磁盘刷新，
+   * 展开到落点并选中落定的条目。
+   */
+  const transferEntries = useCallback(
+    async (sources: readonly string[], destDir: string, mode: 'move' | 'copy'): Promise<void> => {
+      const run = mode === 'move' ? backend.move : backend.copy
+      if (run === null) return
+      const allowed = mode === 'move' ? moveDropAllowed : copyDropAllowed
+      const items = topLevelPaths(sources.map((p) => normalizePath(p))).filter((p) =>
+        allowed(p, destDir)
+      )
+      if (items.length === 0) return
+      // 移动前先落未保存的编辑（旧路径此刻仍在），失败则不动文件；服务器上的文件手动保存，编辑跟着改路径
+      if (mode === 'move' && !remote && !(await flushSave())) {
+        setOpError('有未保存的更改且写入失败，已取消移动')
+        return
+      }
+      const policy = createConflictPolicy()
+      const moves: { from: string; to: string }[] = []
+      const landed: string[] = []
+      let error: string | null = null
+      for (const source of items) {
+        try {
+          let result = await run(source, destDir, false)
+          if ('conflict' in result) {
+            const action = await policy.resolve(() =>
+              askSameName(lastPathSegment(source), items.length > 1)
+            )
+            if (action === 'skip') continue
+            result = await run(source, destDir, true)
+            if ('conflict' in result) continue
+          }
+          landed.push(result.path)
+          if (mode === 'move') moves.push({ from: source, to: result.path })
+        } catch (e) {
+          error = ipcErrorMessage(e)
+          break
+        }
+      }
+      await applyMoves(moves)
+      if (landed.length > 0) {
+        const next = await expandToPath(destDir, true)
+        persistUi(loadedRef.current?.path ?? null, [...next])
+        setSelection(selectPaths(landed))
+      }
+      if (error !== null) setOpError(error)
+    },
+    [backend, remote, flushSave, askSameName, applyMoves, expandToPath, persistUi]
+  )
+
+  /** 「复制」「剪切」：放进系统剪贴板（剪切另记下这一批，粘贴即移动） */
+  const copyToClipboard = useCallback((paths: readonly string[], cut: boolean): void => {
+    if (paths.length === 0) return
+    window.api
+      .filesCopyToClipboard(topLevelPaths(paths), cut)
+      .catch((e: unknown) => setOpError(ipcErrorMessage(e)))
+  }, [])
+
+  /** 「粘贴」：剪贴板里是剪切的那一批即移动，否则复制进来（含 Finder 里复制的） */
+  const pasteInto = useCallback(
+    async (destDir: string): Promise<void> => {
+      try {
+        const { paths, cut } = await window.api.filesReadClipboard()
+        await transferEntries(paths, destDir, cut ? 'move' : 'copy')
+      } catch (e) {
+        setOpError(ipcErrorMessage(e))
+      }
+    },
+    [transferEntries]
+  )
+
+  const clipboardActions = useMemo<FilesTreeClipboardActions | undefined>(
+    () =>
+      remote
+        ? undefined
+        : {
+            onCut: (paths) => copyToClipboard(paths, true),
+            onCopy: (paths) => copyToClipboard(paths, false),
+            onPaste: (dir) => void pasteInto(dir)
+          },
+    [remote, copyToClipboard, pasteInto]
   )
 
   /** 冲突时换成别处的版本（服务器上的已删除或新版本超过文本上限时重开，落到出错或占位） */
@@ -1655,10 +1868,289 @@ export function FilesPane({
   const filterHint = shortcutTitle('筛选文件', SHORTCUT.filesFilter)
   const goHint = shortcutTitle('前往路径…', SHORTCUT.filesFilter)
   /** 服务器上某个文件的「下载」与「在 SSH 终端中打开」（占位与正文菜单用） */
-  const downloadFile = (path: string): void => serverActions?.onDownload(path, false)
+  const downloadFile = (path: string): void =>
+    serverActions?.onDownload([{ path, isDirectory: false }])
   /** 预览出错的占位里的「下载」：服务器上打开的文件没有「在其他应用中打开」，给它一个出口；断开时不给 */
   const downloadOpenFile =
     remote && connected && loaded !== null ? () => downloadFile(loaded.path) : null
+
+  // —— 拖拽（docs/prd/files-tree-move-copy.md「拖拽落点」「拖拽机制」） ——
+
+  /** 正从这棵树拖出的条目：落回树内时判断落点成不成立；拖动结束后清掉（原生拖拽没有 dragend，见 startRowDrag） */
+  const treeDragRef = useRef<string[] | null>(null)
+  /** 拖动悬停在收起的文件夹上：稍候自动展开 */
+  const hoverExpandRef = useRef<{ dir: string; timer: ReturnType<typeof setTimeout> } | null>(null)
+
+  /** 拖动时按住即复制：macOS ⌥，Windows / Linux Ctrl（同各自的文件管理器） */
+  const copyModifier = (e: React.DragEvent): boolean =>
+    window.electron.process.platform === 'darwin' ? e.altKey : e.ctrlKey
+
+  /** 落点：行上标的目录（目录行即自身，文件行即所在目录，根行即根）；空白处即根，服务器上不接受（同上传） */
+  const dropDirOf = (e: React.DragEvent): string | null => {
+    const marked = (e.target as HTMLElement).closest<HTMLElement>('[data-drop-dir]')?.dataset
+      .dropDir
+    if (marked !== undefined) return marked
+    return !remote && treeScrollRef.current?.contains(e.target as Node) ? rootLogical : null
+  }
+
+  /**
+   * 这次拖动落到 dir 是什么操作；不接受为 null。本机：拖进来的都是系统文件，从这棵树拖出的移动（按住复制键为复制），
+   * 别处来的复制进来；服务器：树内拖动只移动，从本机拖进来即上传。
+   */
+  const dropOperation = (e: React.DragEvent, dir: string): 'move' | 'copy' | 'upload' | null => {
+    const types = e.dataTransfer.types
+    const own = treeDragRef.current
+    if (remote) {
+      if (types.includes(SERVER_TREE_DRAG)) {
+        return !copyModifier(e) && own !== null && own.some((p) => moveDropAllowed(p, dir))
+          ? 'move'
+          : null
+      }
+      return types.includes('Files') ? 'upload' : null
+    }
+    if (!types.includes('Files')) return null
+    if (own === null) return 'copy'
+    const mode = copyModifier(e) ? 'copy' : 'move'
+    const allowed = mode === 'move' ? moveDropAllowed : copyDropAllowed
+    return own.some((p) => allowed(p, dir)) ? mode : null
+  }
+
+  /** 悬停在收起的文件夹上约 600 ms 自动展开；换了落点即重新计时 */
+  const scheduleHoverExpand = (dir: string | null): void => {
+    const pending = hoverExpandRef.current
+    if (pending?.dir === dir) return
+    if (pending) clearTimeout(pending.timer)
+    hoverExpandRef.current = null
+    const row = dir === null ? undefined : keyRowByPath.get(dir)
+    if (dir === null || !row?.isDirectory || row.expanded) return
+    hoverExpandRef.current = {
+      dir,
+      timer: setTimeout(() => {
+        hoverExpandRef.current = null
+        const open = filtering ? filterViewRef.current?.expanded : expandedRef.current
+        if (!open?.has(dir)) void toggleDir(dir)
+      }, DRAG_EXPAND_MS)
+    }
+  }
+
+  /** 靠近树的上下边缘时自动滚动（拖动悬停期间 dragover 持续触发） */
+  const autoScrollWhileDragging = (e: React.DragEvent): void => {
+    const el = treeScrollRef.current
+    if (!el) return
+    const rect = el.getBoundingClientRect()
+    if (e.clientY < rect.top + DRAG_SCROLL_EDGE) el.scrollTop -= DRAG_SCROLL_STEP
+    else if (e.clientY > rect.bottom - DRAG_SCROLL_EDGE) el.scrollTop += DRAG_SCROLL_STEP
+  }
+
+  /**
+   * 从树上拖起：拖已选中的行带上全部选中，拖没选中的行只拖它自己。本机交给系统原生文件拖拽（Electron 官方做法，
+   * 同一次拖动既能落回树内，也能拖到 Finder 等应用）；服务器上的不在本机，走页面内拖放、只能落回树内。
+   */
+  const startRowDrag = (row: FilesTreeRow, e: React.DragEvent): void => {
+    if (!connected) {
+      e.preventDefault()
+      return
+    }
+    const paths = selectionRef.current.paths.has(row.path)
+      ? selectedEntries().map((entry) => entry.path)
+      : [row.path]
+    treeDragRef.current = paths
+    // 原生拖拽结束时页面收不到 dragend：指针松开后头一次移动即清掉
+    const clear = (ev: PointerEvent): void => {
+      if (ev.buttons !== 0) return
+      treeDragRef.current = null
+      window.removeEventListener('pointermove', clear)
+    }
+    window.addEventListener('pointermove', clear)
+    if (remote) {
+      e.dataTransfer.setData(SERVER_TREE_DRAG, JSON.stringify(paths))
+      e.dataTransfer.effectAllowed = 'move'
+      return
+    }
+    e.preventDefault()
+    window.api.filesStartDrag(paths)
+  }
+
+  const onTreeDragOver = (e: React.DragEvent): void => {
+    if (!connected) return
+    const dir = dropDirOf(e)
+    const op = dir === null ? null : dropOperation(e, dir)
+    setDropDir(op === null ? null : dir)
+    scheduleHoverExpand(op === null ? null : dir)
+    autoScrollWhileDragging(e)
+    if (op === null) return
+    e.preventDefault()
+    // 系统原生拖拽只许复制 / 链接时（Windows 上 Electron 的 startDrag 即如此），移动也只能显示为复制
+    const effect = e.dataTransfer.effectAllowed
+    const moveShown = effect === 'all' || effect === 'uninitialized' || /move/i.test(effect)
+    e.dataTransfer.dropEffect = op === 'move' && moveShown ? 'move' : 'copy'
+  }
+  const onTreeDragLeave = (e: React.DragEvent): void => {
+    if (e.currentTarget.contains(e.relatedTarget as Node | null)) return
+    setDropDir(null)
+    scheduleHoverExpand(null)
+  }
+  const onTreeDrop = (e: React.DragEvent): void => {
+    setDropDir(null)
+    scheduleHoverExpand(null)
+    const dir = dropDirOf(e)
+    const op = dir === null || !connected ? null : dropOperation(e, dir)
+    treeDragRef.current = null
+    if (op === null || dir === null) return
+    e.preventDefault()
+    if (op === 'upload') {
+      if (serverId === null) return
+      const paths = [...e.dataTransfer.files].map((f) => window.drop.getPathForFile(f))
+      void window.api.serverFilesUpload(serverId, dir, paths.filter(Boolean)).catch(reportError)
+      return
+    }
+    if (remote) {
+      let paths: string[] = []
+      try {
+        paths = JSON.parse(e.dataTransfer.getData(SERVER_TREE_DRAG)) as string[]
+      } catch {
+        return
+      }
+      void transferEntries(paths, dir, 'move')
+      return
+    }
+    // 落定以真实来源为准：都在这棵树的根内即移动（按住复制键为复制），否则复制进来（同 Finder 判同一磁盘）
+    const paths = [...e.dataTransfer.files]
+      .map((f) => window.drop.getPathForFile(f))
+      .filter(Boolean)
+      .map((p) => normalizePath(p))
+    void transferEntries(
+      paths,
+      dir,
+      !copyModifier(e) && allUnderRoot(paths, rootLogical) ? 'move' : 'copy'
+    )
+  }
+
+  // —— 树上的点选与键盘（docs/prd/files-tree-move-copy.md「选中」「键盘」） ——
+
+  const isDoubleClick = useDoubleClick()
+  /**
+   * 单击只看：文件在正文显示内容、焦点留在树上（接着用键盘与快捷键），文件夹只选中；双击进去：文件打开并把焦点交给正文，
+   * 文件夹开合（同左树，连续双击可来回切换）。⌘（Windows / Linux 为 Ctrl）点选切换单项、⇧ 点选连选，都不打开
+   */
+  const clickRow = (row: FilesTreeRow, e: React.MouseEvent): void => {
+    const double = isDoubleClick(e)
+    if (isPrimaryModifierEvent(e)) {
+      setSelection((prev) => toggleSelected(prev, row.path))
+      return
+    }
+    if (e.shiftKey) {
+      setSelection((prev) => selectRange(prev, navPaths, row.path))
+      return
+    }
+    setSelection(selectOnly(row.path))
+    if (row.isDirectory) {
+      if (double) void toggleDir(row.path)
+      return
+    }
+    if (double) enterFile(row.path)
+    else void openFile(row.path)
+  }
+
+  /** 就近的文件夹（粘贴的目标）：文件夹即自身，文件即所在文件夹，没有焦点行即根 */
+  const nearestDirOf = (path: string | null): string => {
+    if (path === null) return rootLogical
+    return keyRowByPath.get(path)?.isDirectory ? path : logicalParentPath(path)
+  }
+
+  /**
+   * 进入文件（双击、Enter）：没打开的先打开，再把焦点交给正文——文本进编辑器（直接可键入），其余离开文件树
+   * （焦点可能在树的某一行上），正文的方向键随即接管
+   */
+  const enterFile = (path: string): void => {
+    const opened = loadedRef.current?.path === path ? Promise.resolve() : openFile(path)
+    void opened.then(() => {
+      const active = document.activeElement
+      if (active instanceof HTMLElement && treeScrollRef.current?.contains(active)) active.blur()
+      setEditorJump({ path, nonce: ++editorJumpNonce.current })
+    })
+  }
+
+  /** 焦点在树上的键：方向键同 WebStorm 的树，Enter / F2 / 删除 / 全选 / 剪切复制粘贴；其余可打印字符转进树顶输入 */
+  const onTreeKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    // 没连上时输入停用
+    if (remote && !connected) return
+    if (e.nativeEvent.isComposing) return
+    const { key } = e
+    const mod = isPrimaryModifierEvent(e.nativeEvent)
+    const bare = !e.metaKey && !e.ctrlKey && !e.altKey
+    const focus = selectionRef.current.focus
+    if (
+      bare &&
+      (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight')
+    ) {
+      e.preventDefault()
+      const action = treeArrowAction(keyRows, focus, key, logicalParentPath)
+      if (action === null) return
+      if (e.shiftKey) {
+        if (action.kind === 'move' && (key === 'ArrowUp' || key === 'ArrowDown')) {
+          setSelection((prev) => selectRange(prev, navPaths, action.path))
+        }
+        return
+      }
+      if (action.kind !== 'move') {
+        void toggleDir(action.path)
+        return
+      }
+      setSelection(selectOnly(action.path))
+      if (!keyRowByPath.get(action.path)?.isDirectory) void openFile(action.path)
+      return
+    }
+    if (bare && !e.shiftKey && key === 'Enter') {
+      const row = focus === null ? undefined : keyRowByPath.get(focus)
+      if (!row) return
+      e.preventDefault()
+      if (row.isDirectory) void toggleDir(row.path)
+      else enterFile(row.path)
+      return
+    }
+    if (bare && !e.shiftKey && key === 'F2') {
+      const entries = selectedEntries()
+      const [only] = entries
+      if (entries.length !== 1 || only === undefined) return
+      e.preventDefault()
+      setEntryDialog({ kind: 'rename', path: only.path, isDirectory: only.isDirectory })
+      return
+    }
+    const del = deleteEntryShortcut(window.electron.process.platform)
+    if (!e.shiftKey && !e.altKey && key === del.key && (del.mod ? mod : bare)) {
+      const entries = selectedEntries()
+      if (entries.length === 0) return
+      e.preventDefault()
+      setEntryDialog(removalRequest(entries, { remote, root: rootLogical }))
+      return
+    }
+    if (mod && !e.shiftKey && !e.altKey) {
+      const letter = key.toLowerCase()
+      if (letter === 'a') {
+        e.preventDefault()
+        setSelection((prev) => selectAll(prev, navPaths))
+        return
+      }
+      // 剪切 / 复制 / 粘贴：在这里拦下，不交给编辑菜单（服务器上没有）
+      if (clipboardActions !== undefined && (letter === 'x' || letter === 'c' || letter === 'v')) {
+        e.preventDefault()
+        if (letter === 'v') clipboardActions.onPaste(nearestDirOf(focus))
+        else {
+          const paths = selectedEntries().map((entry) => entry.path)
+          if (letter === 'x') clipboardActions.onCut(paths)
+          else clipboardActions.onCopy(paths)
+        }
+        return
+      }
+    }
+    typeToInput(e, {
+      query: remote ? goQuery : filterQuery,
+      inputRef: filterInputRef,
+      onChange: remote ? changeGoQuery : updateFilterQuery,
+      onClear: remote ? () => changeGoQuery('') : () => void exitFilter()
+    })
+  }
 
   const treePanel = useRememberedPanel('treePanel')
 
@@ -2087,7 +2579,7 @@ export function FilesPane({
               文件铺满时也永远点得到。固定在列表之上不随滚动走；它是全树的根，图标顶格（不占层级缩进位）。 */}
               <TreeRootRow
                 title={rootLogical}
-                data-drop-dir={remote ? rootLogical : undefined}
+                data-drop-dir={rootLogical}
                 icon={<FolderOpen className={TREE_ICON} />}
                 name={rootLogical.slice(rootLogical.lastIndexOf('/') + 1) || rootLogical}
                 dropTarget={dropDir === rootLogical}
@@ -2098,18 +2590,11 @@ export function FilesPane({
               <div
                 ref={treeScrollRef}
                 tabIndex={0}
+                // 焦点在树上时方向键归树，正文的切媒体、翻页让位（见 files-key-guards 的 filesTreeTarget）
+                data-files-tree=""
                 className={TREE_SCROLL}
                 onContextMenu={(e) => openTreeMenu(rootLogical, true, e)}
-                onKeyDown={(e) => {
-                  // 焦点在树上打字转进树顶输入（项目为筛选，服务器为「前往路径」；没连上时输入停用）
-                  if (remote && !connected) return
-                  typeToInput(e, {
-                    query: remote ? goQuery : filterQuery,
-                    inputRef: filterInputRef,
-                    onChange: remote ? changeGoQuery : updateFilterQuery,
-                    onClear: remote ? () => changeGoQuery('') : () => void exitFilter()
-                  })
-                }}
+                onKeyDown={onTreeKeyDown}
               >
                 {filterLoading ? (
                   <TreeHint loading>正在扫描…</TreeHint>
@@ -2129,7 +2614,7 @@ export function FilesPane({
                           key={vi.key}
                           className="absolute left-0 top-0 w-full"
                           style={{ transform: `translateY(${vi.start}px)` }}
-                          data-drop-dir={remote && !row.notice ? uploadTargetDir(row) : undefined}
+                          data-drop-dir={row.notice ? undefined : uploadTargetDir(row)}
                         >
                           {row.notice ? (
                             <TreeNoticeRow depth={row.depth} message={row.name} />
@@ -2139,21 +2624,28 @@ export function FilesPane({
                               expanded={displayExpanded.has(row.path)}
                               icon={<Folder className={TREE_ICON} />}
                               name={row.name}
-                              selected={selectedPath === row.path}
+                              selected={selection.paths.has(row.path)}
                               menuActive={menuActive}
                               dropTarget={dropDir === row.path}
-                              onClick={() => toggleDir(row.path)}
+                              dimmed={!remote && cutPaths.has(row.path)}
+                              draggable={connected}
+                              onClick={(e) => clickRow(row, e)}
+                              onToggle={() => void toggleDir(row.path)}
                               onContextMenu={(e) => openTreeMenu(row.path, true, e)}
+                              onDragStart={(e) => startRowDrag(row, e)}
                             />
                           ) : (
                             <FileTreeFileRow
                               name={row.name}
                               depth={row.depth}
-                              selected={selectedPath === row.path}
+                              selected={selection.paths.has(row.path)}
                               menuActive={menuActive}
+                              dimmed={!remote && cutPaths.has(row.path)}
+                              draggable={connected}
                               status={statusByRel.get(relPathUnderRoot(rootLogical, row.path))}
-                              onOpen={() => void openFile(row.path)}
+                              onClick={(e) => clickRow(row, e)}
                               onMenu={(e) => openTreeMenu(row.path, false, e)}
+                              onDragStart={(e) => startRowDrag(row, e)}
                             />
                           )}
                         </div>
@@ -2183,6 +2675,7 @@ export function FilesPane({
             projectPath={rootPath}
             terminal={host.kind === 'project'}
             server={serverActions}
+            clipboard={clipboardActions}
             {...(host.kind === 'preview'
               ? {
                   onSetRoot: host.onSetRoot,
@@ -2198,12 +2691,26 @@ export function FilesPane({
           />
           {entryDialog !== null && (
             <FilesEntryDialog
-              key={`${entryDialog.kind}:${'dir' in entryDialog ? entryDialog.dir : entryDialog.path}`}
+              key={`${entryDialog.kind}:${
+                'dir' in entryDialog
+                  ? entryDialog.dir
+                  : 'path' in entryDialog
+                    ? entryDialog.path
+                    : entryDialog.entries.map((e) => e.path).join('\n')
+              }`}
               request={entryDialog}
               onClose={() => setEntryDialog(null)}
               onSubmit={(name) => submitEntryDialog(entryDialog, name)}
             />
           )}
+          {sameName !== null && (
+            <SameNameDialog
+              message={sameName.message}
+              batch={sameName.batch}
+              onAnswer={(action, applyToRest) => sameName.answer({ action, applyToRest })}
+            />
+          )}
+          {opError !== null && <ErrorDialog message={opError} onClose={() => setOpError(null)} />}
 
           {conflict?.kind === 'changed' && !remote && (
             <ConfirmDialog
@@ -2425,18 +2932,25 @@ function FileTreeFileRow({
   depth,
   selected,
   menuActive,
+  dimmed,
+  draggable,
   status,
-  onOpen,
-  onMenu
+  onClick,
+  onMenu,
+  onDragStart
 }: {
   name: string
   depth: number
   selected: boolean
   /** 右键菜单打开中：保持 hover 行底（指针已移入菜单会丢 :hover） */
   menuActive: boolean
+  /** 被剪切、等着粘贴 */
+  dimmed: boolean
+  draggable: boolean
   status: GitFileStatus | undefined
-  onOpen: () => void
+  onClick: (e: React.MouseEvent) => void
   onMenu: (e: React.MouseEvent) => void
+  onDragStart: (e: React.DragEvent) => void
 }): React.JSX.Element {
   const colour = status ? FILE_STATUS_COLOR[status] : undefined
   return (
@@ -2453,8 +2967,11 @@ function FileTreeFileRow({
       nameColor={colour}
       selected={selected}
       menuActive={menuActive}
-      onClick={onOpen}
+      dimmed={dimmed}
+      draggable={draggable}
+      onClick={onClick}
       onContextMenu={onMenu}
+      onDragStart={onDragStart}
     />
   )
 }

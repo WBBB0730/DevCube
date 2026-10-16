@@ -110,6 +110,7 @@ export const IPC = {
   serverFilesWrite: 'server-files:write',
   serverFilesCreate: 'server-files:create',
   serverFilesRename: 'server-files:rename',
+  serverFilesMove: 'server-files:move',
   serverFilesDelete: 'server-files:delete',
   serverFilesEntriesChanged: 'server-files:entries-changed',
   serverFilesGetUi: 'server-files:ui-get',
@@ -212,9 +213,19 @@ export const IPC = {
   filesCreate: 'files:create',
   filesRename: 'files:rename',
   filesTrash: 'files:trash',
-  /** 「复制文件」：把文件 / 文件夹本身放进系统剪贴板（只放行授权根内路径） */
-  filesCopyFile: 'files:copy-file',
-  /** 文件树右键「压缩」：为该条目开一个压缩窗口（只放行授权根内路径） */
+  /** 文件树的移动 / 复制（docs/prd/files-tree-move-copy.md） */
+  filesMove: 'files:move',
+  filesCopy: 'files:copy',
+  /** 「复制」「复制文件」：把文件 / 文件夹本身放进系统剪贴板（只放行授权根内路径） */
+  filesCopyToClipboard: 'files:copy-to-clipboard',
+  /** 读系统剪贴板里的文件（粘贴进文件树），并判断是不是剪切的那一批 */
+  filesReadClipboard: 'files:read-clipboard',
+  /** 剪切的那一批：主进程统一记，所有窗口共用；取用时先核对剪贴板，变化时推送 */
+  filesCutPaths: 'files:cut-paths',
+  filesCutChanged: 'files:cut-changed',
+  /** 从文件树拖出：交给系统原生文件拖拽（只放行授权根内路径） */
+  filesStartDrag: 'files:start-drag',
+  /** 文件树右键「压缩」：为所选条目开一个压缩窗口（只放行授权根内路径） */
   filesCompress: 'files:compress',
   filesGetUi: 'files:ui-get',
   filesSetUi: 'files:ui-set',

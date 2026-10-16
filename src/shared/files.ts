@@ -8,6 +8,15 @@ export interface FilesDirEntry {
   isDirectory: boolean
 }
 
+/** 树上的一个条目：路径与是不是文件夹（删除、下载等可一次处理多个） */
+export type FilesEntryRef = Pick<FilesDirEntry, 'path' | 'isDirectory'>
+
+/**
+ * 移动 / 复制一个条目的结果（docs/prd/files-tree-move-copy.md）：成功给落定的新路径；目标处已有同名条目、
+ * 又没说替换时给 conflict——由渲染端问过「替换 / 跳过」再来。
+ */
+export type FilesTransferResult = { path: string } | { conflict: true }
+
 /** 文本进编辑器的大小上限；超过即不打开（本机与服务器同一条线）。 */
 export const FILES_TEXT_MAX_BYTES = 5 * 1024 * 1024
 

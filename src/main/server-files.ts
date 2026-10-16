@@ -15,7 +15,9 @@ import {
   FILES_TEXT_MAX_BYTES,
   compareFilesDirEntries,
   filesEntryNameError,
-  type FilesDirEntry
+  type FilesDirEntry,
+  type FilesEntryRef,
+  type FilesTransferResult
 } from '../shared/files'
 import {
   classifyFilesOpenKind,
@@ -26,6 +28,7 @@ import {
 } from '../shared/files-kind'
 import { joinLogicalPath, logicalParentPath, normalizePath } from '../shared/files-path'
 import { isIdeIgnoredEntryName } from '../shared/files-tree-filter'
+import { isSelfOrInside, moveDropAllowed } from '../shared/files-tree-ops'
 import {
   createConflictPolicy,
   sameServerFileVersion,
@@ -658,19 +661,50 @@ export async function renameServerEntry(
   return { path: target }
 }
 
-/** 删除（服务器上没有回收站，删了即不可恢复）：文件夹连同内容逐项删除，符号链接只删链接本身。 */
+/**
+ * 把条目移到 destDir 下（SFTP 跨目录改名，docs/prd/files-tree-move-copy.md「服务器」）。落回原处等于没动；
+ * 目标处已有同名条目时，没说替换即交回渲染端去问，替换则先删掉原有的（服务器上没有回收站）。
+ */
+export async function moveServerEntry(
+  serverId: string,
+  entryPath: string,
+  destDir: string,
+  replace: boolean
+): Promise<FilesTransferResult> {
+  const { client } = await connected(serverId)
+  if (entryPath === '/') throw new Error('不能移动根文件夹')
+  if (isSelfOrInside(entryPath, destDir)) throw new Error('不能移到它自己里面')
+  if (!moveDropAllowed(entryPath, destDir)) return { path: entryPath }
+  const target = joinLogicalPath(destDir, path.posix.basename(entryPath))
+  try {
+    if (await existsRemote(client, target)) {
+      if (!replace) return { conflict: true }
+      await removeRemoteTree(client, target)
+    }
+    await client.rename(entryPath, target)
+  } finally {
+    forgetCopies(serverId, [entryPath, target])
+  }
+  return { path: target }
+}
+
+/** 文件夹连同内容逐项删除，符号链接只删链接本身 */
+async function removeRemoteTree(client: SftpClient, target: string): Promise<void> {
+  const attrs = await client.lstat(target)
+  if (sftpEntryKind(attrs) !== 'directory') return client.remove(target)
+  const children = await client.readdir(target)
+  await Promise.all(
+    children.map((c) => removeRemoteTree(client, joinLogicalPath(target, c.filename)))
+  )
+  await client.rmdir(target)
+}
+
+/** 删除（服务器上没有回收站，删了即不可恢复）。 */
 export async function deleteServerEntry(serverId: string, entryPath: string): Promise<void> {
   const { client } = await connected(serverId)
   if (entryPath === '/') throw new Error('不能删除根文件夹')
-  const removeTree = async (target: string): Promise<void> => {
-    const attrs = await client.lstat(target)
-    if (sftpEntryKind(attrs) !== 'directory') return client.remove(target)
-    const children = await client.readdir(target)
-    await Promise.all(children.map((c) => removeTree(joinLogicalPath(target, c.filename))))
-    await client.rmdir(target)
-  }
   try {
-    await removeTree(entryPath)
+    await removeRemoteTree(client, entryPath)
   } finally {
     forgetCopies(serverId, [entryPath])
   }
@@ -946,17 +980,20 @@ async function uploadFile(
 }
 
 /**
- * 下载服务器上的文件或文件夹。文件：localTarget 是保存对话框选定的完整路径（同名已由系统问过）；
- * 文件夹：localTarget 是选定的目录，在其中建同名文件夹，里面的同名文件逐个询问。
+ * 下载服务器上的条目。单个文件：target 是保存对话框选定的完整路径（同名已由系统问过）；
+ * 其余（文件夹、多项）：target 是选定的目录，文件夹在其中建同名文件夹，同名文件逐个询问（可对其余同名项一次决定）。
+ * 多项排成一次传输，传输栏里写「N 项」。
  */
 export function downloadFromServer(
   serverId: string,
-  remotePath: string,
-  isDirectory: boolean,
-  localTarget: string
+  entries: readonly FilesEntryRef[],
+  target: { kind: 'file' | 'directory'; path: string }
 ): void {
+  const [first] = entries
+  if (first === undefined) return
   const server = findServer(serverId)
-  enqueueTransfer(serverId, 'download', path.posix.basename(remotePath), async (task, report) => {
+  const name = entries.length === 1 ? path.posix.basename(first.path) : `${entries.length} 项`
+  enqueueTransfer(serverId, 'download', name, async (task, report) => {
     const { client } = await connected(serverId, 'transfer')
     const { signal } = task.controller
     const progress =
@@ -965,11 +1002,11 @@ export function downloadFromServer(
         task.info = { ...task.info, doneBytes: base + n }
         report()
       }
-    if (!isDirectory) {
-      const attrs = await client.stat(remotePath)
+    if (target.kind === 'file') {
+      const attrs = await client.stat(first.path)
       task.info = { ...task.info, totalBytes: attrs.size ?? 0 }
       report()
-      await downloadFile(client, remotePath, localTarget, attrs.size ?? 0, progress(0), signal)
+      await downloadFile(client, first.path, target.path, attrs.size ?? 0, progress(0), signal)
       return
     }
     // 清点服务器上的文件夹：目录的符号链接跳过（免得绕圈），文件的符号链接照目标下载
@@ -993,7 +1030,15 @@ export function downloadFromServer(
         }
       }
     }
-    await walk(remotePath, path.join(localTarget, path.posix.basename(remotePath)))
+    for (const entry of entries) {
+      const local = path.join(target.path, path.posix.basename(entry.path))
+      if (entry.isDirectory) {
+        await walk(entry.path, local)
+      } else {
+        const attrs = await client.stat(entry.path)
+        files.push({ remote: entry.path, local, size: attrs.size ?? 0 })
+      }
+    }
     task.info = { ...task.info, totalBytes: files.reduce((n, f) => n + f.size, 0) }
     report()
     for (const dir of dirs) await mkdir(dir, { recursive: true })

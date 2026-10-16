@@ -164,6 +164,11 @@ export const SHORTCUT = {
   cycleTabPrev: { ctrl: true, shift: true, key: 'Tab' } satisfies ShortcutChord
 } as const
 
+/** Files 文件树删除：macOS ⌘⌫（同 Finder），Windows / Linux Delete。 */
+export function deleteEntryShortcut(platform: string): ShortcutChord {
+  return platform === 'darwin' ? { mod: true, key: 'Backspace' } : { key: 'Delete' }
+}
+
 /** 直达当前项目第 `n` 个 Tab（1–9）。 */
 export function tabAtShortcut(n: number): ShortcutChord {
   return { mod: true, key: String(n) }

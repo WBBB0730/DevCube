@@ -15,7 +15,7 @@
 3. **按类型分流**：文本用 CodeMirror 6 编辑（仅语法高亮与文本编辑，无 lint / 补全 / 跳转；不上外部 LSP）；图片、PDF、PPT、Excel、Chromium 可播的音视频内嵌预览，方向键按可见树序切上一个 / 下一个媒体；CSV / TSV 仍进编辑器，可切成表格预览；SQLite 文件（按文件头识别）内嵌 **Data Source Tab** 的视图，见 `docs/prd/database.md`「SQLite」；其余只读占位，并可「在其他应用中打开」。PDF / PPT / Excel 的细节见 `files-pdf-preview.md` / `files-pptx-preview.md` / `files-xlsx-preview.md`。
 4. **事件自动保存**（对齐 WebStorm 体感）：换文件 / 离开 Files Tab / 失焦或短空闲时写入；无显式脏标记弹窗常态。
 5. **与 Git 打通**：Git 里「打开文件」进入该项目 Files Tab 并打开对应路径；Files Tab 保留「在其他应用中打开」。
-6. **左栏不动**：ProjectTree 仍只做项目 / 配置；文件树仅出现在 Files Tab 内。新建 / 重命名 / 删除见 `files-tree-management.md`；复制 / 移动不做（仍走系统文件管理器或 **Terminal**）。
+6. **左栏不动**：ProjectTree 仍只做项目 / 配置；文件树仅出现在 Files Tab 内。新建 / 重命名 / 删除见 `files-tree-management.md`；移动 / 复制、多选与键盘操作见 `files-tree-move-copy.md`。
 
 ## User Stories
 
@@ -38,7 +38,7 @@
 17. 作为开发者，我想打开播不了的音视频（如 mkv）时直接看到占位，而不是先尝试播放再失败。
 18. 作为开发者，我想打开无法在此编辑的二进制时看到占位说明，以便知道为什么不能改。
 19. 作为开发者，我想在 Files Tab 里一键「在其他应用中打开」当前条目，以便预览不够时交给系统应用。
-20. 作为开发者，我想在图片上右键「复制图片」直接粘到聊天或文档里，在任何正文或树条目上右键「复制文件 / 复制文件夹」粘到访达 / 资源管理器即为拷贝，以便拿文件不用先去文件夹里找。
+20. 作为开发者，我想在图片上右键「复制图片」直接粘到聊天或文档里，在任何正文上右键「复制文件」、树条目上右键「复制」，粘到访达 / 资源管理器即为拷贝，以便拿文件不用先去文件夹里找。
 21. 作为开发者，我想点面包屑中的某一段就在文件树里定位到它，以便从路径快速找到树节点。
 22. 作为开发者，我想一键「在文件树中显示」当前打开的文件，以便树滚偏后仍能回到该文件行。
 23. 作为开发者，我想从「最近打开文件」菜单点回最近打开过的文件，以便快速回到刚改过的文件。
@@ -49,7 +49,7 @@
 28. 作为开发者，我想在「还有未落盘改动且磁盘也变了」时被提示选择重载或保留编辑器内容，以便不静默丢键入。
 29. 作为开发者，我想在 Finder / Terminal / 其他工具里增删改文件后，已展开的文件树自动跟上，以便不用折叠再展开或重启。
 30. 作为开发者，我想当前打开的文件被外部删除时静默回到空态，以便不对着幽灵路径。
-31. 作为开发者，我不想在 Files Tab 里复制 / 移动文件（新建 / 重命名 / 删除见 `files-tree-management.md`），以便这类操作仍走 Finder 或 Terminal、保持轻量。
+31. 作为开发者，我想在文件树里移动、复制文件，也能和 Finder 互相拖放、复制粘贴（见 `files-tree-move-copy.md`），以便整理文件不用切走。
 32. 作为开发者，我想左栏仍然只显示项目和运行配置，以便运行器主路径不被文件树占据。
 33. 作为开发者，我想重启后恢复该项目上次打开的路径、树展开状态与最近打开列表，以便接着改同一个文件。
 34. 作为开发者，我想上次路径已不存在时静默回到空态，以便不弹恼人错误。
@@ -103,8 +103,8 @@
 - **Git 集成**：Git 文件行「打开文件」（菜单与双击，已删除 / 未跟踪目录除外）改为聚焦该项目 Files Tab 并打开路径；系统打开改由 Files Tab（及二进制占位）上的「在其他应用中打开」承担。提交面板 / 详情菜单文案与行为对齐此分流。
 - **打开分流**：已知文本扩展名走编辑器；其余用 `file-type` + `@file-type/av` 读魔数得 MIME。位图 → 看图（见下条）；svg 仍走文本，可切图形预览，看图操作同位图（见 `files-markdown-preview.md`）；PDF → PDF.js 官方 viewer 组件（`files-pdf-preview.md` / ADR-0030）；PPT（PresentationML 六种 MIME）→ pptx-renderer 单页渲染、DevCube 自排页面列表，外壳与 PDF 共用（`files-pptx-preview.md` / ADR-0033）；Excel（SpreadsheetML 四种 MIME，及 CFB 容器且文件名为 .xls）→ react-xlsx 只读表格，超过 10 MB 占位（`files-xlsx-preview.md` / ADR-0034）；Chromium 可播音视频 → 原生 `<audio>` / `<video>`；SQLite（`application/x-sqlite3`，本机的 Files Tab 与 Preview Window）→ 内嵌 **Data Source Tab** 的视图，连一个不登记的临时数据源（见 `docs/prd/database.md`「Files Tab」）；不可播音视频（如 mkv/wmv）与其它二进制 → 占位 +「在其他应用中打开」。魔数失败时：位图扩展名仍走图片；否则文本嗅探或占位。图片、音视频与 PDF / PPT / Excel 都经 `dc-media://` 特权协议读取、不经 IPC 传整文件，音视频显式响应 Range（206）流式播放（ADR-0010）。
 - **看图**（位图与 SVG 预览态共用；四档、双击、Cmd/Ctrl+0 与 +/- 与 PDF 同一套，交互细则见 DESIGN.md）：内容区右上角显示像素尺寸（位图由主进程读文件头得宽高，EXIF 转 90° 的按显示方向报）。Cmd/Ctrl+滚轮按光标缩放（鼠标一格约 10%，触控板捏合跟手指距离；相对「适配视口且不放大」约 10%–3200%），+/- 按视口中心逐档（步长 1.1，同 PDF）。打开没看过的图时装得下视口的落 1:1、装不下的落适应窗口，看过的恢复上次的档位、倍率与平移（见「阅读位置」）。双击在两条轴之间切换：从适应窗口进来时先按图与视口的宽高比判它实际顶住哪条轴、再切到另一条，1:1 与自由倍率落适应宽度；双击按 mousedown 的 `detail === 2` 判定，不接 `dblclick`（拖拽期间的全屏遮罩会接走 mouseup，dblclick 落不到预览区）。视口尺寸为 0（Tab 切走）时档位一概不重算。渲染分两档（ADR-0029）：像素数 ≤ 3200 万且单边 ≤ 16384 走浏览器原生 `<img>`（缩放停手 100ms 后按新尺寸重新栅格化，任何倍率清晰，GIF / 动态 WebP 照常播放）；超过的先出缩小解码的预览图（亚秒），后台生成瓦片金字塔后叠 OpenSeadragon 瓦片层，手感不变。换图时新图 120ms 内就绪直接替换、旧图不闪，超时撤下旧图（连同尺寸标注）显示「正在加载…」；切走即取消过期的加载与解码；相邻的图提前解码或备好预览与金字塔。浏览器解不了的图（如 Photoshop 写入超大 XMP 元数据块的 PNG）改走超大位图那条主进程出图的路并在本会话记住，仍失败则显示「无法预览此图片」占位（「重试」/「在其他应用中打开」）。
-- **方向键切媒体**：序列 = 位图 / SVG / PDF / PPT / Chromium 可播的音视频，按树里当前可见的顺序（跨目录、只进已展开的目录；Preview Window 里还受类型筛选约束），到头停下、不回绕；Excel / CSV 不在序列里（方向键归表格移动选中格）。看图与音视频四个方向键都切（← / ↑ 上一个，→ / ↓ 下一个），音视频即使焦点在播放器上也拦下（播放器自己的键盘进度 / 音量让位）；PDF 与 PPT ←/→ 直接切，↑/↓ 翻页、在首页 / 末页再按也切。不抢输入框与弹层。
-- **正文右键菜单**（任何已打开的条目）：复制图片（仅看图 / SVG 预览态）/ 复制文件 / 在文件夹中显示 / 在其他应用中打开；树菜单的「复制信息」组同样加「复制文件 / 复制文件夹」。复制文件由主进程把文件本身放进系统剪贴板，各平台走官方通道——macOS `public.file-url`、Linux `text/uri-list`；Windows 的 CF_HDROP 是预定义格式、writeBuffer 注册不了，交给系统自带 PowerShell 5.1 的 `Set-Clipboard -LiteralPath`（pwsh 7 已去掉该参数，须点名 powershell.exe）。复制图片在渲染层用 canvas 把图栅格化成 PNG 写系统剪贴板（主进程 nativeImage 只认 PNG / JPEG，这样渲染层能显示的都能复制；`dc-media` 带 CORS 头，canvas 不被污染）；复制的是屏上正显示的那张——超大位图与改由主进程出图的复制其预览图，加载中或打不开时不出「复制图片」。
+- **方向键切媒体**：序列 = 位图 / SVG / PDF / PPT / Chromium 可播的音视频，按树里当前可见的顺序（跨目录、只进已展开的目录；Preview Window 里还受类型筛选约束），到头停下、不回绕；Excel / CSV 不在序列里（方向键归表格移动选中格）。看图与音视频四个方向键都切（← / ↑ 上一个，→ / ↓ 下一个），音视频即使焦点在播放器上也拦下（播放器自己的键盘进度 / 音量让位）；PDF 与 PPT ←/→ 直接切，↑/↓ 翻页、在首页 / 末页再按也切。不抢输入框与弹层；焦点在文件树上时方向键归树（见 `files-tree-move-copy.md`「方向键归属」）。
+- **正文右键菜单**（任何已打开的条目）：复制图片（仅看图 / SVG 预览态）/ 复制文件 / 在文件夹中显示 / 在其他应用中打开；树菜单的「复制」走同一通道（见 `files-tree-move-copy.md`「剪贴板」）。复制文件由主进程把文件本身放进系统剪贴板（可一次放多个，文件树的粘贴也从这里读回，见 `files-tree-move-copy.md`「剪贴板」），各平台走官方通道——macOS 多个文件是多个粘贴板项，Electron 的 clipboard 只写得了一项，交给系统自带 osascript 的 JavaScript 桥调 NSPasteboard 的 `writeObjects` / `readObjectsForClasses`；Linux `text/uri-list`；Windows 的 CF_HDROP 是预定义格式、writeBuffer 注册不了，交给系统自带 PowerShell 5.1 的 `Set-Clipboard -LiteralPath` / `Get-Clipboard -Format FileDropList`（pwsh 7 已去掉这两个用法，须点名 powershell.exe）。经脚本进出的路径一律 URI 编码，避开命令行与输出的字符编码问题。复制图片在渲染层用 canvas 把图栅格化成 PNG 写系统剪贴板（主进程 nativeImage 只认 PNG / JPEG，这样渲染层能显示的都能复制；`dc-media` 带 CORS 头，canvas 不被污染）；复制的是屏上正显示的那张——超大位图与改由主进程出图的复制其预览图，加载中或打不开时不出「复制图片」。
 
 ## Testing Decisions
 
@@ -129,7 +129,6 @@
 - 快速打开（Cmd+P）/ 命中高亮（内容搜索见 `content-search.md`）
 - 「排除目录」UI 或用户可配的第二套搜索排除
 - 内层多文件 Tab / 分屏编辑
-- 文件复制、移动、拖拽（新建 / 重命名 / 删除见 `files-tree-management.md`）
 - 外部 LSP / 语言服务器 / 跳转定义跨文件工程级智能
 - 左栏改为文件树或配置/文件双模切换
 - 应用内三方合并编辑器（仍见 git-graph Out of Scope）
@@ -139,4 +138,4 @@
 ## Further Notes
 
 - 术语见 CONTEXT.md（**Files Tab**）；Tab 破例与默认激活见 ADR-0005；过滤与 gitignore 分见 ADR-0009、过滤索引机制见 ADR-0027；音视频协议见 ADR-0010；看图两档渲染与瓦片金字塔见 ADR-0029；PDF 预览见 `files-pdf-preview.md` / ADR-0030；PPT 预览见 `files-pptx-preview.md` / ADR-0033；Excel / CSV 表格预览见 `files-xlsx-preview.md` / ADR-0034；树/打开文件外部变更监听见 ADR-0011 / ADR-0021；视觉见 DESIGN.md。
-- 「轻量」在此指少写业务胶水、不做复制 / 移动与语言智能——不指捆绑包体积。
+- 「轻量」在此指少写业务胶水、不做语言智能——不指捆绑包体积。

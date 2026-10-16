@@ -1,4 +1,4 @@
-import { app, ipcMain, BrowserWindow, clipboard, shell } from 'electron'
+import { app, ipcMain, BrowserWindow, clipboard, nativeImage, shell } from 'electron'
 import { homedir } from 'node:os'
 import { join, posix } from 'node:path'
 import { IPC } from '../shared/ipc'
@@ -158,6 +158,7 @@ import {
   getServerFilesState,
   getServerTransfers,
   listServerDir,
+  moveServerEntry,
   readServerFile,
   renameServerEntry,
   resetServerFiles,
@@ -226,12 +227,14 @@ import { applyTheme } from './theme'
 import { persistLayoutMemory, resetLayoutMemory, updatePanelSizes } from './layout-memory'
 import {
   assertFilesRoot,
+  copyEntry,
   createEntry,
   filesSysPath,
   filterFilesTreeQuery,
   imagePreviewEntry,
   imagePyramidEntry,
   listDir,
+  moveEntry,
   readFileEntry,
   readHeadText,
   renameEntry,
@@ -242,7 +245,7 @@ import {
 import { invalidateFilesIndex } from './files-index'
 import { startContentSearch, stopContentSearch } from './content-search'
 import type { ContentSearchOptions } from '../shared/content-search'
-import type { FilesUiState } from '../shared/files'
+import type { FilesEntryRef, FilesUiState } from '../shared/files'
 import type { WorkspaceUiState } from '../shared/workspace'
 import { buildTree, clearProjectWorktreeOf, setProjectWorktreeOf } from './tree'
 import { isAppQuitting } from './app-shutdown'
@@ -310,13 +313,19 @@ import {
   startCompress
 } from './compress'
 import { normalizeCompressOptions } from '../shared/compress'
-import { copyFileToClipboard } from './clipboard-file'
+import { pendingCutPaths, putFilesOnClipboard, takeClipboardFiles } from './clipboard-file'
+import appIcon from '../../resources/icon.png?asset'
 import { setTerminalFocused } from './app-shortcuts'
 import { broadcast, resetWindowGeometry } from './app-window'
 
 let mainWindow: BrowserWindow | null = null
 /** 没有主窗口时（只开着预览窗口 / macOS 全关）由 index 提供建窗；工作台已预置当前项目 */
 let mainWindowFactory: (() => BrowserWindow) | null = null
+
+/** 渲染端交来的逻辑路径里落在授权根内的那些，转成系统路径（「在其他应用中打开」等同一口径） */
+function grantedSysPaths(paths: readonly string[]): string[] {
+  return paths.filter(isPathUnderGrantedRoot).map((p) => toSysPath(normalizePath(p)))
+}
 
 function liveMainWindow(): BrowserWindow | null {
   return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
@@ -850,6 +859,11 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   ipcMain.handle(IPC.serverFilesRename, (_e, serverId: string, path: string, newName: string) =>
     renameServerEntry(serverId, path, newName)
   )
+  ipcMain.handle(
+    IPC.serverFilesMove,
+    (_e, serverId: string, path: string, destDir: string, replace: boolean) =>
+      moveServerEntry(serverId, path, destDir, replace)
+  )
   ipcMain.handle(IPC.serverFilesDelete, (_e, serverId: string, path: string) =>
     deleteServerEntry(serverId, path)
   )
@@ -876,15 +890,20 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
       uploadToServer(serverId, picked, remoteDir)
     }
   )
-  // 下载：文件弹保存对话框（同名由系统问），文件夹选目标目录；默认都在系统「下载」文件夹
+  // 下载：单个文件弹保存对话框（同名由系统问），文件夹或多项选目标目录；默认都在系统「下载」文件夹
   ipcMain.handle(
     IPC.serverFilesDownload,
-    async (_e, serverId: string, remotePath: string, isDirectory: boolean) => {
+    async (_e, serverId: string, entries: FilesEntryRef[]) => {
+      const [first] = entries
+      if (first === undefined) return
       const downloads = app.getPath('downloads')
-      const target = isDirectory
-        ? await pickDirectory(downloads, mainWindow)
-        : await pickSavePath(join(downloads, posix.basename(remotePath)), mainWindow)
-      if (target !== null) downloadFromServer(serverId, remotePath, isDirectory, target)
+      if (entries.length === 1 && !first.isDirectory) {
+        const target = await pickSavePath(join(downloads, posix.basename(first.path)), mainWindow)
+        if (target !== null) downloadFromServer(serverId, entries, { kind: 'file', path: target })
+        return
+      }
+      const dir = await pickDirectory(downloads, mainWindow)
+      if (dir !== null) downloadFromServer(serverId, entries, { kind: 'directory', path: dir })
     }
   )
   ipcMain.handle(IPC.serverTransfersGet, (_e, serverId: string) => getServerTransfers(serverId))
@@ -1069,13 +1088,33 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   ipcMain.handle(IPC.openInFolder, (_e, path: string) => {
     if (isPathUnderGrantedRoot(path)) shell.showItemInFolder(toSysPath(normalizePath(path)))
   })
-  // 「复制文件」→ 文件 / 文件夹本身进系统剪贴板；同样只放行授权根内的绝对路径。
-  ipcMain.handle(IPC.filesCopyFile, async (_e, path: string) => {
-    if (isPathUnderGrantedRoot(path)) await copyFileToClipboard(toSysPath(normalizePath(path)))
+  // 「复制」「剪切」「复制文件」→ 文件 / 文件夹本身进系统剪贴板；同样只放行授权根内的绝对路径。
+  ipcMain.handle(IPC.filesCopyToClipboard, (_e, paths: string[], cut: boolean) =>
+    putFilesOnClipboard(
+      paths.filter(isPathUnderGrantedRoot).map((p) => normalizePath(p)),
+      cut
+    )
+  )
+  // 粘贴进文件树：系统剪贴板里的文件；是剪切的那一批即移动（见 clipboard-file）
+  ipcMain.handle(IPC.filesReadClipboard, () => takeClipboardFiles())
+  ipcMain.handle(IPC.filesCutPaths, () => pendingCutPaths())
+  // 从文件树拖出 → 系统原生文件拖拽（Electron 官方做法：在 dragstart 里经 IPC 交给主进程）；只放行授权根内的绝对路径。
+  // 图标取系统给这个文件的图标，取不到用应用图标（macOS 上图标不能为空）
+  ipcMain.on(IPC.filesStartDrag, async (e, paths: string[]) => {
+    const files = grantedSysPaths(paths)
+    const [first] = files
+    if (first === undefined) return
+    const fileIcon = await app.getFileIcon(first, { size: 'small' }).catch(() => null)
+    const icon =
+      fileIcon !== null && !fileIcon.isEmpty()
+        ? fileIcon
+        : nativeImage.createFromPath(appIcon).resize({ width: 32 })
+    e.sender.startDrag({ file: first, files, icon })
   })
-  // 「压缩」→ 为该条目开一个压缩窗口；同样只放行授权根内的绝对路径。
-  ipcMain.handle(IPC.filesCompress, async (_e, path: string) => {
-    if (isPathUnderGrantedRoot(path)) await openCompressWindow([toSysPath(normalizePath(path))])
+  // 「压缩」→ 为所选条目开一个压缩窗口；同样只放行授权根内的绝对路径。
+  ipcMain.handle(IPC.filesCompress, async (_e, paths: string[]) => {
+    const sysPaths = grantedSysPaths(paths)
+    if (sysPaths.length > 0) await openCompressWindow(sysPaths)
   })
   // —— Preview Window（预览窗口） ——
   ipcMain.handle(IPC.previewSetRoot, (e, root: unknown) => {
@@ -1175,6 +1214,16 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   )
   ipcMain.handle(IPC.filesTrash, (_e, projectPath: string, entryPath: string) =>
     trashEntry(projectPath, entryPath)
+  )
+  ipcMain.handle(
+    IPC.filesMove,
+    (_e, projectPath: string, source: string, destDir: string, replace: boolean) =>
+      moveEntry(projectPath, source, destDir, replace)
+  )
+  ipcMain.handle(
+    IPC.filesCopy,
+    (_e, projectPath: string, source: string, destDir: string, replace: boolean) =>
+      copyEntry(projectPath, source, destDir, replace)
   )
 
   // —— 内容搜索（Content Search） ——

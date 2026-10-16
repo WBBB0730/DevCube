@@ -57,7 +57,7 @@
 
 **入口**
 
-- **文件树**：只在本机宿主的文件树里出现（项目的 **Files Tab** 与 **Preview Window**），服务器的 **Files Tab** 不加。菜单项「压缩」放在「复制文件 / 复制文件夹」之后。文件树不支持多选，这里一次只压一个条目。
+- **文件树**：只在本机宿主的文件树里出现（项目的 **Files Tab** 与 **Preview Window**），服务器的 **Files Tab** 不加。菜单项「压缩」放在「剪切 / 复制 / 粘贴」之后；树上多选时一次压全部所选（`docs/prd/files-tree-move-copy.md`）。
 - **macOS 快速操作**：沿用 ADR-0025 生成 `.workflow` 的机制，另生成一个「用 <ProductName> 压缩」，接收文件与文件夹。脚本以参数接收全部选中项，用系统自带的 `osascript`（JavaScript）按 URL 编码拼成 deep link `<scheme>://compress?path=…&path=…`，经 `open -g` 一次交给 DevCube（只触发一次 `open-url`，没在运行时也会被拉起）；`-g` 让投递时先不切到前台，由压缩窗口显示时再到前台。不走 `open-file`：Electron 对多个文件会逐个发事件，主进程无从知道这一批是否到齐。
 - **Windows 资源管理器**：原生经典右键扩展，多选时一次交付全部路径，以启动参数 `--compress <路径…>` 交给 DevCube（命令行装不下时改传临时目录里的清单文件 `--compress-list=<文件>`；只认按约定命名的文件，读完即删），已在运行时经单实例转发（ADR-0049）。
 - **设置「系统集成」**新增两行，沿用既有句式：macOS「在 Finder 的「快速操作」中添加「用 <ProductName> 压缩」」，Windows「在资源管理器的右键菜单中添加「用 <ProductName> 压缩」」。状态实时探测，与既有各行一致。Linux 不加文件管理器入口。
@@ -109,7 +109,6 @@
 
 - 其他格式（7z、tar 等）、压缩级别、密码、分卷、压缩后删除原文件、每项单独压成一个包、预设、自定义排除规则，以及字典、线程等专家选项。
 - 服务器 **Files Tab** 的压缩。
-- 文件树多选。
 - Windows 11 一级右键菜单：需要受信任的签名（ADR-0049）。
 - macOS FinderSync 一级右键菜单（ADR-0025）。
 - Linux 文件管理器入口。
