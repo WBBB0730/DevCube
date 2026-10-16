@@ -1,4 +1,4 @@
-// Files Tab · Markdown 预览：react-markdown + GFM。原始 HTML 不渲染（库默认，天然防注入）；
+// Files Tab · Markdown 预览：react-markdown + GFM。原始 HTML 照 GitHub 的白名单渲染，脚本、事件属性与 style 去掉（见 lib/files-markdown）；
 // 相对路径图片解析到项目内后经 dc-media 协议流式读取（越界 / 非图片不渲染；服务器上的文件不解析，
 // 相对图片不显示）；链接一律拦截默认跳转，http/https/mailto 交给系统浏览器，其余（锚点 / 相对链接）不动作。
 // 正文可选中复制；Cmd+F 在渲染后的正文里查找（换算见 lib/files-markdown），查找会话与编辑态共用（切换不关、不清空），
@@ -23,9 +23,9 @@ import { imageMimeOf } from '@shared/git'
 import { findHighlights, scrollRangeToCenter } from '@renderer/lib/find-highlight'
 import {
   buildMarkdownFindIndex,
-  MARKDOWN_INLINE_TAGS,
+  isInlineTag,
+  MARKDOWN_REHYPE_PLUGINS,
   markdownFindSpans,
-  rehypeSourceLines,
   type MarkdownFindIndexBlock
 } from '@renderer/lib/files-markdown'
 import { usePagedPreviewKeys } from '@renderer/lib/files-paged-preview'
@@ -55,7 +55,7 @@ function decodeMaybe(url: string): string {
 }
 
 function isBlockElement(node: Node | null): boolean {
-  return node instanceof Element && !MARKDOWN_INLINE_TAGS.has(node.localName)
+  return node instanceof Element && !isInlineTag(node.localName)
 }
 
 /**
@@ -75,7 +75,7 @@ function collectFindBlocks(body: HTMLElement): { nodes: Text[]; pre: boolean }[]
   while (walker.nextNode()) {
     const node = walker.currentNode as Text
     let el = node.parentElement!
-    while (el !== body && MARKDOWN_INLINE_TAGS.has(el.localName)) el = el.parentElement!
+    while (el !== body && isInlineTag(el.localName)) el = el.parentElement!
     let block = blocks.at(-1)
     if (block?.el !== el) {
       block = { el, nodes: [], pre: el.closest('pre') !== null }
@@ -88,7 +88,6 @@ function collectFindBlocks(body: HTMLElement): { nodes: Text[]; pre: boolean }[]
 
 const NO_MATCH = { total: 0, current: -1 }
 const REMARK_PLUGINS = [remarkGfm]
-const REHYPE_PLUGINS = [rehypeSourceLines]
 
 /** 文档序的命中里第一个顶边不在 `top` 之上的（顶边随文档序不减，对半找）；都在其上回到第一个 */
 function firstRangeBelow(ranges: readonly Range[], top: number): number {
@@ -181,7 +180,7 @@ export function FilesMarkdownPreview({
     () => (
       <Markdown
         remarkPlugins={REMARK_PLUGINS}
-        rehypePlugins={REHYPE_PLUGINS}
+        rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
         components={components}
       >
         {content}

@@ -20,7 +20,7 @@ Markdown 与 SVG 文件的工具栏出现「编辑 ↔ 预览」两态切换：�
 6. As a 开发者, I want 预览的配色排版随应用主题, so that 深色下不会出现刺眼的白底
 7. As a 开发者, I want 非 Markdown / SVG / CSV 文件的工具栏没有该按钮, so that 界面不被无关控件污染
 8. As a 开发者, I want 切换文件后预览态保持, so that 连续浏览多个文档不用反复点切换
-9. As a 开发者, I want 文档里的原始 HTML 不被执行, so that 打开陌生仓库的 md 不会带来脚本注入
+9. As a 开发者, I want 文档里夹的 HTML（`<br>`、`<details>`、`<kbd>`、带宽度的 `<img>` 等）像在 GitHub 上一样排版、但脚本不被执行, so that README 看起来和 GitHub 上一致，打开陌生仓库的 md 也不会带来脚本注入
 10. As a 开发者, I want 打开 .svg 文件时工具栏出现同样的预览切换钮, so that 我能在 XML 源码与图形之间切换
 11. As a 开发者, I want SVG 预览不执行文件里的脚本, so that 打开陌生仓库的图标不会带来脚本注入
 12. As a 开发者, I want SVG 预览内容区右上角显示像素宽高, so that 我能确认图标实际尺寸
@@ -33,7 +33,7 @@ Markdown 与 SVG 文件的工具栏出现「编辑 ↔ 预览」两态切换：�
 
 ## Implementation Decisions
 
-- Markdown 渲染用 `react-markdown` + `remark-gfm`：库默认不渲染原始 HTML，天然防注入，不额外接 rehype-raw。
+- Markdown 渲染用 `react-markdown` + `remark-gfm`。原始 HTML 接 `rehype-raw` 解析成元素，紧接 `rehype-sanitize` 按默认白名单（即 GitHub 的规则）净化：脚本、事件属性、`style`、非 http(s) / mailto 等协议的链接去掉，`id` / `name` 加 `user-content-` 前缀防 DOM 劫持；净化放在最后一个引入外来内容的步骤之后。解析与净化都保留源码位置，源码行标注排在净化之后。行内与块按 HTML 规范的 phrasing content 判定（`hast-util-phrasing`，只看标签名），源码行标注与查找分块共用这一个判定。HTML 写的 `<img>`、`<a>` 与 Markdown 语法的走同一套相对路径图片与链接拦截。
 - 排版用 `@tailwindcss/typography` 的 prose 类，色板通过官方 `--tw-prose-*` 变量对齐工作区 token（随应用主题），代码块用 `--font-mono`。
 - SVG 预览用 `<img>` + `data:image/svg+xml`（CSP 已放行 `data:`），不当 inline XML，脚本不执行；放大时按新尺寸重新栅格化矢量，任何倍率清晰。打开分流仍为 text。
 - 两态（编辑 / 预览）而非 WebStorm 三态分屏；状态会话内保持、不落盘，默认预览、新建文件时切回编辑。Markdown、SVG 与 CSV 共用同一开关。
@@ -52,7 +52,7 @@ Markdown 与 SVG 文件的工具栏出现「编辑 ↔ 预览」两态切换：�
 - 扩展名判定（Markdown / SVG / 可切预览的源文件 / 看图可展示 / 相邻媒体）表驱动单测。
 - 缩放几何（适配倍率、滚轮倍率、相机锚点、相机 → 瓦片视口映射）表驱动单测。
 - 查找换算表驱动单测：匹配（大小写、全词含中文与非词字符两端、不开正则时正则符号按原字、不在词界上的候选不挡住重叠的下一个、emoji 等两个码元的字按整字跳过、正则的行首行尾 / 空命中跳过 / 写错报无效）、跨节点命中落到节点与偏移、块间不相连、代码块外的空白折叠与 CRLF、代码块里空白原样。
-- 块的源码行标注表驱动单测：块元素带起始行、行内元素不带。行与位置的换算见 `files-tab.md` 的测试决策。
+- 渲染链单测（与预览同一条插件链）：块元素带起始行、行内元素不带，原始 HTML 的块（`details`、`summary`、`p`）同样标行；脚本、事件属性、`style` 与 `javascript:` 链接被去掉；行内 / 块判定表驱动。行与位置的换算见 `files-tab.md` 的测试决策。
 - 外部行为（切换与位置对齐、图片、链接、尺寸标注、选中复制、查找高亮与滚动）人工回归。
 
 ## Out of Scope

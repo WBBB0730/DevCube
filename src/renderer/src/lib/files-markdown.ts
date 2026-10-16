@@ -4,23 +4,23 @@
  *   命中可以跨行内元素（粗体、链接、行内代码）；块与块之间不相连。找的是页面上显示的样子：代码块外连续的空格、
  *   制表与换行（源码里的折行、CRLF）显示为一个空格。同表格 / PPT：打开查找（或正文变了）时建一次索引，之后每次输入只在索引里匹配。
  * - 源码行标注：块元素标上源码起始行，预览与编辑器据此按内容对齐阅读位置。
+ * - 原始 HTML：照 GitHub 的白名单渲染（`<br>`、`<details>`、`<kbd>`、`<img width>` 等），脚本、事件属性与 `style` 去掉。
  */
 import type { Root } from 'hast'
+import { phrasing } from 'hast-util-phrasing'
+import rehypeRaw from 'rehype-raw'
+import rehypeSanitize from 'rehype-sanitize'
+import type { Options } from 'react-markdown'
 import { visit } from 'unist-util-visit'
 import { locateTextOffset } from './text-find'
 
-/** react-markdown + GFM 产出的行内元素（原始 HTML 不渲染，元素种类是封闭的）；其余元素都是块 */
-export const MARKDOWN_INLINE_TAGS: ReadonlySet<string> = new Set([
-  'a',
-  'br',
-  'code',
-  'del',
-  'em',
-  'img',
-  'input',
-  'strong',
-  'sup'
-])
+/**
+ * 行内元素（HTML 的 phrasing content：a、br、code、kbd、img……）；其余元素都是块。
+ * 只按标签名判，语法树与页面上的元素共用这一个判定。
+ */
+export function isInlineTag(tagName: string): boolean {
+  return phrasing({ type: 'element', tagName, properties: {}, children: [] })
+}
 
 /**
  * rehype 插件：给每个块元素标上它在源码里的起始行（`data-line`，0 起），同 VS Code 的 Markdown 预览。
@@ -30,12 +30,22 @@ export function rehypeSourceLines(): (tree: Root) => void {
   return (tree: Root): void => {
     visit(tree, 'element', (node) => {
       const line = node.position?.start.line
-      if (line !== undefined && !MARKDOWN_INLINE_TAGS.has(node.tagName)) {
+      if (line !== undefined && !isInlineTag(node.tagName)) {
         node.properties.dataLine = line - 1
       }
     })
   }
 }
+
+/**
+ * 预览的 rehype 链：先把原始 HTML 解析成元素，再按 GitHub 的白名单净化（之后的步骤不再引入外来内容），
+ * 最后标源码行（净化会去掉不认识的属性，所以放在它之后）。解析与净化都保留源码位置。
+ */
+export const MARKDOWN_REHYPE_PLUGINS: NonNullable<Options['rehypePlugins']> = [
+  rehypeRaw,
+  rehypeSanitize,
+  rehypeSourceLines
+]
 
 /** 一块正文：块内依次相邻的文字节点内容；`pre` = 代码块，空白原样显示 */
 export type MarkdownFindBlock = { texts: readonly string[]; pre: boolean }
