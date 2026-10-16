@@ -1,10 +1,11 @@
 /**
  * Files Tab 表格预览（Excel / CSV）的纯逻辑（docs/prd/files-xlsx-preview.md、ADR-0034）：
- * CSV 转工作簿、查找命中与命中底色（数据源的表格也用）、缩放倍率。倍率是库的整数百分比（100 = 原大），库里每个尺寸都乘同一个倍率。
+ * CSV 转工作簿与源码行对应、查找命中与命中底色（数据源的表格也用）、缩放倍率。倍率是库的整数百分比（100 = 原大），库里每个尺寸都乘同一个倍率。
  */
 import Papa from 'papaparse'
 import { Workbook } from '@dukelib/sheets-wasm'
 import { MEDIA_ZOOM_STEP } from './files-media-zoom'
+import { monotonicLinePoints, type LinePoint } from './files-view-state'
 
 /** CSV 列宽估算的下限 / 上限（Excel 列宽单位，约等于字符数）：下限是 Excel 默认列宽，上限免得一格长文把整列撑满一屏 */
 const CSV_COL_MIN_WIDTH = 8.43
@@ -19,14 +20,44 @@ export function sheetColumnName(col: number): string {
 }
 
 /**
- * 解析 CSV / TSV 为行：格子一律保持原文（不转数字、日期，前导零与长数字不丢）。
- * .tsv 固定按制表符分，.csv 自动识别分隔符（逗号 / 分号 / 制表符等）；文件末尾换行产生的空行不算一行。
+ * 解析 CSV / TSV：每行数据的格子，及这行从源码第几行开始（0 起；引号里带换行的格子跨几行，下一行就往后推几行）。
+ * 格子一律保持原文（不转数字、日期，前导零与长数字不丢）。.tsv 固定按制表符分，.csv 自动识别分隔符（逗号 / 分号 /
+ * 制表符等）；文件末尾换行产生的空行不算一行。
  */
-export function parseCsv(text: string, tsv: boolean): string[][] {
-  const rows = Papa.parse<string[]>(text, { delimiter: tsv ? '\t' : '' }).data
+function parseCsvRows(text: string, tsv: boolean): { cells: string[]; line: number }[] {
+  // Papa Parse 会去掉开头的 BOM，游标按去掉之后的文字算
+  const body = text.startsWith('\ufeff') ? text.slice(1) : text
+  const rows: { cells: string[]; line: number }[] = []
+  let line = 0
+  let pos = 0
+  Papa.parse<string[]>(body, {
+    delimiter: tsv ? '\t' : '',
+    // 游标停在这行（连同行尾换行）之后，数过去的换行即下一行的起始行
+    step: ({ data, meta }) => {
+      rows.push({ cells: data, line })
+      for (; pos < meta.cursor; pos++) if (body[pos] === '\n') line++
+    }
+  })
   const last = rows.at(-1)
-  if (last && last.length === 1 && last[0] === '') rows.pop()
+  if (last && last.cells.length === 1 && last.cells[0] === '') rows.pop()
   return rows
+}
+
+/** 解析 CSV / TSV 为行（规则见 parseCsvRows） */
+export function parseCsv(text: string, tsv: boolean): string[][] {
+  return parseCsvRows(text, tsv).map((row) => row.cells)
+}
+
+/**
+ * CSV 源码行与表格行号的对应点（docs/prd/files-xlsx-preview.md「阅读位置」）：每行数据的起始源码行对应它的行号，
+ * 末尾补一点（源码总行数对应总行数），最后一行之内也按比例对应。
+ */
+export function csvLinePoints(text: string, tsv: boolean): LinePoint[] {
+  const rows = parseCsvRows(text, tsv)
+  return monotonicLinePoints([
+    ...rows.map((row, i) => ({ line: row.line, pos: i })),
+    { line: text.split('\n').length, pos: rows.length }
+  ])
 }
 
 /** 显示宽度：中日韩等全角字符按两个字符算（估列宽用，不求精确） */

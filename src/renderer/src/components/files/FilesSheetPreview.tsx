@@ -10,6 +10,8 @@
 // - 缩放：Cmd/Ctrl+滚轮与捏合按光标、Cmd/Ctrl +/- 按视口中心逐档、Cmd/Ctrl+0 回工作表自带倍率，快捷键与 PDF / PPT
 //   共用（lib/files-paged-preview）；库在 DOM 渲染下不接滚轮缩放，这里自接，锚点换算见 lib/files-sheet。
 // - 方向键归格子（移动选中格），不切上一个 / 下一个文件；选中与复制用库的。
+// - 阅读位置记工作表、倍率与视口左上角的格（docs/prd/files-tab.md「阅读位置」）；CSV 的纵向折成源码行、与编辑态共用，
+//   两态切换按行对上。格子在表格里的位置只有库知道，读与滚经补丁给控制器加的接口（见 patches/ 与 ADR-0034）。
 // - 链接：库以 window.open 开外链，交主进程开窗守卫转系统浏览器（web-contents-guard）；表内跳转库自处理。
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
@@ -30,12 +32,14 @@ import { LoadingHint } from '@renderer/components/ui/centered-hint'
 import { SheetTabs } from '@renderer/components/ui/sheet-tabs'
 import { useCtrlWheelZoom, usePagedPreviewKeys } from '@renderer/lib/files-paged-preview'
 import {
+  csvLinePoints,
   csvToXlsxBytes,
   sheetScrollAfterZoom,
   sheetStepZoom,
   sheetWheelZoom,
   type SheetCellText
 } from '@renderer/lib/files-sheet'
+import { lineAtPos, posAtLine, type FilesViewState } from '@renderer/lib/files-view-state'
 import type { FindSession } from '@renderer/lib/use-find-session'
 import { useSheetFind } from '@renderer/lib/use-sheet-find'
 import { FilesPreviewError } from './FilesPreviewError'
@@ -51,7 +55,8 @@ export function FilesSheetPreview({
   source,
   path,
   active,
-  find
+  find,
+  viewState
 }: {
   source: FilesSheetSource
   path: string
@@ -59,6 +64,8 @@ export function FilesSheetPreview({
   active: boolean
   /** 这个文件的查找会话 */
   find: FindSession
+  /** 这个文件的阅读位置：CSV 与编辑态共用源码行 */
+  viewState: FilesViewState
 }): React.JSX.Element {
   const rootRef = useRef<HTMLDivElement>(null)
   const wrapRef = useRef<HTMLDivElement>(null)
@@ -110,9 +117,11 @@ export function FilesSheetPreview({
     activeSheet,
     activeTabIndex,
     getCellDisplayValue,
+    getTopLeft,
     maxZoomScale,
     minZoomScale,
     resetZoom,
+    scrollToTopLeft,
     selectCell,
     setActiveTabIndex,
     setZoomScale,
@@ -130,6 +139,72 @@ export function FilesSheetPreview({
     focusedOnce.current = true
     scrollerRef.current?.focus({ preventScroll: true })
   }, [workbook])
+
+  // —— 阅读位置 ——
+  /** CSV：源码行与表格行号的对应点（纵向位置记在源码行上，与编辑态共用） */
+  const csvPoints = useMemo(
+    () => (kind === 'csv' ? csvLinePoints(data, tsv) : null),
+    [kind, data, tsv]
+  )
+  /** 挂载时要恢复到的位置：工作表、倍率与视口左上角的格（带格内进度）；没看过为 null */
+  const [restore] = useState(() => {
+    const saved = viewState.get('sheet')
+    // CSV 的纵向从源码行折算（与编辑态共用），Excel 的记在表格那一格
+    let row = saved?.row
+    if (csvPoints) {
+      const line = viewState.get('line')
+      row = line === undefined ? undefined : posAtLine(csvPoints, line)
+    }
+    if (!saved && row === undefined) return null
+    return { tab: saved?.tab ?? 0, zoom: saved?.zoom, row: row ?? 0, col: saved?.col ?? 0 }
+  })
+  /**
+   * 恢复走到哪一步：表格就绪后先换表（倍率按表各自记，换好才能设），再一并设倍率、把那一格滚回左上角
+   *（库把滚动排在换倍率的重算之后，同一次提交不互相覆盖）；恢复完为 null，此前不往回记
+   */
+  const restoreStep = useRef<'tab' | 'place' | null>(restore && 'tab')
+  useEffect(() => {
+    if (!workbook || !restore) return
+    if (restoreStep.current === 'tab') {
+      restoreStep.current = 'place'
+      if (restore.tab !== activeTabIndex && restore.tab < tabs.length) {
+        setActiveTabIndex(restore.tab)
+        return
+      }
+    }
+    if (restoreStep.current !== 'place') return
+    restoreStep.current = null
+    if (restore.zoom !== undefined) setZoomScale(restore.zoom)
+    const row = Math.floor(restore.row)
+    const col = Math.floor(restore.col)
+    scrollToTopLeft({ row, rowOffset: restore.row - row, col, colOffset: restore.col - col })
+  }, [
+    workbook,
+    restore,
+    activeTabIndex,
+    tabs.length,
+    setActiveTabIndex,
+    setZoomScale,
+    scrollToTopLeft
+  ])
+
+  /** 把当前位置记进阅读位置：CSV 的纵向折成源码行（与编辑态共用），Excel 记在表格那一格 */
+  const rememberPosition = useCallback(() => {
+    const at = restoreStep.current === null ? getTopLeft() : null
+    if (!at) return
+    const row = at.row + at.rowOffset
+    if (csvPoints) viewState.set('line', lineAtPos(csvPoints, row))
+    viewState.set('sheet', {
+      tab: activeTabIndex,
+      zoom: zoomScale,
+      col: at.col + at.colOffset,
+      row: csvPoints ? undefined : row
+    })
+  }, [getTopLeft, csvPoints, viewState, activeTabIndex, zoomScale])
+  // 换表、换倍率时滚动位置未必变（没有滚动事件），也要记下
+  useEffect(() => {
+    if (workbook) rememberPosition()
+  }, [workbook, rememberPosition])
 
   // —— 缩放 ——
   /**
@@ -284,7 +359,7 @@ export function FilesSheetPreview({
     stepZoom
   })
 
-  // 自带滚动视口（与库默认的写法相同、同样按工作表重挂），只为拿到元素做缩放锚点换算
+  // 自带滚动视口（与库默认的写法相同、同样按工作表重挂）：拿到元素做缩放锚点换算，滚动时记下阅读位置
   const renderScroller = useCallback(
     ({ children, viewportProps }: XlsxScrollerRenderProps) => (
       <div
@@ -296,11 +371,15 @@ export function FilesSheetPreview({
           if (typeof ref === 'function') ref(el)
           else if (ref) ref.current = el
         }}
+        onScroll={(e) => {
+          viewportProps.onScroll?.(e)
+          rememberPosition()
+        }}
       >
         {children}
       </div>
     ),
-    [activeTabIndex]
+    [activeTabIndex, rememberPosition]
   )
 
   return (

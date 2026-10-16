@@ -1,7 +1,12 @@
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import Markdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
 import { describe, expect, it } from 'vitest'
 import {
   buildMarkdownFindIndex,
   markdownFindSpans,
+  rehypeSourceLines,
   type MarkdownFindBlock,
   type MarkdownFindSpan
 } from './files-markdown'
@@ -52,5 +57,32 @@ describe('markdownFindSpans', () => {
     expect(spans([{ texts: ['a  b'], pre: true }], 'a  b')).toEqual([
       { block: 0, start: [0, 0], end: [0, 4] }
     ])
+  })
+})
+
+describe('rehypeSourceLines', () => {
+  /** 经预览同一条渲染链（react-markdown + GFM）出 HTML */
+  const render = (source: string): string =>
+    renderToStaticMarkup(
+      createElement(
+        Markdown,
+        { remarkPlugins: [remarkGfm], rehypePlugins: [rehypeSourceLines] },
+        source
+      )
+    )
+
+  it('块元素标上源码起始行（0 起），行内元素不标', () => {
+    expect(render('# 标题\n\n一段 **粗体** 与 `代码`\n\n- 甲\n- 乙')).toBe(
+      '<h1 data-line="0">标题</h1>\n' +
+        '<p data-line="2">一段 <strong>粗体</strong> 与 <code>代码</code></p>\n' +
+        '<ul data-line="4">\n<li data-line="4">甲</li>\n<li data-line="5">乙</li>\n</ul>'
+    )
+  })
+
+  it('代码块标在 pre 上，表格逐行标', () => {
+    const html = render('```js\nx\n```\n\n| a |\n| - |\n| 1 |')
+    expect(html).toContain('<pre data-line="0"><code class="language-js">x\n</code></pre>')
+    expect(html).toContain('<table data-line="4">')
+    expect(html).toContain('<tr data-line="6"><td data-line="6">1</td></tr>')
   })
 })

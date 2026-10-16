@@ -4,6 +4,7 @@ import { beforeAll, describe, expect, it } from 'vitest'
 import { initSync, Workbook } from '@dukelib/sheets-wasm'
 import {
   csvColumnWidths,
+  csvLinePoints,
   csvToXlsxBytes,
   parseCsv,
   sheetColumnName,
@@ -53,6 +54,43 @@ describe('parseCsv', () => {
 
   it('去掉 BOM 与末尾换行产生的空行，中间的空行保留', () => {
     expect(parseCsv('﻿a,b\n\n1,2\n', false)).toEqual([['a', 'b'], [''], ['1', '2']])
+  })
+})
+
+describe('csvLinePoints', () => {
+  it('每行数据对应它的起始源码行，末尾补一点（源码总行数对应总行数）', () => {
+    expect(csvLinePoints('a,b\n1,2\n3,4\n', false)).toEqual([
+      { line: 0, pos: 0 },
+      { line: 1, pos: 1 },
+      { line: 2, pos: 2 },
+      { line: 4, pos: 3 }
+    ])
+  })
+
+  it('引号里带换行的格子占几行，下一行数据就往后推几行', () => {
+    expect(csvLinePoints('id,note\n1,"多\n行\n备注"\n2,x', false)).toEqual([
+      { line: 0, pos: 0 },
+      { line: 1, pos: 1 },
+      { line: 4, pos: 2 },
+      { line: 5, pos: 3 }
+    ])
+  })
+
+  it('CRLF、BOM 与中间的空行照样按源码行数', () => {
+    expect(csvLinePoints('\ufeffa,b\r\n\r\n1,2\r\n', false)).toEqual([
+      { line: 0, pos: 0 },
+      { line: 1, pos: 1 },
+      { line: 2, pos: 2 },
+      { line: 4, pos: 3 }
+    ])
+  })
+
+  it('末尾没有换行时，最后一行到文末同样按比例对应', () => {
+    expect(csvLinePoints('a\tb\n1\t2', true)).toEqual([
+      { line: 0, pos: 0 },
+      { line: 1, pos: 1 },
+      { line: 2, pos: 2 }
+    ])
   })
 })
 

@@ -37,8 +37,16 @@ import {
   languageExtensionForPath
 } from '@renderer/lib/cm6-setup'
 import { EditorView } from '@codemirror/view'
+import { rememberEditorView, restoreEditorView } from '@renderer/lib/cm6-view-state'
 import { useEditorFind } from '@renderer/lib/use-editor-find'
 import { useFindSession, type FindMemory, type FindSession } from '@renderer/lib/use-find-session'
+import {
+  dropPathKeys,
+  remapPathKeys,
+  viewStateOf,
+  type FilesViewMemory,
+  type FilesViewState
+} from '@renderer/lib/files-view-state'
 import { gitDiffGutter, type GitGutterHunkClickPayload } from '@renderer/lib/cm6-git-gutter'
 import { FilesFindWidget } from './FilesFindWidget'
 import {
@@ -325,6 +333,11 @@ export function FilesPane({
    */
   const [findMemory] = useState<FindMemory>(() => new Map())
   const find = useFindSession(loaded?.path ?? null, findMemory)
+  /**
+   * 阅读位置跟着文件走（docs/prd/files-tab.md「阅读位置」）：按文件各记一份交给正文视图，切走再切回来原样恢复。
+   * 会话内保持，不持久化；改名 / 删除时跟着改。渲染时取用即建（同一路径恒为同一份），不影响渲染结果
+   */
+  const [viewMemory] = useState<FilesViewMemory>(() => new Map())
   /** PDF / PPT 缩略图侧栏可见性（两者共用一个开关）；会话内保持，不持久化，默认显示。 */
   const [pageThumbnails, setPageThumbnails] = useState(true)
   /** 文件树右键菜单目标与条目操作弹窗（新建 / 重命名 / 删除）。 */
@@ -1512,12 +1525,8 @@ export function FilesPane({
         expandedRef.current = nextExpanded
         setExpanded(nextExpanded)
         setSelectedPath((prev) => (prev === null ? null : remap(prev)))
-        for (const [key, value] of [...findMemory]) {
-          const moved = remap(key)
-          if (moved === key) continue
-          findMemory.delete(key)
-          findMemory.set(moved, value)
-        }
+        remapPathKeys(findMemory, remap)
+        remapPathKeys(viewMemory, remap)
         const nextRecent = recentPathsRef.current.map(remap)
         setRecentPaths(nextRecent)
         const cur = loadedRef.current
@@ -1570,7 +1579,8 @@ export function FilesPane({
         })
       }
       setSelectedPath((prev) => (prev !== null && gone(prev) ? null : prev))
-      for (const key of [...findMemory.keys()]) if (gone(key)) findMemory.delete(key)
+      dropPathKeys(findMemory, gone)
+      dropPathKeys(viewMemory, gone)
       await refreshFromDisk()
     },
     [
@@ -1583,7 +1593,8 @@ export function FilesPane({
       flushSave,
       ensureDirLoaded,
       setUi,
-      findMemory
+      findMemory,
+      viewMemory
     ]
   )
 
@@ -1708,6 +1719,7 @@ export function FilesPane({
                 path={loaded.path}
                 content={loaded.content}
                 find={find}
+                viewState={viewStateOf(viewMemory, loaded.path)}
                 baseline={
                   headText !== null && headText.path === loaded.path ? headText.content : null
                 }
@@ -1778,6 +1790,7 @@ export function FilesPane({
                   key={remote ? loaded.path : undefined}
                   ref={imageRef}
                   onFitChange={setImageFit}
+                  viewState={viewStateOf(viewMemory, loaded.path)}
                   src={loaded.mediaUrl}
                   path={loaded.decode.path}
                   projectPath={loaded.decode.root}
@@ -1851,6 +1864,7 @@ export function FilesPane({
                 path={loaded.path}
                 active={visible}
                 find={find}
+                viewState={viewStateOf(viewMemory, loaded.path)}
                 thumbnails={pageThumbnails}
                 onToggleThumbnails={() => setPageThumbnails((v) => !v)}
                 onPrev={goPrevImage}
@@ -1891,6 +1905,7 @@ export function FilesPane({
                   path={loaded.path}
                   active={visible}
                   find={find}
+                  viewState={viewStateOf(viewMemory, loaded.path)}
                 />
               </div>
             )}
@@ -2209,6 +2224,7 @@ function FilesTextEditor({
   path,
   content,
   find,
+  viewState,
   baseline,
   projectRoot,
   error,
@@ -2237,6 +2253,8 @@ function FilesTextEditor({
   content: string
   /** 这个文件的查找会话：编辑与预览共用 */
   find: FindSession
+  /** 这个文件的阅读位置：编辑与预览（Markdown / CSV）共用源码行，SVG 预览另记看图相机 */
+  viewState: FilesViewState
   /** HEAD 基线文本；null = 不显示 gutter diff 条纹 */
   baseline: string | null
   projectRoot: string
@@ -2314,9 +2332,10 @@ function FilesTextEditor({
       filesGutters,
       languageExtensionForPath(path),
       findExtension,
+      rememberEditorView(viewState),
       ...(baseline === null ? [] : [gitDiffGutter(baseline, onHunkClick)])
     ],
-    [theme, path, baseline, onHunkClick, findExtension]
+    [theme, path, baseline, onHunkClick, findExtension, viewState]
   )
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -2345,16 +2364,20 @@ function FilesTextEditor({
       {saveBar}
       {markdown && sourcePreview ? (
         <FilesMarkdownPreview
+          // 按文件重挂：换文件从头开始，切回来按记着的位置恢复
+          key={path}
           path={path}
           content={content}
           projectRoot={projectRoot}
           active={active}
           find={find}
+          viewState={viewState}
         />
       ) : svg && sourcePreview ? (
         <FilesSvgPreview
           ref={svgRef}
           onFitChange={setSvgFit}
+          viewState={viewState}
           path={path}
           content={content}
           prefetch={imagePrefetch}
@@ -2369,6 +2392,7 @@ function FilesTextEditor({
           path={path}
           active={active}
           find={find}
+          viewState={viewState}
         />
       ) : (
         <>
@@ -2382,7 +2406,10 @@ function FilesTextEditor({
               extensions={extensions}
               basicSetup={FILES_BASIC_SETUP}
               onChange={onChange}
-              onCreateEditor={(created) => setView(created)}
+              onCreateEditor={(created) => {
+                restoreEditorView(created, viewState)
+                setView(created)
+              }}
               className="h-full [&_.cm-editor]:h-full [&_.cm-editor]:outline-none"
             />
           </div>

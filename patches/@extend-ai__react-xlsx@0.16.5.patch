@@ -1,17 +1,32 @@
 diff --git a/dist/index.d.ts b/dist/index.d.ts
-index 2460566fac236307fd2954bd4004b7cc2e9a7280..02ba19325e2d0101ece30158d7e33c1b97d767e4 100644
+index 2460566fac236307fd2954bd4004b7cc2e9a7280..a1c0252b40832273e2ecc3ac8f14a16d793afab1 100644
 --- a/dist/index.d.ts
 +++ b/dist/index.d.ts
-@@ -1146,6 +1146,8 @@ interface XlsxViewerController {
+@@ -1146,7 +1146,23 @@ interface XlsxViewerController {
      setZoomScale: (zoomScale: number) => void;
      selectCell: (cell: XlsxCellAddress, options?: {
          extend?: boolean;
 +        /** 选中后滚入视口（同方向键移动选中格）。 */
 +        reveal?: boolean;
      }) => void;
++    /** 把某一格（行列 0 起）滚到视口左上角（冻结窗格之下、之右）；rowOffset / colOffset 为格内进度（0–1）。 */
++    scrollToTopLeft: (position: {
++        row: number;
++        rowOffset: number;
++        col: number;
++        colOffset: number;
++    }) => void;
++    /** 视口左上角（冻结窗格之下、之右）是哪一格（行列 0 起）、格内进度多少（0–1）；表格还没挂上时为 null。 */
++    getTopLeft: () => {
++        row: number;
++        rowOffset: number;
++        col: number;
++        colOffset: number;
++    } | null;
      selectChart: (id: string | null) => void;
      selectChartElement: (selection: XlsxChartElementSelection | null) => void;
-@@ -1204,6 +1206,8 @@ interface XlsxViewerSelection {
+     selectRange: (range: XlsxCellRange) => void;
+@@ -1204,6 +1220,8 @@ interface XlsxViewerSelection {
      selectedRangeAddress: string | null;
      selectCell: (cell: XlsxCellAddress, options?: {
          extend?: boolean;
@@ -21,7 +36,7 @@ index 2460566fac236307fd2954bd4004b7cc2e9a7280..02ba19325e2d0101ece30158d7e33c1b
      selectRange: (range: XlsxCellRange) => void;
      selection: XlsxCellRange | null;
 diff --git a/dist/index.js b/dist/index.js
-index 5650ca8512b5b8073af7176e3818fcd414c9b628..ae7d00962bd0e8f59604e563516ed46bb1eb090f 100644
+index 5650ca8512b5b8073af7176e3818fcd414c9b628..efef02c6c72d0f68ca1be18a0dea8126e686f6e2 100644
 --- a/dist/index.js
 +++ b/dist/index.js
 @@ -4597,7 +4597,7 @@ function parseStandardConditionalFormatRule(cfRuleNode, ranges, differentialStyl
@@ -33,12 +48,18 @@ index 5650ca8512b5b8073af7176e3818fcd414c9b628..ae7d00962bd0e8f59604e563516ed46b
      const cfvos = getChildElements(iconSetNode, "cfvo").map((node) => parseConditionalFormatValueObject(node)).filter((value) => Boolean(value));
      if (!iconSetName || cfvos.length === 0) {
        return null;
-@@ -10299,11 +10299,16 @@ function useXlsxViewerController(options) {
+@@ -10299,11 +10299,22 @@ function useXlsxViewerController(options) {
      }
      return true;
    }, [getChartById, readOnly, updateChart, workbook]);
 +  // selectCell 带 reveal 时记下要滚入视口的格子，由表格按方向键移动选中格的同一套规则去滚（每次新对象，同一格再要求也会再滚）
 +  const [cellRevealRequest, setCellRevealRequest] = React.useState(null);
++  // 调用方记住 / 恢复阅读位置用：scrollToTopLeft 记下要滚到视口左上角的格子，由表格按行列位置去滚（每次新对象，同一格再要求也会再滚）；
++  // getTopLeft 读视口左上角是哪一格，实现由表格挂上后登记（行列位置只有表格知道），没挂上时为 null
++  const [topLeftRequest, setTopLeftRequest] = React.useState(null);
++  const scrollToTopLeft = React.useCallback((position) => setTopLeftRequest({ ...position }), []);
++  const topLeftReaderRef = React.useRef(null);
++  const getTopLeft = React.useCallback(() => topLeftReaderRef.current?.() ?? null, []);
    const selectCell = React.useCallback((cell, options2) => {
      setSelectedChartId(null);
      setSelectedChartElement(null);
@@ -50,23 +71,30 @@ index 5650ca8512b5b8073af7176e3818fcd414c9b628..ae7d00962bd0e8f59604e563516ed46b
      if (options2?.extend && selectionAnchorRef.current) {
        setSelection(normalizeRange({ start: selectionAnchorRef.current, end: cell }));
        return;
-@@ -10932,6 +10937,7 @@ function useXlsxViewerController(options) {
+@@ -10932,6 +10943,11 @@ function useXlsxViewerController(options) {
        addFormControl,
        addSheet,
        canRedo,
 +      cellRevealRequest,
++      topLeftRequest,
++      scrollToTopLeft,
++      getTopLeft,
++      topLeftReaderRef,
        canDownload: Boolean(file ?? src),
        canExport: Boolean(workbook),
        canLoadDeferred,
-@@ -11055,6 +11061,7 @@ function useXlsxViewerController(options) {
+@@ -11055,6 +11071,10 @@ function useXlsxViewerController(options) {
        addSheet,
        canLoadDeferred,
        canRedo,
 +      cellRevealRequest,
++      topLeftRequest,
++      scrollToTopLeft,
++      getTopLeft,
        canUndo,
        canZoomIn,
        canZoomOut,
-@@ -18597,6 +18604,8 @@ var IMAGE_MIN_SIZE_PX = 16;
+@@ -18597,6 +18617,8 @@ var IMAGE_MIN_SIZE_PX = 16;
  var IMAGE_HANDLE_SIZE_PX = 10;
  var CANVAS_RESIZE_HIT_SLOP_PX = 8;
  var CANVAS_VIEWPORT_OVERSCAN_PX = 480;
@@ -75,7 +103,7 @@ index 5650ca8512b5b8073af7176e3818fcd414c9b628..ae7d00962bd0e8f59604e563516ed46b
  var CANVAS_SCROLL_BUFFER_PX = 480;
  var CANVAS_DEFERRED_VIEWPORT_SYNC_THRESHOLD_PX = CANVAS_SCROLL_BUFFER_PX - 96;
  var CANVAS_IMMEDIATE_VIEWPORT_SYNC_THRESHOLD_PX = CANVAS_SCROLL_BUFFER_PX * 1.5;
-@@ -21175,13 +21184,15 @@ function buildSpreadsheetFontFamily(font, themePalette) {
+@@ -21175,13 +21197,15 @@ function buildSpreadsheetFontFamily(font, themePalette) {
        "sans-serif"
      ].join(", ");
    }
@@ -98,15 +126,17 @@ index 5650ca8512b5b8073af7176e3818fcd414c9b628..ae7d00962bd0e8f59604e563516ed46b
  }
  function resolveSpreadsheetLineHeight(fontSizePt) {
    const sizePt = typeof fontSizePt === "number" && Number.isFinite(fontSizePt) ? fontSizePt : 11;
-@@ -24090,6 +24101,7 @@ function XlsxGrid({
+@@ -24090,6 +24114,9 @@ function XlsxGrid({
      activeSheetIndex,
      activeTab,
      activeTabIndex,
 +    cellRevealRequest,
++    topLeftRequest,
++    topLeftReaderRef,
      canLoadDeferred,
      charts,
      clearSelectedChart,
-@@ -25000,6 +25012,17 @@ function XlsxGrid({
+@@ -25000,6 +25027,38 @@ function XlsxGrid({
      ) : displayRowHeaderWidth,
      [displayActualColWidths, displayDefaultColWidth, displayRowHeaderWidth, frozenCols, stickyLeftByCol]
    );
@@ -121,10 +151,57 @@ index 5650ca8512b5b8073af7176e3818fcd414c9b628..ae7d00962bd0e8f59604e563516ed46b
 +      ensureCellVisible(rowIndex, colIndex);
 +    }
 +  }, [cellRevealRequest]);
++  // 视口左上角（冻结窗格之下、之右）是哪一格、格内进度多少：登记给控制器的 getTopLeft
++  React4.useLayoutEffect(() => {
++    const locate = (prefixSums, indices, offset) => {
++      const index = findIndexForOffsetPrefix(prefixSums, offset);
++      const start = prefixSums[index] ?? 0;
++      const size = (prefixSums[index + 1] ?? start) - start;
++      return [indices[index], size > 0 ? Math.min(1, Math.max(0, (offset - start) / size)) : 0];
++    };
++    topLeftReaderRef.current = () => {
++      const scroller = scrollRef.current;
++      if (!scroller || visibleRows.length === 0 || visibleCols.length === 0) {
++        return null;
++      }
++      const [row, rowOffset] = locate(rowPrefixSums, visibleRows, scroller.scrollTop + frozenPaneBottom - displayHeaderHeight);
++      const [col, colOffset] = locate(colPrefixSums, visibleCols, scroller.scrollLeft + frozenPaneRight - displayRowHeaderWidth);
++      return { row, rowOffset, col, colOffset };
++    };
++    return () => {
++      topLeftReaderRef.current = null;
++    };
++  });
    canvasLayoutMetricsRef.current = {
      displayHeaderHeight,
      displayRowHeaderWidth,
-@@ -26129,8 +26152,13 @@ function XlsxGrid({
+@@ -25479,6 +25538,25 @@ function XlsxGrid({
+     visibleCols,
+     visibleRows
+   ]);
++  // 调用方要求某一格滚到视口左上角时（scrollToTopLeft，rowOffset / colOffset 为格内进度）：格子起点加格内进度贴住冻结窗格之下、之右。
++  // 排在打开表时的初始滚动之后、且是提交后的副作用（晚于换倍率时按比例重算滚动的布局副作用），同一次提交里换倍率与滚到某格不互相覆盖
++  React4.useEffect(() => {
++    const scroller = scrollRef.current;
++    const rowIndex = topLeftRequest ? rowIndexByActual.get(topLeftRequest.row) : void 0;
++    const colIndex = topLeftRequest ? colIndexByActual.get(topLeftRequest.col) : void 0;
++    if (!scroller || rowIndex === void 0 || colIndex === void 0) {
++      return;
++    }
++    const target = (prefixSums, index, offset) => {
++      const start = prefixSums[index] ?? 0;
++      return start + ((prefixSums[index + 1] ?? start) - start) * offset;
++    };
++    const top = displayHeaderHeight + target(rowPrefixSums, rowIndex, topLeftRequest.rowOffset) - frozenPaneBottom;
++    const left = displayRowHeaderWidth + target(colPrefixSums, colIndex, topLeftRequest.colOffset) - frozenPaneRight;
++    scroller.scrollTop = Math.max(0, Math.min(top, scroller.scrollHeight - scroller.clientHeight));
++    scroller.scrollLeft = Math.max(0, Math.min(left, scroller.scrollWidth - scroller.clientWidth));
++    syncDrawingViewport(scroller, { immediate: true });
++  }, [topLeftRequest]);
+   React4.useEffect(() => {
+     clearLiveGestureZoom();
+   }, [activeTabIndex, clearLiveGestureZoom]);
+@@ -26129,8 +26207,13 @@ function XlsxGrid({
      const overscan = 48;
      const startRow = Math.max(0, firstVisibleRow2 - overscan);
      const endRow = lastVisibleRow2 + overscan;
@@ -138,7 +215,7 @@ index 5650ca8512b5b8073af7176e3818fcd414c9b628..ae7d00962bd0e8f59604e563516ed46b
        startRow
      };
    }, [
-@@ -26143,8 +26171,12 @@ function XlsxGrid({
+@@ -26143,8 +26226,12 @@ function XlsxGrid({
      rowPrefixSums,
      visibleRows
    ]);
@@ -152,7 +229,7 @@ index 5650ca8512b5b8073af7176e3818fcd414c9b628..ae7d00962bd0e8f59604e563516ed46b
        return null;
      }
      const worksheetWithRowsBatch = worksheet;
-@@ -26152,18 +26184,18 @@ function XlsxGrid({
+@@ -26152,18 +26239,18 @@ function XlsxGrid({
        return null;
      }
      try {

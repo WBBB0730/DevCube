@@ -3,7 +3,17 @@
 // 相对图片不显示）；链接一律拦截默认跳转，http/https/mailto 交给系统浏览器，其余（锚点 / 相对链接）不动作。
 // 正文可选中复制；Cmd+F 在渲染后的正文里查找（换算见 lib/files-markdown），查找会话与编辑态共用（切换不关、不清空），
 // 高亮同 PPT 走 CSS Custom Highlight、不改页面。
-import { useCallback, useContext, useLayoutEffect, useMemo, useRef, useState } from 'react'
+// 阅读位置与编辑器共用「视口顶边所在的源码行」：块元素标着源码起始行（rehypeSourceLines），以块为对应点分段换算，
+// 所以两态切换停在同一处内容；按文件重挂，换文件从头开始（docs/prd/files-tab.md「阅读位置」）。
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react'
 import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { isExternalLink } from '@shared/external-link'
@@ -13,10 +23,19 @@ import { imageMimeOf } from '@shared/git'
 import { findHighlights, scrollRangeToCenter } from '@renderer/lib/find-highlight'
 import {
   buildMarkdownFindIndex,
+  MARKDOWN_INLINE_TAGS,
   markdownFindSpans,
+  rehypeSourceLines,
   type MarkdownFindIndexBlock
 } from '@renderer/lib/files-markdown'
 import { usePagedPreviewKeys } from '@renderer/lib/files-paged-preview'
+import {
+  lineAtPos,
+  monotonicLinePoints,
+  posAtLine,
+  type FilesViewState,
+  type LinePoint
+} from '@renderer/lib/files-view-state'
 import { compileTextFind } from '@renderer/lib/text-find'
 import { useFindCursor } from '@renderer/lib/use-find-cursor'
 import type { FindSession } from '@renderer/lib/use-find-session'
@@ -35,11 +54,8 @@ function decodeMaybe(url: string): string {
   }
 }
 
-/** react-markdown + GFM 产出的行内元素（原始 HTML 不渲染，元素种类是封闭的）；其余元素都是块 */
-const INLINE_TAGS = new Set(['A', 'BR', 'CODE', 'DEL', 'EM', 'IMG', 'INPUT', 'STRONG', 'SUP'])
-
 function isBlockElement(node: Node | null): boolean {
-  return node instanceof Element && !INLINE_TAGS.has(node.tagName)
+  return node instanceof Element && !MARKDOWN_INLINE_TAGS.has(node.localName)
 }
 
 /**
@@ -59,7 +75,7 @@ function collectFindBlocks(body: HTMLElement): { nodes: Text[]; pre: boolean }[]
   while (walker.nextNode()) {
     const node = walker.currentNode as Text
     let el = node.parentElement!
-    while (el !== body && INLINE_TAGS.has(el.tagName)) el = el.parentElement!
+    while (el !== body && MARKDOWN_INLINE_TAGS.has(el.localName)) el = el.parentElement!
     let block = blocks.at(-1)
     if (block?.el !== el) {
       block = { el, nodes: [], pre: el.closest('pre') !== null }
@@ -72,6 +88,7 @@ function collectFindBlocks(body: HTMLElement): { nodes: Text[]; pre: boolean }[]
 
 const NO_MATCH = { total: 0, current: -1 }
 const REMARK_PLUGINS = [remarkGfm]
+const REHYPE_PLUGINS = [rehypeSourceLines]
 
 /** 文档序的命中里第一个顶边不在 `top` 之上的（顶边随文档序不减，对半找）；都在其上回到第一个 */
 function firstRangeBelow(ranges: readonly Range[], top: number): number {
@@ -90,7 +107,8 @@ export function FilesMarkdownPreview({
   content,
   projectRoot,
   active,
-  find
+  find,
+  viewState
 }: {
   path: string
   content: string
@@ -99,6 +117,8 @@ export function FilesMarkdownPreview({
   active: boolean
   /** 查找会话：与编辑态共用，切换不关、不清空 */
   find: FindSession
+  /** 这个文件的阅读位置：与编辑态共用源码行 */
+  viewState: FilesViewState
 }): React.JSX.Element {
   const local = useContext(FilesLocalContext)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -159,12 +179,66 @@ export function FilesMarkdownPreview({
   // 正文只随内容与渲染组件重渲染：react-markdown 每次渲染都整篇重新解析，查找打字等无关的重渲染不能连带它
   const body = useMemo(
     () => (
-      <Markdown remarkPlugins={REMARK_PLUGINS} components={components}>
+      <Markdown
+        remarkPlugins={REMARK_PLUGINS}
+        rehypePlugins={REHYPE_PLUGINS}
+        components={components}
+      >
         {content}
       </Markdown>
     ),
     [content, components]
   )
+
+  // —— 阅读位置 ——
+  /** 源码总行数：最后一块之后到文末的那段也按比例对应 */
+  const lineCount = useMemo(() => content.split('\n').length, [content])
+  /**
+   * 源码行与滚动内容高度的对应点（各块的顶边，加上首尾两端）：随排版缓存，正文重渲染或尺寸一变（图片加载、拖窗口）即作废
+   */
+  const pointsRef = useRef<LinePoint[] | null>(null)
+  const linePoints = useCallback((): LinePoint[] => {
+    const container = containerRef.current
+    const bodyEl = bodyRef.current
+    if (!container || !bodyEl) return []
+    if (pointsRef.current) return pointsRef.current
+    const top = container.getBoundingClientRect().top - container.scrollTop
+    const blocks = Array.from(bodyEl.querySelectorAll<HTMLElement>('[data-line]'), (el) => ({
+      line: Number(el.dataset.line),
+      pos: el.getBoundingClientRect().top - top
+    }))
+    pointsRef.current = monotonicLinePoints([
+      { line: 0, pos: 0 },
+      ...blocks,
+      { line: lineCount, pos: container.scrollHeight }
+    ])
+    return pointsRef.current
+  }, [lineCount])
+
+  // 正文（重新）渲染后块的位置作废，按记着的源码行落位：挂载即恢复阅读位置，内容在别处变了也停在同一处。
+  // 须在查找之前：新一轮查找从视口顶边起找
+  useLayoutEffect(() => {
+    pointsRef.current = null
+    const container = containerRef.current
+    const line = viewState.get('line')
+    if (container && line !== undefined) container.scrollTop = posAtLine(linePoints(), line)
+  }, [body, linePoints, viewState])
+
+  // 页面尺寸一变（图片加载撑高、拖窗口换行）块的位置跟着变；视口上方撑高时，眼前的内容由浏览器的滚动锚定保持不动
+  useEffect(() => {
+    const bodyEl = bodyRef.current
+    if (!bodyEl) return
+    const ro = new ResizeObserver(() => {
+      pointsRef.current = null
+    })
+    ro.observe(bodyEl)
+    return () => ro.disconnect()
+  }, [])
+
+  const rememberLine = (): void => {
+    const container = containerRef.current
+    if (container) viewState.set('line', lineAtPos(linePoints(), container.scrollTop))
+  }
 
   const finder = useMemo(
     () => compileTextFind(query, { caseSensitive, wholeWord, regexp }),
@@ -244,6 +318,7 @@ export function FilesMarkdownPreview({
         ref={containerRef}
         tabIndex={-1}
         className="min-h-0 flex-1 select-text overflow-y-auto bg-deepest outline-none"
+        onScroll={rememberLine}
       >
         <div
           ref={bodyRef}

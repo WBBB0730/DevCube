@@ -14,6 +14,7 @@
 // 库样式表在 main.css 顶部以级联层引入（.files-pdf 覆盖也在那里）。
 // 键盘、抓手、滚轮缩放、页码与四档、缩略图侧栏是与 PPT 预览共用的外壳（lib/files-paged-preview、FilesPagedControls、FilesPageThumbnails）。
 // 用 legacy 构建：默认构建依赖比当前 Electron 的 Chromium 更新的 JS 特性（如 Map#getOrInsertComputed），legacy 自带垫片。
+// 阅读位置照 PDF.js 自家阅读器：随 updateviewarea 记下位置参数，页面就绪时交 setHash 恢复（docs/prd/files-tab.md「阅读位置」）。
 import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from 'react'
 import {
   AnnotationMode,
@@ -39,6 +40,7 @@ import {
   type MediaFitMode
 } from '@renderer/lib/files-media-zoom'
 import { PdfThumbnailRenderer } from '@renderer/lib/files-pdf-thumbnails'
+import type { FilesViewState } from '@renderer/lib/files-view-state'
 import type { ThumbnailWindow } from '@renderer/lib/files-page-thumbnails'
 import {
   useCtrlWheelZoom,
@@ -181,6 +183,7 @@ export function FilesPdfPreview({
   path,
   active,
   find,
+  viewState,
   thumbnails,
   onToggleThumbnails,
   onPrev,
@@ -193,6 +196,8 @@ export function FilesPdfPreview({
   active: boolean
   /** 这个文件的查找会话（FilesPane 按文件记，切走再切回来原样恢复） */
   find: FindSession
+  /** 这个文件的阅读位置（FilesPane 按文件记） */
+  viewState: FilesViewState
   /** ←/→ 切上一个 / 下一个媒体文件（↑/↓ 归翻页）；由 FilesPane 按树内可见序给 */
   onPrev?: () => void
   onNext?: () => void
@@ -210,6 +215,10 @@ export function FilesPdfPreview({
   const viewerRef = useRef<PDFViewer | null>(null)
   const linkServiceRef = useRef<PDFLinkService | null>(null)
   const busRef = useRef<EventBus | null>(null)
+  /** 正在载入的文档的阅读位置：页面就绪时据此恢复 */
+  const loadingViewRef = useRef<FilesViewState | null>(null)
+  /** 屏上文档的阅读位置：恢复之后才往回记，换文件即断开，旧文档的视图变化写不到新文件上 */
+  const docViewRef = useRef<FilesViewState | null>(null)
   const [docInfo, setDocInfo] = useState<{
     src: string
     doc: PDFDocumentProxy
@@ -250,10 +259,17 @@ export function FilesPdfPreview({
       removePageBorders: true
     })
     linkService.setViewer(viewer)
-    // 打开即整页显示得下（同看图默认）
+    // 打开即整页显示得下（同看图默认）；看过的再回到上次的位置（文件变短、那一页已不在时停在整页显示）
     eventBus.on('pagesinit', () => {
+      const view = loadingViewRef.current
       viewer.currentScaleValue = PDF_SCALE_VALUE.window
+      const location = view?.get('pdf')
+      if (location) linkService.setHash(location)
+      docViewRef.current = view
     })
+    eventBus.on('updateviewarea', (e: { location: { pdfOpenParams: string } }) =>
+      docViewRef.current?.set('pdf', e.location.pdfOpenParams.replace(/^#/, ''))
+    )
     eventBus.on('pagechanging', (e: { pageNumber: number }) => setPage(e.pageNumber))
     // 预设缩放才带 presetValue；滚轮缩出来的数值倍率给 undefined，四颗钮随之全灭
     eventBus.on('scalechanging', (e: { presetValue?: string }) =>
@@ -316,6 +332,7 @@ export function FilesPdfPreview({
         })
         doc = await task.promise
         if (dead) return
+        loadingViewRef.current = viewState
         viewer.setDocument(doc)
         linkService.setDocument(doc, null)
         // 缩略图渲染器随文档建；等正文首页画完（onePageRendered）才开工
@@ -329,13 +346,15 @@ export function FilesPdfPreview({
     })()
     return () => {
       dead = true
+      loadingViewRef.current = null
+      docViewRef.current = null
       thumbs?.destroy()
       viewer.setDocument(null as unknown as PDFDocumentProxy)
       linkService.setDocument(null, null)
       void task?.destroy()
       doc = null
     }
-  }, [src])
+  }, [src, viewState])
 
   const closeFind = useCallback(() => {
     closeSession()

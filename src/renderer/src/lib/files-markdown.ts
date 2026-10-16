@@ -1,10 +1,41 @@
 /**
- * Files Tab Markdown 预览的查找换算（docs/prd/files-markdown-preview.md）：预览正文按块（段落、标题、列表项、
- * 表格格子、代码块……）分段，块内依次相邻的文字节点连成一串来找，命中可以跨行内元素（粗体、链接、行内代码）；
- * 块与块之间不相连。找的是页面上显示的样子：代码块外连续的空格、制表与换行（源码里的折行、CRLF）显示为一个空格。
- * 同表格 / PPT：打开查找（或正文变了）时建一次索引，之后每次输入只在索引里匹配。
+ * Files Tab Markdown 预览的纯逻辑（docs/prd/files-markdown-preview.md）。
+ * - 查找换算：预览正文按块（段落、标题、列表项、表格格子、代码块……）分段，块内依次相邻的文字节点连成一串来找，
+ *   命中可以跨行内元素（粗体、链接、行内代码）；块与块之间不相连。找的是页面上显示的样子：代码块外连续的空格、
+ *   制表与换行（源码里的折行、CRLF）显示为一个空格。同表格 / PPT：打开查找（或正文变了）时建一次索引，之后每次输入只在索引里匹配。
+ * - 源码行标注：块元素标上源码起始行，预览与编辑器据此按内容对齐阅读位置。
  */
+import type { Root } from 'hast'
+import { visit } from 'unist-util-visit'
 import { locateTextOffset } from './text-find'
+
+/** react-markdown + GFM 产出的行内元素（原始 HTML 不渲染，元素种类是封闭的）；其余元素都是块 */
+export const MARKDOWN_INLINE_TAGS: ReadonlySet<string> = new Set([
+  'a',
+  'br',
+  'code',
+  'del',
+  'em',
+  'img',
+  'input',
+  'strong',
+  'sup'
+])
+
+/**
+ * rehype 插件：给每个块元素标上它在源码里的起始行（`data-line`，0 起），同 VS Code 的 Markdown 预览。
+ * 行内元素与生成出来、没有源码位置的元素（如 GFM 脚注区的标题）不标。
+ */
+export function rehypeSourceLines(): (tree: Root) => void {
+  return (tree: Root): void => {
+    visit(tree, 'element', (node) => {
+      const line = node.position?.start.line
+      if (line !== undefined && !MARKDOWN_INLINE_TAGS.has(node.tagName)) {
+        node.properties.dataLine = line - 1
+      }
+    })
+  }
+}
 
 /** 一块正文：块内依次相邻的文字节点内容；`pre` = 代码块，空白原样显示 */
 export type MarkdownFindBlock = { texts: readonly string[]; pre: boolean }

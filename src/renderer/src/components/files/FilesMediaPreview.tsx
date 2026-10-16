@@ -8,7 +8,7 @@
 // Cmd/Ctrl+滚轮按光标缩放（触控板捏合是 Chromium 合成的 ctrl+wheel）；滚轮或按住拖拽平移；
 // 方向键按树里可见顺序切上一张 / 下一张（跨目录）；工具栏四档（1:1 / 适应高度 / 适应宽度 / 适应窗口）、双击在两条轴间切、
 // Cmd/Ctrl+0 回适应窗口、Cmd/Ctrl +/- 逐档缩放（这三个键已从应用菜单的视图块摘掉，见 ADR-0019）；
-// 打开时装得下的图落 1:1、装不下的落适应窗口。
+// 打开没看过的图时装得下的落 1:1、装不下的落适应窗口；看过的（像素尺寸没变）回到上次的档、倍率与平移（docs/prd/files-tab.md「阅读位置」）。
 import {
   useCallback,
   useEffect,
@@ -23,6 +23,7 @@ import { editableTarget, overlayOpen } from '@renderer/lib/files-key-guards'
 import { cn } from '@renderer/lib/utils'
 import { isPrimaryModifierEvent, shortcutTitle } from '@renderer/lib/shortcut-label'
 import type { FilesImagePyramid } from '@shared/files-image-tiles'
+import type { FilesViewState } from '@renderer/lib/files-view-state'
 import { SHORTCUT } from '@shared/shortcut-label'
 import {
   centerMediaCamera,
@@ -149,7 +150,8 @@ export function MediaFitButtons({
 
 /** key：超大位图用路径、其余用 src，用来匹配已就绪的金字塔。 */
 /** `from` = 解析出它的那个 `src` 入参；`src` = 实际上屏的 URL（超大位图与回退时是主进程出的预览图） */
-type Shown = { key: string; from: string; src: string; w: number; h: number }
+/** `view` = 这张图所在文件的阅读位置（随图一起换上，旧图还在屏上时不会记到新文件上） */
+type Shown = { key: string; from: string; src: string; w: number; h: number; view: FilesViewState }
 
 const NO_PREFETCH: readonly string[] = []
 
@@ -186,6 +188,7 @@ export function FilesMediaPreview({
   onPrev,
   onNext,
   onFitChange,
+  viewState,
   ref
 }: {
   src: string
@@ -205,6 +208,8 @@ export function FilesMediaPreview({
   onNext?: () => void
   /** 当前所处的适应档变化（含滚轮缩放与换图导致的退出），供工具栏点亮对应钮 */
   onFitChange?: (mode: MediaFitMode | null) => void
+  /** 这个文件的阅读位置（FilesPane 按文件记） */
+  viewState: FilesViewState
   /** 交工具栏「适应」钮组驱动 */
   ref?: React.Ref<MediaPreviewHandle>
 }): React.JSX.Element {
@@ -233,6 +238,8 @@ export function FilesMediaPreview({
   const prefetchedRef = useRef<Map<string, HTMLImageElement>>(new Map())
   /** 当前所处的档；非 null 时视口尺寸一变就按新尺寸重算 */
   const fitModeRef = useRef<MediaFitMode | null>(null)
+  /** 屏上这张图的阅读位置：相机每动一次就记下 */
+  const shownViewRef = useRef<FilesViewState | null>(null)
   const onFitChangeRef = useRef(onFitChange)
   useLayoutEffect(() => {
     onFitChangeRef.current = onFitChange
@@ -266,6 +273,12 @@ export function FilesMediaPreview({
           : `translate(${cam.x}px, ${cam.y}px) scale(${k})`
     }
     tilesRef.current?.apply(cam, nat.w, nat.h, availW, availH)
+    shownViewRef.current?.set('media', {
+      fit: fitModeRef.current,
+      camera: cam,
+      width: nat.w,
+      height: nat.h
+    })
   }
   const applyRef = useRef(applyCamera)
   useLayoutEffect(() => {
@@ -384,7 +397,7 @@ export function FilesMediaPreview({
         h = im.naturalHeight > 0 ? im.naturalHeight : FALLBACK_SIZE.h
       }
       shownImageRef.current = im
-      setShown({ key: tiledPath ?? src, from: src, src: displaySrc, w, h })
+      setShown({ key: tiledPath ?? src, from: src, src: displaySrc, w, h, view: viewState })
       setStatus('ready')
     })()
     return () => {
@@ -392,7 +405,7 @@ export function FilesMediaPreview({
       window.clearTimeout(slow)
       if (shownImageRef.current !== im) im.src = ''
     }
-  }, [src, width, height, tiledProject, tiledPath, projectPath, attempt])
+  }, [src, width, height, tiledProject, tiledPath, projectPath, attempt, viewState])
 
   // 金字塔：命中缓存即返，否则主进程后台生成（秒级）
   useEffect(() => {
@@ -412,17 +425,33 @@ export function FilesMediaPreview({
     }
   }, [tiledProject, tiledPath])
 
-  // 换图：装得下视口的图落 1:1，装不下的落「适应窗口」——两者相机同形（zoom=1），只是档位不同
+  // 换图：看过的（像素尺寸没变）回到上次的档、倍率与平移，所处的档按当前视口重算（同视口尺寸一变时的规则）；
+  // 没看过的装得下视口的落 1:1，装不下的落「适应窗口」——两者相机同形（zoom=1），只是档位不同
   useLayoutEffect(() => {
     if (!shown) return
     const vp = viewportRef.current
     if (!vp) return
-    naturalRef.current = { w: shown.w, h: shown.h }
+    const nat = { w: shown.w, h: shown.h }
+    naturalRef.current = nat
     committedRef.current = 0
+    shownViewRef.current = shown.view
     const availW = vp.clientWidth
     const availH = vp.clientHeight
-    setFitMode(mediaFitsViewport(shown.w, shown.h, availW, availH) ? 'actual' : 'window')
-    camRef.current = centerMediaCamera(1, shown.w, shown.h, availW, availH)
+    const saved = shown.view.get('media')
+    if (saved && saved.width === nat.w && saved.height === nat.h) {
+      const zoom = saved.fit === null ? null : zoomFor(saved.fit, nat, availW, availH)
+      setFitMode(saved.fit)
+      camRef.current = clampMediaCamera(
+        zoom === null ? saved.camera : { ...saved.camera, zoom },
+        nat.w,
+        nat.h,
+        availW,
+        availH
+      )
+    } else {
+      setFitMode(mediaFitsViewport(nat.w, nat.h, availW, availH) ? 'actual' : 'window')
+      camRef.current = centerMediaCamera(1, nat.w, nat.h, availW, availH)
+    }
     applyRef.current(camRef.current, 'settle')
   }, [shown, setFitMode])
 
@@ -691,6 +720,7 @@ export function FilesSvgPreview({
   onPrev,
   onNext,
   onFitChange,
+  viewState,
   ref
 }: {
   path: string
@@ -700,6 +730,7 @@ export function FilesSvgPreview({
   onPrev?: () => void
   onNext?: () => void
   onFitChange?: (mode: MediaFitMode | null) => void
+  viewState: FilesViewState
   ref?: React.Ref<MediaPreviewHandle>
 }): React.JSX.Element {
   const src = useMemo(
@@ -716,6 +747,7 @@ export function FilesSvgPreview({
       onPrev={onPrev}
       onNext={onNext}
       onFitChange={onFitChange}
+      viewState={viewState}
       ref={ref}
     />
   )

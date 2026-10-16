@@ -10,6 +10,7 @@
 //   跳页与图形上的链接经 onNavigate 回来，网址交主进程 openExternal（同一份白名单）。
 // - 文件经 dc-media 一次取回；媒体按需解码，ZIP 按库推荐的限额解压（防压缩炸弹）；宏不执行（库不碰）。
 // - EMF 里内嵌 PDF 的矢量插图不画（库要在后台线程加载 PDF.js，见 PRD Out of Scope）。
+// - 阅读位置记所处的档或倍率、视口顶边在第几页（带页内比例）与横向位置（docs/prd/files-tab.md「阅读位置」）。
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import {
   buildPresentation,
@@ -56,6 +57,7 @@ import {
   type PptxSize
 } from '@renderer/lib/files-pptx'
 import { useFindCursor } from '@renderer/lib/use-find-cursor'
+import type { FilesViewState } from '@renderer/lib/files-view-state'
 import type { FindSession } from '@renderer/lib/use-find-session'
 import { FilesPageControls, FilesThumbnailsToggle } from './FilesPagedControls'
 import { FilesPreviewError } from './FilesPreviewError'
@@ -174,6 +176,7 @@ export function FilesPptxPreview({
   path,
   active,
   find,
+  viewState,
   thumbnails,
   onToggleThumbnails,
   onPrev,
@@ -186,6 +189,8 @@ export function FilesPptxPreview({
   active: boolean
   /** 这个文件的查找会话（FilesPane 按文件记，切走再切回来原样恢复） */
   find: FindSession
+  /** 这个文件的阅读位置（FilesPane 按文件记） */
+  viewState: FilesViewState
   /** ←/→ 切上一个 / 下一个媒体文件（↑/↓ 归翻页）；由 FilesPane 按树内可见序给 */
   onPrev?: () => void
   onNext?: () => void
@@ -250,15 +255,24 @@ export function FilesPptxPreview({
           }
         }
         mediaUrlCache = next.mediaUrlCache
-        // 打开即整页显示得下（同看图 / PDF）
+        // 看过的回到上次的档（自由倍率取倍率）与位置，没看过的整页显示得下（同看图 / PDF）；
+        // 档按当前视口重算，位置按页与页面原尺寸记，视口尺寸变了也落在同一处
         const container = containerRef.current
         const viewNow = container
           ? { width: container.clientWidth, height: container.clientHeight }
           : { width: 0, height: 0 }
-        const initial = pptxFitScale('window', next.slide, viewNow)
+        const saved = viewState.get('pptx')
+        const mode = saved ? saved.fit : 'window'
+        const initial =
+          saved && saved.fit === null
+            ? clampPptxScale(saved.scale)
+            : pptxFitScale(saved?.fit ?? 'window', next.slide, viewNow)
+        const rowHeight = pptxRowHeight(next.slide, initial)
+        const top = saved ? saved.page * rowHeight : 0
         if (viewNow.width > 0 && viewNow.height > 0) setView(viewNow)
         scaleRef.current = initial
-        pendingScroll.current = null
+        // 新文档的内容尺寸提交后再落（先落会被旧文档的尺寸夹住）
+        pendingScroll.current = { left: saved ? saved.left * initial : 0, top }
         if (container) {
           container.scrollTop = 0
           container.scrollLeft = 0
@@ -266,9 +280,18 @@ export function FilesPptxPreview({
         }
         setLoaded({ src, doc: next })
         setScale(initial)
-        setFitMode('window')
-        setScrollTop(0)
-        setPage(1)
+        setFitMode(mode)
+        setScrollTop(top)
+        setPage(
+          pptxCurrentPage({
+            scrollTop: top,
+            viewHeight: viewNow.height,
+            slideHeight: next.slide.height * initial,
+            rowHeight,
+            pages: presentation.slides.length,
+            current: 1
+          })
+        )
       } catch (e) {
         if (!dead) setLoadError({ src, message: e instanceof Error ? e.message : String(e) })
       }
@@ -277,7 +300,7 @@ export function FilesPptxPreview({
       dead = true
       for (const url of mediaUrlCache?.values() ?? []) URL.revokeObjectURL(url)
     }
-  }, [src])
+  }, [src, viewState])
 
   /**
    * 换倍率：让 `anchor`（视口内坐标）下的内容留在原处，同步给出新的滚动位置与当前页；
@@ -320,7 +343,7 @@ export function FilesPptxPreview({
     [doc]
   )
 
-  // 新倍率的内容尺寸已提交，这时再落滚动位置（先落会被旧的内容尺寸夹住）
+  // 新倍率或新文档的内容尺寸已提交，这时再落滚动位置（先落会被旧的内容尺寸夹住）
   useLayoutEffect(() => {
     const container = containerRef.current
     const target = pendingScroll.current
@@ -328,7 +351,23 @@ export function FilesPptxPreview({
     pendingScroll.current = null
     container.scrollLeft = target.left
     container.scrollTop = target.top
-  }, [scale])
+  }, [scale, doc])
+
+  /** 把当前位置记进阅读位置：页按行高折算（带页内比例），横向按页面原尺寸 */
+  const rememberView = useCallback(() => {
+    const container = containerRef.current
+    if (!container || !doc || rowH <= 0) return
+    viewState.set('pptx', {
+      fit: fitMode,
+      scale,
+      page: container.scrollTop / rowH,
+      left: container.scrollLeft / scale
+    })
+  }, [doc, viewState, fitMode, scale, rowH])
+  // 换倍率、换档时滚动位置未必变（没有滚动事件），也要记下
+  useEffect(() => {
+    rememberView()
+  }, [rememberView])
 
   /** 切到某一档；`anchor`（双击点）不给时保持视口左上角那点不动 */
   const fit = useCallback(
@@ -393,6 +432,7 @@ export function FilesPptxPreview({
     const container = containerRef.current
     if (!container || !slide) return
     const top = container.scrollTop
+    rememberView()
     setScrollTop(top)
     setPage((prev) =>
       pptxCurrentPage({
