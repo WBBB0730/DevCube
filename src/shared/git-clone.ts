@@ -1,8 +1,10 @@
 /**
- * 「从 Git 仓库克隆」的纯函数层：地址 → 目录名派生、地址形状判定、目录名校验、
- * `git clone --progress` 进度解析与参数拼装。
+ * 「从 Git 仓库克隆」的纯函数层：地址 → 目录名派生、地址形状判定、目录名校验、报错提炼与参数拼装。
+ * 进度解析与其余联网 Git 动作共用（git-task）。
  * 纯解析（不访问磁盘、不依赖 node / electron），main / renderer 均可导入。
  */
+
+import { stripGitProgress } from './git-task'
 
 /** 克隆输入：渲染端表单填好后原样交给主进程。 */
 export interface GitCloneInput {
@@ -16,49 +18,8 @@ export interface GitCloneInput {
   recurseSubmodules: boolean
 }
 
-/** 克隆进行中的一帧进度；percent 为 null 表示该阶段不报百分比（枚举对象等）。 */
-export interface GitCloneProgress {
-  /** 阶段名（已知阶段译为中文，未知阶段原样保留 git 的英文） */
-  phase: string
-  percent: number | null
-}
-
 /** 目标目录状态：不存在 / 已存在且为空 / 被占用（非空目录或同名文件）。 */
 export type GitCloneTargetState = 'free' | 'empty' | 'occupied'
-
-/** git clone 进度条的阶段名 → 中文。未列出的阶段原样显示。 */
-const PHASE_LABEL: Record<string, string> = {
-  'Enumerating objects': '枚举对象',
-  'Counting objects': '清点对象',
-  'Compressing objects': '压缩对象',
-  'Receiving objects': '接收对象',
-  'Resolving deltas': '处理增量',
-  'Updating files': '检出文件',
-  'Checking out files': '检出文件',
-  'Filtering content': '过滤内容'
-}
-
-// 进度行：可选 `remote: ` 前缀 + 阶段名 + 冒号 + （百分比 | 计数）。不报百分比的阶段
-// （`Enumerating objects: 1234, done.`）要求计数后带逗号——否则块边界劈断的半行
-// （`Receiving objects:  4`）会被当成无百分比帧，让进度条倒退回不确定态。
-const PROGRESS_LINE = /^(?:remote:\s*)?([A-Za-z][A-Za-z ]*[A-Za-z]):\s+(?:(\d{1,3})%|\d+,)/
-
-/**
- * 从一块 stderr 文本里取最后一帧进度（git 用 \r 原地刷新，一块里常含多帧）。
- * 块边界劈断的半行匹配不上，只丢一帧，下一块即补；无可识别的帧返回 null。
- */
-export function parseCloneProgress(chunk: string): GitCloneProgress | null {
-  let last: GitCloneProgress | null = null
-  for (const line of chunk.split(/[\r\n]+/)) {
-    const m = PROGRESS_LINE.exec(line.trim())
-    if (!m) continue
-    last = {
-      phase: PHASE_LABEL[m[1]] ?? m[1],
-      percent: m[2] === undefined ? null : Math.min(100, Number(m[2]))
-    }
-  }
-  return last
-}
 
 /**
  * 网页 URL 里「仓库路径到此为止」的路由段：其后是分支 / 文件 / PR 等页面，不属于仓库地址。
@@ -116,13 +77,10 @@ export function resolveClonePath(parentDir: string, name: string): string {
  * 剩下的才是 git 真正想说的（认证失败、仓库不存在、网络错误等）。
  */
 export function cloneErrorFromStderr(stderr: string): string {
-  return stderr
-    .split(/[\r\n]+/)
+  return stripGitProgress(stderr)
+    .split('\n')
     .map((line) => line.trim())
-    .filter(
-      (line) =>
-        line !== '' && parseCloneProgress(line) === null && !line.startsWith('Cloning into ')
-    )
+    .filter((line) => line !== '' && !line.startsWith('Cloning into '))
     .join('\n')
 }
 

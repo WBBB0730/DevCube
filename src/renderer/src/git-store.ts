@@ -22,6 +22,7 @@ import {
   type GitViewPrefs,
   type GitWorktree
 } from '@shared/git'
+import { gitTaskTitle } from '@shared/git-task'
 import type {
   GitContextMenuState,
   GitDialogRequest,
@@ -130,7 +131,10 @@ export interface GitStoreState {
   /** 更新查找状态：patch 合并；传 null 整体关闭并清空 */
   setFind(projectPath: string, patch: Partial<GitFindState> | null): void
   clearActionErrors(projectPath: string): void
-  /** 执行写动作：置 actionRunning=label → gitAction → ok 软刷新收口 / error 落 actionErrors / push-tag 预检原样返回 */
+  /**
+   * 执行写动作：置 actionRunning=label → gitAction → ok 软刷新收口 / error 落 actionErrors / push-tag 预检原样返回。
+   * 联网动作（Task）不置 actionRunning、失败不落 actionErrors：进度与失败由任务登记处呈现
+   */
   runAction(projectPath: string, action: GitAction, label: string): Promise<GitActionResult>
   /**
    * 静默动作（暂存 / 取消暂存 / 撤销 / 提交专用，PRD「静默即时」）：不置 actionRunning
@@ -790,26 +794,35 @@ export const useGit = create<GitStoreState>((set, get) => {
     },
 
     runAction: async (projectPath, action, label) => {
-      patchProject(projectPath, { actionRunning: label, actionErrors: null })
+      // 联网动作是 Task（docs/prd/task-progress.md）：进度弹窗与失败的错误框由任务登记处呈现，
+      // 不走进行中遮罩与 actionErrors
+      const isTask = gitTaskTitle(action) !== null
+      patchProject(
+        projectPath,
+        isTask ? { actionErrors: null } : { actionRunning: label, actionErrors: null }
+      )
+      const settle: Partial<GitProjectState> = isTask ? {} : { actionRunning: null }
       let result: GitActionResult
+      let fromRegistry = isTask
       try {
         result = await window.api.gitAction(projectPath, action)
       } catch {
-        // invoke 通道异常兜底（主进程 handler 约定不 reject，此处仅防御）
+        // invoke 通道异常兜底（主进程 handler 约定不 reject，此处仅防御）：登记处里没有它，照常报错
         result = { status: 'error', errors: ['IPC 调用失败'] }
+        fromRegistry = false
       }
       if (result.status === 'ok') {
         // 成功：先软刷新把动作结果拉回来，刷新落地后再收口进行中遮罩（finaliseLoadCommits 语义）
         try {
           await get().load(projectPath)
         } finally {
-          patchProject(projectPath, { actionRunning: null })
+          patchProject(projectPath, settle)
         }
-      } else if (result.status === 'error') {
-        patchProject(projectPath, { actionRunning: null, actionErrors: result.errors })
+      } else if (result.status === 'error' && !fromRegistry) {
+        patchProject(projectPath, { ...settle, actionErrors: result.errors })
       } else {
-        // push-tag-not-on-remote：原样返回，由推送标签对话框续弹确认（不算错误）
-        patchProject(projectPath, { actionRunning: null })
+        // Task 失败（留在登记处）/ 取消；push-tag-not-on-remote：原样返回，由推送标签对话框续弹确认（不算错误）
+        patchProject(projectPath, settle)
       }
       return result
     },

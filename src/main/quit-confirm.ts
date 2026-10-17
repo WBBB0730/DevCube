@@ -2,14 +2,18 @@ import { BrowserWindow, dialog } from 'electron'
 import { quitConfirmation } from '../shared/quit-guard'
 import { getQuitGuardSessions } from './runner'
 import { activeServerTransferCount, unsavedServerFileCount } from './server-files'
+import { tasks } from './tasks'
 
-/** 若有运行中的 Run Session、未完成的文件传输或服务器上未保存的文件，弹出确认；无则直接放行。返回是否允许退出。 */
+/**
+ * 若有运行中的 Run Session、未完成的文件传输、服务器上未保存的文件或未完成的 Task，弹出确认；无则直接放行。
+ * 返回是否允许退出。
+ */
 export async function confirmQuitIfNeeded(parent?: BrowserWindow | null): Promise<boolean> {
-  const confirmation = quitConfirmation(
-    getQuitGuardSessions(),
-    activeServerTransferCount(),
-    unsavedServerFileCount()
-  )
+  const confirmation = quitConfirmation(getQuitGuardSessions(), {
+    transfers: activeServerTransferCount(),
+    unsaved: unsavedServerFileCount(),
+    tasks: tasks.activeCount()
+  })
   if (confirmation === null) return true
 
   const options = {

@@ -3,6 +3,14 @@
 import type { AppUpdatePhase, UpdateButtonAction, UpdatePackaging } from './app-update'
 import type { ChangelogEntry, ChangelogPreview } from './changelog'
 
+/** 下载中的进度（关于页显示，docs/prd/task-progress.md）：速度与剩余时间同 Task 的计速。 */
+export type AppUpdateDownload = {
+  doneBytes: number
+  totalBytes: number
+  speed: number | null
+  remainingSeconds: number | null
+}
+
 export type AppUpdateState = {
   phase: AppUpdatePhase
   packaging: UpdatePackaging
@@ -24,6 +32,8 @@ export type AppUpdateState = {
   checksEnabled: boolean
   /** 最近一次检查/下载错误文案；无则为 null */
   lastError: string | null
+  /** 下载中的进度；不在下载中、或还没收到第一份进度时为 null */
+  download: AppUpdateDownload | null
   /** 关于页仓库链接 */
   repoUrl: string
   /** 关于页 / 便携按钮用的 Release URL；无候选则为仓库 releases 页 */

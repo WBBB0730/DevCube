@@ -1,4 +1,9 @@
-// git-exec 测试：链接工作树 → 主工作树目录的推导；WSL 仓库的分流与路径互转（发行版里的执行替换成假的）。
+// git-exec 测试：链接工作树 → 主工作树目录的推导；WSL 仓库的分流与路径互转（发行版里的执行替换成假的）；
+// 本机流式执行的取消（真实 git，登录 shell 环境替换成空的，git 从当前 PATH 里找）。
+import { spawnSync } from 'node:child_process'
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import {
   execGit,
@@ -11,6 +16,7 @@ import {
 import { wslExec } from './wsl'
 
 vi.mock('./wsl', () => ({ wslExec: vi.fn() }))
+vi.mock('./shell-env', () => ({ resolveShellEnvironment: async () => ({}) }))
 
 describe('mainWorktreePathOf', () => {
   it('链接工作树：公共 gitdir 名为 .git 时取其父目录', () => {
@@ -115,4 +121,47 @@ describe('WSL 仓库', () => {
     expect(result.stdout.toString()).toBe('out')
     expect(signal?.aborted).toBe(true)
   })
+})
+
+describe('本机流式执行的取消', () => {
+  it('结束整棵进程树：推送前的钩子一并结束，不在背后跑完', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'devcube-git-cancel-'))
+    try {
+      const git = (cwd: string, args: string[]): void => {
+        const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd })
+        expect(r.status).toBe(0)
+      }
+      const remote = join(root, 'remote.git')
+      const work = join(root, 'work')
+      const hooks = join(root, 'hooks')
+      mkdirSync(work)
+      mkdirSync(hooks)
+      git(root, ['init', '-q', '--bare', remote])
+      git(work, ['init', '-q'])
+      git(work, ['commit', '-q', '--allow-empty', '-m', 'init'])
+      const started = join(root, 'hook-started')
+      const finished = join(root, 'hook-finished')
+      const hook = join(hooks, 'pre-push')
+      writeFileSync(
+        hook,
+        `#!/bin/sh\necho > '${started.replace(/\\/g, '/')}'\nsleep 2\necho > '${finished.replace(/\\/g, '/')}'\n`
+      )
+      chmodSync(hook, 0o755)
+
+      const run = await execGitStreaming(
+        work,
+        ['-c', `core.hooksPath=${hooks}`, 'push', remote, 'HEAD:refs/heads/main'],
+        () => {}
+      )
+      await vi.waitFor(() => expect(existsSync(started)).toBe(true), { timeout: 5000 })
+      run.cancel()
+      const result = await run.done
+      expect(result.code).not.toBe(0)
+      // 钩子要睡 2 秒：多等 1 秒，它若还活着就会写下结束标记
+      await new Promise((resolve) => setTimeout(resolve, 3000))
+      expect(existsSync(finished)).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 15000)
 })

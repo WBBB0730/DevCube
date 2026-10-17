@@ -8,6 +8,7 @@ import { initStore } from './store'
 import { bindMainWindow, registerIpcHandlers } from './ipc'
 import { isAppQuitting, isQuitAllowed, markAppQuitting, markQuitAllowed } from './app-shutdown'
 import { killAllSessions } from './runner'
+import { tasks } from './tasks'
 import { disposeAllServerStatus } from './server-status'
 import { disposeAllDataSourceSessions } from './data-source-sessions'
 import { flushSchemaCaches } from './data-source-schema-cache'
@@ -281,8 +282,10 @@ async function runQuitCleanup(): Promise<void> {
   disposeAllServerFiles()
   clearAllServerFilesCache()
   // 数据库连接与 SQLite 查询线程也在这里关掉（含数总行数、导出、连上后读主体结构等临时连接）；还在执行的语句先叫停，
-  // 最多等 2 秒。表结构缓存把待写的写完。进行中的压缩结束线程、删掉写了一半的临时文件
+  // 最多等 2 秒。表结构缓存把待写的写完。进行中的压缩结束线程、删掉写了一半的临时文件。
+  // 进行中的 Task（克隆、拉取、推送）叫停并结束各自的进程树，等它们收尾（删半成品目录），有上限
   await Promise.all([
+    tasks.cancelAll(),
     closeAllProjectWatchers(),
     closeAllPreviewWatchers(),
     disposeAllDataSourceSessions(),

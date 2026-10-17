@@ -42,6 +42,8 @@
   --bg-elevated: #2b2d30;
   --bg-row-hover: #393b40;
   --bg-button-hover: #515257;
+  /* 进度条 / 进度圆环的轨道（New UI `ProgressBar.trackColor`：深 Gray4 / 浅 Gray11） */
+  --progress-track: #43454a;
   --fg-primary: #dfe1e5;
   --fg-icon: #ced0d6;
   --fg-muted: #868a91;
@@ -175,6 +177,7 @@
     --bg-elevated: #ffffff;
     --bg-row-hover: #edf3ff;
     --bg-button-hover: #e6e6e8;
+    --progress-track: #dfe1e5;
 
     /* —— 文字 / 图标 —— */
     --fg-primary: #000000;
@@ -469,6 +472,16 @@
     }
     to {
       opacity: 0;
+    }
+  }
+
+  /* 进度条的不确定状态（ui/progress）：30% 宽的一段从轨道左外滑到右外（自身宽度的 1 / 0.3 倍） */
+  @keyframes progress-indeterminate {
+    from {
+      transform: translateX(-100%);
+    }
+    to {
+      transform: translateX(calc(100% / 0.3));
     }
   }
 

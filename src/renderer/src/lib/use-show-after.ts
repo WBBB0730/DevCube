@@ -13,3 +13,16 @@ export function useShowAfter(delay: number): boolean {
   }, [delay])
   return delay <= 0 || elapsed
 }
+
+/**
+ * 从 since（毫秒时刻，如任务发起时）起过了 delay 毫秒才为真：挂载得晚（找回一个早已开始的任务）的
+ * 不再从头等；已经过了的下一轮即为真。
+ */
+export function useShowSince(since: number, delay: number): boolean {
+  const [shown, setShown] = useState(false)
+  useEffect(() => {
+    const timer = setTimeout(() => setShown(true), Math.max(0, since + delay - Date.now()))
+    return () => clearTimeout(timer)
+  }, [since, delay])
+  return shown
+}

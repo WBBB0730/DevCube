@@ -111,6 +111,7 @@ import {
 import { OPEN_IN_APP_ICONS } from '@renderer/assets/open-in'
 import { OPEN_IN_APP_IDS, OPEN_IN_APP_LABELS, type OpenInAppStatus } from '@shared/open-in-app'
 import { useApp } from '@renderer/store'
+import { openCloneDialog } from '@renderer/task-store'
 import { ConnectSubmenu } from '@renderer/components/ConnectSubmenu'
 
 // 所有行统一固定高 + 圆角。四周内边距 6px：px-1.5 各 6px，
@@ -191,7 +192,6 @@ export function ProjectTree(): React.JSX.Element {
   const addProject = useApp((s) => s.addProject)
   const addProjectByPath = useApp((s) => s.addProjectByPath)
   const createProject = useApp((s) => s.createProject)
-  const setCloneDialogOpen = useApp((s) => s.setCloneDialogOpen)
   const openConnectionDialog = useApp((s) => s.openConnectionDialog)
 
   // 拖项目时强制全部收起；松手后恢复各行原展开态（由 forceCollapsed 驱动，不改各行本地 open）。
@@ -689,9 +689,7 @@ export function ProjectTree(): React.JSX.Element {
             <DropdownMenuContent>
               <DropdownMenuItem onClick={createProject}>新建空项目…</DropdownMenuItem>
               <DropdownMenuItem onClick={addProject}>添加现有项目…</DropdownMenuItem>
-              <DropdownMenuItem onClick={() => setCloneDialogOpen(true)}>
-                从 Git 仓库克隆…
-              </DropdownMenuItem>
+              <DropdownMenuItem onClick={openCloneDialog}>从 Git 仓库克隆…</DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem onClick={() => openConnectionDialog({ kind: 'server' })}>
                 添加服务器…

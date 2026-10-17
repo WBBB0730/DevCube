@@ -3,6 +3,8 @@ import { CircleArrowUp, Settings } from 'lucide-react'
 import { GITHUB_REPO_URL } from '@shared/app-update'
 import type { AppUpdateState, DevUpdatePreview } from '@shared/app-update-state'
 import { UpdateDialog } from '@renderer/components/UpdateDialog'
+import { TaskButton } from '@renderer/components/tasks/TaskButton'
+import { useHiddenTasks } from '@renderer/task-store'
 import { cn } from '@renderer/lib/utils'
 
 /** 顶栏右侧的宿主动作钮（如 Preview Window 的「添加为项目 / 转到项目」），排在更新 / 设置之前 */
@@ -21,6 +23,8 @@ type Props = {
   /** 更新弹窗里确认后执行（安装或打开 Release）；点更新钮本身只开弹窗 */
   onPerformUpdate?: () => void
   actions?: TitleBarAction[]
+  /** 任务钮（有被隐藏的 Task 才出现，排在更新钮之前）：仅主窗口 */
+  showTasks?: boolean
 }
 
 /** 与 `size-7` / `gap-0.5` 对齐；标题两侧在控件占用之外再留的空隙。 */
@@ -38,7 +42,8 @@ export function AppTitleBar({
   update = null,
   onOpenSettings,
   onPerformUpdate,
-  actions = []
+  actions = [],
+  showTasks = false
 }: Props): React.JSX.Element {
   const [updateDialogOpen, setUpdateDialogOpen] = useState(false)
   const [devPreview, setDevPreview] = useState<DevUpdatePreview | null>(null)
@@ -46,11 +51,17 @@ export function AppTitleBar({
   const showUpdate = update?.showButton === true && onPerformUpdate !== undefined
   const showDevPreview = import.meta.env.DEV && onPerformUpdate !== undefined
   const showSettings = onOpenSettings !== undefined
+  const hiddenTasks = useHiddenTasks()
+  const showTaskButton = showTasks && hiddenTasks.length > 0
 
   const leftReserve = isMac ? 78 : 12
   const rightPad = isMac ? 8 : 138 + 8
   const rightCount =
-    actions.length + (showDevPreview ? 1 : 0) + (showUpdate ? 1 : 0) + (showSettings ? 1 : 0)
+    actions.length +
+    (showTaskButton ? 1 : 0) +
+    (showDevPreview ? 1 : 0) +
+    (showUpdate ? 1 : 0) +
+    (showSettings ? 1 : 0)
   const rightButtons = rightCount * BTN + Math.max(rightCount - 1, 0) * BTN_GAP
   const rightReserve = rightButtons + rightPad
   const titleMaxWidth = `calc(100% - ${2 * (Math.max(leftReserve, rightReserve) + TITLE_GAP)}px)`
@@ -93,6 +104,9 @@ export function AppTitleBar({
               {a.icon}
             </button>
           ))}
+          {showTaskButton && (
+            <TaskButton className="inline-flex size-7 items-center justify-center rounded text-[color:var(--fg-icon)] hover:bg-[var(--bg-button-hover)]" />
+          )}
           {showDevPreview && (
             <button
               type="button"

@@ -21,10 +21,8 @@ const api: RunAPI = {
   addProjectByPath: (path) => ipcRenderer.invoke(IPC.projectAddByPath, path),
   createProject: () => ipcRenderer.invoke(IPC.projectCreate),
   cloneProject: (input) => ipcRenderer.invoke(IPC.projectClone, input),
-  cancelProjectClone: () => ipcRenderer.invoke(IPC.projectCloneCancel),
   checkCloneTarget: (parentDir, name) =>
     ipcRenderer.invoke(IPC.projectCloneCheckTarget, parentDir, name),
-  onProjectCloneProgress: (cb) => subscribe(IPC.projectCloneProgress, cb),
   removeProject: (path) => ipcRenderer.invoke(IPC.projectRemove, path),
   reorderEntries: (orderedKeys) => ipcRenderer.invoke(IPC.entryReorder, orderedKeys),
   touchProject: (path) => ipcRenderer.invoke(IPC.projectTouch, path),
@@ -317,6 +315,12 @@ const api: RunAPI = {
   onAppShortcut: (cb) => subscribe(IPC.appShortcut, cb),
   onProjectExternalOpen: (cb) => subscribe(IPC.projectExternalOpen, cb),
 
+  getTasks: () => ipcRenderer.invoke(IPC.tasksGet),
+  onTasksChanged: (cb) => subscribe(IPC.tasksChanged, cb),
+  cancelTask: (id) => ipcRenderer.invoke(IPC.taskCancel, id),
+  hideTask: (id) => ipcRenderer.invoke(IPC.taskHide, id),
+  revealTask: (id) => ipcRenderer.invoke(IPC.taskReveal, id),
+  dismissTask: (id) => ipcRenderer.invoke(IPC.taskDismiss, id),
   getAppUpdateState: () => ipcRenderer.invoke(IPC.appUpdateGet),
   checkAppUpdates: (force) => ipcRenderer.invoke(IPC.appUpdateCheck, force === true),
   performAppUpdateAction: () => ipcRenderer.invoke(IPC.appUpdatePerform),

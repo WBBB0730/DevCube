@@ -4,7 +4,16 @@
 
 import type { GitAction, GitActionResult, GitMergeOn } from '../shared/git'
 import {
+  createGitProgressTracker,
+  pullIntegrationPhase,
+  spreadProgress,
+  stripGitProgress,
+  withProgressFlag
+} from '../shared/git-task'
+import { NO_PROGRESS } from '../shared/task'
+import {
   execGit,
+  execGitStreaming,
   findGit,
   getErrorMessage,
   gitPathArg,
@@ -13,6 +22,7 @@ import {
   resolveGitDirs,
   resolveRepoRoot
 } from './git-exec'
+import type { TaskHandle } from './tasks'
 
 /** 按 kind 收窄的动作类型别名，让各构造函数的入参精确到自己的变体。 */
 type ActionOf<K extends GitAction['kind']> = Extract<GitAction, { kind: K }>
@@ -265,9 +275,10 @@ export function buildFetchIntoLocalArgs(action: ActionOf<'fetch-into-local'>): s
 }
 
 /**
- * pull-branch：真正的 git pull（fetch+整合一体）。整合方式三选一：merge（可叠加 --no-ff）/
- * rebase / squash；squash 的自动提交链在运行时串联。noFastForward 仅 merge 模式有意义。
- * merge / squash 必须显式 --no-rebase：用户在对话框里选的是整合方式本身，
+ * pull-branch：先单独 fetch 该分支（下载阶段，可取消），再执行真正的 git pull（其中的获取已没有新内容，
+ * 主要是整合，不可取消）——git pull 的下载在它另起的子进程里，叫停外层停不掉它（ADR-0058）。
+ * 整合方式三选一：merge（可叠加 --no-ff）/ rebase / squash；squash 的自动提交链在运行时串联。
+ * noFastForward 仅 merge 模式有意义。merge / squash 必须显式 --no-rebase：用户在对话框里选的是整合方式本身，
  * 不能被仓库/全局的 pull.rebase、branch.<name>.rebase 配置悄悄改成变基。
  */
 export function buildPullBranchArgs(action: ActionOf<'pull-branch'>): string[][] {
@@ -277,7 +288,7 @@ export function buildPullBranchArgs(action: ActionOf<'pull-branch'>): string[][]
   else args.push('--no-rebase')
   args.push(action.remote, action.branch)
   if (action.mode === 'merge' && action.noFastForward) args.push('--no-ff')
-  return [args]
+  return [['fetch', action.remote, action.branch], args]
 }
 
 // —— 标签 ——
@@ -595,6 +606,59 @@ async function runSequence(cwd: string, commands: string[][]): Promise<(string |
   return results
 }
 
+/**
+ * 联网动作（Task）的执行上下文——任务登记处里的那个 Task：轮到时开始、回报进度、可取消
+ * （docs/prd/task-progress.md、ADR-0058）。由 IPC 层按 gitTaskTitle 创建。
+ */
+export type GitTaskContext = Pick<TaskHandle, 'signal' | 'start' | 'report' | 'setCancellable'>
+
+/** 联网动作必有执行上下文（IPC 层按 gitTaskTitle 为它们创建 Task）。 */
+function requireTask(task: GitTaskContext | null): GitTaskContext {
+  if (task === null) throw new Error('联网动作缺少任务上下文')
+  return task
+}
+
+/**
+ * 一条联网命令：加 --progress 流式执行，进度经追踪器合成后回报；被取消即结束它的进程树。
+ * slot：它在这个 Task 的联网命令里排第几、共几条（总进度按条数平分）。被取消时不算失败（返回 null），
+ * 由 runTask 收成取消。报错里剔掉进度帧，与不报进度时一致。
+ */
+async function runNetwork(
+  cwd: string,
+  args: string[],
+  task: GitTaskContext,
+  slot = { index: 0, count: 1 }
+): Promise<string | null> {
+  if (task.signal.aborted) return null
+  const tracker = createGitProgressTracker()
+  const stream = await execGitStreaming(cwd, withProgressFlag(args), (chunk) => {
+    const progress = tracker.feed(chunk)
+    if (progress !== null) task.report(spreadProgress(progress, slot))
+  })
+  const cancel = (): void => stream.cancel()
+  task.signal.addEventListener('abort', cancel)
+  if (task.signal.aborted) stream.cancel() // 进程起来之前就点了取消
+  const result = await stream.done
+  task.signal.removeEventListener('abort', cancel)
+  if (result.code === 0 || task.signal.aborted) return null
+  return getErrorMessage({ ...result, stderr: stripGitProgress(result.stderr) })
+}
+
+/** 顺序执行一串联网命令，任一失败或被取消即停；总进度按条数平分。 */
+async function runNetworkSequence(
+  cwd: string,
+  commands: string[][],
+  task: GitTaskContext
+): Promise<(string | null)[]> {
+  const results: (string | null)[] = []
+  for (const [index, args] of commands.entries()) {
+    const error = await runNetwork(cwd, args, task, { index, count: commands.length })
+    results.push(error)
+    if (error !== null || task.signal.aborted) break
+  }
+  return results
+}
+
 /** 是否有已暂存差异（diff-index HEAD 的 stdout 非空）；命令失败按「无差异」处理。 */
 async function hasStagedChanges(cwd: string): Promise<boolean> {
   const result = await execGit(cwd, ['diff-index', 'HEAD'])
@@ -679,12 +743,23 @@ async function runMerge(cwd: string, action: ActionOf<'merge'>): Promise<GitActi
   return { status: 'ok' }
 }
 
-/** pull-branch：成功且 squash 模式时串联自动提交，消息对象为 "<remote>/<branch>"、类型恒为 branch。 */
+/**
+ * pull-branch：先获取（下载阶段，可取消），再拉取（整合阶段，不可取消）；成功且 squash 模式时串联自动提交，
+ * 消息对象为 "<remote>/<branch>"、类型恒为 branch。
+ */
 async function runPullBranch(
   cwd: string,
-  action: ActionOf<'pull-branch'>
+  action: ActionOf<'pull-branch'>,
+  task: GitTaskContext
 ): Promise<GitActionResult> {
-  const pullError = await run(cwd, buildPullBranchArgs(action)[0])
+  const [fetchArgs, pullArgs] = buildPullBranchArgs(action)
+  const fetchError = await runNetwork(cwd, fetchArgs, task)
+  if (fetchError !== null || task.signal.aborted) return toActionResult([fetchError])
+  // 合并 / 变基中途停下可能把工作区和暂存区留在半完成状态：此后不能取消，进度条转为不确定
+  const phase = pullIntegrationPhase(action.mode)
+  task.setCancellable(false, `正在${phase}，无法取消`)
+  task.report({ ...NO_PROGRESS, phase })
+  const pullError = await run(cwd, pullArgs)
   if (pullError !== null) return toActionResult([pullError])
   if (action.mode === 'squash') {
     const obj = `${action.remote}/${action.branch}`
@@ -722,7 +797,8 @@ async function runFetch(cwd: string, action: ActionOf<'fetch'>): Promise<GitActi
  */
 async function runPushBranch(
   cwd: string,
-  action: ActionOf<'push-branch'>
+  action: ActionOf<'push-branch'>,
+  task: GitTaskContext
 ): Promise<GitActionResult> {
   let tagRefs: string[] = []
   if (action.pushTags) {
@@ -733,7 +809,7 @@ async function runPushBranch(
     if (result.code !== 0) return { status: 'error', errors: [getErrorMessage(result)] }
     tagRefs = parseNameList(result.stdout.toString('utf8')).map((name) => `refs/tags/${name}`)
   }
-  return toActionResult(await runSequence(cwd, buildPushBranchArgs(action, tagRefs)))
+  return toActionResult(await runNetworkSequence(cwd, buildPushBranchArgs(action, tagRefs), task))
 }
 
 /**
@@ -746,7 +822,8 @@ async function runPushTag(
   name: string,
   remotes: string[],
   commitHash: string,
-  skipRemoteCheck: boolean
+  skipRemoteCheck: boolean,
+  task: GitTaskContext
 ): Promise<GitActionResult> {
   if (remotes.length === 0) {
     return { status: 'error', errors: [`未指定要推送标签 ${name} 的远程。`] }
@@ -759,9 +836,10 @@ async function runPushTag(
     }
   }
   return toActionResult(
-    await runSequence(
+    await runNetworkSequence(
       cwd,
-      remotes.map((remote) => ['push', remote, name])
+      remotes.map((remote) => ['push', remote, name]),
+      task
     )
   )
 }
@@ -770,11 +848,22 @@ async function runPushTag(
  * add-tag：创建成功且选择了远程时立即推送。推送阶段沿用动作携带的 skipRemoteCheck
  * （透传用户「总是继续」偏好）；预检失败按 push-tag-not-on-remote 返回，渲染端确认后重发。
  */
-async function runAddTag(cwd: string, action: ActionOf<'add-tag'>): Promise<GitActionResult> {
+async function runAddTag(
+  cwd: string,
+  action: ActionOf<'add-tag'>,
+  task: GitTaskContext | null
+): Promise<GitActionResult> {
   const tagError = await run(cwd, buildAddTagArgs(action)[0])
   if (tagError !== null) return toActionResult([tagError])
   if (action.pushToRemote !== null) {
-    return runPushTag(cwd, action.name, [action.pushToRemote], action.hash, action.skipRemoteCheck)
+    return runPushTag(
+      cwd,
+      action.name,
+      [action.pushToRemote],
+      action.hash,
+      action.skipRemoteCheck,
+      requireTask(task)
+    )
   }
   return { status: 'ok' }
 }
@@ -784,13 +873,18 @@ async function runAddTag(cwd: string, action: ActionOf<'add-tag'>): Promise<GitA
  * init [-b] → remote add 中途失败即停；填了远程则再 fetch origin（相当于顺手点一次刷新），
  * fetch 失败不算 init 失败——仓库已建好，单独报错（部分成功也推 git:changed 的机制兜底）。
  */
-async function runInit(projectPath: string, action: ActionOf<'init'>): Promise<GitActionResult> {
+async function runInit(
+  projectPath: string,
+  action: ActionOf<'init'>,
+  task: GitTaskContext | null
+): Promise<GitActionResult> {
   const result = toActionResult(await runSequence(projectPath, buildInitArgs(action)))
   if (result.status !== 'ok' || action.remoteUrl === null) return result
   const atomic = await supportsAtomicFetch(projectPath)
-  const fetchError = await run(
+  const fetchError = await runNetwork(
     projectPath,
-    atomic ? ['fetch', '--atomic', 'origin'] : ['fetch', 'origin']
+    atomic ? ['fetch', '--atomic', 'origin'] : ['fetch', 'origin'],
+    requireTask(task)
   )
   if (fetchError !== null) {
     return { status: 'error', errors: [`仓库已初始化，但从远程获取失败：\n${fetchError}`] }
@@ -848,7 +942,8 @@ async function runWorktreeRemove(
 /** 按动作类型分发执行；简单动作 = 构造出的命令序列顺序执行、出错即停。init 不经此处（非仓库）。 */
 async function execAction(
   cwd: string,
-  action: Exclude<GitAction, { kind: 'init' }>
+  action: Exclude<GitAction, { kind: 'init' }>,
+  task: GitTaskContext | null
 ): Promise<GitActionResult> {
   switch (action.kind) {
     case 'checkout-branch':
@@ -898,17 +993,26 @@ async function execAction(
     case 'fetch':
       return runFetch(cwd, action)
     case 'push-branch':
-      return runPushBranch(cwd, action)
+      return runPushBranch(cwd, action, requireTask(task))
     case 'fetch-into-local':
-      return toActionResult(await runSequence(cwd, buildFetchIntoLocalArgs(action)))
+      return toActionResult(
+        await runNetworkSequence(cwd, buildFetchIntoLocalArgs(action), requireTask(task))
+      )
     case 'pull-branch':
-      return runPullBranch(cwd, action)
+      return runPullBranch(cwd, action, requireTask(task))
     case 'add-tag':
-      return runAddTag(cwd, action)
+      return runAddTag(cwd, action, task)
     case 'delete-tag':
       return toActionResult(await runSequence(cwd, buildDeleteTagArgs(action)))
     case 'push-tag':
-      return runPushTag(cwd, action.name, action.remotes, action.commitHash, action.skipRemoteCheck)
+      return runPushTag(
+        cwd,
+        action.name,
+        action.remotes,
+        action.commitHash,
+        action.skipRemoteCheck,
+        requireTask(task)
+      )
     case 'stash-push':
       return runStashPush(cwd, action)
     case 'stash-apply':
@@ -941,19 +1045,38 @@ async function execAction(
 }
 
 /**
+ * 轮到执行时：Task 从等待中转为进行中；在队列里就已被取消的不执行；执行中被取消的一律收成取消
+ * （与任务登记处同一口径）。不是 Task 的动作直接执行。
+ */
+async function runTask(
+  task: GitTaskContext | null,
+  exec: () => Promise<GitActionResult>
+): Promise<GitActionResult> {
+  if (task === null) return exec()
+  if (task.signal.aborted) return { status: 'canceled' }
+  task.start()
+  const result = await exec()
+  return task.signal.aborted ? { status: 'canceled' } : result
+}
+
+/**
  * 执行一个写动作：解析仓库根 → 进该仓库的队列串行执行 → 归并结果。排队 / 执行期间（含结束后
  * 1500ms 余震窗口）isRepoBusy 为 true，该仓库的项目监听挂起通知，转闲后补发一次。
+ * task：联网动作（gitTaskTitle 不为 null 的）在任务登记处里的那个 Task，其余为 null。
  */
 export async function runGitAction(
   projectPath: string,
-  action: GitAction
+  action: GitAction,
+  task: GitTaskContext | null
 ): Promise<GitActionResult> {
   // init 是唯一合法作用于非仓库的动作：不解析仓库根，cwd 与仓库键都用项目路径本身
   if (action.kind === 'init') {
-    return runInRepoQueue(repoKeyOf(projectPath, null, null), () => runInit(projectPath, action))
+    return runInRepoQueue(repoKeyOf(projectPath, null, null), () =>
+      runTask(task, () => runInit(projectPath, action, task))
+    )
   }
   const repoRoot = await resolveRepoRoot(projectPath)
   if (repoRoot === null) return { status: 'error', errors: [NOT_A_REPO_ERROR] }
   const repoKey = repoKeyOf(projectPath, repoRoot, await resolveGitDirs(repoRoot))
-  return runInRepoQueue(repoKey, () => execAction(repoRoot, action))
+  return runInRepoQueue(repoKey, () => runTask(task, () => execAction(repoRoot, action, task)))
 }

@@ -9,8 +9,7 @@ describe('quitConfirmation', () => {
           { kind: 'run', status: 'running' },
           { kind: 'terminal', status: 'running' }
         ],
-        0,
-        0
+        { transfers: 0, unsaved: 0, tasks: 0 }
       )
     ).toEqual({ message: '还有 1 个运行会话在运行', detail: '退出应用将结束这些会话。确定退出？' })
   })
@@ -23,31 +22,40 @@ describe('quitConfirmation', () => {
           { kind: 'ssh', status: 'running' },
           { kind: 'run', status: 'exited' }
         ],
-        0,
-        0
+        { transfers: 0, unsaved: 0, tasks: 0 }
       )
     ).toBeNull()
-    expect(quitConfirmation([], 0, 0)).toBeNull()
+    expect(quitConfirmation([], { transfers: 0, unsaved: 0, tasks: 0 })).toBeNull()
   })
 
   it('有未完成的文件传输也要确认', () => {
-    expect(quitConfirmation([], 2, 0)).toEqual({
+    expect(quitConfirmation([], { transfers: 2, unsaved: 0, tasks: 0 })).toEqual({
       message: '还有 2 个文件传输未完成',
       detail: '退出应用将中止这些传输。确定退出？'
     })
   })
 
   it('服务器上有未保存的文件也要确认', () => {
-    expect(quitConfirmation([], 0, 1)).toEqual({
+    expect(quitConfirmation([], { transfers: 0, unsaved: 1, tasks: 0 })).toEqual({
       message: '还有 1 个服务器上的文件未保存',
       detail: '退出应用将丢失未保存的修改。确定退出？'
     })
   })
 
+  it('有未完成的任务也要确认', () => {
+    expect(quitConfirmation([], { transfers: 0, unsaved: 0, tasks: 2 })).toEqual({
+      message: '还有 2 个任务未完成',
+      detail: '退出应用将中止这些任务。确定退出？'
+    })
+  })
+
   it('几种都有时一并说明', () => {
-    expect(quitConfirmation([{ kind: 'run', status: 'running' }], 1, 1)).toEqual({
-      message: '还有 1 个运行会话在运行、1 个文件传输未完成、1 个服务器上的文件未保存',
-      detail: '退出应用将结束这些会话、中止这些传输、丢失未保存的修改。确定退出？'
+    expect(
+      quitConfirmation([{ kind: 'run', status: 'running' }], { transfers: 1, unsaved: 1, tasks: 1 })
+    ).toEqual({
+      message:
+        '还有 1 个运行会话在运行、1 个文件传输未完成、1 个服务器上的文件未保存、1 个任务未完成',
+      detail: '退出应用将结束这些会话、中止这些传输、丢失未保存的修改、中止这些任务。确定退出？'
     })
   })
 })

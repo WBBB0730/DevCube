@@ -18,7 +18,7 @@ import type { FilesImagePreview, FilesImagePyramid } from './files-image-tiles'
 import type { FilesTreeFilterResult } from './files-tree-search'
 import type { GitAPI, GitRepoSettings, GitViewPrefs } from './git'
 import type { GitHubAPI } from './github'
-import type { GitCloneInput, GitCloneProgress, GitCloneTargetState } from './git-clone'
+import type { GitCloneInput, GitCloneTargetState } from './git-clone'
 import type { OpenInAppId, OpenInAppResult, OpenInAppStatus } from './open-in-app'
 import type { PanelSizes, PanelSizesPatch } from './panel-sizes'
 import type { RendererBootstrap } from './renderer-bootstrap'
@@ -36,6 +36,7 @@ import type {
 } from './server-files'
 import type { ServerStatusEvent, ServerStatusState } from './server-status'
 import type { SshPromptRequest, SshPromptResponse } from './ssh-connect'
+import type { TaskInfo } from './task'
 import type {
   DataSource,
   DataSourceAddResult,
@@ -367,9 +368,12 @@ export interface ProjectAddResult {
   focusPath: string | null
 }
 
-/** 克隆的结果：成功即已登记为项目（树 + 聚焦路径同上），否则给出取消 / 报错。 */
+/**
+ * 克隆的结果：成功即已登记为项目（树 + 聚焦路径同上；focus 为假即克隆被隐藏着，不抢当前选中），否则给出取消 / 报错。
+ * 报错时 Task 留在任务登记处（失败的由界面按它呈现）。
+ */
 export type ProjectCloneResult =
-  | { status: 'ok'; tree: ProjectNode[]; focusPath: string }
+  | { status: 'ok'; tree: ProjectNode[]; focusPath: string; focus: boolean }
   | { status: 'canceled' }
   | { status: 'error'; message: string }
 
@@ -439,13 +443,10 @@ export interface RunAPI extends GitAPI, GitHubAPI {
   addProjectByPath(path: string): Promise<ProjectAddResult>
   /** 打开系统保存面板新建项目文件夹并登记；取消则 focusPath 为 null */
   createProject(): Promise<ProjectAddResult>
-  /** 克隆仓库并登记为项目；进度经 onProjectCloneProgress 推送，同一时刻只允许一个 */
+  /** 克隆仓库并登记为项目；克隆是一个 Task（进度、取消、隐藏见任务接口），同一时刻只允许一个 */
   cloneProject(input: GitCloneInput): Promise<ProjectCloneResult>
-  /** 取消进行中的克隆（cloneProject 随后以 canceled 收口） */
-  cancelProjectClone(): Promise<void>
   /** 探测克隆目标目录：不存在 / 空目录 / 被占用 */
   checkCloneTarget(parentDir: string, name: string): Promise<GitCloneTargetState>
-  onProjectCloneProgress(cb: (progress: GitCloneProgress) => void): () => void
   removeProject(path: string): Promise<ProjectNode[]>
   /** 重排左树条目（Project、Server 与 Data Source 混排）的自定义序：按条目键顺序落盘 */
   reorderEntries(orderedKeys: string[]): Promise<TreeSnapshot>
@@ -945,6 +946,15 @@ export interface RunAPI extends GitAPI, GitHubAPI {
   onProjectExternalOpen(cb: (focusPath: string) => void): () => void
 
   // —— 应用内更新 ——
+  /** 任务登记处的全量快照（渲染端重载后接上） */
+  getTasks(): Promise<TaskInfo[]>
+  onTasksChanged(cb: (tasks: TaskInfo[]) => void): () => void
+  cancelTask(id: string): Promise<void>
+  hideTask(id: string): Promise<void>
+  /** 找回：不再算被隐藏 */
+  revealTask(id: string): Promise<void>
+  /** 关掉一个失败的 */
+  dismissTask(id: string): Promise<void>
   getAppUpdateState(): Promise<AppUpdateState>
   /** @param force 为 true 时绕过进入关于的冷却，用于手动「检查更新」 */
   checkAppUpdates(force?: boolean): Promise<AppUpdateState>

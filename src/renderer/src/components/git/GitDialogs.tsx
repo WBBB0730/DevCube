@@ -1,7 +1,8 @@
 // Git 对话框宿主（menus-dialogs §3）：通用表单渲染器（建在小对话框外壳 FormDialogShell 上：Esc = 取消、
 // Enter = 主按钮；有文本输入的点遮罩不关）+ D1–D30 逐个描述。
 // 追问链（重名替换 / 强制删除 / 提交不在远程等）用组件内 chase 状态续弹，不经过 store.dialog。
-// actionRunning 的进行中遮罩与 actionErrors 的错误框也由本组件呈现（§1.3 状态机）。
+// actionRunning 的进行中遮罩与 actionErrors 的错误框也由本组件呈现（§1.3 状态机）；本项目在前台的联网动作（Task）的
+// 进度弹窗与失败的错误框同样在这里（docs/prd/task-progress.md）。
 // v1 取舍：D6（创建 Pull Request）不做（无 PR 配置契约）；D30 数据加载错误的「重试」在
 // GitPane 的 error 态，不在此处。
 import { useEffect, useMemo, useState } from 'react'
@@ -31,6 +32,8 @@ import {
 import { configKey } from '@shared/runnable'
 import { useApp } from '@renderer/store'
 import { gitState, useGit } from '@renderer/git-store'
+import { foregroundGitTaskOf, useTasks } from '@renderer/task-store'
+import { TaskProgressDialog } from '@renderer/components/tasks/TaskProgressDialog'
 import { cn } from '@renderer/lib/utils'
 import { AutocompleteInput } from '@renderer/components/ui/autocomplete-input'
 import { Button } from '@renderer/components/ui/button'
@@ -304,7 +307,7 @@ function Em({ children }: { children: React.ReactNode }): React.JSX.Element {
 // —— 对话框描述构建（D1–D29；D27 tag-details 需异步状态、D10 pull-branch 需字段联动与
 // 行内刷新，均由组件层特判渲染） ——
 
-/** 提交后统一收口：先关对话框再执行动作（进行中遮罩由 actionRunning 呈现）。 */
+/** 提交后统一收口：先关对话框再执行动作（进行中遮罩由 actionRunning 呈现，联网动作的进度弹窗由任务登记处呈现）。 */
 function dispatch(env: DialogEnv, action: GitAction, label: string): void {
   env.closeDialog()
   void env.runAction(action, label)
@@ -1538,8 +1541,8 @@ function createBranchSpec(
 // —— 组件层 ——
 
 /**
- * 对话框宿主：按 store 的 dialog 请求渲染表单，叠加追问链（chase）、进行中遮罩与错误框。
- * 渲染优先级：错误框 > 进行中遮罩 > 追问对话框 > store 对话框（同一时刻全局最多一个，§1.2）。
+ * 对话框宿主：按 store 的 dialog 请求渲染表单，叠加追问链（chase）、前台的 Task、进行中遮罩与错误框。
+ * 渲染优先级：错误框 > 前台的 Task > 进行中遮罩 > 追问对话框 > store 对话框（同一时刻全局最多一个，§1.2）。
  */
 export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.Element | null {
   const dialog = useGit((s) => gitState(s, projectPath).dialog)
@@ -1556,6 +1559,8 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
   const viewPrefs = useGit((s) => s.viewPrefs)
   const opInProgress = useGit((s) => gitState(s, projectPath).opInProgress)
   const worktrees = useGit((s) => gitState(s, projectPath).worktrees)
+  /** 本项目在前台的联网动作（Task，docs/prd/task-progress.md）：没被隐藏的按发起先后一次一个 */
+  const task = useTasks((s) => foregroundGitTaskOf(s.tasks, projectPath))
 
   /** 追问链状态：nonce 作为表单 key，同一链上连续两个表单也能重置输入值 */
   const [chase, setChase] = useState<{ spec: DialogSpec; nonce: number } | null>(null)
@@ -1654,7 +1659,26 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
     )
   }
 
-  // 2. 进行中遮罩：spinner + 文案；「隐藏」（Esc 同）只收起提示，动作继续（§1.3）。
+  // 2. 前台的 Task：失败的为错误框（「确定」即关掉它），进行中 / 等待中的为进度弹窗（隐藏即进任务清单）
+  if (task !== undefined) {
+    if (task.status === 'failed') {
+      return (
+        <ErrorDialog
+          message={task.errors.filter((e) => e !== '').join('\n\n')}
+          onClose={() => void window.api.dismissTask(task.id)}
+        />
+      )
+    }
+    return (
+      <TaskProgressDialog
+        key={task.id}
+        task={task}
+        onHide={() => void window.api.hideTask(task.id)}
+      />
+    )
+  }
+
+  // 3. 进行中遮罩（不是 Task 的动作）：spinner + 文案；「隐藏」（Esc 同）只收起提示，动作继续（§1.3）。
   // 以「隐藏时的文案」判断是否收起：新动作（文案不同）自然重新显示；
   // 同文案的连续两个动作会沿用隐藏态，属可接受的边角。
   if (actionRunning !== null) {
@@ -1673,7 +1697,7 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
     )
   }
 
-  // 3. 追问对话框（不经过 store.dialog）
+  // 4. 追问对话框（不经过 store.dialog）
   if (chase !== null) {
     return (
       <DialogForm key={`chase-${chase.nonce}`} spec={chase.spec} onCancel={() => setChase(null)} />
@@ -1682,13 +1706,13 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
 
   if (dialog === null) return null
 
-  // 4a. D27 标签详情（Message 型，异步加载；已落地结果不属于当前 tag 时仍显示加载中）
+  // 5a. D27 标签详情（Message 型，异步加载；已落地结果不属于当前 tag 时仍显示加载中）
   if (dialog.kind === 'tag-details') {
     const info = tagInfo !== null && tagInfo.name === dialog.name ? tagInfo.result : null
     return <TagDetailsDialog name={dialog.name} info={info} onClose={env.closeDialog} />
   }
 
-  // 4b. D10 拉取（表单式）：remote→分支联动与行内刷新的异步 spinner 不进声明式 spec，
+  // 5b. D10 拉取（表单式）：remote→分支联动与行内刷新的异步 spinner 不进声明式 spec，
   // 照 tag-details 的先例由组件层特判（key 同 dialogKey：请求变化即重置表单）。
   // config 未就绪时先不挂表单（needsConfig 的 effect 正在拉）：默认值（上游 remote/分支、
   // 整合方式的配置层）在挂载时冻结，提前挂会把空 config 算出的错误默认值定死。
@@ -1697,19 +1721,19 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
     return <PullBranchDialog key={dialogKey(dialog)} req={dialog} env={env} />
   }
 
-  // 4c. D5 推送（表单式）：目标分支跟随本地分支、combobox 与行内刷新同理由组件层特判；
+  // 5c. D5 推送（表单式）：目标分支跟随本地分支、combobox 与行内刷新同理由组件层特判；
   // config 门控理由同 4b（defaultPushRemote 依赖 branch.<name>.pushremote/remote）
   if (dialog.kind === 'push-branch') {
     if (env.config === null) return null
     return <PushBranchDialog key={dialogKey(dialog)} req={dialog} env={env} />
   }
 
-  // 4d. D31 新建工作树（表单式）：检出方式切换字段、名称跟随分支、位置随名称重算
+  // 5d. D31 新建工作树（表单式）：检出方式切换字段、名称跟随分支、位置随名称重算
   if (dialog.kind === 'worktree-add') {
     return <WorktreeAddDialog key={dialogKey(dialog)} req={dialog} env={env} />
   }
 
-  // 4d. 常规表单对话框
+  // 5d. 常规表单对话框
   const spec = buildSpec(dialog, env)
   if (spec === null) return null
   return <DialogForm key={dialogKey(dialog)} spec={spec} onCancel={env.closeDialog} />

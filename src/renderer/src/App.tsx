@@ -25,6 +25,7 @@ import { useRememberedPanel } from '@renderer/lib/remembered-panel'
 import { useFiles } from '@renderer/files-store'
 import { orderedTabKeys, resolveTabs, useApp } from '@renderer/store'
 import { gitState, useGit } from '@renderer/git-store'
+import { cloneTaskOf, connectTasks, useTasks } from '@renderer/task-store'
 import type { AppShortcut } from '@shared/app-shortcut'
 import { wslDistroOf } from '@shared/wsl-path'
 import type { AppUpdateState } from '@shared/app-update-state'
@@ -185,6 +186,8 @@ function App(): React.JSX.Element {
   )
   const contentSearchOpen = useApp((s) => s.contentSearchOpen)
   const cloneDialogOpen = useApp((s) => s.cloneDialogOpen)
+  // 没被隐藏的克隆即在前台：克隆对话框跟着它显示（渲染端重载后也接得上）
+  const cloneInFront = useTasks((s) => cloneTaskOf(s.tasks)?.hidden === false)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const [update, setUpdate] = useState<AppUpdateState | null>(null)
 
@@ -227,6 +230,8 @@ function App(): React.JSX.Element {
     // 应用快捷键：主进程 before-input-event → IPC（抢在 xterm / 编辑器 / Chromium 默认之前）。
     const offShortcut = window.api.onAppShortcut(handleAppShortcut)
     const offUpdate = window.api.onAppUpdateState(setUpdate)
+    // 任务登记处（Task）：进度弹窗、任务清单、克隆对话框都读它
+    const offTasks = connectTasks()
     // External Open：main 已登记项目，这里选中并滚入视口。
     const offExternalOpen = window.api.onProjectExternalOpen((focusPath) => {
       void useApp.getState().openExternalProject(focusPath)
@@ -246,6 +251,7 @@ function App(): React.JSX.Element {
       offGit()
       offShortcut()
       offUpdate()
+      offTasks()
       offExternalOpen()
     }
   }, [init])
@@ -285,6 +291,7 @@ function App(): React.JSX.Element {
         update={update}
         onOpenSettings={() => setSettingsOpen(true)}
         onPerformUpdate={() => void window.api.performAppUpdateAction()}
+        showTasks
       />
       <div className="min-h-0 flex-1">
         <ResizablePanelGroup {...projectTree.groupProps}>
@@ -341,7 +348,7 @@ function App(): React.JSX.Element {
         <TransferConflictDialog key={transferConflict.id} request={transferConflict} />
       )}
       {sshPrompt && <SshPromptDialog key={sshPrompt.id} request={sshPrompt} />}
-      {cloneDialogOpen && <CloneProjectDialog />}
+      {(cloneDialogOpen || cloneInFront) && <CloneProjectDialog />}
       {contentSearchOpen && currentProjectPath && (
         <ContentSearchPanel
           key={currentProjectPath}

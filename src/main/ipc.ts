@@ -50,10 +50,12 @@ import type { SshPromptResponse } from '../shared/ssh-connect'
 import type { TransferConflictResponse } from '../shared/server-files'
 import { dataSourceEntryKey, serverEntryKey } from '../shared/tree-entry'
 import { resolveClonePath, type GitCloneInput } from '../shared/git-clone'
+import { gitTaskTitle } from '../shared/git-task'
 import { listOpenInApps, openInApp } from './open-in-app'
 import {
   resolveRepoSettings,
   type GitAction,
+  type GitActionResult,
   type GitDetailsRequest,
   type GitDiffRequest,
   type GitLoadOptions,
@@ -169,7 +171,7 @@ import {
   uploadToServer,
   writeServerFile
 } from './server-files'
-import { cancelClone, checkCloneTarget, runClone } from './git-clone'
+import { checkCloneTarget, runClone } from './git-clone'
 import {
   addProjectByPath,
   createAndAddProject,
@@ -258,6 +260,8 @@ import {
   loadRepo
 } from './git-data'
 import { runGitAction } from './git-actions'
+import { startTaskDockProgress } from './task-dock'
+import { tasks, type TaskOutcome } from './tasks'
 import { invalidateWorkingTree } from './git-working-tree'
 import {
   cancelGitHubLogin,
@@ -329,6 +333,13 @@ function grantedSysPaths(paths: readonly string[]): string[] {
 
 function liveMainWindow(): BrowserWindow | null {
   return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+}
+
+/** Git 动作结果 → 它那个 Task 的终局（提交不在远程这类追问不算失败）。 */
+function taskOutcomeOf(result: GitActionResult): TaskOutcome {
+  if (result.status === 'error') return { status: 'failed', errors: result.errors }
+  if (result.status === 'canceled') return { status: 'canceled' }
+  return { status: 'ok' }
 }
 
 /**
@@ -525,26 +536,53 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   ipcMain.handle(
     IPC.projectClone,
     async (_e, input: GitCloneInput): Promise<ProjectCloneResult> => {
-      const outcome = await runClone(input, (progress) => {
-        if (mainWindow && !mainWindow.isDestroyed()) {
-          mainWindow.webContents.send(IPC.projectCloneProgress, progress)
-        }
-      })
-      if (outcome.status !== 'ok') return outcome
+      // 同一时刻至多一个克隆（渲染端打开克隆对话框即显示进行中的那个，这里是第二道）；
+      // 新的开始时，上一个失败的随之关掉
+      const clones = tasks.list().filter((t) => t.kind === 'clone')
+      if (clones.some((t) => t.status !== 'failed')) {
+        return { status: 'error', message: '已有克隆正在进行' }
+      }
+      for (const clone of clones) tasks.dismiss(clone.id)
+      const task = tasks.create(
+        { kind: 'clone', input },
+        { action: '克隆', target: input.url },
+        { queued: false }
+      )
+      const outcome = await runClone(input, task)
+      if (outcome.status === 'canceled') {
+        task.finish(outcome)
+        return outcome
+      }
+      // 失败的克隆留在任务登记处（带着原输入），由克隆对话框或任务清单按它呈现
+      const fail = (message: string): ProjectCloneResult => {
+        task.finish({ status: 'failed', errors: [message] })
+        return { status: 'error', message }
+      }
+      if (outcome.status === 'error') return fail(outcome.message)
       // 克隆成功：与其余三条登记路径同一收口（登记 + 对齐监听 + 记住父目录）
       const focusPath = addProjectByPath(outcome.path)
-      if (focusPath === null) return { status: 'error', message: '克隆完成，但目录无法登记为项目' }
+      if (focusPath === null) return fail('克隆完成，但目录无法登记为项目')
       rememberProjectParentDir(outcome.path)
       refreshWatchers()
-      return { status: 'ok', tree: buildTree(), focusPath }
+      // 被隐藏着完成的不抢当前选中
+      const focus = !task.hidden
+      task.finish({ status: 'ok' })
+      return { status: 'ok', tree: buildTree(), focusPath, focus }
     }
   )
-
-  ipcMain.handle(IPC.projectCloneCancel, () => cancelClone())
 
   ipcMain.handle(IPC.projectCloneCheckTarget, (_e, parentDir: string, name: string) =>
     checkCloneTarget(resolveClonePath(parentDir, name))
   )
+
+  // —— 任务登记处（Task，docs/prd/task-progress.md）：快照只推给主窗口，Dock / 任务栏进度随之更新 ——
+  ipcMain.handle(IPC.tasksGet, () => tasks.list())
+  ipcMain.handle(IPC.taskCancel, (_e, id: string) => tasks.cancel(id))
+  ipcMain.handle(IPC.taskHide, (_e, id: string) => tasks.hide(id))
+  ipcMain.handle(IPC.taskReveal, (_e, id: string) => tasks.reveal(id))
+  ipcMain.handle(IPC.taskDismiss, (_e, id: string) => tasks.dismiss(id))
+  tasks.subscribe((list) => liveMainWindow()?.webContents.send(IPC.tasksChanged, list))
+  startTaskDockProgress(liveMainWindow)
 
   ipcMain.handle(IPC.projectRemove, (_e, path: string) => {
     // 先删掉该项目名下的配置并销毁其会话（杀进程树 + 清状态），再移除项目。
@@ -1280,7 +1318,12 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   ipcMain.handle(
     IPC.gitAction,
     async (_e, projectPath: string, action: GitAction, opts?: { silent?: boolean }) => {
-      const result = await runGitAction(projectPath, action)
+      // 联网动作是一个 Task：同仓库排队时先是等待中，轮到才开始；失败的留在任务登记处，由界面按它呈现
+      const title = gitTaskTitle(action)
+      const task =
+        title === null ? null : tasks.create({ kind: 'git', projectPath }, title, { queued: true })
+      const result = await runGitAction(projectPath, action, task)
+      task?.finish(taskOutcomeOf(result))
       if (action.kind === 'init') {
         // init 会改变仓库根（非仓库 → 仓库）：显式重验 + 对齐 watcher 形态。不等探测
         // watcher 的事件——动作执行期间（含余震窗口）它挂起，转闲才补发，界面会慢一拍

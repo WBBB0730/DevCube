@@ -194,9 +194,30 @@ export async function execGit(cwd: string, args: string[], input?: Buffer): Prom
 
 /** 一次流式 git 执行：进程已起，done 在结束时收口（永不 reject），cancel 可中途终止。 */
 export interface GitStreamRun {
-  /** 取消：SIGTERM —— git 自己注册了信号清理，会删掉它中途创建的产物 */
+  /**
+   * 取消：结束整棵进程树（ADR-0058）——git 会再起子进程（拉取的下载、推送前的钩子、子模块的克隆），
+   * 只结束最外层的 git 它们会照样跑完。posix 上整组收到 SIGTERM，各 git 进程照常做信号清理、删掉中途的产物
+   */
   cancel: () => void
   done: Promise<GitExecResult>
+}
+
+/**
+ * 结束流式执行的整棵进程树：posix 上 git 自成一个进程组（spawn 时 detached），向整组发 SIGTERM；
+ * Windows 用系统的 taskkill 结束进程树（结束进程不走信号清理）。已退出的不再动。
+ */
+function killProcessTree(child: cp.ChildProcess): void {
+  if (child.pid === undefined || child.exitCode !== null || child.signalCode !== null) return
+  if (process.platform === 'win32') {
+    const taskkill = join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'taskkill.exe')
+    cp.execFile(taskkill, ['/pid', String(child.pid), '/T', '/F'], { windowsHide: true }, () => {})
+    return
+  }
+  try {
+    process.kill(-child.pid, 'SIGTERM')
+  } catch {
+    // 进程组已不在
+  }
 }
 
 /**
@@ -226,7 +247,12 @@ export async function execGitStreaming(
   const shellEnv = await resolveShellEnvironment()
   let child: cp.ChildProcess
   try {
-    child = cp.spawn(git.path, args, { cwd, env: gitEnv(shellEnv) })
+    // posix 上自成一个进程组：取消时整组结束（见 killProcessTree）。Windows 上 detached 会另开控制台，不用
+    child = cp.spawn(git.path, args, {
+      cwd,
+      env: gitEnv(shellEnv),
+      detached: process.platform !== 'win32'
+    })
   } catch (e) {
     return {
       cancel: () => {},
@@ -258,7 +284,7 @@ export async function execGitStreaming(
     })
     child.on('close', (code) => finish(code ?? -1))
   })
-  return { cancel: () => child.kill('SIGTERM'), done }
+  return { cancel: () => killProcessTree(child), done }
 }
 
 /** 从执行结果提炼展示给用户的错误消息：stderr 在前、stdout 在后拼接，无条件丢掉最后一段

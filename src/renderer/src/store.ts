@@ -409,7 +409,10 @@ interface AppState {
   /** External Open：主进程已登记，选中并滚入视口（收尾同 addProjectByPath） */
   openExternalProject: (focusPath: string) => Promise<void>
   createProject: () => Promise<void>
-  /** 克隆仓库并登记；成功后收尾同 addProjectByPath。终局原样返回给对话框展示 */
+  /**
+   * 克隆仓库并登记；成功后收尾同 addProjectByPath（被隐藏着完成的不选中）。成功与取消即关掉克隆对话框，
+   * 失败的留在任务登记处由对话框按它呈现
+   */
   cloneProject: (input: GitCloneInput) => Promise<ProjectCloneResult>
   removeProject: (path: string) => Promise<void>
   /** 重排左树条目（Project、Server 与 Data Source 混排的自定义序落盘） */
@@ -882,11 +885,18 @@ export const useApp = create<AppState>((set, get) => ({
   cloneProject: async (input) => {
     const result = await window.api.cloneProject(input)
     if (result.status === 'ok') {
-      await applyAddedProject(set, get, async () => ({
-        tree: result.tree,
-        focusPath: result.focusPath
-      }))
+      // 被隐藏着完成的克隆不抢当前选中，只把新项目放进左树
+      if (result.focus) {
+        await applyAddedProject(set, get, async () => ({
+          tree: result.tree,
+          focusPath: result.focusPath
+        }))
+      } else {
+        set({ tree: result.tree })
+      }
     }
+    // 成功与取消都收口关窗；失败的克隆留在任务登记处，克隆对话框按它回到填写态
+    if (result.status !== 'error') set({ cloneDialogOpen: false })
     return result
   },
   removeProject: async (path) => {

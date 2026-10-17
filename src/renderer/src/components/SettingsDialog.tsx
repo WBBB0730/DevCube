@@ -21,6 +21,7 @@ import { GitHubMark } from '@renderer/components/ui/github-mark'
 import { Button } from '@renderer/components/ui/button'
 import { Checkbox } from '@renderer/components/ui/checkbox'
 import { ConfirmDialog, ErrorDialog, InfoIcon } from '@renderer/components/ui/form-dialog'
+import { ProgressBar, ProgressDetail } from '@renderer/components/ui/progress'
 import {
   Select,
   SelectContent,
@@ -159,6 +160,25 @@ function phaseLabel(state: AppUpdateState): string {
     case 'error':
       return state.lastError ? `下载失败：${state.lastError}` : '下载失败'
   }
+}
+
+/** 更新下载中的进度（限宽 320px）：还没收到第一份进度时为不确定状态。 */
+function UpdateDownloadProgress({ update }: { update: AppUpdateState }): React.JSX.Element {
+  const download = update.download
+  const percent =
+    download !== null && download.totalBytes > 0
+      ? (download.doneBytes / download.totalBytes) * 100
+      : null
+  return (
+    <div className="w-80 space-y-1.5">
+      <ProgressBar value={percent} />
+      <ProgressDetail
+        stats={
+          download ?? { doneBytes: null, totalBytes: null, speed: null, remainingSeconds: null }
+        }
+      />
+    </div>
+  )
 }
 
 /** WebStorm 风设置弹层：左树 + 右内容 + 底栏。 */
@@ -407,6 +427,7 @@ export function SettingsDialog({
                     : ' · 正式版'}
               </div>
               <div>{phaseLabel(update)}</div>
+              {update.phase === 'downloading' && <UpdateDownloadProgress update={update} />}
               <div className="flex flex-wrap gap-2">
                 {showInstallAction ? (
                   <Button type="button" size="sm" onClick={() => setUpdateDialogOpen(true)}>

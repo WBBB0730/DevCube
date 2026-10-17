@@ -5,7 +5,6 @@ import {
   isCloneDirNameInvalid,
   isLikelyRepoUrl,
   normalizeRepoUrl,
-  parseCloneProgress,
   repoDirNameFromUrl,
   resolveClonePath
 } from './git-clone'
@@ -137,64 +136,6 @@ describe('isCloneDirNameInvalid', () => {
   it('普通目录名合法', () => {
     expect(isCloneDirNameInvalid('repo')).toBe(false)
     expect(isCloneDirNameInvalid('my.repo-2')).toBe(false)
-  })
-})
-
-describe('parseCloneProgress', () => {
-  it('解析带百分比的进度行并译出阶段名', () => {
-    expect(parseCloneProgress('Receiving objects:  45% (556/1234), 1.20 MiB | 2.00 MiB/s')).toEqual(
-      {
-        phase: '接收对象',
-        percent: 45
-      }
-    )
-    expect(parseCloneProgress('Resolving deltas: 100% (300/300), done.')).toEqual({
-      phase: '处理增量',
-      percent: 100
-    })
-  })
-
-  it('无百分比的阶段行只给阶段名', () => {
-    expect(parseCloneProgress('remote: Enumerating objects: 1234, done.')).toEqual({
-      phase: '枚举对象',
-      percent: null
-    })
-  })
-
-  it('剥 remote: 前缀', () => {
-    expect(parseCloneProgress('remote: Compressing objects:  80% (400/500)')).toEqual({
-      phase: '压缩对象',
-      percent: 80
-    })
-  })
-
-  it('一块里含多帧时取最后一帧', () => {
-    const chunk =
-      'Receiving objects:  10% (124/1234)\rReceiving objects:  60% (741/1234)\r' +
-      'Receiving objects: 100% (1234/1234), done.\n'
-    expect(parseCloneProgress(chunk)).toEqual({ phase: '接收对象', percent: 100 })
-  })
-
-  it('块边界劈断的半行不产生错帧', () => {
-    expect(parseCloneProgress('Receiving objects:  10% (124/1234)\rReceiving objects:  4')).toEqual(
-      {
-        phase: '接收对象',
-        percent: 10
-      }
-    )
-  })
-
-  it('未知阶段原样保留英文', () => {
-    expect(parseCloneProgress('Indexing revisions:  30% (3/10)')).toEqual({
-      phase: 'Indexing revisions',
-      percent: 30
-    })
-  })
-
-  it('无进度可识别时返回 null', () => {
-    expect(parseCloneProgress("Cloning into 'repo'...")).toBeNull()
-    expect(parseCloneProgress('fatal: repository not found')).toBeNull()
-    expect(parseCloneProgress('')).toBeNull()
   })
 })
 

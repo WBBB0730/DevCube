@@ -189,7 +189,7 @@ function TransferRow({
         {transfer.name}
       </span>
       {transfer.status === 'running' && transfer.totalBytes !== null && (
-        <div className="h-1 w-32 shrink-0 overflow-hidden rounded-full bg-[var(--bg-row-hover)]">
+        <div className="h-1 w-32 shrink-0 overflow-hidden rounded-full bg-[var(--progress-track)]">
           <div
             className="h-full rounded-full bg-primary transition-[width]"
             style={{ width: `${ratio * 100}%` }}

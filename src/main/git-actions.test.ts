@@ -625,7 +625,7 @@ describe('buildFetchIntoLocalArgs', () => {
 })
 
 describe('buildPullBranchArgs', () => {
-  it('merge 模式显式 --no-rebase（压制 pull.rebase 配置）', () => {
+  it('先单独获取该分支，再拉取；merge 模式显式 --no-rebase（压制 pull.rebase 配置）', () => {
     expect(
       buildPullBranchArgs({
         kind: 'pull-branch',
@@ -634,7 +634,10 @@ describe('buildPullBranchArgs', () => {
         mode: 'merge',
         noFastForward: false
       })
-    ).toEqual([['pull', '--no-rebase', 'origin', 'main']])
+    ).toEqual([
+      ['fetch', 'origin', 'main'],
+      ['pull', '--no-rebase', 'origin', 'main']
+    ])
   })
   it('merge 且 noFastForward 时加 --no-ff', () => {
     expect(
@@ -645,7 +648,10 @@ describe('buildPullBranchArgs', () => {
         mode: 'merge',
         noFastForward: true
       })
-    ).toEqual([['pull', '--no-rebase', 'origin', 'main', '--no-ff']])
+    ).toEqual([
+      ['fetch', 'origin', 'main'],
+      ['pull', '--no-rebase', 'origin', 'main', '--no-ff']
+    ])
   })
   it('rebase 模式时 --rebase 紧跟 pull，noFastForward 被忽略（仅 merge 模式有意义）', () => {
     expect(
@@ -656,7 +662,10 @@ describe('buildPullBranchArgs', () => {
         mode: 'rebase',
         noFastForward: true
       })
-    ).toEqual([['pull', '--rebase', 'origin', 'main']])
+    ).toEqual([
+      ['fetch', 'origin', 'main'],
+      ['pull', '--rebase', 'origin', 'main']
+    ])
   })
   it('squash 模式带 --no-rebase --squash（自动提交链在运行时串联）', () => {
     expect(
@@ -667,7 +676,10 @@ describe('buildPullBranchArgs', () => {
         mode: 'squash',
         noFastForward: false
       })
-    ).toEqual([['pull', '--no-rebase', '--squash', 'origin', 'main']])
+    ).toEqual([
+      ['fetch', 'origin', 'main'],
+      ['pull', '--no-rebase', '--squash', 'origin', 'main']
+    ])
   })
 })
 

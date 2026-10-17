@@ -36,7 +36,7 @@ export function ServerOpenProgress({
   return (
     <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-deepest px-6 text-sm text-muted-foreground">
       <p className="max-w-full truncate">正在打开 “{name}”</p>
-      <div className="h-1 w-60 overflow-hidden rounded-full bg-[var(--bg-row-hover)]">
+      <div className="h-1 w-60 overflow-hidden rounded-full bg-[var(--progress-track)]">
         <div
           className="h-full rounded-full bg-primary transition-[width]"
           style={{ width: `${ratio * 100}%` }}

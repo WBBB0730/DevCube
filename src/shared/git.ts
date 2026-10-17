@@ -663,6 +663,8 @@ export type GitAction =
 export type GitActionResult =
   | { status: 'ok' }
   | { status: 'error'; errors: string[] }
+  /** 联网动作（Task）被用户取消：不是失败，不报错 */
+  | { status: 'canceled' }
   | { status: 'push-tag-not-on-remote'; remotes: string[] }
   /** worktree remove 撞上未提交改动（git 要求 --force）：由渲染端追问后带 force 重发 */
   | { status: 'worktree-remove-needs-force' }

@@ -5,12 +5,9 @@ export const IPC = {
   projectAdd: 'project:add',
   projectAddByPath: 'project:add-by-path',
   projectCreate: 'project:create',
-  /** 从 Git 仓库克隆并登记：start 启动（进度经 progress 事件流式推送）、cancel 取消、
-   * check-target 探测目标目录是否可用 */
+  /** 从 Git 仓库克隆并登记（克隆是一个 Task，进度、取消、隐藏走 task:*）；check-target 探测目标目录是否可用 */
   projectClone: 'project:clone',
-  projectCloneCancel: 'project:clone-cancel',
   projectCloneCheckTarget: 'project:clone-check-target',
-  projectCloneProgress: 'project:clone-progress',
   projectRemove: 'project:remove',
   projectTouch: 'project:touch',
   /** 左树条目（Project、Server 与 Data Source 混排）的自定义序与 Pin */
@@ -271,6 +268,13 @@ export const IPC = {
   terminalFocus: 'app:terminal-focus',
   /** preload 同步拉取首屏快照（须在 loadURL 前注册） */
   bootstrapSync: 'bootstrap:sync',
+  /** 任务登记处（Task，docs/prd/task-progress.md）：changed 推全量快照 */
+  tasksGet: 'task:list',
+  tasksChanged: 'task:changed',
+  taskCancel: 'task:cancel',
+  taskHide: 'task:hide',
+  taskReveal: 'task:reveal',
+  taskDismiss: 'task:dismiss',
   /** 应用内更新 */
   appUpdateGet: 'app-update:get',
   appUpdateCheck: 'app-update:check',

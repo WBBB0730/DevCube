@@ -19,7 +19,11 @@ import {
   type AppUpdatePhase,
   type UpdatePackaging
 } from '../shared/app-update'
-import type { AppUpdateState, DevUpdatePreview } from '../shared/app-update-state'
+import type {
+  AppUpdateDownload,
+  AppUpdateState,
+  DevUpdatePreview
+} from '../shared/app-update-state'
 import {
   parseChangelog,
   pickChangelogEntries,
@@ -28,6 +32,7 @@ import {
 } from '../shared/changelog'
 import { IPC } from '../shared/ipc'
 import { resolveReleaseEdition } from '../shared/release-edition'
+import { addSpeedSample, remainingSecondsOf, speedOf, type SpeedSample } from '../shared/task'
 import { broadcast } from './app-window'
 
 const STARTUP_JITTER_MAX_MS = 30_000
@@ -36,6 +41,8 @@ const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
 const CHECK_RETRY_MS = 15 * 60 * 1000
 /** 进入关于自动检查的冷却（手动「检查更新」可 force 绕过）。 */
 const CHECK_COOLDOWN_MS = 5 * 60 * 1000
+/** 下载中每隔这么久补一个样本：停住时速度也会回落（同任务登记处）。 */
+const DOWNLOAD_TICK_MS = 1000
 
 let packaging: UpdatePackaging = 'dev'
 let phase: AppUpdatePhase = 'upToDate'
@@ -52,6 +59,10 @@ let retryTimer: ReturnType<typeof setTimeout> | null = null
 let checkPromise: Promise<void> | null = null
 /** 最近一次真正开始检查的时间（含后台 jitter / 周期）。 */
 let lastCheckStartedAt = 0
+/** 下载进度与计速样本；离开下载中即清掉。 */
+let download: AppUpdateDownload | null = null
+let downloadSamples: SpeedSample[] = []
+let downloadTimer: ReturnType<typeof setInterval> | null = null
 
 function edition(): ReturnType<typeof resolveReleaseEdition> {
   return resolveReleaseEdition(app.getVersion())
@@ -73,6 +84,7 @@ function buildState(): AppUpdateState {
     buttonAction,
     checksEnabled,
     lastError,
+    download: phase === 'downloading' ? download : null,
     repoUrl: GITHUB_REPO_URL,
     releaseUrl: availableVersion
       ? githubReleaseUrl(availableVersion)
@@ -86,8 +98,32 @@ function emit(): void {
 }
 
 function setPhase(next: AppUpdatePhase): void {
+  if (next !== phase) {
+    resetDownload()
+    // 下载一开始即记 0 字节：第一份进度到来时即可算出速度
+    if (next === 'downloading') downloadSamples = [{ at: Date.now(), bytes: 0 }]
+  }
   phase = next
   emit()
+}
+
+/** 记一份下载进度：按已下字节计速，知道总量即有剩余时间。 */
+function sampleDownload(doneBytes: number, totalBytes: number): void {
+  downloadSamples = addSpeedSample(downloadSamples, { at: Date.now(), bytes: doneBytes })
+  const speed = speedOf(downloadSamples)
+  download = {
+    doneBytes,
+    totalBytes,
+    speed,
+    remainingSeconds: remainingSecondsOf(doneBytes, totalBytes, speed)
+  }
+}
+
+function resetDownload(): void {
+  download = null
+  downloadSamples = []
+  if (downloadTimer !== null) clearInterval(downloadTimer)
+  downloadTimer = null
 }
 
 /**
@@ -213,6 +249,17 @@ function wireUpdater(): void {
       lastError = err instanceof Error ? err.message : String(err)
       setPhase('error')
     })
+  })
+
+  autoUpdater.on('download-progress', (info) => {
+    if (phase !== 'downloading') return
+    sampleDownload(info.transferred, info.total)
+    downloadTimer ??= setInterval(() => {
+      if (download === null) return
+      sampleDownload(download.doneBytes, download.totalBytes)
+      emit()
+    }, DOWNLOAD_TICK_MS)
+    emit()
   })
 
   autoUpdater.on('update-not-available', () => {
