@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import type { AppUpdateState } from '@shared/app-update-state'
-import { appShortcutGroupsFor } from '@shared/app-shortcut-list'
+import { appShortcutGroupsFor, type AppShortcutGroupId } from '@shared/app-shortcut-list'
 import {
   OPEN_WITH_FEATURE_IDS,
   type OpenWithFeatureId,
@@ -13,7 +13,7 @@ import type { AppPrefs, WindowsShell, WindowsShellOption } from '@shared/types'
 import { DEFAULT_APP_PREFS } from '@shared/types'
 import { WSL_IDLE_MINUTES_OPTIONS } from '@shared/wsl'
 import { THEME_MODES, type ThemeMode } from '@shared/theme'
-import { Check, LoaderCircle, Star } from 'lucide-react'
+import { Check, ChevronRight, LoaderCircle, Star } from 'lucide-react'
 import { SettingsModal } from '@renderer/components/SettingsModal'
 import { UpdateDialog } from '@renderer/components/UpdateDialog'
 import { GitHubLoginDialog } from '@renderer/components/GitHubLoginDialog'
@@ -212,6 +212,8 @@ export function SettingsDialog({
   const setGitAutoFetch = useApp((s) => s.setGitAutoFetch)
   const rememberLayout = useApp((s) => s.rememberLayout)
   const setRememberLayout = useApp((s) => s.setRememberLayout)
+  const collapsedShortcutGroups = useApp((s) => s.collapsedShortcutGroups)
+  const setCollapsedShortcutGroups = useApp((s) => s.setCollapsedShortcutGroups)
   const platform = window.electron.process.platform
   const isWin = platform === 'win32'
   // 偏好全平台可见（主题）；其中「默认终端」仅 Windows。系统集成全平台可见（Linux 只有「文件打开方式」）。
@@ -373,6 +375,15 @@ export function SettingsDialog({
   const changeTheme = (theme: ThemeMode): void => {
     setPrefs({ ...(prefs ?? DEFAULT_APP_PREFS), theme })
     void setTheme(theme)
+  }
+
+  // 快捷键分组默认全部展开，收起的全局记住（跨重启）
+  const toggleShortcutGroup = (id: AppShortcutGroupId): void => {
+    void setCollapsedShortcutGroups(
+      collapsedShortcutGroups.includes(id)
+        ? collapsedShortcutGroups.filter((g) => g !== id)
+        : [...collapsedShortcutGroups, id]
+    )
   }
 
   const canAutoInstall =
@@ -658,31 +669,46 @@ export function SettingsDialog({
           )}
 
           {section === 'keymap' && (
-            // 按场景分组：组标题同 Git 仓库设置的区块小标题（12px、muted），组与组之间一条浅色分隔线（同菜单分隔线）
+            // 按场景分组、可折叠：标题行 = 组标题（同 Git 仓库设置的区块小标题，12px、muted）+ 一条浅色分隔线（同菜单分隔线）
+            // + 行尾折叠箭头（同设置里的 Info 图标，平时淡、hover 标题行才提亮）；单击标题行开合
             <div>
-              {appShortcutGroupsFor(platform).map((group, i) => (
-                <section
-                  key={group.title}
-                  className={cn(i > 0 && 'mt-3 border-t border-[color:var(--border-input)] pt-3')}
-                >
-                  <div className="mb-1 px-2 text-[12px] font-medium text-muted-foreground">
-                    {group.title}
-                  </div>
-                  <div className="space-y-1">
-                    {group.rows.map((row) => (
-                      <div
-                        key={row.label}
-                        className="flex h-8 items-center justify-between gap-4 rounded px-2 hover:bg-row-hover"
-                      >
-                        <span>{row.label}</span>
-                        <span className="font-mono text-[12px] font-semibold text-[color:var(--fg-muted)]">
-                          {row.keys}
-                        </span>
+              {appShortcutGroupsFor(platform).map((group, i) => {
+                const open = !collapsedShortcutGroups.includes(group.id)
+                return (
+                  <section key={group.id} className={cn(i > 0 && 'mt-3')}>
+                    <button
+                      type="button"
+                      aria-expanded={open}
+                      onClick={() => toggleShortcutGroup(group.id)}
+                      className="group flex h-6 w-full items-center gap-2 rounded px-2 text-[12px] font-medium text-muted-foreground hover:bg-row-hover"
+                    >
+                      {group.title}
+                      <span className="h-px flex-1 bg-[var(--border-input)]" />
+                      <ChevronRight
+                        className={cn(
+                          'size-3 shrink-0 text-[color:var(--fg-disabled)] transition-transform group-hover:text-[color:var(--fg-icon)]',
+                          open && 'rotate-90'
+                        )}
+                      />
+                    </button>
+                    {open && (
+                      <div className="mt-1 space-y-1">
+                        {group.rows.map((row) => (
+                          <div
+                            key={row.label}
+                            className="flex h-8 items-center justify-between gap-4 rounded px-2 hover:bg-row-hover"
+                          >
+                            <span>{row.label}</span>
+                            <span className="font-mono text-[12px] font-semibold text-[color:var(--fg-muted)]">
+                              {row.keys}
+                            </span>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
-                </section>
-              ))}
+                    )}
+                  </section>
+                )
+              })}
             </div>
           )}
         </main>

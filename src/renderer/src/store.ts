@@ -26,6 +26,7 @@ import { serverConnectionChanged, type ServerInput, type ServerNode } from '@sha
 import type { SshPromptRequest, SshPromptResponse } from '@shared/ssh-connect'
 import type { TransferConflictRequest, TransferConflictResponse } from '@shared/server-files'
 import type { ThemeMode } from '@shared/theme'
+import type { AppShortcutGroupId } from '@shared/app-shortcut-list'
 import {
   configKey,
   filesTabKey,
@@ -83,14 +84,18 @@ export function syncThemeWithSystem(): () => void {
   return () => mq.removeEventListener('change', sync)
 }
 
-/** JS 侧读的应用偏好（自动获取开关、数据源表格每页行数、记住窗口和面板布局）。 */
-type JsAppPrefs = Pick<AppPrefs, 'gitAutoFetch' | 'dataPageSize' | 'rememberLayout'>
+/** JS 侧读的应用偏好（自动获取开关、数据源表格每页行数、记住窗口和面板布局、快捷键收起的分组）。 */
+type JsAppPrefs = Pick<
+  AppPrefs,
+  'gitAutoFetch' | 'dataPageSize' | 'rememberLayout' | 'collapsedShortcutGroups'
+>
 
 function jsAppPrefsOf(prefs: AppPrefs): JsAppPrefs {
   return {
     gitAutoFetch: prefs.gitAutoFetch,
     dataPageSize: prefs.dataPageSize,
-    rememberLayout: prefs.rememberLayout
+    rememberLayout: prefs.rememberLayout,
+    collapsedShortcutGroups: prefs.collapsedShortcutGroups
   }
 }
 
@@ -372,6 +377,8 @@ interface AppState {
   dataPageSize: number
   /** 记住窗口和面板布局（落盘）：开着时布局跨重启保留，由主进程负责记（ADR-0053） */
   rememberLayout: boolean
+  /** 设置 → 快捷键里收起的分组（落盘，全局） */
+  collapsedShortcutGroups: AppShortcutGroupId[]
   /** 左树名称搜索（纯内存） */
   projectFilter: string
   /** +1 驱动左树聚焦筛选框（⌥⌘P / Ctrl+Alt+P） */
@@ -438,6 +445,8 @@ interface AppState {
   setDataPageSize: (size: number) => Promise<void>
   /** 开关「记住窗口和面板布局」：本地即时生效并落盘（关掉即清掉已存的布局） */
   setRememberLayout: (enabled: boolean) => Promise<void>
+  /** 改快捷键收起的分组：本地即时生效并落盘 */
+  setCollapsedShortcutGroups: (groups: AppShortcutGroupId[]) => Promise<void>
   setProjectFilter: (query: string) => void
   /** 聚焦左树筛选框 */
   focusProjectFilter: () => void
@@ -955,6 +964,10 @@ export const useApp = create<AppState>((set, get) => ({
   setRememberLayout: async (enabled) => {
     set({ rememberLayout: enabled })
     await window.api.setAppPrefs({ rememberLayout: enabled })
+  },
+  setCollapsedShortcutGroups: async (groups) => {
+    set({ collapsedShortcutGroups: groups })
+    await window.api.setAppPrefs({ collapsedShortcutGroups: groups })
   },
   setProjectFilter: (query) => set({ projectFilter: query }),
   focusProjectFilter: () =>

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { appShortcutGroupsFor, formatSelectTabRangeShortcut } from './app-shortcut-list'
+import {
+  APP_SHORTCUT_GROUPS,
+  appShortcutGroupsFor,
+  formatSelectTabRangeShortcut,
+  normalizeCollapsedShortcutGroups
+} from './app-shortcut-list'
 
 describe('formatSelectTabRangeShortcut', () => {
   it('macOS：⌘ 1…9', () => {
@@ -47,5 +52,25 @@ describe('appShortcutGroupsFor', () => {
     expect(row('win32', '文件树', '删除')).toBe('Delete')
     expect(row('darwin', '数据源', '唤起补全')).toBe('⌃ Space / ⌥ ` / ⌥ I')
     expect(row('linux', '数据源', '唤起补全')).toBe('Ctrl + Space')
+  })
+})
+
+describe('normalizeCollapsedShortcutGroups', () => {
+  it('分组 id 不重复', () => {
+    const ids = APP_SHORTCUT_GROUPS.map((g) => g.id)
+    expect(new Set(ids).size).toBe(ids.length)
+  })
+
+  it('只留现有分组的 id，去重', () => {
+    expect(normalizeCollapsedShortcutGroups(['git', 'removed', 42, 'git', 'terminal'])).toEqual([
+      'git',
+      'terminal'
+    ])
+  })
+
+  it('不是数组时为全部展开', () => {
+    for (const dirty of [undefined, null, 'git', {}]) {
+      expect(normalizeCollapsedShortcutGroups(dirty)).toEqual([])
+    }
   })
 })

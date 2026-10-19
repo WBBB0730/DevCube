@@ -87,6 +87,21 @@ describe('记住窗口和面板布局', () => {
   })
 })
 
+describe('快捷键收起的分组', () => {
+  it('缺字段的老档案全部展开', async () => {
+    await withStoredPrefs({ theme: 'light' })
+    expect(getAppPrefs().collapsedShortcutGroups).toEqual([])
+  })
+
+  it('写入时丢掉不认得的分组', async () => {
+    await withStoredPrefs({})
+
+    setAppPrefs({ collapsedShortcutGroups: ['git', 'removed' as never] })
+
+    expect(getAppPrefs().collapsedShortcutGroups).toEqual(['git'])
+  })
+})
+
 describe('按键删除', () => {
   it('删掉有的几条，其余不动', async () => {
     await initStore()

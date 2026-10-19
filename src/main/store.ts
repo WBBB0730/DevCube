@@ -12,6 +12,7 @@ import type {
 import { DEFAULT_APP_PREFS, DEFAULT_PROJECT_SORT_PREFS, WINDOWS_SHELLS } from '../shared/types'
 import { THEME_MODES, type ThemeMode } from '../shared/theme'
 import { normalizeCompressOptions } from '../shared/compress'
+import { normalizeCollapsedShortcutGroups } from '../shared/app-shortcut-list'
 import { isWslIdleMinutes, type WslIdleMinutes } from '../shared/wsl'
 import type { Server } from '../shared/server'
 import type { DataSource } from '../shared/data-source'
@@ -409,7 +410,8 @@ export function getAppPrefs(): AppPrefs {
     theme: normalizeTheme(stored?.theme ?? DEFAULT_APP_PREFS.theme),
     dataPageSize: normalizePageSize(stored?.dataPageSize),
     compressOptions: normalizeCompressOptions(stored?.compressOptions),
-    wslIdleMinutes: normalizeWslIdleMinutes(stored?.wslIdleMinutes)
+    wslIdleMinutes: normalizeWslIdleMinutes(stored?.wslIdleMinutes),
+    collapsedShortcutGroups: normalizeCollapsedShortcutGroups(stored?.collapsedShortcutGroups)
   }
 }
 
@@ -425,6 +427,9 @@ export function setAppPrefs(patch: Partial<AppPrefs>): AppPrefs {
     // null（从不）是合法取值，不能用 ?? 回落
     wslIdleMinutes: normalizeWslIdleMinutes(
       'wslIdleMinutes' in patch ? patch.wslIdleMinutes : current.wslIdleMinutes
+    ),
+    collapsedShortcutGroups: normalizeCollapsedShortcutGroups(
+      patch.collapsedShortcutGroups ?? current.collapsedShortcutGroups
     )
   }
   store.set('appPrefs', merged)

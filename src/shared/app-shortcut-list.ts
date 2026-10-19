@@ -18,7 +18,15 @@ export type AppShortcutListRow = {
   platforms?: readonly string[]
 }
 
-export type AppShortcutListGroup = { title: string; rows: AppShortcutListRow[] }
+/** 分组的稳定标识：记住哪些分组收起了靠它，不靠会改的标题。 */
+export type AppShortcutGroupId =
+  'general' | 'tabs' | 'files' | 'filesTree' | 'git' | 'terminal' | 'dataSource'
+
+export type AppShortcutListGroup = {
+  id: AppShortcutGroupId
+  title: string
+  rows: AppShortcutListRow[]
+}
 
 /** 一个或几个组合：成对的动作（上一个 / 下一个）合成一行，以「 / 」隔开。 */
 function chords(...list: ShortcutChord[]): (platform: string) => string {
@@ -49,6 +57,7 @@ const COMPLETION: ShortcutChord = { ctrl: true, key: 'Space' }
 
 export const APP_SHORTCUT_GROUPS: AppShortcutListGroup[] = [
   {
+    id: 'general',
     title: '通用',
     rows: [
       { label: '查找', keys: chords(SHORTCUT.find) },
@@ -57,6 +66,7 @@ export const APP_SHORTCUT_GROUPS: AppShortcutListGroup[] = [
     ]
   },
   {
+    id: 'tabs',
     title: '项目与 Tab',
     rows: [
       { label: '聚焦项目、服务器和数据源筛选', keys: chords(SHORTCUT.projectFilter) },
@@ -75,6 +85,7 @@ export const APP_SHORTCUT_GROUPS: AppShortcutListGroup[] = [
     ]
   },
   {
+    id: 'files',
     title: '文件',
     rows: [
       { label: '聚焦文件筛选或前往路径', keys: chords(SHORTCUT.filesFilter) },
@@ -90,6 +101,7 @@ export const APP_SHORTCUT_GROUPS: AppShortcutListGroup[] = [
     ]
   },
   {
+    id: 'filesTree',
     title: '文件树',
     rows: [
       { label: '上一行 / 下一行', keys: chords(UP, DOWN) },
@@ -104,6 +116,7 @@ export const APP_SHORTCUT_GROUPS: AppShortcutListGroup[] = [
     ]
   },
   {
+    id: 'git',
     title: 'Git',
     rows: [
       { label: '刷新', keys: chords(SHORTCUT.refresh) },
@@ -122,6 +135,7 @@ export const APP_SHORTCUT_GROUPS: AppShortcutListGroup[] = [
     ]
   },
   {
+    id: 'terminal',
     title: '终端',
     rows: [
       {
@@ -141,6 +155,7 @@ export const APP_SHORTCUT_GROUPS: AppShortcutListGroup[] = [
     ]
   },
   {
+    id: 'dataSource',
     title: '数据源',
     rows: [
       { label: '执行光标所在的语句或选中的部分', keys: chords(SHORTCUT.runStatement) },
@@ -161,11 +176,19 @@ export const APP_SHORTCUT_GROUPS: AppShortcutListGroup[] = [
 /** 当前平台要显示的分组与条目（键位已格式化）；某组没有条目时整组不出。 */
 export function appShortcutGroupsFor(
   platform: string
-): { title: string; rows: { label: string; keys: string }[] }[] {
+): { id: AppShortcutGroupId; title: string; rows: { label: string; keys: string }[] }[] {
   return APP_SHORTCUT_GROUPS.map((group) => ({
+    id: group.id,
     title: group.title,
     rows: group.rows
       .filter((row) => row.platforms === undefined || row.platforms.includes(platform))
       .map((row) => ({ label: row.label, keys: row.keys(platform) }))
   })).filter((group) => group.rows.length > 0)
+}
+
+/** 落盘的收起分组归一：只留现有分组的 id，去重。 */
+export function normalizeCollapsedShortcutGroups(stored: unknown): AppShortcutGroupId[] {
+  if (!Array.isArray(stored)) return []
+  const known = new Set<unknown>(APP_SHORTCUT_GROUPS.map((group) => group.id))
+  return [...new Set(stored)].filter((id): id is AppShortcutGroupId => known.has(id))
 }

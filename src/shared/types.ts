@@ -3,6 +3,7 @@
 // Git 图谱（Git Tab）的域模型与 API 在 ./git.ts，经 GitAPI 并入 RunAPI。
 
 import type { AppShortcut } from './app-shortcut'
+import type { AppShortcutGroupId } from './app-shortcut-list'
 import type { AppUpdateState, DevUpdatePreview } from './app-update-state'
 import type { ConnectionTestResult } from './connection'
 import type { ContentSearchEvent, ContentSearchOptions } from './content-search'
@@ -186,6 +187,8 @@ export interface AppPrefs {
   rememberLayout: boolean
   /** 闲置后断开 WSL：一个发行版的 WSL 项目都不在用满这么多分钟即断开，null 为从不（仅 win32 生效，docs/prd/wsl-project.md） */
   wslIdleMinutes: WslIdleMinutes
+  /** 设置 → 快捷键里收起的分组（全局，记住上次的选择；docs/prd/settings-keymap.md） */
+  collapsedShortcutGroups: AppShortcutGroupId[]
 }
 
 export const WINDOWS_SHELLS: readonly WindowsShell[] = ['git-bash', 'powershell', 'cmd']
@@ -193,7 +196,7 @@ export const WINDOWS_SHELLS: readonly WindowsShell[] = ['git-bash', 'powershell'
 /**
  * shell 默认 Git Bash，探测不到时运行时回退 PowerShell（见 ADR-0022）；主题默认深色；自动获取默认开；
  * 数据源表格每页 500 行；压缩窗口的勾选见 DEFAULT_COMPRESS_OPTIONS；记住窗口和面板布局默认开；
- * 闲置 15 分钟后断开 WSL。
+ * 闲置 15 分钟后断开 WSL；快捷键分组全部展开。
  */
 export const DEFAULT_APP_PREFS: AppPrefs = {
   windowsShell: 'git-bash',
@@ -203,7 +206,8 @@ export const DEFAULT_APP_PREFS: AppPrefs = {
   dataPageSize: DEFAULT_PAGE_SIZE,
   compressOptions: DEFAULT_COMPRESS_OPTIONS,
   rememberLayout: true,
-  wslIdleMinutes: DEFAULT_WSL_IDLE_MINUTES
+  wslIdleMinutes: DEFAULT_WSL_IDLE_MINUTES,
+  collapsedShortcutGroups: []
 }
 
 /** Windows shell 选项及本机是否可用（供设置页置灰不可选项）。 */
