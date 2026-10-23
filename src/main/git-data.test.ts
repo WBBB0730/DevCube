@@ -131,6 +131,8 @@ describe('buildDiffArgs', () => {
   it('from 与 to 相同（根提交 / stash 第三父）走 diff-tree --root', () => {
     expect(buildDiffArgs('--name-status', 'abc', 'abc')).toEqual({
       args: [
+        '-c',
+        'diff.lfs.binary=true',
         'diff-tree',
         '--name-status',
         '-r',
@@ -146,7 +148,16 @@ describe('buildDiffArgs', () => {
 
   it('to 为空串表示与工作区比较，只传一个 revision', () => {
     expect(buildDiffArgs('--numstat', 'HEAD', '')).toEqual({
-      args: ['diff', '--numstat', '--find-renames', '--diff-filter=AMDR', '-z', 'HEAD'],
+      args: [
+        '-c',
+        'diff.lfs.binary=true',
+        'diff',
+        '--numstat',
+        '--find-renames',
+        '--diff-filter=AMDR',
+        '-z',
+        'HEAD'
+      ],
       diffTree: false
     })
   })
@@ -162,6 +173,8 @@ describe('buildDiffArgs', () => {
 describe('buildUncommittedDiffArgs', () => {
   it('staged 带 --cached（HEAD↔index），不带任何 revision', () => {
     expect(buildUncommittedDiffArgs('--name-status', 'staged')).toEqual([
+      '-c',
+      'diff.lfs.binary=true',
       'diff',
       '--name-status',
       '--cached',
@@ -170,6 +183,8 @@ describe('buildUncommittedDiffArgs', () => {
       '-z'
     ])
     expect(buildUncommittedDiffArgs('--numstat', 'staged')).toEqual([
+      '-c',
+      'diff.lfs.binary=true',
       'diff',
       '--numstat',
       '--cached',
@@ -181,6 +196,8 @@ describe('buildUncommittedDiffArgs', () => {
 
   it('unstaged 不带 commit 参数（index↔工作区）', () => {
     expect(buildUncommittedDiffArgs('--name-status', 'unstaged')).toEqual([
+      '-c',
+      'diff.lfs.binary=true',
       'diff',
       '--name-status',
       '--find-renames',
@@ -188,6 +205,8 @@ describe('buildUncommittedDiffArgs', () => {
       '-z'
     ])
     expect(buildUncommittedDiffArgs('--numstat', 'unstaged')).toEqual([
+      '-c',
+      'diff.lfs.binary=true',
       'diff',
       '--numstat',
       '--find-renames',
@@ -311,6 +330,22 @@ describe('buildFileDiffArgs', () => {
     expect(args).toContain('--no-index')
     expect(args).toContain('/dev/null')
     expect(args).toContain('/repo/x.txt')
+  })
+
+  it('各分支都把 LFS 文件按二进制比较（diff.lfs.binary=true）', () => {
+    const requests: GitDiffRequest[] = [
+      { ...base, fromHash: GIT_INDEX, toHash: '*', type: 'U' },
+      { ...base, toHash: 'aaa' },
+      { ...base, fromHash: 'HEAD', toHash: GIT_INDEX },
+      { ...base, fromHash: GIT_INDEX, toHash: '*' },
+      { ...base, toHash: '*' },
+      base
+    ]
+    for (const request of requests) {
+      const { args } = buildFileDiffArgs(request, '/repo')
+      const at = args.indexOf('diff.lfs.binary=true')
+      expect(args[at - 1]).toBe('-c')
+    }
   })
 })
 

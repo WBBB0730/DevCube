@@ -5,6 +5,7 @@
 
 import { readFile, realpath, stat } from 'fs/promises'
 import { isAbsolute, join, normalize } from 'path'
+import { fileTypeFromBuffer } from 'file-type'
 import {
   execGit,
   findGit,
@@ -12,6 +13,7 @@ import {
   gitOutputToLocal,
   gitPathArg,
   isVersionAtLeast,
+  readCheckedOutBlob,
   resolveRepoRoot
 } from './git-exec'
 import {
@@ -130,6 +132,13 @@ export function buildShowRefArgs(showRemoteBranches: boolean): string[] {
 }
 
 /**
+ * 差异类命令（列表的 name-status / numstat 与单文件 diff）共用的 git 配置：LFS 文件按二进制比较。
+ * git 默认把 LFS 指针当文本，差异与行数都只是指针那几行；`git lfs track` 给文件设的是 diff=lfs，
+ * 按 gitattributes 文档的 diff.<driver>.binary 标为二进制，与普通二进制文件同一口径。
+ */
+const DIFF_CONFIG = ['-c', 'diff.lfs.binary=true']
+
+/**
  * name-status / numstat 共用的 diff 参数构造（data-read.md §7.2）。
  * from === to 时走 diff-tree --root（根提交 / stash 第三父）；to 为空串表示与工作区比较。
  */
@@ -141,6 +150,7 @@ export function buildDiffArgs(
   if (fromHash === toHash) {
     return {
       args: [
+        ...DIFF_CONFIG,
         'diff-tree',
         mode,
         '-r',
@@ -153,7 +163,15 @@ export function buildDiffArgs(
       diffTree: true
     }
   }
-  const args = ['diff', mode, '--find-renames', '--diff-filter=AMDR', '-z', fromHash]
+  const args = [
+    ...DIFF_CONFIG,
+    'diff',
+    mode,
+    '--find-renames',
+    '--diff-filter=AMDR',
+    '-z',
+    fromHash
+  ]
   if (toHash !== '') args.push(toHash)
   return { args, diffTree: false }
 }
@@ -167,8 +185,8 @@ export function buildUncommittedDiffArgs(
   scope: 'staged' | 'unstaged'
 ): string[] {
   return scope === 'staged'
-    ? ['diff', mode, '--cached', '--find-renames', '--diff-filter=AMDR', '-z']
-    : ['diff', mode, '--find-renames', '--diff-filter=AMDR', '-z']
+    ? [...DIFF_CONFIG, 'diff', mode, '--cached', '--find-renames', '--diff-filter=AMDR', '-z']
+    : [...DIFF_CONFIG, 'diff', mode, '--find-renames', '--diff-filter=AMDR', '-z']
 }
 
 /** 单文件 unified diff 的命令选择（data-read.md §8.2 命令表）。noIndex 时退出码 1 视为成功。 */
@@ -180,12 +198,13 @@ export function buildFileDiffArgs(
     request.oldFilePath === request.newFilePath
       ? [request.newFilePath]
       : [request.oldFilePath, request.newFilePath]
+  const base = ['-c', 'core.quotepath=false', ...DIFF_CONFIG]
   if (request.type === 'U' && request.toHash === UNCOMMITTED) {
-    // 工作区的未跟踪文件没有历史版本：--no-index 与 /dev/null 比较（需要绝对路径）
+    // 工作区的未跟踪文件没有历史版本：--no-index 与 /dev/null 比较（需要绝对路径）。
+    // 此模式同样按 .gitattributes 先转成 LFS 指针再比，故同带 DIFF_CONFIG
     return {
       args: [
-        '-c',
-        'core.quotepath=false',
+        ...base,
         'diff',
         '--no-color',
         '--no-ext-diff',
@@ -198,7 +217,6 @@ export function buildFileDiffArgs(
       noIndex: true
     }
   }
-  const base = ['-c', 'core.quotepath=false']
   // 以下两个 index 端点分支与 assembleUncommitted 的两段口径一致：
   // 已暂存 = HEAD→index（--cached 默认与 HEAD 比，fromHash 不进 argv）；未暂存 = index→工作区。
   // 未跟踪文件（U）的端点也是 '::index'→'*'，靠前面的 U 分支优先命中 no-index，不会走到这里。
@@ -912,10 +930,20 @@ export async function getFileDiff(
 const IMAGE_PREVIEW_MAX_BYTES = 20 * 1024 * 1024
 
 /**
- * 读一侧图片内容：UNCOMMITTED 读工作区文件、GIT_INDEX 读暂存区快照、其余 `git show <ref>:<path>`。
- * 对象不存在（新增无旧侧 / 删除无新侧）、超限或读取失败返回 null（侧级容错，不产错误）。
+ * 读一侧图片内容，取检出后的样子：UNCOMMITTED 读工作区文件；GIT_INDEX 取暂存区快照、其余取
+ * `<ref>:<path>`，都经 readCheckedOutBlob（LFS 图片取真实内容）。对象不存在（新增无旧侧 /
+ * 删除无新侧）、超限、读取失败（含 LFS 下载失败）或内容不是图片（如未装 git-lfs 时读到的
+ * LFS 指针）返回 null（侧级容错，不产错误）。
  */
 async function readImageSide(root: string, ref: string, path: string): Promise<Buffer | null> {
+  const content = await readImageBytes(root, ref, path)
+  if (content === null) return null
+  const type = await fileTypeFromBuffer(content)
+  return type?.mime.startsWith('image/') ? content : null
+}
+
+/** 一侧的字节，不判内容（见 readImageSide）。 */
+async function readImageBytes(root: string, ref: string, path: string): Promise<Buffer | null> {
   if (ref === UNCOMMITTED) {
     try {
       const absPath = join(root, path)
@@ -927,7 +955,7 @@ async function readImageSide(root: string, ref: string, path: string): Promise<B
     }
   }
   const spec = ref === GIT_INDEX ? `:0:${path}` : `${ref}:${path}`
-  const result = await execGit(root, ['show', spec])
+  const result = await readCheckedOutBlob(root, spec)
   if (result.code !== 0 || result.stdout.length > IMAGE_PREVIEW_MAX_BYTES) return null
   return result.stdout
 }

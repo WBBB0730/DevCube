@@ -390,7 +390,7 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
 }
 
 /**
- * 二进制文件正文：图片给新旧预览（object-contain + 边距，M 双栏对照 / A·U·D 单栏），
+ * 二进制文件（含 LFS 文件）正文：图片给新旧预览（object-contain + 边距，M 双栏对照 / A·U·D 单栏），
  * 其余二进制保持一句说明。图片数据经 gitFileImage 按需取（data URL），换文件时丢弃过期响应。
  */
 function BinaryBody({
@@ -425,10 +425,12 @@ function BinaryBody({
     }
   }, [projectPath, file, fromHash, toHash, isImage])
 
-  if (!isImage || (images !== null && images.oldDataUrl === null && images.newDataUrl === null)) {
-    return <CenteredHint>二进制文件不支持对比</CenteredHint>
-  }
+  if (!isImage) return <CenteredHint>二进制文件不支持对比</CenteredHint>
   if (images === null) return <LoadingHint delay={0} />
+  // 两侧都读不到（超限、LFS 图片下载失败等）；用词同 Files 的图片预览失败
+  if (images.oldDataUrl === null && images.newDataUrl === null) {
+    return <CenteredHint error>无法预览此图片</CenteredHint>
+  }
   const sides = [
     { label: '旧', url: images.oldDataUrl },
     { label: '新', url: images.newDataUrl }

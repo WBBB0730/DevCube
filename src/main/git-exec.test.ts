@@ -1,5 +1,5 @@
 // git-exec 测试：链接工作树 → 主工作树目录的推导；WSL 仓库的分流与路径互转（发行版里的执行替换成假的）；
-// 本机流式执行的取消（真实 git，登录 shell 环境替换成空的，git 从当前 PATH 里找）。
+// 本机流式执行的取消与按检出样子读文件（真实 git，登录 shell 环境替换成空的，git 从当前 PATH 里找）。
 import { spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -11,12 +11,19 @@ import {
   findGit,
   gitOutputToLocal,
   gitPathArg,
-  mainWorktreePathOf
+  mainWorktreePathOf,
+  readCheckedOutBlob
 } from './git-exec'
 import { wslExec } from './wsl'
 
 vi.mock('./wsl', () => ({ wslExec: vi.fn() }))
 vi.mock('./shell-env', () => ({ resolveShellEnvironment: async () => ({}) }))
+
+/** 搭测试仓库用：在 cwd 里跑一条真实 git，失败即断言失败。 */
+function git(cwd: string, args: string[]): void {
+  const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd })
+  expect(r.status).toBe(0)
+}
 
 describe('mainWorktreePathOf', () => {
   it('链接工作树：公共 gitdir 名为 .git 时取其父目录', () => {
@@ -127,10 +134,6 @@ describe('本机流式执行的取消', () => {
   it('结束整棵进程树：推送前的钩子一并结束，不在背后跑完', async () => {
     const root = mkdtempSync(join(tmpdir(), 'devcube-git-cancel-'))
     try {
-      const git = (cwd: string, args: string[]): void => {
-        const r = spawnSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], { cwd })
-        expect(r.status).toBe(0)
-      }
       const remote = join(root, 'remote.git')
       const work = join(root, 'work')
       const hooks = join(root, 'hooks')
@@ -164,4 +167,22 @@ describe('本机流式执行的取消', () => {
       rmSync(root, { recursive: true, force: true })
     }
   }, 15000)
+})
+
+describe('readCheckedOutBlob', () => {
+  it('取检出后的样子：按属性转换换行（仓库里存的是 LF）', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'devcube-git-blob-'))
+    try {
+      git(root, ['init', '-q'])
+      writeFileSync(join(root, '.gitattributes'), 'a.txt text eol=crlf\n')
+      writeFileSync(join(root, 'a.txt'), '一\n二\n')
+      git(root, ['add', '-A'])
+      git(root, ['commit', '-q', '-m', 'init'])
+      const result = await readCheckedOutBlob(root, 'HEAD:a.txt')
+      expect(result.code).toBe(0)
+      expect(result.stdout.toString('utf8')).toBe('一\r\n二\r\n')
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  })
 })

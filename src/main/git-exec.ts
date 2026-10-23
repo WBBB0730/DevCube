@@ -192,6 +192,15 @@ export async function execGit(cwd: string, args: string[], input?: Buffer): Prom
   return result
 }
 
+/**
+ * 读某版本的文件内容，取检出后的样子（`git cat-file --filters`，同 JetBrains）：走检出同款过滤器——
+ * LFS 文件由 git-lfs 换成真实内容（本地没有时按需下载）、按属性转换换行等，与磁盘上的文件同口径。
+ * spec 为 `<rev>:<path>`，暂存区为 `:0:<path>`。
+ */
+export function readCheckedOutBlob(cwd: string, spec: string): Promise<GitExecResult> {
+  return execGit(cwd, ['cat-file', '--filters', spec])
+}
+
 /** 一次流式 git 执行：进程已起，done 在结束时收口（永不 reject），cancel 可中途终止。 */
 export interface GitStreamRun {
   /**

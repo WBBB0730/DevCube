@@ -32,7 +32,7 @@
 
 ## Implementation Decisions
 
-- 对比基线取 **HEAD**（`git show HEAD:<path>`），非 index——已暂存未提交的行仍显示条纹，对齐 WebStorm。
+- 对比基线取 **HEAD**，非 index——已暂存未提交的行仍显示条纹，对齐 WebStorm。按检出后的样子读取（`git cat-file --filters HEAD:<path>`，同 JetBrains），与磁盘上的文件同口径：LFS 文件取真实内容而非指针（本地没有时由 git-lfs 下载）。
 - 基线读取走主进程的 Files IPC（路径越界校验与其他 Files 通道同款）；非仓库、HEAD 无此路径（含未跟踪 / 重命名未提交）、二进制（魔数嗅探）、超过文本上限时返回空，渲染端据此不挂条纹。
 - 行级 diff 在渲染端用 jsdiff（`diff` 包）的 `diffLines` 计算——与 VS Code / JetBrains 行状态跟踪同款的**按行比较**，行语义与 git 一致（含 EOF 换行）。不用 `@codemirror/merge` 的字符级 Chunk API：行模型错配，会把「文末追加」误标为修改。每次输入全量重 diff（1 万行约 2ms）；超过 3 万行不显示条纹。基线按编辑器文档口径归一换行（CRLF → LF）。
 - 标记经 CodeMirror 官方行号标记接口附着在行号元素上（不新增 gutter 列）：条纹画在行号列右缘，删除短条骑在下一行顶部边界。

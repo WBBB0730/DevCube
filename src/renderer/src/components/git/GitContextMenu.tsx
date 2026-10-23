@@ -37,7 +37,7 @@ import { useFiles } from '@renderer/files-store'
 import { cn } from '@renderer/lib/utils'
 import { toggleBranch } from './GitBranchDropdown'
 import { opBlockReason } from './GitOpStatusBar'
-import { pathspecOf } from './git-details'
+import { diffPossible, pathspecOf } from './git-details'
 import { abbrevHash } from './git-format'
 import type { GitDialogRequest, GitMenuTarget } from './git-view-types'
 
@@ -547,11 +547,8 @@ function fileMenu(
 ): (GitMenuItem | 'divider')[] {
   const { actions } = ctx
   const { file, fromHash, toHash, isUncommitted } = target
-  // 可打开 diff：未跟踪恒可（主进程合成新增 hunk），其余需有行数（二进制为 null）；
-  // 目录型未跟踪条目（嵌套仓库 / 折叠目录）无单文件内容可比，排除（与 diffPossible 口径一致）
-  const diffable =
-    file.isDir !== true &&
-    (file.type === 'U' || (file.additions !== null && file.deletions !== null))
+  // 可打开 diff：与点击文件行同一口径（二进制同样可看，图片给预览、其余在面板内说明）
+  const diffable = diffPossible(file)
   // 非比较模式推断：详情面板的端点满足 from===to（根提交/stash 第三父）或 from 是 to 的父提交；
   // 目标契约不带比较标记，此为等价近似——「比较直接父子提交」会被视作详情模式，
   // 此时「重置到此版本」语义仍然正确，无害。

@@ -309,7 +309,7 @@ export interface DiffFileData {
   oldFilePath: string
   newFilePath: string
   type: GitFileStatus
-  /** 二进制文件：git 输出 "Binary files … differ"、无 diff 正文，raw 恒为 '' */
+  /** 二进制文件（含 LFS 文件）：git 输出 "Binary files … differ"、无 diff 正文，raw 恒为 '' */
   binary: boolean
   /** git 原始 unified diff 文本（含 header 与全部 hunk），透传给渲染层的 diff 组件 */
   raw: string

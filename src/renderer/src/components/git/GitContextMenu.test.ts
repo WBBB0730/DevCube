@@ -332,6 +332,26 @@ describe('buildMenuItems', () => {
     expect(rec.copied).toEqual(['/repo/a.ts'])
   })
 
+  it('文件行菜单：二进制文件（无行数）同样可查看差异与对比工作区', () => {
+    const rec = linearCtx()
+    const target: GitMenuTarget = {
+      kind: 'file',
+      file: {
+        oldFilePath: 'a.png',
+        newFilePath: 'a.png',
+        type: 'M',
+        additions: null,
+        deletions: null
+      },
+      fromHash: 'c1',
+      toHash: 'c2',
+      isUncommitted: false
+    }
+    const got = titles(buildMenuItems(target, rec.ctx))
+    expect(got).toContain('查看差异')
+    expect(got).toContain('与工作区文件对比')
+  })
+
   it('提交面板已暂存段菜单：首项「取消暂存」静默即时，R 文件传旧/新双路径', () => {
     const rec = linearCtx()
     const target: GitMenuTarget = {

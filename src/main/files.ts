@@ -42,7 +42,7 @@ import {
 } from '../shared/files-image-tiles'
 import { ensureImagePreview, ensureImagePyramid } from './files-image-pyramid'
 import { getFilesIndex } from './files-index'
-import { execGit, resolveRepoRoot } from './git-exec'
+import { readCheckedOutBlob, resolveRepoRoot } from './git-exec'
 import { isGrantedFilesRoot, isPathUnderGrantedRoot } from './files-roots'
 import { toSysPath } from './sys-path'
 import { wslDistroOf } from '../shared/wsl-path'
@@ -279,8 +279,9 @@ export function imagePyramidEntry(
 }
 
 /**
- * 读取文件在 HEAD 的基线文本（编辑器 gutter diff 条纹的对比端）。
- * 非仓库 / HEAD 无此路径（未跟踪、未出生、重命名未提交）/ 二进制 / 超限 → null（不显示条纹）。
+ * 读取文件在 HEAD 的基线文本（编辑器 gutter diff 条纹的对比端），经 readCheckedOutBlob 取检出后的
+ * 样子，与编辑器里磁盘上的文件同口径（如 LFS 文件取真实内容而非指针）。
+ * 非仓库 / HEAD 无此路径（未跟踪、未出生、重命名未提交）/ 读取失败 / 二进制 / 超限 → null（不显示条纹）。
  */
 export async function readHeadText(projectPath: string, filePath: string): Promise<string | null> {
   const logical = within(projectPath, filePath)
@@ -288,7 +289,7 @@ export async function readHeadText(projectPath: string, filePath: string): Promi
   if (!repoRootSys) return null
   const rel = toRepoRel(normalizePath(repoRootSys), logical)
   if (rel === '.') return null
-  const result = await execGit(repoRootSys, ['show', `HEAD:${rel}`])
+  const result = await readCheckedOutBlob(repoRootSys, `HEAD:${rel}`)
   if (result.code !== 0) return null
   const buf = result.stdout
   if (buf.length > FILES_TEXT_MAX_BYTES || !sniffTextBuffer(buf)) return null
