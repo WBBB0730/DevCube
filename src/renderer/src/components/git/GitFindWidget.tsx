@@ -9,6 +9,7 @@ import { SHORTCUT } from '@shared/shortcut-label'
 import { gitState, useGit } from '@renderer/git-store'
 import { TOOLBAR_BTN_SM } from '@renderer/components/ui/toolbar'
 import { shortcutTitle } from '@renderer/lib/shortcut-label'
+import { escapeRegExp } from '@renderer/lib/text-find'
 import { cn } from '@renderer/lib/utils'
 
 export interface FindOptions {
@@ -16,16 +17,11 @@ export interface FindOptions {
   regex: boolean
 }
 
-/** 非正则模式的特殊字符转义（照参考实现 findWidget.ts 的字符集）。 */
-function escapeFindQuery(query: string): string {
-  return query.replace(/[\\[\](){}|.*+?^$]/g, '\\$&')
-}
-
-/** 构造查找正则；query 为空或正则非法返回 null。 */
+/** 构造查找正则（非正则模式按字面量，转义字符集同参考实现 findWidget.ts）；query 为空或正则非法返回 null。 */
 function buildFindRegExp(query: string, opts: FindOptions): RegExp | null {
   if (query === '') return null
   try {
-    return new RegExp(opts.regex ? query : escapeFindQuery(query), opts.caseSensitive ? 'u' : 'ui')
+    return new RegExp(opts.regex ? query : escapeRegExp(query), opts.caseSensitive ? 'u' : 'ui')
   } catch {
     return null
   }
@@ -121,10 +117,13 @@ export function GitFindWidget({ projectPath }: { projectPath: string }): React.J
     void store.openDetails(projectPath, hash, commit?.stash ?? null)
   }
 
-  // 打开即聚焦输入框
+  // 打开即聚焦并全选输入框；已开时再按 ⌘F 或点查找钮同样重新聚焦（focusSeq 变化），同编辑器的查找栏
+  const focusSeq = find?.focusSeq ?? 0
   useEffect(() => {
-    if (isOpen) inputRef.current?.focus()
-  }, [isOpen])
+    if (!isOpen) return
+    inputRef.current?.focus()
+    inputRef.current?.select()
+  }, [isOpen, focusSeq])
 
   // 查找计算：词 / 开关 / 提交数据任一变化后 200ms 防抖重算（§3.2、§3.7）。
   // 原当前匹配仍在则停留原位（不劫持滚动）；否则跳到第一个匹配并滚动 + 详情联动。

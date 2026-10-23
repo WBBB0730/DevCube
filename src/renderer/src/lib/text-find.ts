@@ -21,6 +21,11 @@ function atWordBoundary(text: string, from: number, to: number): boolean {
   return startOk && endOk
 }
 
+/** 正则元字符转义成字面量：查找按字面量匹配、开着正则时预填选中的文字（见 find-seed）都用它。 */
+export function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
 /**
  * 编出一个查找器：返回一段文字里的全部命中区间 [起, 止)，自左向右、互不重叠；查询为空则恒无命中，正则写错为 null。
  * 不分大小写走正则的忽略大小写，区间按原文计，不受大小写转换改变字串长度的影响。空命中（如 `a*` 在别处）标不出来，跳过。
@@ -32,10 +37,7 @@ export function compileTextFind(
   if (query === '') return () => []
   let re: RegExp
   try {
-    re = new RegExp(
-      regexp ? query : query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'),
-      'gmu' + (caseSensitive ? '' : 'i')
-    )
+    re = new RegExp(regexp ? query : escapeRegExp(query), 'gmu' + (caseSensitive ? '' : 'i'))
   } catch {
     return null
   }

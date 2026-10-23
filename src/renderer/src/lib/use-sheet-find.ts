@@ -58,7 +58,7 @@ export function useSheetFind({
   regexpToggle?: boolean
 }): {
   open: boolean
-  openFind: () => void
+  openFind: FindSession['openFind']
   closeFind: () => void
   /** 格子要叠的查找底色（CSS background-image 值）；没有要叠的为 null */
   layerOf: ((row: number, col: number) => string | undefined) | null

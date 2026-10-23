@@ -32,6 +32,7 @@ import type {
   GitMenuTarget
 } from '@renderer/components/git/git-view-types'
 import { reconcileDiffView } from '@renderer/components/git/git-details'
+import { findSeed } from '@renderer/lib/find-seed'
 
 /** 单个项目的 Git 图谱状态桶（冻结契约，foundation.md §D）。 */
 export interface GitProjectState {
@@ -130,6 +131,8 @@ export interface GitStoreState {
   closeDialog(projectPath: string): void
   /** 更新查找状态：patch 合并；传 null 整体关闭并清空 */
   setFind(projectPath: string, patch: Partial<GitFindState> | null): void
+  /** 打开查找（⌘F / 工具栏查找钮；已开则重新聚焦）：selection 为选中的文字，可预填时替换查询（见 findSeed） */
+  openFind(projectPath: string, selection?: string): void
   clearActionErrors(projectPath: string): void
   /**
    * 执行写动作：置 actionRunning=label → gitAction → ok 软刷新收口 / error 落 actionErrors / push-tag 预检原样返回。
@@ -784,9 +787,20 @@ export const useGit = create<GitStoreState>((set, get) => {
         caseSensitive: prefs.findIsCaseSensitive,
         regex: prefs.findIsRegex,
         matches: [],
-        activeIdx: -1
+        activeIdx: -1,
+        focusSeq: 0
       }
       patchProject(projectPath, { find: { ...base, ...patch } })
+    },
+
+    openFind: (projectPath, selection = '') => {
+      const find = gitState(get(), projectPath).find
+      const seed = findSeed(selection, find?.regex ?? get().viewPrefs.findIsRegex)
+      get().setFind(projectPath, {
+        open: true,
+        focusSeq: (find?.focusSeq ?? 0) + 1,
+        ...(seed !== null && { query: seed })
+      })
     },
 
     clearActionErrors: (projectPath) => {

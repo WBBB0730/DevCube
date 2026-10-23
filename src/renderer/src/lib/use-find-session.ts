@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from 'react'
+import { findSeed } from './find-seed'
 
 /** 查找栏（FindBar）里与命中无关的部分：查询、选项及其回调 */
 export interface FindSessionBar {
@@ -24,7 +25,8 @@ export interface FindSession {
   open: boolean
   /** 每开始新一轮查找（打开、已开时再按 Cmd+F、改查询或选项、换了文件）+1：从起点找的引擎据此重定起点 */
   round: number
-  openFind: () => void
+  /** 打开查找（已开则重新聚焦）；selection 为选中的文字，可预填时替换查询（见 findSeed） */
+  openFind: (selection?: string) => void
   closeFind: () => void
   /** 查询、选项及其回调：交给查找栏，引擎也从这里读 */
   bar: FindSessionBar
@@ -77,12 +79,15 @@ export function useFindSession(scope: string | null = null, memory?: FindMemory)
   }, [memory, scope, state])
 
   const openFind = useCallback(
-    () =>
-      setSession((s) => ({
-        state: { ...s.state, open: true },
-        round: s.round + 1,
-        focusPending: true
-      })),
+    (selection = '') =>
+      setSession((s) => {
+        const seed = findSeed(selection, s.state.regexp)
+        return {
+          state: { ...s.state, open: true, ...(seed !== null && { query: seed }) },
+          round: s.round + 1,
+          focusPending: true
+        }
+      }),
     []
   )
   const closeFind = useCallback(

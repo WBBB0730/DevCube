@@ -153,4 +153,6 @@ export interface GitFindState {
   matches: string[]
   /** 当前聚焦的匹配下标；-1 = 无 */
   activeIdx: number
+  /** 每次打开查找（含已开时再按 ⌘F）+1：查找组件据此聚焦并全选输入框 */
+  focusSeq: number
 }

@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from 'react'
 import {
   ChevronDown,
   ChevronUp,
@@ -88,6 +88,7 @@ import {
 import { TOOLBAR_BTN, TOOLBAR_BTN_SM } from '@renderer/components/ui/toolbar'
 import { gitState, useGit } from '@renderer/git-store'
 import { createKeyedSubscription } from '@renderer/lib/keyed-subscription'
+import { findSeed } from '@renderer/lib/find-seed'
 import { isPrimaryModifierEvent, shortcutLabel, shortcutTitle } from '@renderer/lib/shortcut-label'
 import { terminalClipboardAction } from '@renderer/lib/terminal-clipboard'
 import { cn } from '@renderer/lib/utils'
@@ -920,6 +921,8 @@ function TerminalPane({
   const searchRef = useRef<SearchAddon | null>(null)
   const searchInputRef = useRef<HTMLInputElement>(null)
   const [searchOpen, setSearchOpen] = useState(false)
+  /** 每次按 ⌘F +1：查找框据此聚焦并全选（含已开着时） */
+  const [searchFocus, setSearchFocus] = useState(0)
   const [query, setQuery] = useState('')
   const [results, setResults] = useState({ index: -1, count: 0 })
   // 右键菜单：鼠标点与右键时是否有选中（决定「复制」可不可用）
@@ -935,6 +938,30 @@ function TerminalPane({
   useEffect(() => {
     visibleRef.current = visible
   }, [visible])
+
+  const runFind = (dir: 'next' | 'prev', value = query): void => {
+    const s = searchRef.current
+    if (!s) return
+    if (!value) {
+      s.clearDecorations()
+      return
+    }
+    if (dir === 'prev') s.findPrevious(value, SEARCH_THEMES[theme])
+    else s.findNext(value, SEARCH_THEMES[theme])
+  }
+
+  // ⌘F：打开查找并聚焦全选查找框（已开时再按同样，同编辑器的查找栏）。终端里选中的文字可预填时（见 findSeed）
+  // 填进去并从选中处找起：先清掉插件记着的查找词，它才从选区起点而非末尾找（同主题变化时的重画）
+  const openSearch = useEffectEvent((selection: string) => {
+    const seed = findSeed(selection, false)
+    if (seed !== null) {
+      setQuery(seed)
+      searchRef.current?.clearDecorations()
+      runFind('next', seed)
+    }
+    setSearchOpen(true)
+    setSearchFocus((n) => n + 1)
+  })
 
   // 终端随本组件挂载/卸载创建与销毁。
   useEffect(() => {
@@ -963,7 +990,7 @@ function TerminalPane({
     term.attachCustomKeyEventHandler((e) => {
       // macOS 只认 ⌘F：⌃F 是 shell 的「光标右移」，须交给终端
       if (e.type === 'keydown' && isPrimaryModifierEvent(e) && !e.altKey && e.key === 'f') {
-        setSearchOpen(true)
+        openSearch(term.getSelection())
         return false
       }
       const clipboard =
@@ -1131,19 +1158,10 @@ function TerminalPane({
   }, [status, mode])
 
   useEffect(() => {
-    if (searchOpen) searchInputRef.current?.focus()
-  }, [searchOpen])
-
-  const runFind = (dir: 'next' | 'prev', value = query): void => {
-    const s = searchRef.current
-    if (!s) return
-    if (!value) {
-      s.clearDecorations()
-      return
-    }
-    if (dir === 'prev') s.findPrevious(value, SEARCH_THEMES[theme])
-    else s.findNext(value, SEARCH_THEMES[theme])
-  }
+    if (!searchOpen) return
+    searchInputRef.current?.focus()
+    searchInputRef.current?.select()
+  }, [searchOpen, searchFocus])
 
   const closeSearch = (): void => {
     setSearchOpen(false)

@@ -41,7 +41,7 @@ export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.
   const hasCommits = useGit((s) => gitState(s, projectPath).commits.length > 0)
   const refresh = useGit((s) => s.refresh)
   const loadRepoConfig = useGit((s) => s.loadRepoConfig)
-  const setFind = useGit((s) => s.setFind)
+  const openFind = useGit((s) => s.openFind)
   const openDialog = useGit((s) => s.openDialog)
   const openDetails = useGit((s) => s.openDetails)
   const [settingsOpen, setSettingsOpen] = useState(false)
@@ -80,7 +80,7 @@ export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.
           type="button"
           title={shortcutTitle('查找', SHORTCUT.find)}
           className={TOOLBAR_BTN}
-          onClick={() => setFind(projectPath, { open: true })}
+          onClick={() => openFind(projectPath)}
         >
           <Search className="size-4" />
         </button>

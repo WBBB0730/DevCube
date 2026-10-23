@@ -3,12 +3,13 @@
 // 四态渲染（非仓库 / 空仓库 / 加载中 / 出错）+ 就绪表格；
 // 全局键盘只在可见时挂 capture 监听：Esc 分层关闭、Cmd/Ctrl+F 打开查找、Cmd/Ctrl+R 刷新
 // （fetch + 软刷新；导航类快捷键改由主进程 before-input-event；F/R 须排除 Alt）。
-import { useEffect, useSyncExternalStore } from 'react'
+import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { UNCOMMITTED } from '@shared/git'
 import { gitState, useGit } from '@renderer/git-store'
 import { useApp } from '@renderer/store'
 import { useRememberedPanel } from '@renderer/lib/remembered-panel'
 import { isPrimaryModifierEvent } from '@renderer/lib/shortcut-label'
+import { selectedTextWithin } from '@renderer/lib/find-seed'
 import { isDialogOpen } from '@renderer/components/ui/dialog'
 import { CenteredHint, LoadingHint } from '@renderer/components/ui/centered-hint'
 import {
@@ -47,6 +48,7 @@ export function GitPane({
   projectPath: string
   visible: boolean
 }): React.JSX.Element {
+  const rootRef = useRef<HTMLDivElement>(null)
   const status = useGit((s) => gitState(s, projectPath).status)
   const isRepo = useGit((s) => gitState(s, projectPath).isRepo)
   const isEmptyRepo = useGit((s) => gitState(s, projectPath).isEmptyRepo)
@@ -107,10 +109,10 @@ export function GitPane({
         e.preventDefault()
         e.stopPropagation()
       } else if (mod && !e.altKey && !e.shiftKey && (e.key === 'f' || e.key === 'F')) {
-        // Cmd/Ctrl+F：打开查找（查找组件出现后自聚焦，见 G 的 GitFindWidget）
+        // Cmd/Ctrl+F：打开查找并聚焦（见 GitFindWidget），面板里选中的文字（提交详情、diff 正文）预填进查找框
         e.preventDefault()
         e.stopPropagation()
-        store.setFind(projectPath, { open: true })
+        store.openFind(projectPath, selectedTextWithin(rootRef.current))
       } else if (mod && !e.altKey && !e.shiftKey && (e.key === 'r' || e.key === 'R')) {
         // Cmd/Ctrl+R：刷新 = fetch + 软刷新（顺带拦下 Electron 默认的页面重载）
         e.preventDefault()
@@ -126,7 +128,7 @@ export function GitPane({
   const showChrome = status === 'ready' && isRepo
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-deepest">
+    <div ref={rootRef} className="flex h-full min-h-0 flex-col bg-deepest">
       {showChrome && <GitToolbar projectPath={projectPath} />}
       {/* 操作进行中状态条（变基/合并/拣选/回滚中断）：组件自判 opInProgress 为空即 null */}
       {showChrome && <GitOpStatusBar projectPath={projectPath} />}

@@ -5,6 +5,7 @@
  */
 import { useEffect, useRef, useState, type RefObject } from 'react'
 import { editableTarget, filesTreeTarget, overlayOpen } from './files-key-guards'
+import { selectedTextWithin } from './find-seed'
 import { zoomFromWheel } from './files-media-zoom'
 import { isPrimaryModifierEvent } from './shortcut-label'
 
@@ -36,7 +37,8 @@ export function usePagedPreviewKeys({
   active: boolean
   rootRef: RefObject<HTMLElement | null>
   findOpen: boolean
-  openFind: () => void
+  /** 带上预览里选中的文字（预填查找框，见 findSeed） */
+  openFind: (selection: string) => void
   closeFind: () => void
   resetZoom?: () => void
   stepZoom?: (steps: 1 | -1) => void
@@ -61,7 +63,7 @@ export function usePagedPreviewKeys({
         if (!focusedHere() || overlayOpen()) return
         e.preventDefault()
         e.stopPropagation()
-        openFind()
+        openFind(selectedTextWithin(root))
         return
       }
       if (mod && !e.altKey && resetZoom && stepZoom) {
