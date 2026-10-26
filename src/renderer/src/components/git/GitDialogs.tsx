@@ -278,6 +278,7 @@ export interface DialogEnv {
   viewPrefs: GitViewPrefs
   /** 进行中的多步操作（变基/合并/拣选/回滚）：非空时会撞车的表单项置灰（如创建后检出） */
   opInProgress: GitOpInProgress | null
+  /** 关掉当前显示的对话框：store 对话框与追问对话框都算 */
   closeDialog(): void
   runAction(action: GitAction, label: string): Promise<GitActionResult>
   /**
@@ -973,10 +974,12 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
           {
             label: '强制删除',
             destructive: true,
-            onClick: () =>
+            onClick: () => {
+              env.closeDialog()
               void env
                 .runAction({ kind: 'worktree-remove', path, force: true }, '正在删除工作树')
                 .then(finish)
+            }
           }
         ]
       }
@@ -1562,8 +1565,14 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
   /** 本项目在前台的联网动作（Task，docs/prd/task-progress.md）：没被隐藏的按发起先后一次一个 */
   const task = useTasks((s) => foregroundGitTaskOf(s.tasks, projectPath))
 
-  /** 追问链状态：nonce 作为表单 key，同一链上连续两个表单也能重置输入值 */
-  const [chase, setChase] = useState<{ spec: DialogSpec; nonce: number } | null>(null)
+  /**
+   * 追问链状态：spec 为 null 即没有追问；nonce 作为表单 key，只增不减（关掉时保留），
+   * 同一链上连续两个表单、关掉后紧接着开的下一个都能重置输入值
+   */
+  const [chase, setChase] = useState<{ spec: DialogSpec | null; nonce: number }>({
+    spec: null,
+    nonce: 0
+  })
   /** 「隐藏」进行中遮罩时记住其文案；文案不匹配（新动作）即重新显示，无需 effect 复位 */
   const [hiddenFor, setHiddenFor] = useState<string | null>(null)
   /** D27 标签详情的异步加载结果（带 name 归属；与当前请求不匹配即视作加载中） */
@@ -1573,7 +1582,7 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
   // 这是对外部 store 变化的状态同步，非级联渲染热路径，规则例外可接受。
   useEffect(() => {
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 见上：同步作废过期追问链
-    if (dialog !== null) setChase(null)
+    if (dialog !== null) setChase((c) => ({ spec: null, nonce: c.nonce }))
   }, [dialog])
 
   // D27：打开即异步加载 tag 详情；StrictMode 双挂载与快速切换都以 cancelled 作废
@@ -1615,11 +1624,14 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
       viewPrefs,
       opInProgress,
       worktrees,
-      closeDialog: () => useGit.getState().closeDialog(projectPath),
+      closeDialog: () => {
+        setChase((c) => ({ spec: null, nonce: c.nonce }))
+        useGit.getState().closeDialog(projectPath)
+      },
       runAction: (action, label) => useGit.getState().runAction(projectPath, action, label),
       runQuietAction: (action, opts) => useGit.getState().runQuietAction(projectPath, action, opts),
       clearActionErrors: () => useGit.getState().clearActionErrors(projectPath),
-      openChase: (spec) => setChase((prev) => ({ spec, nonce: (prev?.nonce ?? 0) + 1 })),
+      openChase: (spec) => setChase((c) => ({ spec, nonce: c.nonce + 1 })),
       setViewPrefs: (patch) => void useGit.getState().setViewPrefs(patch),
       openProject: (path) => void useApp.getState().addProjectByPath(path),
       // 工作树目录是否已登记为项目、是否有运行中的会话 / 终端（删除工作树前的防误删判断）
@@ -1698,10 +1710,8 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
   }
 
   // 4. 追问对话框（不经过 store.dialog）
-  if (chase !== null) {
-    return (
-      <DialogForm key={`chase-${chase.nonce}`} spec={chase.spec} onCancel={() => setChase(null)} />
-    )
+  if (chase.spec !== null) {
+    return <DialogForm key={`chase-${chase.nonce}`} spec={chase.spec} onCancel={env.closeDialog} />
   }
 
   if (dialog === null) return null
