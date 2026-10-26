@@ -3,7 +3,7 @@
 // 编辑器同控制台（database/CodeEditor）；SQL 按方言高亮，补全同控制台交给补全引擎，表结构按「数据源 + 库」取（先取表结构
 // 缓存，没有时借连着的 Data Source Tab 现查，都没有只补关键字、内置函数与类型），编辑框右上角的格式化钮同控制台（认得参数
 // `${{…}}`）。
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { EditorView } from '@codemirror/view'
 import { WandSparkles } from 'lucide-react'
 import { ConfigDialogFrame, Field } from '@renderer/components/ConfigDialogFrame'
@@ -12,10 +12,12 @@ import { AutocompleteInput } from '@renderer/components/ui/autocomplete-input'
 import { ErrorDialog } from '@renderer/components/ui/form-dialog'
 import { Input } from '@renderer/components/ui/input'
 import { TOOLBAR_BTN } from '@renderer/components/ui/toolbar'
+import { formatKeymap } from '@renderer/lib/cm6-format'
 import { useCompletionUsage } from '@renderer/lib/data-source-completion-usage'
 import { useConfigCompletion } from '@renderer/lib/data-source-context'
 import { formatSqlInEditor } from '@renderer/lib/data-source-sql'
 import { paramAutoClose } from '@renderer/lib/run-param-autoclose'
+import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import { sqlLanguage } from '@renderer/lib/sql-completion'
 import { cn } from '@renderer/lib/utils'
 import { useApp } from '@renderer/store'
@@ -24,6 +26,7 @@ import {
   type DataSourceNode,
   type NetworkDataSourceTarget
 } from '@shared/data-source'
+import { SHORTCUT } from '@shared/shortcut-label'
 import { dataSourceEntryKey } from '@shared/tree-entry'
 import type { DataSourceRunConfig } from '@shared/types'
 
@@ -79,13 +82,25 @@ function DataSourceConfigForm({
   const schema = useConfigCompletion(id, target, database.trim(), databases)
   const prioritizer = useCompletionUsage(redis ? null : id)
 
-  // SQL 按方言高亮并补全（用得多的排前）；Redis 为纯文本。输入 `${{` 时补上 `}}`（两种都有）
+  // 格式化 SQL 选中的部分或全部（编辑框右上角的钮或 ⌥⌘L）；认不出时弹错误框
+  const format = useCallback(
+    (view: EditorView): void => {
+      if (kind === 'redis') return
+      const failure = formatSqlInEditor(view, kind)
+      if (failure !== null) setFormatError(failure)
+    },
+    [kind]
+  )
+
+  // SQL 按方言高亮并补全（用得多的排前），⌥⌘L 格式化；Redis 为纯文本。输入 `${{` 时补上 `}}`（两种都有）
   const extensions = useMemo(
     () => [
       paramAutoClose,
-      kind === 'redis' ? [] : sqlLanguage(kind, { metadata: schema, prioritizer })
+      kind === 'redis'
+        ? []
+        : [sqlLanguage(kind, { metadata: schema, prioritizer }), formatKeymap(format)]
     ],
-    [kind, schema, prioritizer]
+    [kind, schema, prioritizer, format]
   )
 
   const databaseError = redis ? redisDatabaseError(database.trim()) : null
@@ -103,13 +118,6 @@ function DataSourceConfigForm({
       },
       config?.id
     )
-  }
-
-  const format = (): void => {
-    const view = viewRef.current
-    if (view === null || kind === 'redis') return
-    const failure = formatSqlInEditor(view, kind)
-    if (failure !== null) setFormatError(failure)
   }
 
   return (
@@ -158,9 +166,11 @@ function DataSourceConfigForm({
           {!redis && (
             <button
               type="button"
-              title="格式化"
+              title={shortcutTitle('格式化', SHORTCUT.format)}
               className={cn(TOOLBAR_BTN, 'absolute right-2.5 top-1 bg-deepest')}
-              onClick={format}
+              onClick={() => {
+                if (viewRef.current !== null) format(viewRef.current)
+              }}
             >
               <WandSparkles className="size-4" />
             </button>

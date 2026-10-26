@@ -1,6 +1,6 @@
 // Files Tab 工具栏：相对路径可点面包屑 + 右侧钮组（预览切换 / 最近打开 / 在文件树中显示 /
 // 在文件夹中显示 / 在其他应用中打开（仅本机文件）/ 显示文件树）。视觉见 DESIGN.md「Files Tab」。
-// `extra` 给特定正文（如 PDF 的页码与缩放）在钮组最左再加一组；`pathExtra` 给特定正文在面包屑之前领头加钮（如 PDF 缩略图开关）。
+// `extra` 给特定正文（如 PDF 的页码与缩放、JSON / SQL 的格式化）在钮组最左再加一组；`pathExtra` 给特定正文在面包屑之前领头加钮（如 PDF 缩略图开关）。
 import { useContext } from 'react'
 import {
   ChevronRight,
@@ -36,7 +36,7 @@ export type FilesToolbarProps = {
   /** 编辑 ↔ 预览切换钮：null = 不显示（非 Markdown / SVG） */
   sourcePreview?: boolean | null
   onToggleSourcePreview?: () => void
-  /** 正文专属控件（如 PDF 页码与缩放），置于右侧钮组最左、以竖线隔开 */
+  /** 正文专属控件（如 PDF 页码与缩放、JSON / SQL 的格式化），置于右侧钮组最左、以竖线隔开 */
   extra?: React.ReactNode
   /** 正文专属钮（如 PDF 缩略图开关），置于面包屑之前领头 */
   pathExtra?: React.ReactNode

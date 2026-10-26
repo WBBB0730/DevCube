@@ -1,6 +1,14 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
-import { ChevronsDownUp, ChevronsUpDown, Folder, FolderOpen, Minus, Search } from 'lucide-react'
+import {
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Folder,
+  FolderOpen,
+  Minus,
+  Search,
+  WandSparkles
+} from 'lucide-react'
 import {
   FILES_TEXT_MAX_BYTES,
   pushRecentPath,
@@ -50,6 +58,8 @@ import {
 } from '@renderer/lib/cm6-setup'
 import { EditorView } from '@codemirror/view'
 import { rememberEditorView, restoreEditorView } from '@renderer/lib/cm6-view-state'
+import { formatKeymap } from '@renderer/lib/cm6-format'
+import { filesFormatLanguage, formatFileInEditor } from '@renderer/lib/files-format'
 import { useEditorFind } from '@renderer/lib/use-editor-find'
 import { useFindSession, type FindMemory, type FindSession } from '@renderer/lib/use-find-session'
 import {
@@ -2811,6 +2821,18 @@ function FilesTextEditor({
   // SVG 预览没有查找，查找栏先藏起，切回编辑原样出现
   const findExtension = useEditorFind(view, find)
 
+  // 格式化（JSON / SQL，见 lib/files-format）：工具栏钮与 ⌥⌘L（焦点在编辑器时），格式化选中的部分或全文；
+  // SQL 认不出时弹「无法格式化」
+  const formatLanguage = filesFormatLanguage(path)
+  const [formatError, setFormatError] = useState<string | null>(null)
+  const formatShortcut = useMemo(
+    () =>
+      formatLanguage === null
+        ? []
+        : formatKeymap((editor) => setFormatError(formatFileInEditor(editor, formatLanguage))),
+    [formatLanguage]
+  )
+
   // 跳转须等 CodeMirror 挂载（key=path 换文件重建）；建好新编辑器（view 换新）时重试。
   // 预览态（Markdown / SVG / CSV）编辑器未挂载，view 可能仍是上个文件的旧实例：留待切回编辑再应用。
   useEffect(() => {
@@ -2839,10 +2861,11 @@ function FilesTextEditor({
       filesGutters,
       languageExtensionForPath(path),
       findExtension,
+      formatShortcut,
       rememberEditorView(viewState),
       ...(baseline === null ? [] : [gitDiffGutter(baseline, onHunkClick)])
     ],
-    [theme, path, baseline, onHunkClick, findExtension, viewState]
+    [theme, path, baseline, onHunkClick, findExtension, formatShortcut, viewState]
   )
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -2860,6 +2883,17 @@ function FilesTextEditor({
         extra={
           svg && sourcePreview ? (
             <MediaFitButtons active={svgFit} onFit={(axis) => svgRef.current?.fit(axis)} />
+          ) : formatLanguage !== null ? (
+            <button
+              type="button"
+              title={shortcutTitle('格式化', SHORTCUT.format)}
+              className={TOOLBAR_BTN}
+              onClick={() => {
+                if (view?.dom.isConnected) setFormatError(formatFileInEditor(view, formatLanguage))
+              }}
+            >
+              <WandSparkles className="size-4" />
+            </button>
           ) : undefined
         }
         onShowTree={onShowTree}
@@ -2921,6 +2955,13 @@ function FilesTextEditor({
             />
           </div>
         </>
+      )}
+      {formatError !== null && (
+        <ErrorDialog
+          title="无法格式化"
+          message={formatError}
+          onClose={() => setFormatError(null)}
+        />
       )}
     </div>
   )

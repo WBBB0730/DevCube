@@ -51,7 +51,7 @@ export function RedisConsole({ tabKey }: { tabKey: string }): React.JSX.Element 
       viewRef={viewRef}
       text={text}
       onChange={save}
-      language={commandCompletion}
+      extensions={commandCompletion}
       running={busy === 'run'}
       disabled={busy !== null && busy !== 'run'}
       onRun={run}

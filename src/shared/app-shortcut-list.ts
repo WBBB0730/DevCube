@@ -62,7 +62,8 @@ export const APP_SHORTCUT_GROUPS: AppShortcutListGroup[] = [
     rows: [
       { label: '查找', keys: chords(SHORTCUT.find) },
       { label: '查找下一个 / 上一个', keys: chords(SHORTCUT.findNext, SHORTCUT.findPrev) },
-      { label: '最近打开的文件或数据源对象', keys: chords(SHORTCUT.recentFiles) }
+      { label: '最近打开的文件或数据源对象', keys: chords(SHORTCUT.recentFiles) },
+      { label: '格式化（JSON、SQL）', keys: chords(SHORTCUT.format) }
     ]
   },
   {

@@ -14,9 +14,11 @@ import { CenteredHint } from '@renderer/components/ui/centered-hint'
 import { ErrorDialog } from '@renderer/components/ui/form-dialog'
 import { TOOLBAR_BTN } from '@renderer/components/ui/toolbar'
 import { useDataSourceUi } from '@renderer/data-source-store'
+import { formatKeymap } from '@renderer/lib/cm6-format'
 import { useConsoleText } from '@renderer/lib/console-text'
 import { useConsoleBusy } from '@renderer/lib/data-source-context'
 import { formatSqlInEditor } from '@renderer/lib/data-source-sql'
+import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import { sqlLanguage, type PrevalenceCounter } from '@renderer/lib/sql-completion'
 import { statementsToRun } from '@renderer/lib/sql-statements'
 import type { SqlKind } from '@shared/data-source'
@@ -30,6 +32,7 @@ import {
   type CompletionSchema,
   type ConsoleRun
 } from '@shared/data-source-query'
+import { SHORTCUT } from '@shared/shortcut-label'
 import { ConsoleContextComboboxes } from './ConsoleContextDropdown'
 import { ConsoleResultView } from './ConsoleResultView'
 import { ConsoleShell } from './ConsoleShell'
@@ -73,10 +76,19 @@ export function ConsoleView({
   const [cancelError, setCancelError] = useState<string | null>(null)
   const viewRef = useRef<EditorView | null>(null)
 
-  // 按方言高亮；补全交给补全引擎，表结构取不到时只补关键字、内置函数与类型
-  const language = useMemo(
-    () => sqlLanguage(kind, { metadata: completion, prioritizer }),
-    [kind, completion, prioritizer]
+  // 格式化选中的部分或全部（工具栏钮或 ⌥⌘L）；认不出时弹错误框
+  const format = useCallback(
+    (view: EditorView): void => {
+      const failure = formatSqlInEditor(view, kind)
+      if (failure !== null) setFormatError(failure)
+    },
+    [kind]
+  )
+
+  // 按方言高亮；补全交给补全引擎，表结构取不到时只补关键字、内置函数与类型；⌥⌘L 格式化
+  const extensions = useMemo(
+    () => [sqlLanguage(kind, { metadata: completion, prioritizer }), formatKeymap(format)],
+    [kind, completion, prioritizer, format]
   )
 
   const run = useCallback(async (): Promise<void> => {
@@ -106,13 +118,6 @@ export function ConsoleView({
     if (failure !== null) setCancelError(queryFailureText(failure, '无权取消'))
   }
 
-  const format = (): void => {
-    const view = viewRef.current
-    if (view === null) return
-    const failure = formatSqlInEditor(view, kind)
-    if (failure !== null) setFormatError(failure)
-  }
-
   const done = outcome !== null && 'run' in outcome ? outcome.run : null
   const result = done === null ? null : consoleRunResult(done).result
 
@@ -122,14 +127,21 @@ export function ConsoleView({
         viewRef={viewRef}
         text={text}
         onChange={save}
-        language={language}
+        extensions={extensions}
         running={busy === 'run'}
         disabled={busy !== null && busy !== 'run'}
         onRun={run}
         onCancel={cancel}
         actions={
           <>
-            <button type="button" title="格式化" className={TOOLBAR_BTN} onClick={format}>
+            <button
+              type="button"
+              title={shortcutTitle('格式化', SHORTCUT.format)}
+              className={TOOLBAR_BTN}
+              onClick={() => {
+                if (viewRef.current !== null) format(viewRef.current)
+              }}
+            >
               <WandSparkles className="size-4" />
             </button>
             <ResultExportMenu kind={kind} result={result} />

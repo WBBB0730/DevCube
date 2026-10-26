@@ -1,4 +1,6 @@
+import { EditorSelection, EditorState } from '@codemirror/state'
 import { describe, expect, it } from 'vitest'
+import { formatFailure, formatTransaction, textFormatEdits, type FormatEdit } from './cm6-format'
 import { codemirrorDialect, formatSql } from './data-source-sql'
 
 describe('codemirrorDialect', () => {
@@ -40,5 +42,32 @@ describe('formatSql', () => {
 
   it('写得不对的语句抛出', () => {
     expect(() => formatSql('select (', 'postgresql')).toThrow()
+  })
+})
+
+describe('编辑器里格式化 SQL（formatSqlInEditor 的算法）', () => {
+  const edits = (state: EditorState): FormatEdit[] =>
+    textFormatEdits(state, (text) => formatSql(text, 'postgresql'))
+
+  it('参数原样，只改空白：逐处修改，选区末尾的换行原样', () => {
+    const doc = 'select  1;\nselect * from t where id=${{ id }};\nselect  2;'
+    const from = doc.indexOf('select *')
+    const to = doc.indexOf('select  2')
+    const state = EditorState.create({ doc, selection: EditorSelection.range(from, to) })
+    const changes = edits(state)
+    expect(changes.length).toBeGreaterThan(1)
+    expect(state.update(formatTransaction(state, changes)).state.doc.toString()).toBe(
+      'select  1;\nselect\n  *\nfrom\n  t\nwhere\n  id = ${{ id }};\nselect  2;'
+    )
+  })
+
+  it('认不出时原因只有第一行，行列从文首数起', () => {
+    let failure = ''
+    try {
+      edits(EditorState.create({ doc: '\n\nselect (1;' }))
+    } catch (error) {
+      failure = formatFailure(error)
+    }
+    expect(failure).toBe('Parse error at token: ; at line 3 column 10')
   })
 })

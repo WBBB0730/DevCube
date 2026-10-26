@@ -160,6 +160,8 @@ export const SHORTCUT = {
   save: { mod: true, key: 'S' } satisfies ShortcutChord,
   /** 数据源控制台执行光标所在的语句或选中的部分（docs/prd/database.md）：渲染层自持，不进 matchAppShortcut */
   runStatement: { mod: true, key: 'Enter' } satisfies ShortcutChord,
+  /** 格式化：Files 编辑器的 JSON / SQL 与数据源的 SQL 编辑器（对齐 WebStorm 的 Reformat Code）：渲染层自持，不进 matchAppShortcut */
+  format: { mod: true, alt: true, key: 'L' } satisfies ShortcutChord,
   cycleTabNext: { ctrl: true, key: 'Tab' } satisfies ShortcutChord,
   cycleTabPrev: { ctrl: true, shift: true, key: 'Tab' } satisfies ShortcutChord,
   // 以下为各视图自持的键（不进 matchAppShortcut），设置的快捷键列表与按钮 title 都要用；只在列表里出现的就地写在列表里

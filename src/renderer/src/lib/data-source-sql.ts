@@ -12,6 +12,7 @@ import {
 } from 'sql-formatter'
 import type { SqlKind } from '@shared/data-source'
 import { RUN_PARAM_SOURCE } from '@shared/run-params'
+import { formatInEditor, textFormatEdits } from './cm6-format'
 
 /**
  * lang-sql 自带的 MySQL / MariaDB 方言与服务器不符的两处，照它的 spec 另定义一份改上，高亮、切语句、补全切词才与
@@ -66,15 +67,10 @@ export function formatSql(text: string, kind: SqlKind): string {
   })
 }
 
-/** 格式化编辑器里选中的部分（没选中为全部）。格式化不了时不改，交回原因；否则为 null。 */
+/**
+ * 格式化编辑器里选中的部分（没选中为全部），只改真正变了的地方（同 Files 编辑器，见 cm6-format）。格式化不了时不改，
+ * 交回原因；否则为 null。
+ */
 export function formatSqlInEditor(view: EditorView, kind: SqlKind): string | null {
-  const { from, to } = view.state.selection.main
-  const range = from === to ? { from: 0, to: view.state.doc.length } : { from, to }
-  try {
-    const formatted = formatSql(view.state.sliceDoc(range.from, range.to), kind)
-    view.dispatch({ changes: { ...range, insert: formatted } })
-    return null
-  } catch (error) {
-    return error instanceof Error ? error.message : String(error)
-  }
+  return formatInEditor(view, (state) => textFormatEdits(state, (text) => formatSql(text, kind)))
 }

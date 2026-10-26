@@ -18,7 +18,7 @@ export function ConsoleShell({
   viewRef,
   text,
   onChange,
-  language,
+  extensions,
   running,
   disabled,
   onRun,
@@ -32,8 +32,8 @@ export function ConsoleShell({
   /** 控制台里写的内容（读到之前为 null，编辑器先不建） */
   text: string | null
   onChange: (value: string) => void
-  /** 编辑器的语言（高亮与补全） */
-  language: Extension
+  /** 编辑器的语言（高亮与补全）与调用方的快捷键（如格式化） */
+  extensions: Extension
   running: boolean
   /** 另有原因不能执行（正在切换控制台上下文）：「执行」置灰，⌘↵ 不执行 */
   disabled: boolean
@@ -51,10 +51,10 @@ export function ConsoleShell({
   children?: React.ReactNode
 }): React.JSX.Element {
   // ⌘↵ 走 CodeMirror 的 keymap，放到最高优先级（默认 keymap 把它当插入空行）；闭包直接引用 running、disabled 与 onRun，
-  // 变了 extensions 走一次 reconfigure（同 Files 编辑器的查找快捷键）
-  const extensions = useMemo(
+  // 变了 allExtensions 走一次 reconfigure（同 Files 编辑器的查找快捷键）
+  const allExtensions = useMemo(
     () => [
-      language,
+      extensions,
       Prec.highest(
         keymap.of([
           {
@@ -67,7 +67,7 @@ export function ConsoleShell({
         ])
       )
     ],
-    [language, running, disabled, onRun]
+    [extensions, running, disabled, onRun]
   )
 
   return (
@@ -91,7 +91,7 @@ export function ConsoleShell({
             value={text}
             onChange={onChange}
             completion
-            extensions={extensions}
+            extensions={allExtensions}
           />
         )}
       </div>
