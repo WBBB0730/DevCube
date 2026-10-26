@@ -259,7 +259,7 @@ export function GitCommitTable({ projectPath }: { projectPath: string }): React.
         // 操作进行中（变基/合并等冲突中途）：双击无可视禁用面，handler 早退拦截，
         // 原因由常驻状态条解释（右键菜单同款入口是置灰 + hover 原因）
         if (state.opInProgress !== null) return
-        // 分支已在其他工作树检出：git 会拒绝重复检出，改为「前往该项目」提示（与右键菜单同款）
+        // 分支已在其他工作树检出：git 会拒绝重复检出，改为「转到项目」提示（与右键菜单同款）
         const holder = worktreeHoldingBranch(state.worktrees, name)
         if (holder !== null) {
           useGit

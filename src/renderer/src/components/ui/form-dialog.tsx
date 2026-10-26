@@ -134,7 +134,6 @@ type FormDialogShellProps = {
   onCancel: () => void
   cancelLabel?: string
   cancelDisabled?: boolean
-  hideCancel?: boolean
   dismissible?: boolean
   dismissOnOutsidePress?: boolean
   /** 打开时聚焦的元素（见 ui/dialog）；缺省为面板本身，回车即主按钮 */
@@ -146,8 +145,7 @@ type FormDialogShellProps = {
 
 /**
  * 自定义表单对话框外壳：消息 + children（字段自由布局）+ 按钮行。
- * buttons[0] 为主按钮（Enter 触发）；取消钮文案与禁用可定制（忙碌中锁死弹窗，Esc 随之失效），
- * hideCancel 不显示取消钮（几颗按钮都是动作；Esc 仍是取消）。
+ * buttons[0] 为主按钮（Enter 触发）；取消钮文案与禁用可定制（忙碌中锁死弹窗，Esc 随之失效）。
  * dismissOnOutsidePress：点遮罩即取消，只给没有文本输入的对话框（确认类）。
  * dismissible=false：遮罩点击与 Esc 都不收口（长任务进行中，只认明确点按钮），
  * 与 cancelDisabled 正交——取消钮仍可用。
@@ -161,7 +159,6 @@ export function FormDialogShell({
   onCancel,
   cancelLabel = '取消',
   cancelDisabled = false,
-  hideCancel = false,
   dismissible = true,
   dismissOnOutsidePress = false,
   initialFocus,
@@ -204,11 +201,9 @@ export function FormDialogShell({
         {footerStart !== undefined && (
           <div className="mr-auto flex items-center gap-2">{footerStart}</div>
         )}
-        {!hideCancel && (
-          <Button variant="ghost" disabled={cancelDisabled} onClick={onCancel}>
-            {cancelLabel}
-          </Button>
-        )}
+        <Button variant="ghost" disabled={cancelDisabled} onClick={onCancel}>
+          {cancelLabel}
+        </Button>
         {buttons.map((btn, i) => (
           <Button
             key={i}
@@ -242,13 +237,7 @@ export function ConfirmDialog({
   children?: React.ReactNode
 } & Pick<
   FormDialogShellProps,
-  | 'buttons'
-  | 'onCancel'
-  | 'cancelLabel'
-  | 'cancelDisabled'
-  | 'hideCancel'
-  | 'footerStart'
-  | 'className'
+  'buttons' | 'onCancel' | 'cancelLabel' | 'cancelDisabled' | 'footerStart' | 'className'
 >): React.JSX.Element {
   return (
     <FormDialogShell

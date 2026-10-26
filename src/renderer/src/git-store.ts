@@ -275,7 +275,7 @@ function dialogTargetAlive(
   opInProgress: GitOpInProgress | null
 ): boolean {
   // 中止确认无 hash/selector，以操作状态收敛：用户已在终端自行收口（操作变化/消失）
-  // 时关框，防止对着已结束的操作点「是，中止」吃 git 报错
+  // 时关框，防止对着已结束的操作点「中止」吃 git 报错
   if (dialog.kind === 'op-abort') return dialog.op === opInProgress
   if ('hash' in dialog && !has(dialog.hash)) return false
   if ('selector' in dialog && !commits.some((c) => c.stash?.selector === dialog.selector)) {

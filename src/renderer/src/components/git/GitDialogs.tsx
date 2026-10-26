@@ -238,9 +238,18 @@ type DialogInputSpec =
 
 type DialogValues = Record<string, string | string[] | boolean>
 
+/** 叠在表单之上的确认（同服务器与数据源的重复确认）：取消即回到表单，已填的内容都在。 */
+export interface DialogConfirm {
+  title: string
+  message: string
+  label: string
+  onConfirm: () => void
+}
+
 interface DialogButton {
   label: string
-  onClick: (values: DialogValues) => void
+  /** confirm：先在表单之上叠一个确认（如重名替换），确认后再执行 */
+  onClick: (values: DialogValues, confirm: (c: DialogConfirm) => void) => void
   /** 危险操作（删除等不可逆动作）：按钮用 destructive 变体 */
   destructive?: boolean
 }
@@ -259,8 +268,6 @@ export interface DialogSpec {
   messageOnly?: boolean
   /** 副按钮文案（默认「取消」；messageOnly 默认「关闭」） */
   cancelLabel?: string
-  /** 双按钮追问（showTwoButtons）：两个按钮都是动作，隐藏副按钮（Esc/遮罩仍可取消） */
-  hideCancel?: boolean
 }
 
 /** 对话框构建环境：数据快照 + 动作出口（组件层注入；测试注入记录用实现）。 */
@@ -287,10 +294,10 @@ export interface DialogEnv {
    */
   runQuietAction(action: GitAction, opts?: { suppressErrorBox?: boolean }): Promise<GitActionResult>
   clearActionErrors(): void
-  /** 弹一个追问对话框（重名 / 强制删除 / 不在远程等续弹链） */
+  /** 弹一个追问对话框（强制删除 / 不在远程等动作之后的续弹） */
   openChase(spec: DialogSpec): void
   setViewPrefs(patch: Partial<GitViewPrefs>): void
-  /** 前往某目录对应的项目（未登记则先登记）：工作树提示框「前往该项目」与新建后的出口 */
+  /** 前往某目录对应的项目（未登记则先登记）：工作树提示框「转到项目」与新建后的出口 */
   openProject(path: string): void
   /** 同仓库的工作树：新建对话框剔除被占用的分支、以主工作树为存放目录锚点 */
   worktrees: GitWorktree[]
@@ -362,7 +369,7 @@ export function buildSpec(req: GitDialogRequest, env: DialogEnv): DialogSpec | n
         ],
         buttons: [
           {
-            label: '确定',
+            label: '初始化',
             onClick: (v) => {
               const branch = (v.branch as string).trim()
               const remote = (v.remote as string).trim()
@@ -430,7 +437,7 @@ export function buildSpec(req: GitDialogRequest, env: DialogEnv): DialogSpec | n
         ],
         buttons: [
           {
-            label: '是，合并',
+            label: '合并',
             onClick: (v) =>
               dispatch(
                 env,
@@ -470,7 +477,7 @@ export function buildSpec(req: GitDialogRequest, env: DialogEnv): DialogSpec | n
         ],
         buttons: [
           {
-            label: '是，变基',
+            label: '变基',
             onClick: (v) => {
               if (v.interactive === true) {
                 env.closeDialog()
@@ -495,15 +502,15 @@ export function buildSpec(req: GitDialogRequest, env: DialogEnv): DialogSpec | n
     }
     case 'push-branch': // D5：目标分支 combobox 与行内刷新的异步状态不进声明式 spec，由组件层特判渲染
       return null
-    case 'checkout-remote-branch': // D7（追问 D7b：重名双按钮）
-      return checkoutRemoteSpec(env, req.remoteRef, req.remote, null)
+    case 'checkout-remote-branch': // D7（重名确认 D7b）
+      return checkoutRemoteSpec(env, req.remoteRef, req.remote)
     case 'delete-remote-branch': // D8
       return {
         title: `删除远程分支 “${req.remoteRef}”？`,
         inputs: [],
         buttons: [
           {
-            label: '是，删除',
+            label: '删除',
             onClick: () =>
               dispatch(
                 env,
@@ -535,7 +542,7 @@ export function buildSpec(req: GitDialogRequest, env: DialogEnv): DialogSpec | n
         ],
         buttons: [
           {
-            label: '是，获取',
+            label: '获取',
             onClick: (v) =>
               dispatch(
                 env,
@@ -553,14 +560,14 @@ export function buildSpec(req: GitDialogRequest, env: DialogEnv): DialogSpec | n
       }
     case 'pull-branch': // D10：表单需 remote→分支联动与行内刷新的异步状态，由组件层特判渲染
       return null
-    case 'add-tag': // D11（追问 D11b 重名替换、D11c 提交不在远程）
-      return addTagSpec(env, req.hash, null)
+    case 'add-tag': // D11（重名确认 D11b、追问 D11c 提交不在远程）
+      return addTagSpec(env, req.hash)
     case 'delete-tag': // D12（形态随 remote 数量）
       return deleteTagSpec(env, req.name)
     case 'push-tag': // D13（追问 D13b 提交不在远程）
       return pushTagSpec(env, req.name, req.hash)
-    case 'create-branch': // D14（追问 D14b 重名替换）
-      return createBranchSpec(env, req.hash, null)
+    case 'create-branch': // D14（重名确认 D14b）
+      return createBranchSpec(env, req.hash)
     default:
       return buildSpecRest(req, env)
   }
@@ -581,7 +588,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
         ],
         buttons: [
           {
-            label: '是，检出',
+            label: '检出',
             onClick: (v) => {
               if (v.always === true) void env.setViewPrefs({ alwaysAcceptCheckoutCommit: true })
               dispatch(env, { kind: 'checkout-commit', hash: req.hash }, '正在检出提交')
@@ -628,7 +635,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
         inputs,
         buttons: [
           {
-            label: '是，拣选',
+            label: '拣选',
             onClick: (v) =>
               dispatch(
                 env,
@@ -665,7 +672,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
           : [],
         buttons: [
           {
-            label: '是，回滚',
+            label: '回滚',
             onClick: (v) =>
               dispatch(
                 env,
@@ -696,7 +703,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
         inputs: [],
         buttons: [
           {
-            label: '是，丢弃',
+            label: '丢弃',
             onClick: () => dispatch(env, { kind: 'drop-commit', hash: req.hash }, '正在丢弃提交')
           }
         ]
@@ -725,7 +732,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
         ],
         buttons: [
           {
-            label: '是，重置',
+            label: '重置',
             onClick: (v) =>
               dispatch(
                 env,
@@ -754,7 +761,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
         ],
         buttons: [
           {
-            label: '是，贮藏',
+            label: '贮藏',
             onClick: (v) =>
               dispatch(
                 env,
@@ -789,7 +796,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
         ],
         buttons: [
           {
-            label: '是，重置',
+            label: '重置',
             onClick: (v) =>
               dispatch(
                 env,
@@ -807,7 +814,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
         ],
         buttons: [
           {
-            label: '是，清理',
+            label: '清理',
             onClick: (v) =>
               dispatch(
                 env,
@@ -838,7 +845,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
         ],
         buttons: [
           {
-            label: pop ? '是，弹出贮藏' : '是，应用贮藏',
+            label: pop ? '弹出' : '应用',
             onClick: (v) =>
               dispatch(
                 env,
@@ -859,7 +866,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
         inputs: [],
         buttons: [
           {
-            label: '是，丢弃',
+            label: '丢弃',
             onClick: () =>
               dispatch(env, { kind: 'stash-drop', selector: req.selector }, '正在丢弃贮藏')
           }
@@ -875,7 +882,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
         inputs: [{ type: 'text-ref', key: 'name', label: '', default: '' }],
         buttons: [
           {
-            label: '创建分支',
+            label: '创建',
             onClick: (v) =>
               dispatch(
                 env,
@@ -897,7 +904,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
         inputs: [],
         buttons: [
           {
-            label: '是，重置文件',
+            label: '重置',
             onClick: () =>
               dispatch(
                 env,
@@ -917,7 +924,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
         inputs: [],
         buttons: [
           {
-            label: '是，撤销更改',
+            label: '撤销',
             onClick: () => {
               env.closeDialog()
               void env.runQuietAction({ kind: 'discard-file', paths: req.paths })
@@ -935,7 +942,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
         inputs: [],
         buttons: [
           {
-            label: '是，删除',
+            label: '删除',
             onClick: () => {
               env.closeDialog()
               void env.runQuietAction({ kind: 'delete-untracked-file', paths: req.paths })
@@ -994,7 +1001,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
         inputs: [],
         buttons: [
           {
-            label: '是，删除',
+            label: '删除',
             destructive: true,
             onClick: () => {
               env.closeDialog()
@@ -1017,7 +1024,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
         inputs: [],
         buttons: [
           {
-            label: '是，清理',
+            label: '清理',
             onClick: () => dispatch(env, { kind: 'worktree-prune' }, '正在清理工作树登记')
           }
         ]
@@ -1027,7 +1034,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
       // 引导前往那个工作树对应的项目（未登记则由 addProjectByPath 先登记，ADR-0028）
       const name = worktreeDisplayName(req.worktree)
       return {
-        title: `前往工作树 “${name}” 对应的项目？`,
+        title: `转到工作树 “${name}” 对应的项目？`,
         message: (
           <>
             分支 <Em>{req.branch}</Em> 已在这个工作树检出（{req.worktree.path}），
@@ -1037,7 +1044,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
         inputs: [],
         buttons: [
           {
-            label: '前往该项目',
+            label: '转到项目',
             onClick: () => {
               env.closeDialog()
               env.openProject(req.worktree.path)
@@ -1055,7 +1062,7 @@ function buildSpecRest(req: GitDialogRequest, env: DialogEnv): DialogSpec | null
         inputs: [],
         buttons: [
           {
-            label: '是，中止',
+            label: '中止',
             onClick: () => dispatch(env, { kind: 'op-abort', op: req.op }, `正在中止${opLabel}`)
           }
         ]
@@ -1109,7 +1116,7 @@ function deleteBranchSpec(env: DialogEnv, branch: string, remotesWithBranch: str
             title: `强制删除分支 “${branch}”？`,
             message: '它尚未完全合并。',
             inputs: [],
-            buttons: [{ label: '是，强制删除', onClick: () => run(true, deleteOnRemotes) }]
+            buttons: [{ label: '强制删除', onClick: () => run(true, deleteOnRemotes) }]
           })
         }
       })
@@ -1123,22 +1130,16 @@ function deleteBranchSpec(env: DialogEnv, branch: string, remotesWithBranch: str
     inputs,
     buttons: [
       {
-        label: '是，删除',
+        label: '删除',
         onClick: (v) => run(v.force as boolean, v.onRemotes === true ? remotesWithBranch : [])
       }
     ]
   }
 }
 
-/** D7 检出远程分支（输入本地分支名）；输入名与现有本地分支重名时续弹 D7b 双按钮。 */
-function checkoutRemoteSpec(
-  env: DialogEnv,
-  remoteRef: string,
-  remote: string | null,
-  presetName: string | null
-): DialogSpec {
-  const defaultName =
-    presetName ?? (remote !== null ? remoteRef.substring(remote.length + 1) : remoteRef)
+/** D7 检出远程分支（输入本地分支名）；输入名与现有本地分支重名时确认改为检出现有分支（D7b）。 */
+function checkoutRemoteSpec(env: DialogEnv, remoteRef: string, remote: string | null): DialogSpec {
+  const defaultName = remote !== null ? remoteRef.substring(remote.length + 1) : remoteRef
   return {
     message: (
       <>
@@ -1148,8 +1149,8 @@ function checkoutRemoteSpec(
     inputs: [{ type: 'text-ref', key: 'name', label: '', default: defaultName }],
     buttons: [
       {
-        label: '检出分支',
-        onClick: (v) => {
+        label: '检出',
+        onClick: (v, confirm) => {
           const name = v.name as string
           if (!env.branches.includes(name)) {
             dispatch(
@@ -1159,44 +1160,37 @@ function checkoutRemoteSpec(
             )
             return
           }
-          // D7b：重名双按钮（两个按钮都是动作，Esc/遮罩仍可取消）
-          env.closeDialog()
-          env.openChase({
-            title: `分支名 “${name}” 已被占用，要怎么做？`,
-            inputs: [],
-            hideCancel: true,
-            buttons: [
-              {
-                label: '换一个分支名',
-                onClick: () => env.openChase(checkoutRemoteSpec(env, remoteRef, remote, name))
-              },
-              {
-                label: remote !== null ? '检出现有分支并拉取更改' : '检出现有分支',
-                onClick: () => {
-                  env.closeDialog()
-                  void env
-                    .runAction(
-                      { kind: 'checkout-branch', branch: name, remoteBranch: null },
-                      '正在检出分支'
+          // D7b：重名即确认改为检出现有分支；取消回到表单换名
+          confirm({
+            title: `检出现有分支 “${name}”？`,
+            message:
+              remote !== null
+                ? `本地已有同名分支，检出后会从 “${remoteRef}” 拉取更改。`
+                : '本地已有同名分支。',
+            label: '检出',
+            onConfirm: () => {
+              env.closeDialog()
+              void env
+                .runAction(
+                  { kind: 'checkout-branch', branch: name, remoteBranch: null },
+                  '正在检出分支'
+                )
+                .then((res) => {
+                  // 检出成功且可拉取：自动 pull（整合方式固定用默认的合并，不走 D10 表单）
+                  if (res.status === 'ok' && remote !== null) {
+                    void env.runAction(
+                      {
+                        kind: 'pull-branch',
+                        remote,
+                        branch: remoteRef.substring(remote.length + 1),
+                        mode: 'merge',
+                        noFastForward: false
+                      },
+                      '正在拉取分支'
                     )
-                    .then((res) => {
-                      // 检出成功且可拉取：自动 pull（整合方式固定用默认的合并，不走 D10 表单）
-                      if (res.status === 'ok' && remote !== null) {
-                        void env.runAction(
-                          {
-                            kind: 'pull-branch',
-                            remote,
-                            branch: remoteRef.substring(remote.length + 1),
-                            mode: 'merge',
-                            noFastForward: false
-                          },
-                          '正在拉取分支'
-                        )
-                      }
-                    })
-                }
-              }
-            ]
+                  }
+                })
+            }
           })
         }
       }
@@ -1204,12 +1198,8 @@ function checkoutRemoteSpec(
   }
 }
 
-/** D11 添加标签；重名续弹 D11b 替换确认，推送阶段「提交不在远程」续弹 D11c（同 D13b）。 */
-function addTagSpec(
-  env: DialogEnv,
-  hash: string,
-  preset: { name: string; type: string; message: string; pushTo: string | boolean } | null
-): DialogSpec {
+/** D11 添加标签；重名时确认替换（D11b），推送阶段「提交不在远程」续弹 D11c（同 D13b）。 */
+function addTagSpec(env: DialogEnv, hash: string): DialogSpec {
   const recent = latestTagNames(env.commits)
   const multi = env.remotes.length > 1
   const inputs: DialogInputSpec[] = [
@@ -1217,7 +1207,7 @@ function addTagSpec(
       type: 'text-ref',
       key: 'name',
       label: '名称',
-      default: preset?.name ?? '',
+      default: '',
       info:
         recent.length === 0
           ? undefined
@@ -1233,13 +1223,13 @@ function addTagSpec(
         { name: '附注标签', value: 'annotated' },
         { name: '轻量标签', value: 'lightweight' }
       ],
-      default: (preset?.type as string | undefined) ?? 'annotated'
+      default: 'annotated'
     },
     {
       type: 'text',
       key: 'message',
       label: '消息',
-      default: preset?.message ?? '',
+      default: '',
       placeholder: '可选',
       info: '只有附注标签可以添加消息。'
     }
@@ -1250,7 +1240,7 @@ function addTagSpec(
       key: 'pushTo',
       label: '推送到远程',
       options: [{ name: '不推送', value: '' }, ...env.remotes.map((r) => ({ name: r, value: r }))],
-      default: typeof preset?.pushTo === 'string' ? preset.pushTo : '',
+      default: '',
       info: '标签添加后，推送到该远程。'
     })
   } else if (env.remotes.length === 1) {
@@ -1258,7 +1248,7 @@ function addTagSpec(
       type: 'checkbox',
       key: 'pushTo',
       label: '推送到远程',
-      default: preset?.pushTo === true,
+      default: false,
       info: '标签添加后，推送到该远程。'
     })
   }
@@ -1302,32 +1292,16 @@ function addTagSpec(
     inputs,
     buttons: [
       {
-        label: '添加标签',
-        onClick: (v) => {
+        label: '添加',
+        onClick: (v, confirm) => {
           const name = v.name as string
           if (env.tags.includes(name)) {
-            // D11b：标签重名双按钮（替换 / 换名保留已填值）
-            env.closeDialog()
-            env.openChase({
-              title: `替换现有标签 “${name}”？`,
-              message: '同名标签已存在。',
-              inputs: [],
-              hideCancel: true,
-              buttons: [
-                { label: '是，替换现有标签', onClick: () => run(v, true) },
-                {
-                  label: '否，换一个标签名',
-                  onClick: () =>
-                    env.openChase(
-                      addTagSpec(env, hash, {
-                        name,
-                        type: v.type as string,
-                        message: v.message as string,
-                        pushTo: (v.pushTo as string | boolean | undefined) ?? ''
-                      })
-                    )
-                }
-              ]
+            // D11b：重名确认替换；取消回到表单换名
+            confirm({
+              title: `替换标签 “${name}”？`,
+              message: `已有同名标签，替换后它将指向提交 ${abbrevHash(hash)}。`,
+              label: '替换',
+              onConfirm: () => run(v, true)
             })
           } else {
             run(v, false)
@@ -1366,7 +1340,7 @@ function deleteTagSpec(env: DialogEnv, name: string): DialogSpec {
     inputs,
     buttons: [
       {
-        label: '是，删除',
+        label: '删除',
         onClick: (v) => {
           const deleteOnRemote =
             count === 1
@@ -1429,7 +1403,7 @@ function pushTagSpec(env: DialogEnv, name: string, hash: string): DialogSpec {
       : [],
     buttons: [
       {
-        label: '是，推送',
+        label: '推送',
         onClick: (v) => run(multi ? (v.remotes as string[]) : env.remotes.slice(0, 1))
       }
     ]
@@ -1463,7 +1437,7 @@ function pushTagWarningSpec(
     inputs: [{ type: 'checkbox', key: 'always', label: '总是继续（不再提示）', default: false }],
     buttons: [
       {
-        label: '继续推送',
+        label: '推送',
         onClick: (v) => {
           if (v.always === true) void env.setViewPrefs({ pushTagSkipRemoteCheck: true })
           env.closeDialog()
@@ -1483,12 +1457,8 @@ function pushTagWarningSpec(
   }
 }
 
-/** D14 创建分支；重名续弹 D14b 替换确认（换名保留已填值）。 */
-function createBranchSpec(
-  env: DialogEnv,
-  hash: string,
-  preset: { name: string; checkout: boolean } | null
-): DialogSpec {
+/** D14 创建分支；重名时确认替换（D14b）。 */
+function createBranchSpec(env: DialogEnv, hash: string): DialogSpec {
   const run = (name: string, checkout: boolean, force: boolean): void => {
     dispatch(env, { kind: 'create-branch', hash, name, checkout, force }, '正在创建分支')
   }
@@ -1499,38 +1469,31 @@ function createBranchSpec(
       </>
     ),
     inputs: [
-      { type: 'text-ref', key: 'name', label: '名称', default: preset?.name ?? '' },
+      { type: 'text-ref', key: 'name', label: '名称', default: '' },
       {
         type: 'checkbox',
         key: 'checkout',
         label: '创建后检出',
         // 操作进行中防误触：checkout 在变基等中途会被 git 拒绝（分支已建、检出失败），
-        // 与检出类入口统一置灰；default 一并压 false，防 preset 带入的勾选态漏网
-        default: env.opInProgress !== null ? false : (preset?.checkout ?? false),
+        // 与检出类入口统一置灰
+        default: false,
         disabled: env.opInProgress !== null,
         disabledReason: env.opInProgress !== null ? opBlockReason(env.opInProgress) : undefined
       }
     ],
     buttons: [
       {
-        label: '创建分支',
-        onClick: (v) => {
+        label: '创建',
+        onClick: (v, confirm) => {
           const name = v.name as string
           const checkout = v.checkout as boolean
           if (env.branches.includes(name)) {
-            env.closeDialog()
-            env.openChase({
-              title: `替换现有分支 “${name}”？`,
-              message: '同名分支已存在。',
-              inputs: [],
-              hideCancel: true,
-              buttons: [
-                { label: '是，替换现有分支', onClick: () => run(name, checkout, true) },
-                {
-                  label: '否，换一个分支名',
-                  onClick: () => env.openChase(createBranchSpec(env, hash, { name, checkout }))
-                }
-              ]
+            // D14b：重名确认替换；取消回到表单换名
+            confirm({
+              title: `替换分支 “${name}”？`,
+              message: `已有同名分支，替换后它将指向提交 ${abbrevHash(hash)}。`,
+              label: '替换',
+              onConfirm: () => run(name, checkout, true)
             })
           } else {
             run(name, checkout, false)
@@ -1777,6 +1740,24 @@ function DialogForm({
   })
   const setValue = (key: string, value: string | string[] | boolean): void =>
     setValues((v) => ({ ...v, [key]: value }))
+  /** 叠在表单之上的确认（按钮经 confirm 打开）：写在表单的子树里，Esc、点遮罩只关它自己 */
+  const [confirm, setConfirm] = useState<DialogConfirm | null>(null)
+  const confirmDialog = confirm !== null && (
+    <ConfirmDialog
+      title={confirm.title}
+      message={confirm.message}
+      buttons={[
+        {
+          label: confirm.label,
+          onClick: () => {
+            setConfirm(null)
+            confirm.onConfirm()
+          }
+        }
+      ]}
+      onCancel={() => setConfirm(null)}
+    />
+  )
 
   // TextRef 校验（§1.2）：空 = noInput（allowEmpty 除外）、命中非法字符正则 = inputInvalid，
   // 均禁用主按钮
@@ -1802,12 +1783,13 @@ function DialogForm({
         buttons={spec.buttons.map((btn) => ({
           label: btn.label,
           destructive: btn.destructive,
-          onClick: () => btn.onClick(values)
+          onClick: () => btn.onClick(values, setConfirm)
         }))}
         onCancel={onCancel}
         cancelLabel={spec.cancelLabel}
-        hideCancel={spec.hideCancel}
-      />
+      >
+        {confirmDialog}
+      </ConfirmDialog>
     )
   }
 
@@ -1819,11 +1801,10 @@ function DialogForm({
         destructive: btn.destructive,
         disabled: !valid,
         title: hasInvalid ? `无法${btn.label}，输入包含非法字符` : undefined,
-        onClick: () => btn.onClick(values)
+        onClick: () => btn.onClick(values, setConfirm)
       }))}
       onCancel={onCancel}
       cancelLabel={spec.cancelLabel ?? (spec.messageOnly === true ? '关闭' : '取消')}
-      hideCancel={spec.hideCancel}
       // 没有文本输入（确认类）：点遮罩即取消
       dismissOnOutsidePress={autoFocusKey === null}
     >
@@ -1836,6 +1817,7 @@ function DialogForm({
           setValue={setValue}
         />
       ))}
+      {confirmDialog}
     </FormDialogShell>
   )
 }
@@ -2105,7 +2087,7 @@ function PullBranchDialog({
       message={<>将远程分支拉取到 {currentBranchText(env.currentBranch)}：</>}
       buttons={[
         {
-          label: '是，拉取',
+          label: '拉取',
           disabled,
           title: disabled ? (refreshing ? '正在刷新远程分支列表' : '请先选择远程分支') : undefined,
           onClick: confirm
@@ -2254,7 +2236,7 @@ function PushBranchDialog({
       message={<>将本地分支推送到远程：</>}
       buttons={[
         {
-          label: '是，推送',
+          label: '推送',
           disabled,
           title: disabled
             ? refreshing

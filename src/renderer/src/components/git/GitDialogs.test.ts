@@ -1,6 +1,6 @@
 // GitDialogs 纯函数层测试：ref 名校验（照参考 REF_INVALID_REGEX）、中文列表串、
 // 最近标签提取、push remote 与 pull 表单（remote / 远程分支 / 整合方式）默认值求值链、
-// 提交面板危险确认的 buildSpec 描述。
+// 危险确认与重名确认的 buildSpec 描述。
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_GIT_VIEW_PREFS,
@@ -21,6 +21,7 @@ import {
   isRefInvalid,
   latestTagNames,
   remoteBranchesOf,
+  type DialogConfirm,
   type DialogEnv,
   type DialogSpec
 } from './GitDialogs'
@@ -308,14 +309,20 @@ function makeEnv(
   return { env, quiet, ran, closed: () => closedCount, opened, removed, chased }
 }
 
+/** 不该叠确认的按钮：真弹了即失败 */
+const noConfirm = (): void => {
+  throw new Error('不应弹出确认')
+}
+const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
+
 describe('buildSpec：提交面板的危险确认', () => {
-  it('discard-file：无输入项，主按钮「是，撤销更改」先关对话框再静默执行', () => {
+  it('discard-file：无输入项，主按钮「撤销」先关对话框再静默执行', () => {
     const { env, quiet, closed } = makeEnv()
     const spec = buildSpec({ kind: 'discard-file', paths: ['src/a.ts'] }, env)
     expect(spec).not.toBeNull()
     expect(spec!.inputs).toEqual([])
-    expect(spec!.buttons.map((b) => b.label)).toEqual(['是，撤销更改'])
-    spec!.buttons[0].onClick({})
+    expect(spec!.buttons.map((b) => b.label)).toEqual(['撤销'])
+    spec!.buttons[0].onClick({}, noConfirm)
     expect(closed()).toBe(1)
     expect(quiet).toEqual([{ kind: 'discard-file', paths: ['src/a.ts'] }])
   })
@@ -323,17 +330,17 @@ describe('buildSpec：提交面板的危险确认', () => {
   it('discard-file：多文件时主动作把整组路径静默传下', () => {
     const { env, quiet } = makeEnv()
     const spec = buildSpec({ kind: 'discard-file', paths: ['a.ts', 'b.ts'] }, env)
-    spec!.buttons[0].onClick({})
+    spec!.buttons[0].onClick({}, noConfirm)
     expect(quiet).toEqual([{ kind: 'discard-file', paths: ['a.ts', 'b.ts'] }])
   })
 
-  it('delete-untracked-file：无输入项，主按钮「是，删除」先关对话框再静默执行', () => {
+  it('delete-untracked-file：无输入项，主按钮「删除」先关对话框再静默执行', () => {
     const { env, quiet, closed } = makeEnv()
     const spec = buildSpec({ kind: 'delete-untracked-file', paths: ['tmp/n.log'] }, env)
     expect(spec).not.toBeNull()
     expect(spec!.inputs).toEqual([])
-    expect(spec!.buttons.map((b) => b.label)).toEqual(['是，删除'])
-    spec!.buttons[0].onClick({})
+    expect(spec!.buttons.map((b) => b.label)).toEqual(['删除'])
+    spec!.buttons[0].onClick({}, noConfirm)
     expect(closed()).toBe(1)
     expect(quiet).toEqual([{ kind: 'delete-untracked-file', paths: ['tmp/n.log'] }])
   })
@@ -341,19 +348,19 @@ describe('buildSpec：提交面板的危险确认', () => {
   it('delete-untracked-file：多文件时主动作把整组路径静默传下', () => {
     const { env, quiet } = makeEnv()
     const spec = buildSpec({ kind: 'delete-untracked-file', paths: ['x.log', 'y.log'] }, env)
-    spec!.buttons[0].onClick({})
+    spec!.buttons[0].onClick({}, noConfirm)
     expect(quiet).toEqual([{ kind: 'delete-untracked-file', paths: ['x.log', 'y.log'] }])
   })
 })
 
 describe('buildSpec：op-abort 中止确认（操作进行中状态条）', () => {
-  it('中止变基：无输入项，单按钮「是，中止」先关对话框再执行 op-abort', () => {
+  it('中止变基：无输入项，单按钮「中止」先关对话框再执行 op-abort', () => {
     const { env, ran, closed } = makeEnv()
     const spec = buildSpec({ kind: 'op-abort', op: 'rebase' }, env)
     expect(spec).not.toBeNull()
     expect(spec!.inputs).toEqual([])
-    expect(spec!.buttons.map((b) => b.label)).toEqual(['是，中止'])
-    spec!.buttons[0].onClick({})
+    expect(spec!.buttons.map((b) => b.label)).toEqual(['中止'])
+    spec!.buttons[0].onClick({}, noConfirm)
     expect(closed()).toBe(1)
     expect(ran).toEqual([{ kind: 'op-abort', op: 'rebase' }])
   })
@@ -362,14 +369,14 @@ describe('buildSpec：op-abort 中止确认（操作进行中状态条）', () =
     for (const op of ['merge', 'cherry-pick', 'revert'] as const) {
       const { env, ran } = makeEnv()
       const spec = buildSpec({ kind: 'op-abort', op }, env)
-      spec!.buttons[0].onClick({})
+      spec!.buttons[0].onClick({}, noConfirm)
       expect(ran).toEqual([{ kind: 'op-abort', op }])
     }
   })
 })
 
 describe('buildSpec：分支已在其他工作树检出', () => {
-  it('branch-in-worktree：无输入项，主按钮「前往该项目」先关对话框再前往，不发任何 git 动作', () => {
+  it('branch-in-worktree：无输入项，主按钮「转到项目」先关对话框再转到，不发任何 git 动作', () => {
     const { env, quiet, ran, closed, opened } = makeEnv()
     const worktree: GitWorktree = {
       path: '/code/worktrees/app/feat-x',
@@ -383,8 +390,8 @@ describe('buildSpec：分支已在其他工作树检出', () => {
     const spec = buildSpec({ kind: 'branch-in-worktree', branch: 'feat/x', worktree }, env)
     expect(spec).not.toBeNull()
     expect(spec!.inputs).toEqual([])
-    expect(spec!.buttons.map((b) => b.label)).toEqual(['前往该项目'])
-    spec!.buttons[0].onClick({})
+    expect(spec!.buttons.map((b) => b.label)).toEqual(['转到项目'])
+    spec!.buttons[0].onClick({}, noConfirm)
     expect(closed()).toBe(1)
     expect(opened).toEqual(['/code/worktrees/app/feat-x'])
     expect(ran).toEqual([])
@@ -402,13 +409,12 @@ describe('buildSpec：工作树删除与清理', () => {
     prunable: false,
     isCurrent: false
   }
-  const flush = (): Promise<void> => new Promise((r) => setTimeout(r, 0))
 
   it('worktree-remove：未登记为项目 → 先关框再删，成功后不动项目', async () => {
     const { env, ran, closed, removed } = makeEnv()
     const spec = buildSpec({ kind: 'worktree-remove', worktree: wt }, env)
-    expect(spec!.buttons.map((b) => b.label)).toEqual(['是，删除'])
-    spec!.buttons[0].onClick({})
+    expect(spec!.buttons.map((b) => b.label)).toEqual(['删除'])
+    spec!.buttons[0].onClick({}, noConfirm)
     await flush()
     expect(closed()).toBe(1)
     expect(ran).toEqual([{ kind: 'worktree-remove', path: '/wt/feat', force: false }])
@@ -416,7 +422,7 @@ describe('buildSpec：工作树删除与清理', () => {
   })
 
   it('worktree-remove：已登记且空闲 → 主进程要求强制时追问并带 force 重发，成功后移除项目', async () => {
-    const { env, ran, removed, chased } = makeEnv({
+    const { env, ran, closed, removed, chased } = makeEnv({
       projectState: () => 'idle',
       runResult: (a) =>
         a.kind === 'worktree-remove' && !a.force
@@ -424,13 +430,14 @@ describe('buildSpec：工作树删除与清理', () => {
           : { status: 'ok' }
     })
     const spec = buildSpec({ kind: 'worktree-remove', worktree: wt }, env)
-    spec!.buttons[0].onClick({})
+    spec!.buttons[0].onClick({}, noConfirm)
     await flush()
     expect(removed).toEqual([])
     expect(chased).toHaveLength(1)
     expect(chased[0].buttons.map((b) => b.label)).toEqual(['强制删除'])
-    chased[0].buttons[0].onClick({})
+    chased[0].buttons[0].onClick({}, noConfirm)
     await flush()
+    expect(closed()).toBe(2)
     expect(ran).toEqual([
       { kind: 'worktree-remove', path: '/wt/feat', force: false },
       { kind: 'worktree-remove', path: '/wt/feat', force: true }
@@ -449,8 +456,8 @@ describe('buildSpec：工作树删除与清理', () => {
   it('worktree-prune：确认后先关框再执行；worktree-add 交组件层渲染（spec 为 null）', () => {
     const { env, ran, closed } = makeEnv()
     const spec = buildSpec({ kind: 'worktree-prune' }, env)
-    expect(spec!.buttons.map((b) => b.label)).toEqual(['是，清理'])
-    spec!.buttons[0].onClick({})
+    expect(spec!.buttons.map((b) => b.label)).toEqual(['清理'])
+    spec!.buttons[0].onClick({}, noConfirm)
     expect(closed()).toBe(1)
     expect(ran).toEqual([{ kind: 'worktree-prune' }])
     expect(
@@ -464,5 +471,75 @@ describe('buildSpec：工作树删除与清理', () => {
         env
       )
     ).toBeNull()
+  })
+})
+
+describe('buildSpec：重名时叠在表单上确认', () => {
+  it('create-branch：重名先确认替换，确认后带 force 创建；不重名直接创建', () => {
+    const { env, ran, closed } = makeEnv()
+    const spec = buildSpec(
+      { kind: 'create-branch', hash: 'abcdef1234' },
+      { ...env, branches: ['dev'] }
+    )
+    expect(spec!.buttons.map((b) => b.label)).toEqual(['创建'])
+    const confirms: DialogConfirm[] = []
+    spec!.buttons[0].onClick({ name: 'dev', checkout: false }, (c) => confirms.push(c))
+    expect(closed()).toBe(0)
+    expect(ran).toEqual([])
+    expect(confirms).toHaveLength(1)
+    expect(confirms[0]).toMatchObject({ title: '替换分支 “dev”？', label: '替换' })
+    confirms[0].onConfirm()
+    expect(closed()).toBe(1)
+    expect(ran).toEqual([
+      { kind: 'create-branch', hash: 'abcdef1234', name: 'dev', checkout: false, force: true }
+    ])
+    spec!.buttons[0].onClick({ name: 'feat', checkout: true }, noConfirm)
+    expect(ran[1]).toEqual({
+      kind: 'create-branch',
+      hash: 'abcdef1234',
+      name: 'feat',
+      checkout: true,
+      force: false
+    })
+  })
+
+  it('add-tag：重名先确认替换，确认后带 force 添加', () => {
+    const { env, ran, closed } = makeEnv()
+    const spec = buildSpec({ kind: 'add-tag', hash: 'abcdef1234' }, { ...env, tags: ['v1'] })
+    expect(spec!.buttons.map((b) => b.label)).toEqual(['添加'])
+    const confirms: DialogConfirm[] = []
+    spec!.buttons[0].onClick({ name: 'v1', type: 'lightweight', message: '' }, (c) =>
+      confirms.push(c)
+    )
+    expect(closed()).toBe(0)
+    expect(ran).toEqual([])
+    expect(confirms[0]).toMatchObject({ title: '替换标签 “v1”？', label: '替换' })
+    confirms[0].onConfirm()
+    expect(closed()).toBe(1)
+    expect(ran).toEqual([expect.objectContaining({ kind: 'add-tag', name: 'v1', force: true })])
+  })
+
+  it('checkout-remote-branch：本地已有同名分支时确认改为检出现有分支，成功后随即拉取', async () => {
+    const { env, ran, closed } = makeEnv()
+    const spec = buildSpec(
+      { kind: 'checkout-remote-branch', remoteRef: 'origin/dev', remote: 'origin' },
+      { ...env, branches: ['dev'] }
+    )
+    expect(spec!.buttons.map((b) => b.label)).toEqual(['检出'])
+    const confirms: DialogConfirm[] = []
+    spec!.buttons[0].onClick({ name: 'dev' }, (c) => confirms.push(c))
+    expect(closed()).toBe(0)
+    expect(confirms[0]).toMatchObject({
+      title: '检出现有分支 “dev”？',
+      message: '本地已有同名分支，检出后会从 “origin/dev” 拉取更改。',
+      label: '检出'
+    })
+    confirms[0].onConfirm()
+    await flush()
+    expect(closed()).toBe(1)
+    expect(ran).toEqual([
+      { kind: 'checkout-branch', branch: 'dev', remoteBranch: null },
+      { kind: 'pull-branch', remote: 'origin', branch: 'dev', mode: 'merge', noFastForward: false }
+    ])
   })
 })

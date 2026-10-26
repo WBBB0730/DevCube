@@ -66,7 +66,7 @@ export type GitDialogRequest =
   | { kind: 'push-branch'; branch: string }
   /** 检出远程分支（创建本地跟踪分支）；remote 为 null 表示孤儿远程 ref */
   | { kind: 'checkout-remote-branch'; remoteRef: string; remote: string | null }
-  // 分支已在其他工作树检出（git 拒绝重复检出）：提示 + 「前往该项目」，不发命令
+  // 分支已在其他工作树检出（git 拒绝重复检出）：提示 + 「转到项目」，不发命令
   | { kind: 'branch-in-worktree'; branch: string; worktree: GitWorktree }
   // 工作树管理：新建（各入口只差预设）/ 删除（脏则追问强制）/ 清理失效登记
   | {

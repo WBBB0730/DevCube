@@ -82,7 +82,7 @@ export interface GitMenuContext {
   viewPrefs: GitViewPrefs
   /** 进行中的多步操作（变基/合并/拣选/回滚）：非空时会撞车的菜单项置灰 */
   opInProgress: GitOpInProgress | null
-  /** 同仓库的工作树：被其他工作树检出的分支不发 checkout，改为「前往该项目」提示 */
+  /** 同仓库的工作树：被其他工作树检出的分支不发 checkout，改为「转到项目」提示 */
   worktrees: GitWorktree[]
   actions: GitMenuActions
 }
@@ -242,7 +242,7 @@ function branchMenu(name: string, ctx: GitMenuContext): (GitMenuItem | 'divider'
   const isCurrent = name === ctx.currentBranch
   const items: (GitMenuItem | 'divider')[] = []
   if (!isCurrent) {
-    // 分支已在其他工作树检出：git 拒绝重复检出，不发命令，改为打开「前往该项目」提示
+    // 分支已在其他工作树检出：git 拒绝重复检出，不发命令，改为打开「转到项目」提示
     const holder = worktreeHoldingBranch(ctx.worktrees, name)
     items.push(
       blockDuringOp(

@@ -289,7 +289,7 @@ function UserSection({
     }
     onConfirm({
       title: `移除${loc === 'local' ? '本仓库' : '全局'}配置的用户名与邮箱？`,
-      actionLabel: '是，移除',
+      actionLabel: '移除',
       destructive: true,
       run: () => void runActionsThenReloadConfig(projectPath, steps)
     })
@@ -463,7 +463,7 @@ function RemotesSection({
   const remove = (name: string): void =>
     onConfirm({
       title: `删除远程 “${name}”？`,
-      actionLabel: '是，删除',
+      actionLabel: '删除',
       destructive: true,
       run: () =>
         void runActionsThenReloadConfig(projectPath, [
@@ -475,7 +475,7 @@ function RemotesSection({
     onConfirm({
       title: `清理远程 “${name}” 的跟踪引用？`,
       message: '远程上已不存在的分支，它们在本地的远程跟踪引用会被删除。',
-      actionLabel: '是，清理',
+      actionLabel: '清理',
       destructive: false,
       run: () =>
         void runActionsThenReloadConfig(projectPath, [
