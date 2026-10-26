@@ -105,10 +105,12 @@ export function createTaskRegistry(): TaskRegistry {
     entry.info = { ...entry.info, ...patch } as TaskInfo
   }
 
-  /** 按新样本重算速度与剩余时间。 */
-  const sample = (entry: Entry, doneBytes: number | null): void => {
+  /** 按新样本重算速度与剩余时间；samePhase=false（换了阶段）时从这个样本重新算。 */
+  const sample = (entry: Entry, doneBytes: number | null, samePhase = true): void => {
     entry.samples =
-      doneBytes === null ? [] : addSpeedSample(entry.samples, { at: Date.now(), bytes: doneBytes })
+      doneBytes === null
+        ? []
+        : addSpeedSample(samePhase ? entry.samples : [], { at: Date.now(), bytes: doneBytes })
     const speed = speedOf(entry.samples)
     update(entry, {
       speed,
@@ -218,8 +220,10 @@ export function createTaskRegistry(): TaskRegistry {
         },
         report: (progress) => {
           if (entry.finished) return
+          // 速度按阶段算：LFS 文件与提交的已传字节各自从 0 记起，不能接着上一阶段算
+          const samePhase = progress.phase === entry.info.progress.phase
           update(entry, { progress })
-          sample(entry, progress.doneBytes)
+          sample(entry, progress.doneBytes, samePhase)
           syncSpeedTimer()
           emit(false)
         },

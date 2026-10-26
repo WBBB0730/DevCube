@@ -4,10 +4,14 @@
 // （shell-env.ts，VS Code 同款）：先在这份环境里找 git，失败再回退固定候选。
 
 import * as cp from 'child_process'
+import { randomUUID } from 'crypto'
 import { promises as fs } from 'fs'
+import { tmpdir } from 'os'
 import { isAbsolute, join, normalize, posix, resolve } from 'path'
 import { StringDecoder } from 'string_decoder'
+import type { GitProgressSource } from '../shared/git-task'
 import { linuxToWslPath, wslToLinuxPath } from '../shared/wsl-path'
+import { tailFile } from './file-tail'
 import { resolveShellEnvironment } from './shell-env'
 import { wslExec } from './wsl'
 
@@ -230,17 +234,65 @@ function killProcessTree(child: cp.ChildProcess): void {
 }
 
 /**
- * 流式执行一条 git 命令（长任务专用，如 clone）：stderr 按块实时回调，
+ * 流式执行的选项（docs/prd/task-progress.md）：git-lfs 的输出不接终端时不报进度，要它报得另外打开。
+ */
+export interface GitStreamOptions {
+  /** 跟读 git-lfs 的进度文件（GIT_LFS_PROGRESS）：新写入的内容以 'lfs-progress' 回调，结束后删掉 */
+  lfsProgressFile?: boolean
+  /** 让 git-lfs 照样打它自己的进度行（GIT_LFS_FORCE_PROGRESS） */
+  forceLfsProgress?: boolean
+}
+
+/** 本次执行的 LFS 进度文件：交给 git 的路径（仓库在 WSL 里时为发行版里的路径）与本机读写用的路径。 */
+function lfsProgressFile(distro: string | null): { gitPath: string; localPath: string } {
+  const name = `devcube-lfs-progress-${randomUUID()}`
+  if (distro === null) {
+    const path = join(tmpdir(), name)
+    return { gitPath: path, localPath: path }
+  }
+  const gitPath = posix.join('/tmp', name)
+  return { gitPath, localPath: linuxToWslPath(distro, gitPath) }
+}
+
+/**
+ * 流式执行一条 git 命令（长任务专用，如 clone）：错误输出与普通输出按块实时回调，
  * 同时照常累积进完整结果。与 execGit 共用 git 发现与环境，但不做 ENOENT 重试
  * ——长任务重来一遍代价太大，直接把失败交给调用方。
  */
 export async function execGitStreaming(
   cwd: string,
   args: string[],
-  onStderr: (chunk: string) => void
+  onOutput: (source: GitProgressSource, chunk: string) => void,
+  options: GitStreamOptions = {}
 ): Promise<GitStreamRun> {
   const wsl = wslTarget(cwd)
-  if (wsl !== null) return execWslGitStreaming(wsl.distro, wsl.path, args, onStderr)
+  const lfsFile = options.lfsProgressFile === true ? lfsProgressFile(wsl?.distro ?? null) : null
+  const lfsEnv: Record<string, string> = {}
+  if (lfsFile !== null) lfsEnv.GIT_LFS_PROGRESS = lfsFile.gitPath
+  if (options.forceLfsProgress === true) lfsEnv.GIT_LFS_FORCE_PROGRESS = '1'
+  const run =
+    wsl !== null
+      ? execWslGitStreaming(wsl.distro, wsl.path, args, onOutput, lfsEnv)
+      : await execLocalGitStreaming(cwd, args, onOutput, lfsEnv)
+  if (lfsFile === null) return run
+  const tail = tailFile(lfsFile.localPath, (text) => onOutput('lfs-progress', text))
+  return {
+    cancel: run.cancel,
+    done: run.done.then(async (result) => {
+      await tail.stop()
+      // 删不掉（如发行版已停）不影响结果：它在临时目录里
+      await fs.rm(lfsFile.localPath, { force: true }).catch(() => {})
+      return result
+    })
+  }
+}
+
+async function execLocalGitStreaming(
+  cwd: string,
+  args: string[],
+  onOutput: (source: GitProgressSource, chunk: string) => void,
+  extraEnv: Record<string, string>
+): Promise<GitStreamRun> {
   const git = await findGit()
   if (!git) {
     return {
@@ -259,7 +311,7 @@ export async function execGitStreaming(
     // posix 上自成一个进程组：取消时整组结束（见 killProcessTree）。Windows 上 detached 会另开控制台，不用
     child = cp.spawn(git.path, args, {
       cwd,
-      env: gitEnv(shellEnv),
+      env: { ...gitEnv(shellEnv), ...extraEnv },
       detached: process.platform !== 'win32'
     })
   } catch (e) {
@@ -271,14 +323,19 @@ export async function execGitStreaming(
   const stdoutChunks: Buffer[] = []
   let stderrText = ''
   let error: Error | null = null
-  child.stdout?.on('data', (chunk: Buffer) => stdoutChunks.push(chunk))
   // 流式解码：多字节字符可能被 chunk 边界劈开，StringDecoder 缓存半个字符到下一 chunk
-  const decoder = new StringDecoder('utf8')
+  const stdoutDecoder = new StringDecoder('utf8')
+  const stderrDecoder = new StringDecoder('utf8')
+  child.stdout?.on('data', (chunk: Buffer) => {
+    stdoutChunks.push(chunk)
+    const text = stdoutDecoder.write(chunk)
+    if (text !== '') onOutput('stdout', text)
+  })
   child.stderr?.on('data', (chunk: Buffer) => {
-    const text = decoder.write(chunk)
+    const text = stderrDecoder.write(chunk)
     if (text === '') return
     stderrText += text
-    onStderr(text)
+    onOutput('stderr', text)
   })
   const done = new Promise<GitExecResult>((resolve) => {
     let settled = false
@@ -356,25 +413,29 @@ function execWslGitStreaming(
   distro: string,
   cwd: string,
   args: string[],
-  onStderr: (chunk: string) => void
+  onOutput: (source: GitProgressSource, chunk: string) => void,
+  extraEnv: Record<string, string>
 ): GitStreamRun {
   const controller = new AbortController()
   const stdoutChunks: Buffer[] = []
   let stderrText = ''
-  const decoder = new StringDecoder('utf8')
+  const stdoutDecoder = new StringDecoder('utf8')
+  const stderrDecoder = new StringDecoder('utf8')
   const done = wslExec(distro, 'git', args, {
     cwd,
-    env: WSL_GIT_ENV,
+    env: { ...WSL_GIT_ENV, ...extraEnv },
     signal: controller.signal,
     onData: (fd, chunk) => {
       if (fd === 'stdout') {
         stdoutChunks.push(chunk)
+        const text = stdoutDecoder.write(chunk)
+        if (text !== '') onOutput('stdout', text)
         return
       }
-      const text = decoder.write(chunk)
+      const text = stderrDecoder.write(chunk)
       if (text === '') return
       stderrText += text
-      onStderr(text)
+      onOutput('stderr', text)
     }
   }).then((result) => ({
     code: result.code,

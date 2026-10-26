@@ -15,21 +15,27 @@ export function ProgressBar({
   return (
     <Progress.Root value={value} className={cn('w-full', className)}>
       <Progress.Track className="relative h-1 w-full overflow-hidden rounded-full bg-[var(--progress-track)]">
-        <Progress.Indicator className="absolute h-full rounded-full bg-primary transition-[width] duration-150 data-[indeterminate]:w-[30%] data-[indeterminate]:animate-[progress-indeterminate_1.2s_ease-in-out_infinite]" />
+        {/* 不确定与按比例切换时重新挂载：两种状态的宽度与位置毫无关联，不能用宽度过渡接起来（否则滑块跳回左端再缩放） */}
+        <Progress.Indicator
+          key={value === null ? 'indeterminate' : 'determinate'}
+          className="absolute h-full rounded-full bg-primary transition-[width] duration-150 data-[indeterminate]:w-[30%] data-[indeterminate]:animate-[progress-indeterminate_1.2s_ease-in-out_infinite]"
+        />
       </Progress.Track>
     </Progress.Root>
   )
 }
 
 /**
- * 进度明细（12px muted、等宽数位）：「已传（速度）」，知道总量时「已传 / 总量（速度）· 还剩」。
- * 一项都没有时留空占位：数字晚到、或换到不传数据的阶段时，所在的弹窗不变高变矮。
+ * 进度明细（12px muted、等宽数位）：「已传 X（速度）」，知道总量时「已传 X / 总量（速度）· 还剩」；label 为前面的字。
+ * 不传数据的阶段留空占位：换阶段时所在的弹窗不变高变矮。
  */
 export function ProgressDetail({
   stats,
+  label,
   className
 }: {
   stats: Parameters<typeof progressDetail>[0]
+  label?: string
   className?: string
 }): React.JSX.Element {
   return (
@@ -39,7 +45,7 @@ export function ProgressDetail({
         className
       )}
     >
-      {progressDetail(stats)}
+      {progressDetail(stats, label)}
     </div>
   )
 }

@@ -173,6 +173,7 @@ function UpdateDownloadProgress({ update }: { update: AppUpdateState }): React.J
     <div className="w-80 space-y-1.5">
       <ProgressBar value={percent} />
       <ProgressDetail
+        label="已下"
         stats={
           download ?? { doneBytes: null, totalBytes: null, speed: null, remainingSeconds: null }
         }

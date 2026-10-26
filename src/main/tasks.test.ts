@@ -109,6 +109,23 @@ describe('任务登记处', () => {
     expect(registry.list()[0].remainingSeconds).toBeNull()
   })
 
+  it('速度按阶段算：换了阶段从头算，不接着上一阶段的字节', () => {
+    const { registry } = setup()
+    const task = registry.create(owner, title, { queued: false })
+    const report = (phase: string, doneBytes: number): void =>
+      task.report({ ...NO_PROGRESS, phase, doneBytes })
+    report('上传 LFS 文件', 0)
+    vi.advanceTimersByTime(1000)
+    report('上传 LFS 文件', 5000)
+    expect(registry.list()[0].speed).toBe(5000)
+    // 轮到提交：已传字节从 0 记起，速度只看这一阶段
+    report('发送对象', 0)
+    expect(registry.list()[0].speed).toBeNull()
+    vi.advanceTimersByTime(1000)
+    report('发送对象', 300)
+    expect(registry.list()[0].speed).toBe(300)
+  })
+
   it('退出前：叫停能取消的，等全部收尾', async () => {
     const { registry } = setup()
     const pushing = registry.create(owner, title, { queued: false })

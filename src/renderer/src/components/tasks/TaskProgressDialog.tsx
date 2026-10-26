@@ -2,7 +2,13 @@
 // 「隐藏」为主按钮（回车即它），Esc 也是隐藏，点遮罩不收口；「取消」要明确点。发起后 300ms 才出现（同 WebStorm），
 // 此前做完的不弹。
 import { useRef } from 'react'
-import { taskBarValue, taskDetailStats, taskPhaseLabel, type TaskInfo } from '@shared/task'
+import {
+  taskBarValue,
+  taskDetailStats,
+  taskItemsLabel,
+  taskPhaseLabel,
+  type TaskInfo
+} from '@shared/task'
 import { Button } from '@renderer/components/ui/button'
 import { Dialog } from '@renderer/components/ui/dialog'
 import { DialogFooter } from '@renderer/components/ui/form-dialog'
@@ -46,7 +52,7 @@ export function TaskProgressDialog({
   const hideRef = useRef<HTMLButtonElement>(null)
   const shown = useShowSince(task.createdAt, appearDelay)
   if (!shown && appearDelay > 0) return null
-  const percent = task.status === 'queued' ? null : task.progress.percent
+  const items = taskItemsLabel(task)
 
   return (
     <Dialog onClose={onHide} initialFocus={() => hideRef.current}>
@@ -55,9 +61,10 @@ export function TaskProgressDialog({
           <TaskTitleText task={task} running />
         </div>
         <div className="space-y-2">
+          {/* 阶段名 + 右侧这一步的个数；进度条只给传输阶段，按的就是这个个数 */}
           <div className="flex items-center justify-between gap-2 text-[12px] text-muted-foreground">
             <span className="min-w-0 truncate">{taskPhaseLabel(task)}</span>
-            {percent !== null && <span className="shrink-0 font-mono">{Math.floor(percent)}%</span>}
+            {items !== null && <span className="shrink-0 tabular-nums">{items}</span>}
           </div>
           <ProgressBar value={taskBarValue(task)} />
         </div>

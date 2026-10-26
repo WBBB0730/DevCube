@@ -6,12 +6,15 @@
 import type { GitCloneInput } from './git-clone'
 import { formatBytes } from './server-status'
 
-/** 一个 Task 此刻的进度：都可能没有（阶段未知、不报百分比、不传数据、不知道总量）。 */
+/** 一个 Task 此刻的进度：都可能没有（阶段未知、不报百分比、不报个数、不传数据、不知道总量）。 */
 export interface TaskProgress {
   /** 阶段名（如「接收对象」「合并」） */
   phase: string | null
-  /** 总百分比 0–100；null 为不确定 */
+  /** 当前这一段的百分比 0–100（LFS 文件与提交各算一段）；null 为不确定 */
   percent: number | null
+  /** 当前阶段完成了几个（对象、LFS 文件）、共几个（不知道为 null）；阶段不报个数时为 null */
+  items: { done: number; total: number | null } | null
+  /** 当前阶段已传字节：只在传数据的阶段有，速度按阶段算，换了阶段从头算 */
   doneBytes: number | null
   totalBytes: number | null
 }
@@ -19,6 +22,7 @@ export interface TaskProgress {
 export const NO_PROGRESS: TaskProgress = {
   phase: null,
   percent: null,
+  items: null,
   doneBytes: null,
   totalBytes: null
 }
@@ -67,6 +71,17 @@ export function isTaskActive(task: TaskInfo): boolean {
 export function taskPhaseLabel(task: TaskInfo): string {
   if (task.status === 'queued') return '等待中'
   return task.progress.phase ?? '准备中'
+}
+
+/**
+ * 当前阶段的个数：「完成 / 总数」，不知道总数时为「N 个」；阶段不报个数（含等待中）为 null。
+ * 传输阶段的进度条就按它走——大文件排在最后时进度条快满、体积还在涨，有了个数就看得懂。
+ */
+export function taskItemsLabel(task: TaskInfo): string | null {
+  const { items } = task.progress
+  if (task.status === 'queued' || items === null) return null
+  const done = items.done.toLocaleString()
+  return items.total === null ? `${done} 个` : `${done} / ${items.total.toLocaleString()}`
 }
 
 /** 进度条的值：等待中轨道空着、不动（0）；null 为不确定。 */
@@ -150,23 +165,25 @@ export function formatRemaining(seconds: number): string {
 }
 
 /**
- * 进度明细：「已传（速度）」，知道总量时「已传 / 总量（速度）· 还剩」。
- * 速度、剩余都由已传字节算出，没有已传字节、或还一个字节都没传出时没有明细（null）——已传与速度一起出现；
- * 算不出的项不写。
+ * 进度明细：「已传 X（速度）」，知道总量时「已传 X / 总量（速度）· 还剩」；label 为前面的字（更新下载用「已下」）。
+ * 一进传数据的阶段就显示，不等数字：已传从 0 B 起，速度还算不出（刚开始只有一个样本）时写 0 B/s；剩余时间算不出时不写。
+ * 不传数据的阶段（没有已传字节）没有明细（null）。
  */
-export function progressDetail(stats: {
-  doneBytes: number | null
-  totalBytes: number | null
-  speed: number | null
-  remainingSeconds: number | null
-}): string | null {
-  if (stats.doneBytes === null || stats.doneBytes === 0) return null
-  let text =
+export function progressDetail(
+  stats: {
+    doneBytes: number | null
+    totalBytes: number | null
+    speed: number | null
+    remainingSeconds: number | null
+  },
+  label = '已传'
+): string | null {
+  if (stats.doneBytes === null) return null
+  const done =
     stats.totalBytes === null
       ? formatBytes(stats.doneBytes)
       : `${formatBytes(stats.doneBytes)} / ${formatBytes(stats.totalBytes)}`
-  if (stats.speed === null) return text
-  text += `（${formatSpeed(stats.speed)}）`
+  let text = `${label} ${done}（${formatSpeed(stats.speed ?? 0)}）`
   // 剩余时间由速度算出，总跟在括号后面；全角括号自带间距，「·」前不再空格
   if (stats.remainingSeconds !== null) text += `· ${formatRemaining(stats.remainingSeconds)}`
   return text

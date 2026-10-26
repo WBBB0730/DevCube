@@ -1,7 +1,15 @@
 // git-exec 测试：链接工作树 → 主工作树目录的推导；WSL 仓库的分流与路径互转（发行版里的执行替换成假的）；
-// 本机流式执行的取消与按检出样子读文件（真实 git，登录 shell 环境替换成空的，git 从当前 PATH 里找）。
+// 本机流式执行的取消、LFS 进度与按检出样子读文件（真实 git，登录 shell 环境替换成空的，git 从当前 PATH 里找）。
 import { spawnSync } from 'node:child_process'
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -111,7 +119,7 @@ describe('WSL 仓库', () => {
     })
   })
 
-  it('流式执行：stderr 按块回调，取消即在发行版里结束', async () => {
+  it('流式执行：两路输出按块回调，取消即在发行版里结束', async () => {
     let signal: AbortSignal | undefined
     vi.mocked(wslExec).mockImplementationOnce(async (_distro, _file, _args, options) => {
       options.onData?.('stderr', Buffer.from('Receiving objects:  50%'))
@@ -119,14 +127,36 @@ describe('WSL 仓库', () => {
       signal = options.signal
       return { code: 0, stdout: Buffer.alloc(0), stderr: Buffer.alloc(0), error: null }
     })
-    const chunks: string[] = []
-    const run = await execGitStreaming(root, ['clone', 'x'], (chunk) => chunks.push(chunk))
+    const chunks: [string, string][] = []
+    const run = await execGitStreaming(root, ['clone', 'x'], (source, chunk) =>
+      chunks.push([source, chunk])
+    )
     run.cancel()
     const result = await run.done
-    expect(chunks).toEqual(['Receiving objects:  50%'])
+    expect(chunks).toEqual([
+      ['stderr', 'Receiving objects:  50%'],
+      ['stdout', 'out']
+    ])
     expect(result.stderr).toBe('Receiving objects:  50%')
     expect(result.stdout.toString()).toBe('out')
     expect(signal?.aborted).toBe(true)
+  })
+
+  it('流式执行要 LFS 进度时：进度文件放在发行版的临时目录，git-lfs 照样打自己的进度行', async () => {
+    vi.mocked(wslExec).mockResolvedValueOnce({
+      code: 0,
+      stdout: Buffer.alloc(0),
+      stderr: Buffer.alloc(0),
+      error: null
+    })
+    const run = await execGitStreaming(root, ['push', 'origin', 'main'], () => {}, {
+      lfsProgressFile: true,
+      forceLfsProgress: true
+    })
+    await run.done
+    const env = vi.mocked(wslExec).mock.lastCall?.[3].env
+    expect(env).toMatchObject({ GIT_TERMINAL_PROMPT: '0', GIT_LFS_FORCE_PROGRESS: '1' })
+    expect(env?.GIT_LFS_PROGRESS).toMatch(/^\/tmp\/devcube-lfs-progress-[0-9a-f-]+$/)
   })
 })
 
@@ -163,6 +193,51 @@ describe('本机流式执行的取消', () => {
       // 钩子要睡 2 秒：多等 1 秒，它若还活着就会写下结束标记
       await new Promise((resolve) => setTimeout(resolve, 3000))
       expect(existsSync(finished)).toBe(false)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 15000)
+})
+
+describe('本机流式执行的 LFS 进度', () => {
+  it('跟读进度文件、让 git-lfs 照样报进度，结束后删掉进度文件', async () => {
+    const root = mkdtempSync(join(tmpdir(), 'devcube-git-lfs-progress-'))
+    try {
+      const remote = join(root, 'remote.git')
+      const work = join(root, 'work')
+      const hooks = join(root, 'hooks')
+      mkdirSync(work)
+      mkdirSync(hooks)
+      git(root, ['init', '-q', '--bare', remote])
+      git(work, ['init', '-q'])
+      git(work, ['commit', '-q', '--allow-empty', '-m', 'init'])
+      // 代替 git-lfs 的钩子：往进度文件写一行，打出是否强制报进度，并记下进度文件的路径
+      const seen = join(root, 'progress-path')
+      const hook = join(hooks, 'pre-push')
+      writeFileSync(
+        hook,
+        '#!/bin/sh\n' +
+          'echo "upload 1/1 5/5 a.bin" >> "$GIT_LFS_PROGRESS"\n' +
+          'echo "force=$GIT_LFS_FORCE_PROGRESS"\n' +
+          `echo "$GIT_LFS_PROGRESS" > '${seen.replace(/\\/g, '/')}'\n`
+      )
+      chmodSync(hook, 0o755)
+
+      const chunks: Record<string, string> = { stdout: '', stderr: '', 'lfs-progress': '' }
+      const run = await execGitStreaming(
+        work,
+        ['-c', `core.hooksPath=${hooks}`, 'push', remote, 'HEAD:refs/heads/main'],
+        (source, chunk) => (chunks[source] += chunk),
+        { lfsProgressFile: true, forceLfsProgress: true }
+      )
+      const result = await run.done
+      expect(result.code).toBe(0)
+      expect(chunks['lfs-progress']).toBe('upload 1/1 5/5 a.bin\n')
+      // 钩子的普通输出落在 git 的哪一路随 git 版本，两路都回调
+      expect(chunks.stdout + chunks.stderr).toContain('force=1\n')
+      const progressPath = readFileSync(seen, 'utf8').trim()
+      expect(progressPath.startsWith(tmpdir())).toBe(true)
+      expect(existsSync(progressPath)).toBe(false)
     } finally {
       rmSync(root, { recursive: true, force: true })
     }

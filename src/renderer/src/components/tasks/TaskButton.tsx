@@ -7,6 +7,7 @@ import {
   progressDetail,
   taskBarValue,
   taskDetailStats,
+  taskItemsLabel,
   taskPhaseLabel,
   type TaskInfo
 } from '@shared/task'
@@ -94,13 +95,8 @@ function TaskRow({ task, onReveal }: { task: TaskInfo; onReveal: () => void }): 
       : null
   )
   const failed = task.status === 'failed'
-  const percent = task.status === 'running' ? task.progress.percent : null
-  // 进度明细：阶段 · 百分比 · 已传（速度）
-  const detail = [
-    taskPhaseLabel(task),
-    percent === null ? null : `${Math.floor(percent)}%`,
-    progressDetail(taskDetailStats(task))
-  ]
+  // 进度明细：阶段 · 个数 · 已传（速度）
+  const detail = [taskPhaseLabel(task), taskItemsLabel(task), progressDetail(taskDetailStats(task))]
     .filter((part) => part !== null)
     .join(' · ')
   const reason = task.errors.filter((e) => e !== '').join('\n')

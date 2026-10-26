@@ -620,8 +620,10 @@ function requireTask(task: GitTaskContext | null): GitTaskContext {
 
 /**
  * 一条联网命令：加 --progress 流式执行，进度经追踪器合成后回报；被取消即结束它的进程树。
+ * 推送前的钩子里 git-lfs 上传 LFS 文件，它的输出不接终端时不报进度：跟读它的进度文件（已传字节），
+ * 并让它照样打自己的进度行（个数含服务器上已有而跳过的文件）。
  * slot：它在这个 Task 的联网命令里排第几、共几条（总进度按条数平分）。被取消时不算失败（返回 null），
- * 由 runTask 收成取消。报错里剔掉进度帧，与不报进度时一致。
+ * 由 runTask 收成取消。报错里剔掉两路输出里的进度帧，与不报进度时一致。
  */
 async function runNetwork(
   cwd: string,
@@ -631,17 +633,48 @@ async function runNetwork(
 ): Promise<string | null> {
   if (task.signal.aborted) return null
   const tracker = createGitProgressTracker()
-  const stream = await execGitStreaming(cwd, withProgressFlag(args), (chunk) => {
-    const progress = tracker.feed(chunk)
-    if (progress !== null) task.report(spreadProgress(progress, slot))
-  })
+  const stream = await execGitStreaming(
+    cwd,
+    withProgressFlag(args),
+    (source, chunk) => {
+      const progress = tracker.feed(source, chunk)
+      if (progress !== null) task.report(spreadProgress(progress, slot))
+    },
+    { lfsProgressFile: true, forceLfsProgress: true }
+  )
   const cancel = (): void => stream.cancel()
   task.signal.addEventListener('abort', cancel)
   if (task.signal.aborted) stream.cancel() // 进程起来之前就点了取消
   const result = await stream.done
   task.signal.removeEventListener('abort', cancel)
   if (result.code === 0 || task.signal.aborted) return null
-  return getErrorMessage({ ...result, stderr: stripGitProgress(result.stderr) })
+  return getErrorMessage({
+    ...result,
+    stdout: Buffer.from(stripGitProgress(result.stdout.toString('utf8'))),
+    stderr: stripGitProgress(result.stderr)
+  })
+}
+
+/**
+ * 拉取的整合（合并 / 变基）：不可取消。检出时 git-lfs 下载 LFS 文件，git 这时不报进度，跟读 LFS 进度文件回报。
+ */
+async function runPullIntegration(
+  cwd: string,
+  args: string[],
+  task: GitTaskContext
+): Promise<string | null> {
+  const tracker = createGitProgressTracker()
+  const stream = await execGitStreaming(
+    cwd,
+    args,
+    (source, chunk) => {
+      const progress = tracker.feed(source, chunk)
+      if (progress !== null) task.report(progress)
+    },
+    { lfsProgressFile: true }
+  )
+  const result = await stream.done
+  return result.code === 0 ? null : getErrorMessage(result)
 }
 
 /** 顺序执行一串联网命令，任一失败或被取消即停；总进度按条数平分。 */
@@ -759,7 +792,7 @@ async function runPullBranch(
   const phase = pullIntegrationPhase(action.mode)
   task.setCancellable(false, `正在${phase}，无法取消`)
   task.report({ ...NO_PROGRESS, phase })
-  const pullError = await run(cwd, pullArgs)
+  const pullError = await runPullIntegration(cwd, pullArgs, task)
   if (pullError !== null) return toActionResult([pullError])
   if (action.mode === 'squash') {
     const obj = `${action.remote}/${action.branch}`

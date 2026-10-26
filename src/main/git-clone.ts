@@ -56,8 +56,9 @@ export async function runClone(
     input.parentDir,
     // 存放位置在 WSL 里时 git 在那个发行版里执行，目标目录换成它的 Linux 路径
     buildCloneArgs(input.url, gitPathArg(input.parentDir, target), input.recurseSubmodules),
-    (chunk) => {
-      const progress = tracker.feed(chunk)
+    // 检出时下载 LFS 文件的进度 git 自己会报（Filtering content，带总数），不用 LFS 进度文件（那里逐个文件下，没有总数）
+    (source, chunk) => {
+      const progress = tracker.feed(source, chunk)
       if (progress !== null) task.report(progress)
     }
   )

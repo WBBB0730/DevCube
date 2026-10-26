@@ -10,6 +10,7 @@ import {
   speedOf,
   taskBarValue,
   taskDetailStats,
+  taskItemsLabel,
   taskPhaseLabel,
   type SpeedSample,
   type TaskInfo
@@ -108,15 +109,14 @@ describe('格式化', () => {
     expect(formatRemaining(3600 + 5 * 60)).toBe('还剩 1 小时 5 分')
   })
 
-  it('进度明细：算不出的项不写', () => {
+  it('进度明细：一进传数据的阶段就显示，已传从 0 起，速度算不出时写 0；剩余时间算不出不写', () => {
     const none = { doneBytes: null, totalBytes: null, speed: null, remainingSeconds: null }
     expect(progressDetail(none)).toBeNull()
-    expect(progressDetail({ ...none, doneBytes: 0, totalBytes: 1024 })).toBeNull()
-    expect(progressDetail({ ...none, doneBytes: 1024 * 1024 })).toBe('1.0 MB')
-    expect(progressDetail({ ...none, doneBytes: 1024 * 1024, speed: 1024 })).toBe(
-      '1.0 MB（1.0 KB/s）'
-    )
     expect(progressDetail({ ...none, speed: 1024 })).toBeNull()
+    expect(progressDetail({ ...none, doneBytes: 0 })).toBe('已传 0 B（0 B/s）')
+    expect(progressDetail({ ...none, doneBytes: 1024 * 1024, speed: 1024 })).toBe(
+      '已传 1.0 MB（1.0 KB/s）'
+    )
     expect(
       progressDetail({
         doneBytes: 1024 * 1024,
@@ -124,7 +124,16 @@ describe('格式化', () => {
         speed: 1024 * 1024,
         remainingSeconds: 3
       })
-    ).toBe('1.0 MB / 4.0 MB（1.0 MB/s）· 还剩 3 秒')
+    ).toBe('已传 1.0 MB / 4.0 MB（1.0 MB/s）· 还剩 3 秒')
+  })
+
+  it('进度明细：前面的字可换（更新下载为「已下」）', () => {
+    expect(
+      progressDetail(
+        { doneBytes: 0, totalBytes: 1024, speed: null, remainingSeconds: null },
+        '已下'
+      )
+    ).toBe('已下 0 B / 1.0 KB（0 B/s）')
   })
 })
 
@@ -151,6 +160,18 @@ describe('Task 的展示取值', () => {
     expect(
       taskPhaseLabel({ ...task('running', 10), progress: { ...NO_PROGRESS, phase: '接收对象' } })
     ).toBe('接收对象')
+  })
+
+  it('个数：「完成 / 总数」，不知道总数时为「N 个」；不报个数与等待中没有', () => {
+    const withItems = (items: TaskInfo['progress']['items']): TaskInfo => ({
+      ...task('running', 10),
+      progress: { ...NO_PROGRESS, phase: '上传 LFS 文件', items }
+    })
+    expect(taskItemsLabel(withItems({ done: 6246, total: 13884 }))).toBe('6,246 / 13,884')
+    expect(taskItemsLabel(withItems({ done: 120, total: null }))).toBe('120 个')
+    expect(taskItemsLabel(withItems(null))).toBeNull()
+    expect(taskItemsLabel({ ...withItems({ done: 1, total: 2 }), status: 'queued' })).toBeNull()
+    expect(taskPhaseLabel(withItems({ done: 1, total: 2 }))).toBe('上传 LFS 文件')
   })
 
   it('进度条：等待中轨道空着，其余照百分比（null 为不确定）', () => {
