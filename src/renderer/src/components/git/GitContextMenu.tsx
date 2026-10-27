@@ -318,7 +318,7 @@ function branchMenu(name: string, ctx: GitMenuContext): (GitMenuItem | 'divider'
   if (ctx.remotes.length > 0) {
     items.push({
       title: '推送分支…',
-      onClick: () => actions.openDialog({ kind: 'push-branch', branch: name })
+      onClick: () => actions.openDialog({ kind: 'push-branch', branch: name, offerSkip: false })
     })
   }
   // 「创建 Pull Request」与「创建归档」v1 不做（见文件头注释）
@@ -417,7 +417,11 @@ function remoteBranchMenu(
           title: '拉取到当前分支…',
           // 预设该远程分支为表单初值（remote 与分支仍可在表单里改）
           onClick: () =>
-            actions.openDialog({ kind: 'pull-branch', preset: { remote, branch: branchName } })
+            actions.openDialog({
+              kind: 'pull-branch',
+              preset: { remote, branch: branchName },
+              offerSkip: false
+            })
         },
         ctx
       )

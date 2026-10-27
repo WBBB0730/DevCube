@@ -420,6 +420,12 @@ export interface GitRepoSettings {
    * （与 VS Code / GitLens 同形态）。只影响 DevCube 自己新建的工作树
    */
   worktreeDirectory: string | null
+  /** 拉取对话框「整合方式」的记忆值；null = 从未选过（回退仓库 git 配置，再回退合并） */
+  pullIntegrationMode: GitPullMode | null
+  /** 拉取对话框勾选过「总是直接拉取」后为 true：工具栏拉取钮直接按默认值执行（拿不准仍弹对话框） */
+  pullSkipDialog: boolean
+  /** 推送对话框勾选过「总是直接推送」后为 true：工具栏推送钮直接按默认值执行（拿不准仍弹对话框） */
+  pushSkipDialog: boolean
 }
 
 /** 跨项目的视图偏好（查找选项、「不再提示」标记等） */
@@ -433,8 +439,6 @@ export interface GitViewPrefs {
   pushTagSkipRemoteCheck: boolean
   /** diff 面板视图模式：false = 统一（unified），true = 左右对比（side-by-side）；跨会话记忆 */
   diffSplitView: boolean
-  /** pull 对话框「整合方式」的记忆值；null = 从未选过（回退仓库 git 配置，再回退合并） */
-  pullIntegrationMode: GitPullMode | null
 }
 
 /** BooleanOverride 为 'default' 时的应用级默认值与其它全局常量。 */
@@ -459,7 +463,10 @@ export const DEFAULT_GIT_REPO_SETTINGS: GitRepoSettings = {
   onlyFollowFirstParent: 'default',
   commitOrdering: 'default',
   hideRemotes: [],
-  worktreeDirectory: null
+  worktreeDirectory: null,
+  pullIntegrationMode: null,
+  pullSkipDialog: false,
+  pushSkipDialog: false
 }
 
 export const DEFAULT_GIT_VIEW_PREFS: GitViewPrefs = {
@@ -468,8 +475,7 @@ export const DEFAULT_GIT_VIEW_PREFS: GitViewPrefs = {
   findOpenCommitDetailsView: false,
   alwaysAcceptCheckoutCommit: false,
   pushTagSkipRemoteCheck: false,
-  diffSplitView: true,
-  pullIntegrationMode: null
+  diffSplitView: true
 }
 
 /** 解一个三态开关的有效值。 */
@@ -513,6 +519,12 @@ export type GitResetMode = 'soft' | 'mixed' | 'hard'
 export type GitPushMode = 'normal' | 'force' | 'force-with-lease'
 /** pull 的整合方式：合并 / 变基 / 压缩提交 */
 export type GitPullMode = 'merge' | 'rebase' | 'squash'
+/** 整合方式的中文名（拉取对话框、仓库设置、工具栏拉取钮的 title 共用） */
+export const GIT_PULL_MODE_LABEL: Record<GitPullMode, string> = {
+  merge: '合并',
+  rebase: '变基',
+  squash: '压缩提交'
+}
 /** merge 的对象类型；也用于生成 squash 提交消息 */
 export type GitMergeOn = 'branch' | 'remote-tracking' | 'commit'
 export type GitRebaseOn = 'branch' | 'commit'

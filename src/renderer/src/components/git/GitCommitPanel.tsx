@@ -174,13 +174,10 @@ export function CommitForm({ projectPath }: { projectPath: string }): React.JSX.
       store.setCommitDraft(projectPath, { message: '', amend: false, preAmendMessage: '' })
       setNoVerify(false)
       if (push) {
-        // 提交并推送：复用既有推送对话框（内含 常规 / force-with-lease / 强制 三档）。
-        // 分支从提交后的最新状态取（runQuietAction 内已 await 软刷新落地）——空仓库的
-        // 首次提交让分支刚刚出生，提交前闭包里的 currentBranch 还是 null
-        const branch = gitState(useGit.getState(), projectPath).currentBranch
-        if (branch !== null) {
-          store.openDialog(projectPath, { kind: 'push-branch', branch })
-        }
+        // 提交并推送：同工具栏推送钮（「总是直接推送」开关、拿不准弹对话框，见 pushCurrentBranch）；
+        // 勾了「修正」一律打开对话框——修正已推送的提交多半要强制推送。当前分支在动作里从提交后的
+        // 最新状态取（runQuietAction 内已 await 软刷新落地）——空仓库的首次提交让分支刚刚出生
+        store.pushCurrentBranch(projectPath, draft.amend ? 'dialog' : 'follow')
       }
     } finally {
       setCommitting(false)

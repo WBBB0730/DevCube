@@ -1,14 +1,16 @@
 // 仓库设置面板（toolbar-widgets §4）：外壳与应用设置共用 SettingsModal（有内联表单，点遮罩不关）。
-// 四个区块 —— 隐藏的远程、用户信息、远程管理、工作树（三态开关与提交排序已移至工具栏的
+// 五个区块 —— 隐藏的远程、用户信息、远程管理、拉取与推送、工作树（三态开关与提交排序已移至工具栏的
 // 视图选项 Popover，见 GitViewOptions）。用户信息与远程 CRUD 走 runAction（进行中遮罩 / 错误框由
 // GitDialogs 统一呈现），成功后重拉 config。控件用 shadcn Checkbox / RadioGroup。
 import { useEffect, useState } from 'react'
 import { Eraser, Pencil, Plus, Trash2 } from 'lucide-react'
 import {
+  GIT_PULL_MODE_LABEL,
   defaultWorktreeDirectory,
   resolveWorktreePath,
   worktreeAnchorPath,
-  type GitAction
+  type GitAction,
+  type GitPullMode
 } from '@shared/git'
 import { gitState, useGit } from '@renderer/git-store'
 import { SettingsModal } from '@renderer/components/SettingsModal'
@@ -16,7 +18,7 @@ import { Button } from '@renderer/components/ui/button'
 import { ConfirmDialog } from '@renderer/components/ui/form-dialog'
 import { Input } from '@renderer/components/ui/input'
 import { TOOLBAR_BTN } from '@renderer/components/ui/toolbar'
-import { Checkbox } from '@renderer/components/ui/checkbox'
+import { CHOICE_ROW, Checkbox } from '@renderer/components/ui/checkbox'
 import { RadioGroup, RadioGroupItem } from '@renderer/components/ui/radio-group'
 
 // —— 纯逻辑 ——
@@ -85,6 +87,7 @@ export function GitRepoSettings({
         <HiddenRemotesSection projectPath={projectPath} />
         <UserSection projectPath={projectPath} onConfirm={setConfirm} />
         <RemotesSection projectPath={projectPath} onConfirm={setConfirm} />
+        <PullPushSection projectPath={projectPath} />
         <WorktreeSection projectPath={projectPath} />
       </div>
       {confirm !== null && (
@@ -593,6 +596,65 @@ function RemotesSection({
           </div>
         </div>
       )}
+    </Section>
+  )
+}
+
+// —— 「拉取与推送」区 ——
+
+/** 整合方式单选里「跟随 git 配置」的取值（存为 pullIntegrationMode = null） */
+const FOLLOW_GIT_CONFIG = 'git-config'
+
+/**
+ * 拉取的整合方式与工具栏拉取 / 推送钮的行为（都按项目存，变更即写）：整合方式即拉取对话框的记忆值
+ * （「跟随 git 配置」= 清空记忆），两个勾选即两张对话框里的「总是直接拉取 / 推送」。
+ * 无远程时整区不渲染（工具栏拉取 / 推送钮此时禁用）。
+ */
+function PullPushSection({ projectPath }: { projectPath: string }): React.JSX.Element | null {
+  const remotes = useGit((s) => gitState(s, projectPath).remotes)
+  const settings = useGit((s) => gitState(s, projectPath).settings)
+  const updateSettings = useGit((s) => s.updateSettings)
+  if (remotes.length === 0) return null
+  return (
+    <Section title="拉取与推送">
+      <div className="space-y-2">
+        <FormRow label="整合方式">
+          <RadioGroup
+            className="flex-row items-center gap-3"
+            value={settings?.pullIntegrationMode ?? FOLLOW_GIT_CONFIG}
+            onValueChange={(v) =>
+              void updateSettings(projectPath, {
+                pullIntegrationMode: v === FOLLOW_GIT_CONFIG ? null : (v as GitPullMode)
+              })
+            }
+          >
+            <label className={CHOICE_ROW}>
+              <RadioGroupItem value={FOLLOW_GIT_CONFIG} />
+              跟随 git 配置
+            </label>
+            {(['merge', 'rebase', 'squash'] as const).map((m) => (
+              <label key={m} className={CHOICE_ROW}>
+                <RadioGroupItem value={m} />
+                {GIT_PULL_MODE_LABEL[m]}
+              </label>
+            ))}
+          </RadioGroup>
+        </FormRow>
+        <label className={CHOICE_ROW}>
+          <Checkbox
+            checked={settings?.pullSkipDialog ?? false}
+            onCheckedChange={(c) => void updateSettings(projectPath, { pullSkipDialog: c })}
+          />
+          总是直接拉取（不再提示）
+        </label>
+        <label className={CHOICE_ROW}>
+          <Checkbox
+            checked={settings?.pushSkipDialog ?? false}
+            onCheckedChange={(c) => void updateSettings(projectPath, { pushSkipDialog: c })}
+          />
+          总是直接推送（不再提示）
+        </label>
+      </div>
     </Section>
   )
 }

@@ -62,8 +62,9 @@ export type GitDialogRequest =
   | { kind: 'merge'; obj: string; on: GitMergeOn; displayName: string }
   | { kind: 'rebase'; obj: string; on: GitRebaseOn; displayName: string }
   /** 推送分支（表单式 D5）；branch = 入口预设的本地分支（工具栏 = 当前分支，
-      右键 / 提交并推送 = 该入口的分支），remote / 目标分支等其余字段在表单里选 */
-  | { kind: 'push-branch'; branch: string }
+      右键 / 提交并推送 = 该入口的分支），remote / 目标分支等其余字段在表单里选；
+      offerSkip = 表单底部带「总是直接推送」勾选（入口本身跟这个开关走：工具栏、提交并推送） */
+  | { kind: 'push-branch'; branch: string; offerSkip: boolean }
   /** 检出远程分支（创建本地跟踪分支）；remote 为 null 表示孤儿远程 ref */
   | { kind: 'checkout-remote-branch'; remoteRef: string; remote: string | null }
   // 分支已在其他工作树检出（git 拒绝重复检出）：提示 + 「转到项目」，不发命令
@@ -83,8 +84,12 @@ export type GitDialogRequest =
   | { kind: 'delete-remote-branch'; remoteRef: string; remote: string; branch: string }
   | { kind: 'fetch-into-local'; remote: string; remoteBranch: string; localBranch: string }
   /** 拉取到当前分支（表单式 D10）；preset = 入口预设的 remote 与远程分支（右键远程分支标签），
-      null = 表单按默认规则求值（工具栏入口） */
-  | { kind: 'pull-branch'; preset: { remote: string; branch: string } | null }
+      null = 表单按默认规则求值；offerSkip = 表单底部带「总是直接拉取」勾选（入口本身跟这个开关走：工具栏） */
+  | {
+      kind: 'pull-branch'
+      preset: { remote: string; branch: string } | null
+      offerSkip: boolean
+    }
   | { kind: 'add-tag'; hash: string }
   | { kind: 'delete-tag'; name: string }
   | { kind: 'push-tag'; name: string; hash: string }

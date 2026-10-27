@@ -2,7 +2,9 @@
 // 右侧图标钮组（提交 / 刷新 / 拉取 / 推送 / 创建分支 / 仓库设置），项目在 GitHub 上而未登录时最前面多一个
 // GitHub 标志的「登录 GitHub」钮（docs/prd/github-checks.md；登录后即消失）。高 40px、bg-panel，
 // 对齐 Console Tab 栏观感。刷新 = fetch + 静默软重载（store.refresh，fetch 期间换成转圈图标、
-// 结束后转回原位才换回刷新图标，不弹进行中遮罩）；拉取 / 推送 / 创建分支预设目标后打开既有对话框（GitDialogs）。
+// 结束后转回原位才换回刷新图标，不弹进行中遮罩）；创建分支预设目标后打开既有对话框（GitDialogs）。
+// 拉取 / 推送：单击按本项目的「总是直接拉取 / 推送」开关直接执行（= 对话框默认值原样提交）或打开对话框，
+// 按住 ⌘/Ctrl 单击反过来；默认值拿不准（无上游等）时两种点法都打开对话框。
 import { useEffect, useState } from 'react'
 import {
   CircleArrowDown,
@@ -12,11 +14,11 @@ import {
   Search,
   Settings
 } from 'lucide-react'
-import { UNCOMMITTED } from '@shared/git'
+import { GIT_PULL_MODE_LABEL, UNCOMMITTED } from '@shared/git'
 import { SHORTCUT } from '@shared/shortcut-label'
 import { gitState, useGit } from '@renderer/git-store'
 import { useGitHub } from '@renderer/github-store'
-import { shortcutTitle } from '@renderer/lib/shortcut-label'
+import { isPrimaryModifierEvent, shortcutLabel, shortcutTitle } from '@renderer/lib/shortcut-label'
 import { RefreshButton, TOOLBAR_BTN, TOOLBAR_SEPARATOR } from '@renderer/components/ui/toolbar'
 import { GitHubLoginDialog } from '@renderer/components/GitHubLoginDialog'
 import { GitHubMark } from '@renderer/components/ui/github-mark'
@@ -25,15 +27,31 @@ import { opBlockReason } from './GitOpStatusBar'
 import { GitViewOptions } from './GitViewOptions'
 import { GitWorktreeDropdown } from './GitWorktreeDropdown'
 import { GitRepoSettings } from './GitRepoSettings'
+import { directPullAction, directPushAction } from './git-pull-push'
+
+/**
+ * 拉取 / 推送钮的 title：首行 = 单击做什么，次行 = 按住主修饰键单击做什么。what = 直接执行时
+ * 做什么；null = 拿不准（两种点法都打开对话框），只留首行。
+ */
+function pullPushTitle(verb: '拉取' | '推送', what: string | null, skipDialog: boolean): string {
+  const base = `${verb}当前分支`
+  if (what === null) return base
+  const mod = shortcutLabel({ mod: true, key: '' })
+  return skipDialog
+    ? `${what}\n按住 ${mod} 点击打开${verb}选项`
+    : `${base}\n按住 ${mod} 点击直接${what}`
+}
 
 /** 工具栏：数据全部读 git-store，仓库设置面板的开合是本组件的局部状态。 */
 export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.Element {
   const status = useGit((s) => gitState(s, projectPath).status)
   const isRepo = useGit((s) => gitState(s, projectPath).isRepo)
   const remotes = useGit((s) => gitState(s, projectPath).remotes)
+  const remoteBranches = useGit((s) => gitState(s, projectPath).remoteBranches)
   const currentBranch = useGit((s) => gitState(s, projectPath).currentBranch)
   const headHash = useGit((s) => gitState(s, projectPath).headHash)
   const config = useGit((s) => gitState(s, projectPath).config)
+  const settings = useGit((s) => gitState(s, projectPath).settings)
   const fetching = useGit((s) => gitState(s, projectPath).fetching)
   const opInProgress = useGit((s) => gitState(s, projectPath).opInProgress)
   // 提交钮可用性：图上有任意行即可打开提交面板（无改动也能开，如只勾「修正」改信息）；
@@ -43,11 +61,29 @@ export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.
   const loadRepoConfig = useGit((s) => s.loadRepoConfig)
   const openFind = useGit((s) => s.openFind)
   const openDialog = useGit((s) => s.openDialog)
+  const pullCurrentBranch = useGit((s) => s.pullCurrentBranch)
+  const pushCurrentBranch = useGit((s) => s.pushCurrentBranch)
   const openDetails = useGit((s) => s.openDetails)
   const [settingsOpen, setSettingsOpen] = useState(false)
   const signedIn = useGitHub((s) => s.account !== null)
   const [onGitHub, setOnGitHub] = useState(false)
   const [githubLoginOpen, setGitHubLoginOpen] = useState(false)
+  // title 里写出直接执行时做什么（对话框默认值原样提交）；null = 拿不准，点了照样打开对话框
+  const directState = { currentBranch, remotes, remoteBranches, config, settings }
+  const directPull = directPullAction(directState)
+  const directPush = directPushAction(directState)
+  const pullTitle = pullPushTitle(
+    '拉取',
+    directPull !== null
+      ? `从 ${directPull.remote}/${directPull.branch} 拉取（${GIT_PULL_MODE_LABEL[directPull.mode]}）`
+      : null,
+    settings?.pullSkipDialog ?? false
+  )
+  const pushTitle = pullPushTitle(
+    '推送',
+    directPush !== null ? `推送到 ${directPush.remote}/${directPush.targetBranch}` : null,
+    settings?.pushSkipDialog ?? false
+  )
   // 远程地址的签名：config 每次软刷新都换引用，只在地址真变了（增删改远程）时才重新判断
   const remoteUrls = config?.remotes.map((r) => `${r.name} ${r.url ?? ''}`).join('\n') ?? ''
 
@@ -117,24 +153,23 @@ export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.
         <button
           type="button"
           // 操作进行中（变基/合并等冲突中途）时禁用并以 title 注明原因：pull 会动工作区必撞车
-          title={opInProgress !== null ? opBlockReason(opInProgress) : '拉取当前分支'}
+          title={opInProgress !== null ? opBlockReason(opInProgress) : pullTitle}
           // 无上游也可打开：remote / 远程分支 / 整合方式都在表单里选（默认值按上游配置求值）
           disabled={currentBranch === null || remotes.length === 0 || opInProgress !== null}
           className={TOOLBAR_BTN}
-          onClick={() =>
-            currentBranch !== null && openDialog(projectPath, { kind: 'pull-branch', preset: null })
+          onClick={(e) =>
+            pullCurrentBranch(projectPath, isPrimaryModifierEvent(e) ? 'invert' : 'follow')
           }
         >
           <CircleArrowDown className="size-4" />
         </button>
         <button
           type="button"
-          title="推送当前分支"
+          title={pushTitle}
           disabled={currentBranch === null || remotes.length === 0}
           className={TOOLBAR_BTN}
-          onClick={() =>
-            currentBranch !== null &&
-            openDialog(projectPath, { kind: 'push-branch', branch: currentBranch })
+          onClick={(e) =>
+            pushCurrentBranch(projectPath, isPrimaryModifierEvent(e) ? 'invert' : 'follow')
           }
         >
           <CircleArrowUp className="size-4" />

@@ -32,6 +32,12 @@ import type {
   GitMenuTarget
 } from '@renderer/components/git/git-view-types'
 import { reconcileDiffView } from '@renderer/components/git/git-details'
+import {
+  directPullAction,
+  directPushAction,
+  prefersDirect,
+  type SkipDialogMode
+} from '@renderer/components/git/git-pull-push'
 import { findSeed } from '@renderer/lib/find-seed'
 
 /** 单个项目的 Git 图谱状态桶（冻结契约，foundation.md §D）。 */
@@ -129,6 +135,13 @@ export interface GitStoreState {
   closeContextMenu(projectPath: string): void
   openDialog(projectPath: string, req: GitDialogRequest): void
   closeDialog(projectPath: string): void
+  /**
+   * 拉取当前分支（工具栏拉取钮）：按点法与「总是直接拉取」开关想直接执行、且默认值指向上游时
+   * 直接拉取（= 对话框默认值原样提交），否则打开带开关勾选的拉取对话框。
+   */
+  pullCurrentBranch(projectPath: string, mode: SkipDialogMode): void
+  /** 推送当前分支（工具栏推送钮、提交并推送）：规则同 pullCurrentBranch，开关为「总是直接推送」。 */
+  pushCurrentBranch(projectPath: string, mode: SkipDialogMode): void
   /** 更新查找状态：patch 合并；传 null 整体关闭并清空 */
   setFind(projectPath: string, patch: Partial<GitFindState> | null): void
   /** 打开查找（⌘F / 工具栏查找钮；已开则重新聚焦）：selection 为选中的文字，可预填时替换查询（见 findSeed） */
@@ -771,6 +784,36 @@ export const useGit = create<GitStoreState>((set, get) => {
 
     closeDialog: (projectPath) => {
       patchProject(projectPath, { dialog: null })
+    },
+
+    pullCurrentBranch: (projectPath, mode) => {
+      const st = gitState(get(), projectPath)
+      if (st.currentBranch === null) return
+      const direct = prefersDirect(st.settings?.pullSkipDialog ?? false, mode)
+        ? directPullAction(st)
+        : null
+      if (direct !== null) {
+        void get().runAction(projectPath, direct, '正在拉取分支')
+      } else {
+        get().openDialog(projectPath, { kind: 'pull-branch', preset: null, offerSkip: true })
+      }
+    },
+
+    pushCurrentBranch: (projectPath, mode) => {
+      const st = gitState(get(), projectPath)
+      if (st.currentBranch === null) return
+      const direct = prefersDirect(st.settings?.pushSkipDialog ?? false, mode)
+        ? directPushAction(st)
+        : null
+      if (direct !== null) {
+        void get().runAction(projectPath, direct, '正在推送分支')
+      } else {
+        get().openDialog(projectPath, {
+          kind: 'push-branch',
+          branch: st.currentBranch,
+          offerSkip: true
+        })
+      }
     },
 
     setFind: (projectPath, patch) => {

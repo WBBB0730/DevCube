@@ -21,6 +21,7 @@ import {
   type GitWorktree,
   type GitWorktreeCheckout,
   GIT_DEFAULTS,
+  GIT_PULL_MODE_LABEL,
   branchesFreeForWorktree,
   isWorktreeNameInvalid,
   resolveOverride,
@@ -57,6 +58,13 @@ import {
 } from '@renderer/components/ui/select'
 import { abbrevHash, formatDateTime } from './git-format'
 import { GIT_OP_LABEL, opBlockReason } from './GitOpStatusBar'
+import {
+  defaultPullBranch,
+  defaultPullMode,
+  defaultPullRemote,
+  defaultPushRemote,
+  remoteBranchesOf
+} from './git-pull-push'
 import type { GitDialogRequest } from './git-view-types'
 
 // —— 纯函数层（供测试） ——
@@ -92,95 +100,6 @@ export function latestTagNames(commits: readonly GitCommit[]): string[] {
     if (best === null || c.date > best.date) best = c
   }
   return best === null ? [] : best.tags.map((t) => t.name)
-}
-
-/**
- * push remote 默认值（D5/D13）：branch 的 pushRemote → branch 的 remote → push.default →
- * origin → 第一个 remote。config 未加载（null）时直接走后两级回退。
- */
-// eslint-disable-next-line react-refresh/only-export-components -- 纯函数与组件同文件导出（供单测）
-export function defaultPushRemote(
-  branch: string,
-  remotes: readonly string[],
-  config: GitRepoConfig | null
-): string {
-  if (remotes.length === 0) return ''
-  const bc = config?.branches[branch]
-  if (bc !== undefined && bc.pushRemote !== null && remotes.includes(bc.pushRemote)) {
-    return bc.pushRemote
-  }
-  if (bc !== undefined && bc.remote !== null && remotes.includes(bc.remote)) return bc.remote
-  const pushDefault = config?.pushDefault ?? null
-  if (pushDefault !== null && remotes.includes(pushDefault)) return pushDefault
-  return remotes.includes('origin') ? 'origin' : remotes[0]
-}
-
-/**
- * pull 对话框「从远程拉取」默认值：当前分支上游 remote（branch.<name>.remote 且仍在
- * remotes 中）→ 第一个 remote。config 未加载（null）/ detached HEAD 时直接取第一个。
- */
-// eslint-disable-next-line react-refresh/only-export-components -- 纯函数与组件同文件导出（供单测）
-export function defaultPullRemote(
-  currentBranch: string | null,
-  remotes: readonly string[],
-  config: GitRepoConfig | null
-): string {
-  if (remotes.length === 0) return ''
-  const configured =
-    currentBranch !== null ? (config?.branches[currentBranch]?.remote ?? null) : null
-  return configured !== null && remotes.includes(configured) ? configured : remotes[0]
-}
-
-/**
- * 某 remote 上已加载的远程分支名（剥掉 remotes/<remote>/ 前缀）。剔除 HEAD：clone 出来的
- * 仓库带 remotes/<remote>/HEAD 符号引用（parseBranches 保留该伪条目），它不是分支——
- * 选中会生成 `git pull <remote> HEAD`（实际拉远程默认分支）或推送到 HEAD 直接报错。
- */
-// eslint-disable-next-line react-refresh/only-export-components -- 纯函数与组件同文件导出（供单测）
-export function remoteBranchesOf(branches: readonly string[], remote: string): string[] {
-  const prefix = `remotes/${remote}/`
-  return branches
-    .filter((b) => b.startsWith(prefix))
-    .map((b) => b.substring(prefix.length))
-    .filter((name) => name !== 'HEAD')
-}
-
-/**
- * pull 对话框「远程分支」默认值：上游分支（branch.<name>.merge 的 refs/heads/X → X）→
- * 与当前分支同名者 → ''（空值由确认按钮禁用兜底）。候选须在 options 里才生效。
- */
-// eslint-disable-next-line react-refresh/only-export-components -- 纯函数与组件同文件导出（供单测）
-export function defaultPullBranch(
-  currentBranch: string | null,
-  options: readonly string[],
-  config: GitRepoConfig | null
-): string {
-  const merge = currentBranch !== null ? (config?.branches[currentBranch]?.merge ?? null) : null
-  const upstream =
-    merge !== null && merge.startsWith('refs/heads/') ? merge.substring('refs/heads/'.length) : null
-  if (upstream !== null && options.includes(upstream)) return upstream
-  if (currentBranch !== null && options.includes(currentBranch)) return currentBranch
-  return ''
-}
-
-/**
- * pull 对话框「整合方式」默认值三层：viewPrefs 记忆 → 仓库 git 配置（branch.<当前分支>.rebase
- * 优先于 pull.rebase，对齐 git 自身的覆盖顺序；true/interactive/merges → 变基，其余 → 合并）
- * → 合并。
- */
-// eslint-disable-next-line react-refresh/only-export-components -- 纯函数与组件同文件导出（供单测）
-export function defaultPullMode(
-  viewPrefs: GitViewPrefs,
-  currentBranch: string | null,
-  config: GitRepoConfig | null
-): GitPullMode {
-  if (viewPrefs.pullIntegrationMode !== null) return viewPrefs.pullIntegrationMode
-  const raw =
-    (currentBranch !== null ? (config?.branches[currentBranch]?.rebase ?? null) : null) ??
-    config?.pullRebase ??
-    null
-  if (raw === null) return 'merge'
-  return ['true', 'interactive', 'merges'].includes(raw.toLowerCase()) ? 'rebase' : 'merge'
 }
 
 // —— 表单模型（§1.2 的 DialogInput 判别联合，值按 key 收集） ——
@@ -297,6 +216,8 @@ export interface DialogEnv {
   /** 弹一个追问对话框（强制删除 / 不在远程等动作之后的续弹） */
   openChase(spec: DialogSpec): void
   setViewPrefs(patch: Partial<GitViewPrefs>): void
+  /** 写本项目的 git 设置（拉取对话框记住整合方式、两张表单的「总是直接拉取 / 推送」） */
+  updateSettings(patch: Partial<GitRepoSettings>): void
   /** 前往某目录对应的项目（未登记则先登记）：工作树提示框「转到项目」与新建后的出口 */
   openProject(path: string): void
   /** 同仓库的工作树：新建对话框剔除被占用的分支、以主工作树为存放目录锚点 */
@@ -1596,6 +1517,7 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
       clearActionErrors: () => useGit.getState().clearActionErrors(projectPath),
       openChase: (spec) => setChase((c) => ({ spec, nonce: c.nonce + 1 })),
       setViewPrefs: (patch) => void useGit.getState().setViewPrefs(patch),
+      updateSettings: (patch) => void useGit.getState().updateSettings(projectPath, patch),
       openProject: (path) => void useApp.getState().addProjectByPath(path),
       // 工作树目录是否已登记为项目、是否有运行中的会话 / 终端（删除工作树前的防误删判断）
       projectState: (path) => {
@@ -2007,7 +1929,8 @@ function RefreshErrorLine({ error }: { error: string | null }): React.JSX.Elemen
  * 过滤——展示口径的 env.branches 被过滤时会让拉取变成死路），行内刷新钮对所选 remote
  * 静默 fetch（runQuietAction 不弹进行中遮罩，成功后软刷新流回选项列表；失败就地提示，
  * 不走全局错误框——那会顶掉表单、丢掉用户已填状态）。
- * 确认时把所选整合方式写回 viewPrefs.pullIntegrationMode（下次默认值的第一层）。
+ * 确认时把所选整合方式写回本项目设置（下次默认值的第一层）；跟开关走的入口（工具栏）另有「总是直接拉取」，
+ * 初值为当前开关（按住 ⌘/Ctrl 打开时为勾选，取消勾选即恢复弹对话框），同样确认时才写回。
  */
 function PullBranchDialog({
   req,
@@ -2030,9 +1953,10 @@ function PullBranchDialog({
     }
   })
   const [mode, setMode] = useState<GitPullMode>(() =>
-    defaultPullMode(env.viewPrefs, env.currentBranch, env.config)
+    defaultPullMode(env.settings?.pullIntegrationMode ?? null, env.currentBranch, env.config)
   )
   const [noFF, setNoFF] = useState(false)
+  const [skipDialog, setSkipDialog] = useState(env.settings?.pullSkipDialog ?? false)
   const [refreshing, setRefreshing] = useState(false)
   /** 行内刷新失败的就地提示；换 remote / 重试时清掉 */
   const [refreshError, setRefreshError] = useState<string | null>(null)
@@ -2067,7 +1991,10 @@ function PullBranchDialog({
 
   const disabled = target.branch === '' || refreshing
   const confirm = (): void => {
-    env.setViewPrefs({ pullIntegrationMode: mode })
+    env.updateSettings({
+      pullIntegrationMode: mode,
+      ...(req.offerSkip && { pullSkipDialog: skipDialog })
+    })
     dispatch(
       env,
       {
@@ -2152,7 +2079,7 @@ function PullBranchDialog({
         <RadioGroup value={mode} onValueChange={(v) => setMode(v as GitPullMode)}>
           <label className={CHOICE_ROW}>
             <RadioGroupItem value="merge" />
-            合并
+            {GIT_PULL_MODE_LABEL.merge}
           </label>
           {/* 合并的附属勾选：非合并模式禁用置灰（勾选状态保留，切回合并时仍在） */}
           <label className={cn(CHOICE_ROW, 'ml-6', mode !== 'merge' && 'opacity-50')}>
@@ -2165,16 +2092,22 @@ function PullBranchDialog({
           </label>
           <label className={CHOICE_ROW}>
             <RadioGroupItem value="rebase" />
-            变基
+            {GIT_PULL_MODE_LABEL.rebase}
             <InfoIcon text="变基会重写本地未推送的提交；若这些提交已推送过，请勿使用。" />
           </label>
           <label className={CHOICE_ROW}>
             <RadioGroupItem value="squash" />
-            压缩提交
+            {GIT_PULL_MODE_LABEL.squash}
             <InfoIcon text="在当前分支上创建单个提交，其效果等同于合并该远程分支。" />
           </label>
         </RadioGroup>
       </FieldRow>
+      {req.offerSkip && (
+        <label className={CHOICE_ROW}>
+          <Checkbox checked={skipDialog} onCheckedChange={(c) => setSkipDialog(c)} />
+          总是直接拉取（不再提示）
+        </label>
+      )}
     </FormDialogShell>
   )
 }
@@ -2184,6 +2117,7 @@ function PullBranchDialog({
  * 推送模式。目标远程分支是可输可选 combobox（建议 = 所选 remote 已加载的远程分支，
  * 行内刷新钮同 D10）。「目标跟随本地分支同名直到手动编辑」「设置上游默认 = 目标与本地
  * 同名、点过后不再自动变」都用「没动过则派生、动过存实值」表达，不引 effect 联动。
+ * 跟开关走的入口（工具栏、提交并推送）另有「总是直接推送」，初值与写回时机同 D10 的「总是直接拉取」。
  */
 function PushBranchDialog({
   req,
@@ -2204,6 +2138,7 @@ function PushBranchDialog({
   const setUpstream = touchedUpstream ?? targetBranch === localBranch
   const [pushTags, setPushTags] = useState(false)
   const [mode, setMode] = useState<GitPushMode>('normal')
+  const [skipDialog, setSkipDialog] = useState(env.settings?.pushSkipDialog ?? false)
   const [refreshing, setRefreshing] = useState(false)
   /** 行内刷新失败的就地提示（同 D10：不走全局错误框，防表单被顶掉丢已填状态） */
   const [refreshError, setRefreshError] = useState<string | null>(null)
@@ -2224,12 +2159,14 @@ function PushBranchDialog({
 
   // remote 为空 = 仓库没有远程（「提交并推送」入口不看 remote 数量，可能走到这里）
   const disabled = remote === '' || targetBranch === '' || refreshing
-  const confirm = (): void =>
+  const confirm = (): void => {
+    if (req.offerSkip) env.updateSettings({ pushSkipDialog: skipDialog })
     dispatch(
       env,
       { kind: 'push-branch', remote, localBranch, targetBranch, setUpstream, pushTags, mode },
       '正在推送分支'
     )
+  }
 
   return (
     <FormDialogShell
@@ -2332,6 +2269,12 @@ function PushBranchDialog({
           </label>
         </RadioGroup>
       </FieldRow>
+      {req.offerSkip && (
+        <label className={CHOICE_ROW}>
+          <Checkbox checked={skipDialog} onCheckedChange={(c) => setSkipDialog(c)} />
+          总是直接推送（不再提示）
+        </label>
+      )}
     </FormDialogShell>
   )
 }

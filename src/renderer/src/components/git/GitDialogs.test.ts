@@ -1,26 +1,18 @@
 // GitDialogs 纯函数层测试：ref 名校验（照参考 REF_INVALID_REGEX）、中文列表串、
-// 最近标签提取、push remote 与 pull 表单（remote / 远程分支 / 整合方式）默认值求值链、
-// 危险确认与重名确认的 buildSpec 描述。
+// 最近标签提取、危险确认与重名确认的 buildSpec 描述（拉取 / 推送默认值见 git-pull-push.test.ts）。
 import { describe, expect, it } from 'vitest'
 import {
   DEFAULT_GIT_VIEW_PREFS,
   type GitAction,
   type GitActionResult,
   type GitCommit,
-  type GitRepoConfig,
-  type GitViewPrefs,
   type GitWorktree
 } from '@shared/git'
 import {
   buildSpec,
-  defaultPullBranch,
-  defaultPullMode,
-  defaultPullRemote,
-  defaultPushRemote,
   formatCommaList,
   isRefInvalid,
   latestTagNames,
-  remoteBranchesOf,
   type DialogConfirm,
   type DialogEnv,
   type DialogSpec
@@ -100,153 +92,6 @@ describe('latestTagNames', () => {
   })
 })
 
-function config(partial: Partial<GitRepoConfig>): GitRepoConfig {
-  return {
-    branches: {},
-    pushDefault: null,
-    pullRebase: null,
-    remotes: [],
-    user: { name: { local: null, global: null }, email: { local: null, global: null } },
-    ...partial
-  }
-}
-
-/** 分支配置条目：未给的子键补 null。 */
-function branchCfg(
-  partial: Partial<GitRepoConfig['branches'][string]>
-): GitRepoConfig['branches'][string] {
-  return { remote: null, pushRemote: null, merge: null, rebase: null, ...partial }
-}
-
-describe('defaultPushRemote', () => {
-  const remotes = ['up', 'origin', 'fork']
-
-  it('branch 的 pushRemote 优先于其余所有来源', () => {
-    const c = config({
-      branches: { dev: branchCfg({ remote: 'fork', pushRemote: 'up' }) },
-      pushDefault: 'fork'
-    })
-    expect(defaultPushRemote('dev', remotes, c)).toBe('up')
-  })
-
-  it('无 pushRemote 时回退 branch 的 remote，再回退 push.default', () => {
-    expect(
-      defaultPushRemote(
-        'dev',
-        remotes,
-        config({ branches: { dev: branchCfg({ remote: 'fork' }) } })
-      )
-    ).toBe('fork')
-    expect(defaultPushRemote('dev', remotes, config({ pushDefault: 'up' }))).toBe('up')
-  })
-
-  it('config 未加载（null）时回退 origin，无 origin 则取第一个 remote', () => {
-    expect(defaultPushRemote('dev', remotes, null)).toBe('origin')
-    expect(defaultPushRemote('dev', ['up', 'fork'], null)).toBe('up')
-  })
-
-  it('配置指向的 remote 已不存在时跳过该级回退', () => {
-    const c = config({ branches: { dev: branchCfg({ remote: 'gone', pushRemote: 'gone2' }) } })
-    expect(defaultPushRemote('dev', remotes, c)).toBe('origin')
-  })
-
-  it('remote 列表为空时返回空串', () => {
-    expect(defaultPushRemote('dev', [], null)).toBe('')
-  })
-})
-
-describe('defaultPullRemote', () => {
-  const remotes = ['up', 'origin', 'fork']
-
-  it('取当前分支上游 remote（branch.<name>.remote 且仍在 remotes 中）', () => {
-    const c = config({ branches: { dev: branchCfg({ remote: 'fork' }) } })
-    expect(defaultPullRemote('dev', remotes, c)).toBe('fork')
-  })
-
-  it('无上游配置 / 上游 remote 已删除 / config 未加载时都取第一个 remote', () => {
-    expect(defaultPullRemote('dev', remotes, config({}))).toBe('up')
-    expect(
-      defaultPullRemote(
-        'dev',
-        remotes,
-        config({ branches: { dev: branchCfg({ remote: 'gone' }) } })
-      )
-    ).toBe('up')
-    expect(defaultPullRemote(null, remotes, null)).toBe('up')
-  })
-
-  it('remote 列表为空时返回空串', () => {
-    expect(defaultPullRemote('dev', [], null)).toBe('')
-  })
-})
-
-describe('remoteBranchesOf', () => {
-  it('只取该 remote 的远程分支并剥掉 remotes/<remote>/ 前缀', () => {
-    const branches = ['main', 'remotes/origin/main', 'remotes/origin/dev', 'remotes/fork/main']
-    expect(remoteBranchesOf(branches, 'origin')).toEqual(['main', 'dev'])
-    expect(remoteBranchesOf(branches, 'up')).toEqual([])
-  })
-
-  it('剔除 HEAD 符号引用伪条目（clone 仓库都带 remotes/<remote>/HEAD，它不是分支）', () => {
-    const branches = ['remotes/origin/HEAD', 'remotes/origin/main', 'remotes/origin/feature/HEAD']
-    // 子目录里叫 HEAD 的真分支（feature/HEAD）不受影响
-    expect(remoteBranchesOf(branches, 'origin')).toEqual(['main', 'feature/HEAD'])
-  })
-})
-
-describe('defaultPullBranch', () => {
-  const options = ['main', 'dev', 'renamed']
-
-  it('上游分支（branch.<name>.merge 的 refs/heads/X → X）在选项中时优先于同名', () => {
-    const c = config({ branches: { dev: branchCfg({ merge: 'refs/heads/renamed' }) } })
-    expect(defaultPullBranch('dev', options, c)).toBe('renamed')
-  })
-
-  it('无上游配置或上游不在选项中时回退与当前分支同名者', () => {
-    expect(defaultPullBranch('dev', options, null)).toBe('dev')
-    const c = config({ branches: { dev: branchCfg({ merge: 'refs/heads/gone' }) } })
-    expect(defaultPullBranch('dev', options, c)).toBe('dev')
-  })
-
-  it('都不在选项中（或 detached HEAD）时返回空串（确认按钮禁用兜底）', () => {
-    expect(defaultPullBranch('feature', options, null)).toBe('')
-    expect(defaultPullBranch(null, options, null)).toBe('')
-  })
-})
-
-describe('defaultPullMode', () => {
-  const prefs = (mode: GitViewPrefs['pullIntegrationMode']): GitViewPrefs => ({
-    ...DEFAULT_GIT_VIEW_PREFS,
-    pullIntegrationMode: mode
-  })
-
-  it('viewPrefs 记忆值优先于仓库 git 配置', () => {
-    const c = config({ pullRebase: 'true' })
-    expect(defaultPullMode(prefs('squash'), 'dev', c)).toBe('squash')
-  })
-
-  it('branch.<name>.rebase 的 true/interactive/merges 解释为变基', () => {
-    for (const raw of ['true', 'interactive', 'merges']) {
-      const c = config({ branches: { dev: branchCfg({ rebase: raw }) } })
-      expect(defaultPullMode(prefs(null), 'dev', c)).toBe('rebase')
-    }
-  })
-
-  it('branch 级 false 覆盖 pull.rebase=true（对齐 git 的覆盖顺序）', () => {
-    const c = config({
-      branches: { dev: branchCfg({ rebase: 'false' }) },
-      pullRebase: 'true'
-    })
-    expect(defaultPullMode(prefs(null), 'dev', c)).toBe('merge')
-    expect(defaultPullMode(prefs(null), 'other', c)).toBe('rebase')
-  })
-
-  it('无记忆且无任何配置（或 config 未加载）时回退合并', () => {
-    expect(defaultPullMode(prefs(null), 'dev', config({}))).toBe('merge')
-    expect(defaultPullMode(prefs(null), null, null)).toBe('merge')
-  })
-})
-
 /** 记录式对话框环境：动作出口只往数组里记（构造输入 → 断言输出，零 mock）。 */
 function makeEnv(
   opts: {
@@ -298,6 +143,7 @@ function makeEnv(
       chased.push(spec)
     },
     setViewPrefs: () => {},
+    updateSettings: () => {},
     openProject: (path) => {
       opened.push(path)
     },
