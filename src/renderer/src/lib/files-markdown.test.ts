@@ -1,12 +1,13 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
-import Markdown from 'react-markdown'
+import Markdown, { type Components } from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { describe, expect, it } from 'vitest'
 import {
   buildMarkdownFindIndex,
   isInlineTag,
   MARKDOWN_REHYPE_PLUGINS,
+  markdownCodeText,
   markdownFindSpans,
   type MarkdownFindBlock,
   type MarkdownFindSpan
@@ -63,11 +64,11 @@ describe('markdownFindSpans', () => {
 
 describe('预览渲染链', () => {
   /** 经预览同一条渲染链（react-markdown + GFM + 原始 HTML 净化 + 源码行）出 HTML */
-  const render = (source: string): string =>
+  const render = (source: string, components?: Components): string =>
     renderToStaticMarkup(
       createElement(
         Markdown,
-        { remarkPlugins: [remarkGfm], rehypePlugins: MARKDOWN_REHYPE_PLUGINS },
+        { remarkPlugins: [remarkGfm], rehypePlugins: MARKDOWN_REHYPE_PLUGINS, components },
         source
       )
     )
@@ -85,6 +86,17 @@ describe('预览渲染链', () => {
     expect(html).toContain('<pre data-line="0"><code class="language-js">x\n</code></pre>')
     expect(html).toContain('<table data-line="4">')
     expect(html).toContain('<tr data-line="6"><td data-line="6">1</td></tr>')
+  })
+
+  it('代码块复制代码原文：去掉转换时末尾补的换行，缩进与空行原样', () => {
+    const copied: string[] = []
+    render('```js\n  a\n\nb\n```\n\n```\n```\n\n<pre>raw</pre>', {
+      pre: ({ node }) => {
+        copied.push(markdownCodeText(node!))
+        return null
+      }
+    })
+    expect(copied).toEqual(['  a\n\nb', '', 'raw'])
   })
 
   it('原始 HTML 照白名单渲染：行内标签不标行，块标签标行', () => {

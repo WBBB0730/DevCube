@@ -1,6 +1,7 @@
 // Files Tab · Markdown 预览：react-markdown + GFM。原始 HTML 照 GitHub 的白名单渲染，脚本、事件属性与 style 去掉（见 lib/files-markdown）；
 // 相对路径图片解析到项目内后经 dc-media 协议流式读取（越界 / 非图片不渲染；服务器上的文件不解析，
 // 相对图片不显示）；链接一律拦截默认跳转，http/https/mailto 交给系统浏览器，其余（锚点 / 相对链接）不动作。
+// 代码块右上角悬停出复制钮，复制代码原文，成功后换勾片刻。
 // 正文可选中复制；Cmd+F 在渲染后的正文里查找（换算见 lib/files-markdown），查找会话与编辑态共用（切换不关、不清空），
 // 高亮同 PPT 走 CSS Custom Highlight、不改页面。
 // 阅读位置与编辑器共用「视口顶边所在的源码行」：块元素标着源码起始行（rehypeSourceLines），以块为对应点分段换算，
@@ -25,6 +26,7 @@ import {
   buildMarkdownFindIndex,
   isInlineTag,
   MARKDOWN_REHYPE_PLUGINS,
+  markdownCodeText,
   markdownFindSpans,
   type MarkdownFindIndexBlock
 } from '@renderer/lib/files-markdown'
@@ -39,6 +41,7 @@ import {
 import { compileTextFind } from '@renderer/lib/text-find'
 import { useFindCursor } from '@renderer/lib/use-find-cursor'
 import type { FindSession } from '@renderer/lib/use-find-session'
+import { CopyButton } from '@renderer/components/ui/copy-button'
 import { FilesLocalContext } from './files-local-context'
 import { FindBar } from './FindBar'
 
@@ -88,6 +91,35 @@ function collectFindBlocks(body: HTMLElement): { nodes: Text[]; pre: boolean }[]
 
 const NO_MATCH = { total: 0, current: -1 }
 const REMARK_PLUGINS = [remarkGfm]
+
+// 代码块的复制钮：盖在右上角、不占布局（同工作树下拉的行尾钮），悬停代码块时渐显；带代码块底色，横向滚动的长行从它底下过不透出来
+const CODE_COPY_BTN =
+  'absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded bg-panel text-muted-foreground transition hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
+
+/** 代码块：右上角悬停出「复制」钮，复制代码原文，成功后换勾片刻 */
+function MarkdownCodeBlock({
+  code,
+  ...rest
+}: React.ComponentProps<'pre'> & { code: string }): React.JSX.Element {
+  const [hovered, setHovered] = useState(false)
+  // 钮在 pre 之外：pre 自己横向滚动，钮放在里面会跟着代码滚走
+  return (
+    <div
+      className="files-md-code relative"
+      onPointerEnter={() => setHovered(true)}
+      onPointerLeave={() => setHovered(false)}
+    >
+      <pre {...rest} />
+      <CopyButton
+        text={code}
+        title="复制"
+        visible={hovered}
+        className={CODE_COPY_BTN}
+        iconClassName="size-3.5"
+      />
+    </div>
+  )
+}
 
 /** 文档序的命中里第一个顶边不在 `top` 之上的（顶边随文档序不减，对半找）；都在其上回到第一个 */
 function firstRangeBelow(ranges: readonly Range[], top: number): number {
@@ -171,7 +203,8 @@ export function FilesMarkdownPreview({
               : undefined
         }
         return <img {...rest} src={resolved} alt={alt ?? ''} />
-      }
+      },
+      pre: ({ node, ...rest }) => <MarkdownCodeBlock {...rest} code={markdownCodeText(node!)} />
     }
   }, [path, projectRoot, local])
 

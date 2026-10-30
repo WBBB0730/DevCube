@@ -5,7 +5,7 @@
 // 滚动发生时弹窗已关，无须豁免逻辑。文档一变由 FilesPane 的 onChange 统一关闭。
 import { useEffect, useMemo } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
-import { ChevronDown, ChevronUp, Copy, Undo2 } from 'lucide-react'
+import { ChevronDown, ChevronUp, Undo2 } from 'lucide-react'
 import {
   currentGitGutterHunks,
   hunkPopupAnchor,
@@ -17,6 +17,7 @@ import {
   filesHighlighting,
   languageExtensionForPath
 } from '@renderer/lib/cm6-setup'
+import { CopyButton } from '@renderer/components/ui/copy-button'
 import { Popover, PopoverContent } from '@renderer/components/ui/popover'
 import { useApp } from '@renderer/store'
 
@@ -123,16 +124,12 @@ export function FilesGutterHunkPopover({
             <Undo2 className="size-3.5 text-[color:var(--fg-icon)]" />
           </button>
           {hunk.oldLines.length > 0 && (
-            <button
-              type="button"
+            <CopyButton
+              text={hunk.oldLines.join('\n')}
               title="复制旧文本"
               className={HUNK_BTN}
-              onClick={() => {
-                navigator.clipboard.writeText(hunk.oldLines.join('\n')).catch(() => undefined)
-              }}
-            >
-              <Copy className="size-3.5 text-[color:var(--fg-icon)]" />
-            </button>
+              iconClassName="size-3.5 text-[color:var(--fg-icon)]"
+            />
           )}
           <div className="mx-0.5 h-3 w-px shrink-0 bg-[var(--border-input)]" role="separator" />
           <button

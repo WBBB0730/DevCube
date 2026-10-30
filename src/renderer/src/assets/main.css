@@ -563,6 +563,13 @@
 .files-md-preview :is(code, pre, kbd, samp) {
   font-family: var(--font-mono);
 }
+/* 代码块外包了一层定位容器放复制钮：prose 去掉正文首尾块外边距的规则落在容器上，替容器里的 pre 补上 */
+.files-md-preview > .files-md-code:first-child > pre {
+  margin-top: 0;
+}
+.files-md-preview > .files-md-code:last-child > pre {
+  margin-bottom: 0;
+}
 
 /* Files Tab · CodeMirror：压过 @codemirror/view baseTheme 的 line-height: 1.4。 */
 /* Files Tab PDF 预览（PDF.js viewer 组件，样式表在顶部以级联层引入）：页面保持白底，去掉库自带的

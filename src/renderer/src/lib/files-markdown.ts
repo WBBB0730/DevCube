@@ -5,9 +5,11 @@
  *   制表与换行（源码里的折行、CRLF）显示为一个空格。同表格 / PPT：打开查找（或正文变了）时建一次索引，之后每次输入只在索引里匹配。
  * - 源码行标注：块元素标上源码起始行，预览与编辑器据此按内容对齐阅读位置。
  * - 原始 HTML：照 GitHub 的白名单渲染（`<br>`、`<details>`、`<kbd>`、`<img width>` 等），脚本、事件属性与 `style` 去掉。
+ * - 代码块复制：复制的是代码原文。
  */
-import type { Root } from 'hast'
+import type { Element, Root } from 'hast'
 import { phrasing } from 'hast-util-phrasing'
+import { toString } from 'hast-util-to-string'
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize from 'rehype-sanitize'
 import type { Options } from 'react-markdown'
@@ -46,6 +48,11 @@ export const MARKDOWN_REHYPE_PLUGINS: NonNullable<Options['rehypePlugins']> = [
   rehypeSanitize,
   rehypeSourceLines
 ]
+
+/** 代码块（`pre`）的复制文本：代码原文。Markdown 的代码块转成元素时末尾补了一个换行（页面上不显示），去掉，同 GitHub */
+export function markdownCodeText(pre: Element): string {
+  return toString(pre).replace(/\n$/, '')
+}
 
 /** 一块正文：块内依次相邻的文字节点内容；`pre` = 代码块，空白原样显示 */
 export type MarkdownFindBlock = { texts: readonly string[]; pre: boolean }

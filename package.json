@@ -137,6 +137,7 @@
     "eslint-plugin-react-hooks": "^7.0.1",
     "eslint-plugin-react-refresh": "^0.4.24",
     "hast-util-phrasing": "^3.0.1",
+    "hast-util-to-string": "^3.0.1",
     "jsonc-parser": "^3.3.1",
     "lucide-react": "^1.22.0",
     "openseadragon": "^6.1.1",
