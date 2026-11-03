@@ -48,7 +48,9 @@ export type ContentSearchEvent =
  * 由调用方归一时剥掉）。
  */
 export function buildRgSearchArgs(query: string, options: ContentSearchOptions): string[] {
-  const args = ['--json', '--hidden', '-g', '!**/.git']
+  // --follow 顺着符号链接搜（ADR-0059）；--no-messages 不报读不了的文件（断链、循环链接、没有权限），
+  // stderr 只剩查询本身的错误（如正则无效）
+  const args = ['--json', '--hidden', '--follow', '--no-messages', '-g', '!**/.git']
   args.push(options.caseSensitive ? '-s' : '-i')
   if (options.wholeWord) args.push('-w')
   if (!options.regex) args.push('-F')

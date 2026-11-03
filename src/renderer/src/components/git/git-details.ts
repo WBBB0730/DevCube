@@ -495,6 +495,14 @@ export function diffNavIndex(
   )
 }
 
+/**
+ * 单文件 diff 原文按 `diff --git` 拆成段：文件与符号链接互换时 git 输出两段（删掉旧类型、新增新类型，ADR-0059），
+ * diff 库一个原文只认一段，要以多段列表交给它；只有一段时原样一段。
+ */
+export function diffSections(raw: string): string[] {
+  return raw.split(/^(?=diff --git )/m).filter((section) => section !== '')
+}
+
 /** 行「是否改动行」序列 → 各改动块首行下标（连续改动行合为一块，同 WebStorm 的 change）。 */
 export function changeBlockStarts(isDiffRow: readonly boolean[]): number[] {
   const starts: number[] = []

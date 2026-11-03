@@ -103,7 +103,7 @@ export function classifyCommonDirPath(
   return classifyGitDirRel(rel, ownGitDirRel) === 'meta' ? [{ kind: 'git-meta' }] : []
 }
 
-function pathHasIdeIgnoredSegment(absPath: string): boolean {
+export function pathHasIdeIgnoredSegment(absPath: string): boolean {
   return absPath.split(/[/\\]/).some((seg) => seg !== '' && isIdeIgnoredEntryName(seg))
 }
 

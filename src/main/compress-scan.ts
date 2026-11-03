@@ -21,7 +21,8 @@ import { execGit, findGit, getErrorMessage } from './git-exec'
  * 自己遍历、不跟随符号链接；「被 Git 忽略」交给 git 自己判定——仓库里的内容用
  * `git ls-files --cached --others --exclude-standard` 列出（已跟踪的加上未跟踪且没被忽略的，即 Git 眼中的项目），
  * 嵌套 .gitignore、全局排除、info/exclude、「已跟踪的文件不算忽略」都与 Git 一致。
- * 不用 ripgrep 文件索引（ADR-0027）：实测它不列符号链接与空文件夹，也不区分已跟踪的文件。
+ * 不用 ripgrep 文件索引（ADR-0027）：它顺着符号链接列出链接后面的文件（ADR-0059），这里要存链接本身；它也不列空文件夹，
+ * 不区分已跟踪的文件。
  * `.git` 与 Mac 专属文件只做标记，勾选变化时在内存里过滤，不必重新扫盘。
  */
 

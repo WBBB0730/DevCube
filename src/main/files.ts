@@ -44,6 +44,14 @@ import { ensureImagePreview, ensureImagePyramid } from './files-image-pyramid'
 import { getFilesIndex } from './files-index'
 import { readCheckedOutBlob, resolveRepoRoot } from './git-exec'
 import { isGrantedFilesRoot, isPathUnderGrantedRoot } from './files-roots'
+import {
+  filesRootAlias,
+  isSymlinkPath,
+  realSelfOrInside,
+  statTarget,
+  symlinkEntry
+} from './files-symlink'
+import { noteListedDir } from './linked-dir-watch'
 import { toSysPath } from './sys-path'
 import { wslDistroOf } from '../shared/wsl-path'
 
@@ -103,17 +111,23 @@ export function filesSysPath(projectPath: string, filePath: string): string {
 export async function listDir(projectPath: string, dirPath: string): Promise<FilesDirEntry[]> {
   const logical = within(projectPath, dirPath || '.')
   const sys = toSysPath(logical)
-  // 类型随列目录一并取回（同 VS Code），不逐项 lstat：WSL 里的目录经文件共享访问，逐项查询要排队往返上千次
+  // 类型随列目录一并取回（同 VS Code），不逐项 lstat：WSL 里的目录经文件共享访问，逐项查询要排队往返上千次。
+  // 只有符号链接再查一次目标（docs/prd/symlinks.md）
   const dirents = await fs.readdir(sys, { withFileTypes: true })
-  const entries: FilesDirEntry[] = []
-  for (const dirent of dirents) {
-    if (isIdeIgnoredEntryName(dirent.name)) continue
-    entries.push({
-      name: dirent.name,
-      path: normalizePath(logical + '/' + dirent.name),
-      isDirectory: dirent.isDirectory()
+  // 经符号链接列到监听范围以外时另起监听，树上展开着的链接文件夹也跟得上变化（ADR-0059）
+  noteListedDir(projectPath, sys)
+  const shown = dirents.filter((dirent) => !isIdeIgnoredEntryName(dirent.name))
+  // 有链接才取根的真实路径：根经过链接时，在根下的指向换回根的写法
+  const alias = shown.some((dirent) => dirent.isSymbolicLink())
+    ? await filesRootAlias(normalizePath(projectPath))
+    : null
+  const entries = await Promise.all(
+    shown.map((dirent): FilesDirEntry | Promise<FilesDirEntry> => {
+      const path = normalizePath(logical + '/' + dirent.name)
+      if (dirent.isSymbolicLink()) return symlinkEntry(dirent.name, path, alias)
+      return { name: dirent.name, path, isDirectory: dirent.isDirectory() }
     })
-  }
+  )
   entries.sort(compareFilesDirEntries)
   return entries
 }
@@ -168,7 +182,7 @@ export async function readFileEntry(
   const root = assertFilesRoot(projectPath)
   const logical = within(projectPath, filePath)
   const sys = toSysPath(logical)
-  const st = await fs.stat(sys)
+  const st = await statTarget(sys)
   if (st.isDirectory()) throw new Error('不能打开目录')
   const name = path.basename(sys)
   const byName = classifyFilesOpenKind(name)
@@ -281,10 +295,12 @@ export function imagePyramidEntry(
 /**
  * 读取文件在 HEAD 的基线文本（编辑器 gutter diff 条纹的对比端），经 readCheckedOutBlob 取检出后的
  * 样子，与编辑器里磁盘上的文件同口径（如 LFS 文件取真实内容而非指针）。
- * 非仓库 / HEAD 无此路径（未跟踪、未出生、重命名未提交）/ 读取失败 / 二进制 / 超限 → null（不显示条纹）。
+ * 符号链接 / 非仓库 / HEAD 无此路径（未跟踪、未出生、重命名未提交）/ 读取失败 / 二进制 / 超限 → null（不显示条纹）。
  */
 export async function readHeadText(projectPath: string, filePath: string): Promise<string | null> {
   const logical = within(projectPath, filePath)
+  // 符号链接不显示条纹（同 VS Code、Zed，ADR-0059）：git 里存的是它指向的路径，编辑器里是目标的内容，比不到一起
+  if (await isSymlinkPath(toSysPath(logical))) return null
   const repoRootSys = await resolveRepoRoot(toSysPath(normalizePath(projectPath)))
   if (!repoRootSys) return null
   const rel = toRepoRel(normalizePath(repoRootSys), logical)
@@ -417,7 +433,12 @@ export async function moveEntry(
   const source = normalizePath(sourcePath)
   if (!isPathUnderGrantedRoot(source)) throw new Error('路径越界')
   if (isGrantedFilesRoot(source)) throw new Error('不能移动根文件夹')
-  if (isSelfOrInside(source, dest)) throw new Error('不能移到它自己里面')
+  if (
+    isSelfOrInside(source, dest) ||
+    (await realSelfOrInside(toSysPath(source), toSysPath(dest)))
+  ) {
+    throw new Error('不能移到它自己里面')
+  }
   if (!moveDropAllowed(source, dest)) return { path: source }
   const target = joinLogicalPath(dest, lastPathSegment(source))
   if (!(await clearTarget(target, replace))) return { conflict: true }
@@ -444,7 +465,12 @@ export async function copyEntry(
   const dest = within(projectPath, destDir)
   const source = normalizePath(sourcePath)
   if (!isAbsolutePath(source)) throw new Error('路径越界')
-  if (isSelfOrInside(source, dest)) throw new Error('不能复制到它自己里面')
+  if (
+    isSelfOrInside(source, dest) ||
+    (await realSelfOrInside(toSysPath(source), toSysPath(dest)))
+  ) {
+    throw new Error('不能复制到它自己里面')
+  }
   const name = lastPathSegment(source)
   const stat = await fs.lstat(toSysPath(source)).catch(() => {
     throw new Error(`找不到 “${name}”`)

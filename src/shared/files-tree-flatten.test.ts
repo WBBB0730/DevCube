@@ -22,6 +22,17 @@ const childrenByDir: Record<string, FilesDirEntry[]> = {
 }
 
 describe('flattenFilesTree', () => {
+  it('符号链接的指向随行带出，普通条目没有', () => {
+    const symlink = { target: '/elsewhere/lib', broken: false }
+    const rows = flattenFilesTree(
+      root,
+      { [root]: [{ ...entry('lib', 'lib', true), symlink }, entry('a.ts', 'a.ts', false)] },
+      new Set()
+    )
+    expect(rows[0].symlink).toEqual(symlink)
+    expect('symlink' in rows[1]).toBe(false)
+  })
+
   it('根子级恒可见、未展开目录不出子级', () => {
     const rows = flattenFilesTree(root, childrenByDir, new Set())
     expect(rows.map((r) => r.name)).toEqual(['src', 'README.md', 'package.json'])

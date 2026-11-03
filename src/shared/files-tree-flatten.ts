@@ -1,4 +1,4 @@
-import type { FilesDirEntry } from './files'
+import type { FilesDirEntry, FilesSymlink } from './files'
 
 /** 文件树的一个可见行（按展开态拍平后的虚拟滚动渲染单元）。 */
 export interface FilesTreeRow {
@@ -7,6 +7,8 @@ export interface FilesTreeRow {
   /** 内容缩进层级：根的直接子级为 0 */
   depth: number
   isDirectory: boolean
+  /** 条目是符号链接时的指向 */
+  symlink?: FilesSymlink
   /** 提示行（如展开的目录读不出来时的「没有权限」）：name 即提示文字，不对应任何条目 */
   notice?: true
   /** 提示行是「正在读取…」：稍等才出现，读得快时不闪（见 TreeNoticeRow） */
@@ -59,7 +61,13 @@ export function flattenFilesTree(
       return
     }
     for (const e of children ?? []) {
-      rows.push({ path: e.path, name: e.name, depth, isDirectory: e.isDirectory })
+      rows.push({
+        path: e.path,
+        name: e.name,
+        depth,
+        isDirectory: e.isDirectory,
+        ...(e.symlink !== undefined ? { symlink: e.symlink } : {})
+      })
       if (e.isDirectory && expanded.has(e.path)) walk(e.path, depth + 1)
     }
   }

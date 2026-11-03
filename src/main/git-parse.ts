@@ -356,7 +356,7 @@ export function parseStatusFilesZ(stdout: string): GitStatusFiles {
 
 // —— §7.3-§7.5 文件变更（name-status / numstat / 合成） ——
 
-/** git diff --name-status -z 的一条记录（diff-filter=AMDR 已排除其它状态）。 */
+/** git diff --name-status -z 的一条记录（diff-filter=AMDRT 已排除其它状态；类型变化 T 记为修改，ADR-0059）。 */
 export interface DiffNameStatusRecord {
   type: 'A' | 'M' | 'D' | 'R'
   oldFilePath: string
@@ -374,10 +374,15 @@ export function parseNameStatusZ(stdout: string, diffTree: boolean): DiffNameSta
   let i = 0
   while (i < segments.length && segments[i] !== '') {
     const type = segments[i][0] // rename 段形如 "R100"，只取首字符
-    if (type === 'A' || type === 'M' || type === 'D') {
+    if (type === 'A' || type === 'M' || type === 'D' || type === 'T') {
       if (i + 1 >= segments.length) break
       const filePath = normalizeGitPath(segments[i + 1])
-      records.push({ type, oldFilePath: filePath, newFilePath: filePath })
+      // 文件与符号链接互换（T）记为修改：diff 两侧分别是旧类型与新类型的内容
+      records.push({
+        type: type === 'T' ? 'M' : type,
+        oldFilePath: filePath,
+        newFilePath: filePath
+      })
       i += 2
     } else if (type === 'R') {
       if (i + 2 >= segments.length) break
@@ -388,7 +393,7 @@ export function parseNameStatusZ(stdout: string, diffTree: boolean): DiffNameSta
       })
       i += 3
     } else {
-      break // 其它状态（C/T/U/X…）依赖 diff-filter 已排除
+      break // 其它状态（C/U/X…）依赖 diff-filter 已排除
     }
   }
   return records

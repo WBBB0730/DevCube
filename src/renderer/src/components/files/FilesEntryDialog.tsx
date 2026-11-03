@@ -30,15 +30,16 @@ function messageFor(request: NameRequest): string {
 function removalTitle(request: FilesRemovalRequest): string {
   const [only] = request.entries
   if (request.entries.length > 1 || only === undefined) return `删除 ${request.entries.length} 项？`
-  return `删除${only.isDirectory ? '文件夹' : '文件'} “${baseName(only.path)}”？`
+  const what = only.symlink ? '符号链接' : only.isDirectory ? '文件夹' : '文件'
+  return `删除${what} “${baseName(only.path)}”？`
 }
 
-/** 删除确认的后果：本机移到回收站（可恢复），服务器上与 WSL 发行版里删了即不可恢复 */
+/** 删除确认的后果：本机移到回收站（可恢复），服务器上与 WSL 发行版里删了即不可恢复；符号链接只删链接本身 */
 function removalMessage(request: FilesRemovalRequest): string {
   if (request.kind === 'trash') return '将移到回收站。'
   const from = request.distro === undefined ? '服务器上' : ` ${request.distro} 中`
   const many = request.entries.length > 1
-  const withContent = request.entries.some((e) => e.isDirectory)
+  const withContent = request.entries.some((e) => e.isDirectory && !e.symlink)
   const what = many ? '它们' : '它'
   return `将从${from}删除${withContent ? `${what}及其中的全部内容` : what}，删除后无法恢复。`
 }

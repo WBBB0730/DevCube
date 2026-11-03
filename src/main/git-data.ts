@@ -3,7 +3,7 @@
 // 跑进程、串并行与拼装结果；命令口径移植自 vscode-git-graph dataSource.ts（只含读取面）。
 // —— 纯参数构造（build* / assembleRepoConfig）与 IO 分离，供测试。
 
-import { readFile, realpath, stat } from 'fs/promises'
+import { lstat, readFile, realpath, stat } from 'fs/promises'
 import { isAbsolute, join, normalize } from 'path'
 import { fileTypeFromBuffer } from 'file-type'
 import {
@@ -156,7 +156,7 @@ export function buildDiffArgs(
         '-r',
         '--root',
         '--find-renames',
-        '--diff-filter=AMDR',
+        '--diff-filter=AMDRT',
         '-z',
         fromHash
       ],
@@ -168,7 +168,7 @@ export function buildDiffArgs(
     'diff',
     mode,
     '--find-renames',
-    '--diff-filter=AMDR',
+    '--diff-filter=AMDRT',
     '-z',
     fromHash
   ]
@@ -185,8 +185,8 @@ export function buildUncommittedDiffArgs(
   scope: 'staged' | 'unstaged'
 ): string[] {
   return scope === 'staged'
-    ? [...DIFF_CONFIG, 'diff', mode, '--cached', '--find-renames', '--diff-filter=AMDR', '-z']
-    : [...DIFF_CONFIG, 'diff', mode, '--find-renames', '--diff-filter=AMDR', '-z']
+    ? [...DIFF_CONFIG, 'diff', mode, '--cached', '--find-renames', '--diff-filter=AMDRT', '-z']
+    : [...DIFF_CONFIG, 'diff', mode, '--find-renames', '--diff-filter=AMDRT', '-z']
 }
 
 /** 单文件 unified diff 的命令选择（data-read.md §8.2 命令表）。noIndex 时退出码 1 视为成功。 */
@@ -336,7 +336,7 @@ export function resolveOpInProgress(exists: boolean[]): GitOpInProgress | null {
 /**
  * 五路 stdout 组装未提交三段列表（提交面板数据源，ADR-0006）：
  * 已暂存 = HEAD↔index（diff --cached）；未暂存 = index↔工作区（diff）+ status 的未跟踪文件；
- * 冲突（unmerged）= status 的冲突桶（diff 恒 --diff-filter=AMDR，冲突记录只能从 status 取）。
+ * 冲突（unmerged）= status 的冲突桶（diff 恒 --diff-filter=AMDRT，冲突记录只能从 status 取）。
  */
 export function assembleUncommitted(
   stagedNS: string,
@@ -909,18 +909,33 @@ export async function getFileDiff(
 ): Promise<GitDiffResult> {
   const root = await resolveRepoRoot(projectPath)
   if (root === null) return { diff: null, error: NOT_A_REPO }
+  const file = {
+    oldFilePath: request.oldFilePath,
+    newFilePath: request.newFilePath,
+    type: request.type
+  }
+  // 未跟踪的文件夹符号链接：--no-index 顺着它当文件夹读、对比不了，直接交回「没有差异可看」（ADR-0059）
+  if (
+    request.type === 'U' &&
+    request.toHash === UNCOMMITTED &&
+    (await isDirSymlink(join(root, request.newFilePath)))
+  ) {
+    return { diff: { ...file, binary: false, raw: '', symlinkDir: true }, error: null }
+  }
   const { args, noIndex } = buildFileDiffArgs(request, gitPathArg(root, root))
   const result = await execGit(root, args)
   // --no-index 有差异时退出码为 1（常态），≥2 或 spawn 失败（-1）才是错误；其余命令非 0 即错
   const failed = noIndex ? result.code < 0 || result.code >= 2 : result.code !== 0
   if (failed) return { diff: null, error: getErrorMessage(result) }
-  return {
-    diff: parseFileDiff(result.stdout.toString('utf8'), {
-      oldFilePath: request.oldFilePath,
-      newFilePath: request.newFilePath,
-      type: request.type
-    }),
-    error: null
+  return { diff: parseFileDiff(result.stdout.toString('utf8'), file), error: null }
+}
+
+/** 条目本身是符号链接、且指向文件夹 */
+async function isDirSymlink(path: string): Promise<boolean> {
+  try {
+    return (await lstat(path)).isSymbolicLink() && (await stat(path)).isDirectory()
+  } catch {
+    return false
   }
 }
 

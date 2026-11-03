@@ -10,6 +10,7 @@ import {
   diffNavIndex,
   diffNavSequence,
   diffPossible,
+  diffSections,
   fileRowTitle,
   filesInSelection,
   flattenFileTree,
@@ -693,5 +694,25 @@ describe('changeBlockStarts / currentBlockIndex', () => {
     expect(currentBlockIndex(tops, 299)).toBe(1)
     expect(currentBlockIndex(tops, 700)).toBe(2)
     expect(currentBlockIndex([], 100)).toBe(-1)
+  })
+})
+
+describe('diffSections', () => {
+  it('一段原文原样一段', () => {
+    const raw = 'diff --git a/x b/x\nindex 1..2 100644\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n'
+    expect(diffSections(raw)).toEqual([raw])
+  })
+
+  it('类型变化的两段（删掉旧类型、新增新类型）拆开', () => {
+    const removed =
+      'diff --git a/x b/x\ndeleted file mode 100644\n--- a/x\n+++ /dev/null\n@@ -1 +0,0 @@\n-hello\n'
+    const added =
+      'diff --git a/x b/x\nnew file mode 120000\n--- /dev/null\n+++ b/x\n@@ -0,0 +1 @@\n+target\n\\ No newline at end of file\n'
+    expect(diffSections(removed + added)).toEqual([removed, added])
+  })
+
+  it('正文里不在行首的 diff --git 不算分段', () => {
+    const raw = 'diff --git a/x b/x\n@@ -1 +1 @@\n-say diff --git\n+ok\n'
+    expect(diffSections(raw)).toEqual([raw])
   })
 })

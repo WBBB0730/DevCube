@@ -17,6 +17,17 @@ describe('sameDirEntries', () => {
     expect(sameDirEntries([entry('a', '/p/a')], [entry('b', '/p/b')])).toBe(false)
     expect(sameDirEntries([entry('a', '/p/a')], [entry('a', '/p/a', true)])).toBe(false)
   })
+
+  it('符号链接的指向或断链与否变了则 false', () => {
+    const link = (target: string, broken: boolean): FilesDirEntry => ({
+      ...entry('l', '/p/l'),
+      symlink: { target, broken }
+    })
+    expect(sameDirEntries([link('/x', false)], [link('/x', false)])).toBe(true)
+    expect(sameDirEntries([link('/x', false)], [link('/y', false)])).toBe(false)
+    expect(sameDirEntries([link('/x', false)], [link('/x', true)])).toBe(false)
+    expect(sameDirEntries([entry('l', '/p/l')], [link('/x', false)])).toBe(false)
+  })
 })
 
 describe('mergeReloadedDirs', () => {

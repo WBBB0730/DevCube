@@ -1,7 +1,7 @@
 // 内容搜索引擎集成测试：spawn 真实 rg 打临时 fixture 目录，验证事件流的外部行为。
 // 这类 bug（stdin 非 TTY、收尾批次丢弃）只在真实 spawn 环境暴露，纯函数测试覆盖不到。
 import { afterAll, afterEach, beforeAll, describe, expect, it } from 'vitest'
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import path from 'node:path'
 import {
@@ -45,13 +45,14 @@ interface SearchResult {
 /** 启动一次搜索并等它跑到 done；乱序 / 旧 seq 事件直接失败。 */
 function runSearch(
   query: string,
-  options: ContentSearchOptions = DEFAULT_CONTENT_SEARCH_OPTIONS
+  options: ContentSearchOptions = DEFAULT_CONTENT_SEARCH_OPTIONS,
+  at: string = root
 ): Promise<SearchResult> {
   return new Promise((resolve, reject) => {
     const seq = ++seqCounter
     const matches: ContentSearchMatch[] = []
     const timer = setTimeout(() => reject(new Error(`搜索 "${query}" 超时未完成`)), 4000)
-    startContentSearch(root, query, options, seq, (e) => {
+    startContentSearch(at, query, options, seq, (e) => {
       if (e.seq !== seq) {
         clearTimeout(timer)
         reject(new Error(`收到非本次搜索的事件 seq=${e.seq}`))
@@ -134,3 +135,48 @@ describe('startContentSearch（真实 rg 进程）', () => {
     expect(r.error).toContain('regex')
   })
 })
+
+// 顺着符号链接搜（ADR-0059）：链接文件、链接文件夹（含指向项目外的）里的内容都搜得到；断链与循环链接不算出错
+describe.skipIf(process.platform === 'win32')(
+  'startContentSearch 与符号链接（真实 rg 进程）',
+  () => {
+    let base = ''
+    let project = ''
+
+    beforeAll(async () => {
+      base = await mkdtemp(path.join(tmpdir(), 'devcube-content-search-links-'))
+      project = path.join(base, 'project')
+      await mkdir(path.join(project, 'real'), { recursive: true })
+      await writeFile(path.join(project, 'real', 'a.txt'), 'linkneedle inside\n')
+      await mkdir(path.join(base, 'outside'))
+      await writeFile(path.join(base, 'outside', 'far.txt'), 'linkneedle outside\n')
+      await symlink('real/a.txt', path.join(project, 'to-file'))
+      await symlink('../outside', path.join(project, 'link-out'))
+      await symlink('missing', path.join(project, 'dangling'))
+      await symlink('.', path.join(project, 'loop'))
+    })
+
+    afterAll(async () => {
+      await rm(base, { recursive: true, force: true })
+    })
+
+    it('链接文件与指向项目外的链接文件夹都搜得到，断链与循环链接不报错', async () => {
+      const r = await runSearch('linkneedle', DEFAULT_CONTENT_SEARCH_OPTIONS, project)
+      expect(r.error).toBeNull()
+      expect(r.matches.map((m) => m.rel).sort()).toEqual([
+        'link-out/far.txt',
+        'real/a.txt',
+        'to-file'
+      ])
+    })
+
+    it('查询本身有错照常报错', async () => {
+      const r = await runSearch(
+        '([bad',
+        { ...DEFAULT_CONTENT_SEARCH_OPTIONS, regex: true },
+        project
+      )
+      expect(r.error).toContain('regex')
+    })
+  }
+)

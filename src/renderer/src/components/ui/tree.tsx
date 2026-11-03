@@ -22,7 +22,7 @@ function TreeIndent({ depth }: { depth: number }): React.JSX.Element | null {
 }
 
 /**
- * 树行：缩进 + 展开箭头槽（叶子留空占位）+ 图标 + 名称（+ 名称后的补充文字）。
+ * 树行：缩进 + 展开箭头槽（叶子留空占位）+ 图标 + 名称（+ 紧跟名称的小标记）（+ 名称后的补充文字）。
  * 行底按状态：落点 > 选中（`--selection-row`，名称转 `--fg-primary`）> 右键菜单打开中（保持 hover 底）> hover。
  * dimmed（Files 里被剪切、等着粘贴）时图标与名称半透明。可拖动的行给 draggable 与 onDragStart。
  * 给 onToggle 即点展开箭头单独开合（不经行的 onClick），行本身的单击另作他用（如 Files 单击只选中）。
@@ -33,6 +33,7 @@ export function TreeRow({
   icon,
   name,
   nameColor,
+  mark,
   extra,
   title,
   selected,
@@ -52,6 +53,8 @@ export function TreeRow({
   name: React.ReactNode
   /** 未选中时的名称色（如 Git 状态色）；不给即正文色 */
   nameColor?: string
+  /** 紧跟名称的 12px muted 小标记（如 Files 的符号链接），名称过长时只截名称、不截它 */
+  mark?: React.ReactNode
   /** 名称后的 12px muted 补充文字（如分组的对象数、键数） */
   extra?: React.ReactNode
   title?: string
@@ -110,13 +113,20 @@ export function TreeRow({
       <span
         className={cn(
           'min-w-0 truncate transition-colors',
-          extra === undefined && 'flex-1',
+          extra === undefined && mark === undefined && 'flex-1',
           dimmed && 'opacity-50'
         )}
         style={{ color: selected ? 'var(--fg-primary)' : nameColor }}
       >
         {name}
       </span>
+      {mark !== undefined && (
+        <span
+          className={cn('flex shrink-0 items-center text-muted-foreground', dimmed && 'opacity-50')}
+        >
+          {mark}
+        </span>
+      )}
       {extra !== undefined && (
         <span className="min-w-0 flex-1 truncate text-[12px] text-muted-foreground">{extra}</span>
       )}

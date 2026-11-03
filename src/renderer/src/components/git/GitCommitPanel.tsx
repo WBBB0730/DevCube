@@ -267,7 +267,7 @@ export function UncommittedFileSections({
   const rawConflicted = useGit(
     (s) => gitState(s, projectPath).expanded?.uncommitted?.conflicted ?? EMPTY_FILES
   )
-  // 冲突文件本质是未解决的工作区状态：并入未暂存段展示（数据独立成桶只因 AMDR diff 取不到），
+  // 冲突文件本质是未解决的工作区状态：并入未暂存段展示（数据独立成桶只因 AMDRT diff 取不到），
   // 无冲突时保持 rawUnstaged 原引用，树/排序/选区零扰动
   const unstagedFiles = useMemo(
     () => (rawConflicted.length === 0 ? rawUnstaged : [...rawUnstaged, ...rawConflicted]),

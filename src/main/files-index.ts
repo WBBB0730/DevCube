@@ -27,18 +27,19 @@ export function getFilesIndex(projectPath: string): Promise<string[]> {
 
 function buildFilesIndex(rootLogical: string): Promise<string[]> {
   // --hidden：树展示本就包含隐藏条目；.git 用 glob 提前剪枝（不然 --hidden 会扫进去），
-  // 其余 IDE 忽略名条目量小，事后按路径段过滤即可。
+  // 其余 IDE 忽略名条目量小，事后按路径段过滤即可。--follow：顺着符号链接列（ADR-0059），
+  // 链接本身与链接文件夹里的文件都在名单里。
   const chunks: Buffer[] = []
   const run = runRg(
     rootLogical,
-    ['--files', '--hidden', '--no-messages', '-g', '!**/.git'],
+    ['--files', '--hidden', '--follow', '--no-messages', '-g', '!**/.git'],
     (c) => chunks.push(c),
     () => {}
   )
   return run.done.then(({ code, error }) => {
     if (error) throw error
-    // 0 = 有文件；1 = 空项目；其它 = 失败
-    if (code !== 0 && code !== 1) throw new Error(`rg --files 退出码 ${code}`)
+    // 0 = 有文件；1 = 空项目；2 = 有读不了的条目（断链、循环链接、没有权限），照常用列出来的；其它 = 失败
+    if (code !== 0 && code !== 1 && code !== 2) throw new Error(`rg --files 退出码 ${code}`)
     const files: string[] = []
     // 先 concat 再 toString，避免多字节字符被 chunk 边界拆断
     for (const line of Buffer.concat(chunks).toString('utf8').split(/\r?\n/)) {

@@ -115,10 +115,10 @@ export function startContentSearch(
       return
     }
     // 0 = 有匹配；1 = 无匹配；封顶主动 kill 后 code 为 null——都不算错。
-    // 2 = rg 报错（如正则无效）：stderr 是「rg: 概述 + 缩进详情 + error: 原因」多行，
-    // 取首尾两句拼成一行提示。
+    // 2 且 stderr 有内容 = 查询本身有错（如正则无效；读不了的文件已由 --no-messages 静音，只留下退出码 2）：
+    // stderr 是「rg: 概述 + 缩进详情 + error: 原因」多行，取首尾两句拼成一行提示。
     let error: string | null = null
-    if (!limitHit && code === 2) {
+    if (!limitHit && code === 2 && stderrText.trim() !== '') {
       const lines = stderrText
         .split('\n')
         .map((s) => s.trim())

@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest'
-import { buildFilesAssetUrl, buildFilesMediaUrl, buildFilesTileUrl } from './files'
+import {
+  buildFilesAssetUrl,
+  buildFilesMediaUrl,
+  buildFilesTileUrl,
+  symlinkJumpTarget
+} from './files'
 
 describe('dc-media URL', () => {
   it('项目内文件：p / f / m 三个参数，主进程按 f 解析', () => {
@@ -23,5 +28,20 @@ describe('dc-media URL', () => {
     const u = new URL(`${prefix}UniGB-UCS2-H.bcmap`)
     expect(u.searchParams.get('a')).toBe('pdfjs')
     expect(u.searchParams.get('f')).toBe('cmaps/UniGB-UCS2-H.bcmap')
+  })
+})
+
+describe('symlinkJumpTarget', () => {
+  it('链接没断、目标在根下：给出目标', () => {
+    expect(symlinkJumpTarget({ target: '/p/real', broken: false }, '/p')).toBe('/p/real')
+    expect(symlinkJumpTarget({ target: '/etc/x', broken: false }, '/')).toBe('/etc/x')
+  })
+
+  it('不是链接、断链、目标在根外或就是根：null', () => {
+    expect(symlinkJumpTarget(undefined, '/p')).toBeNull()
+    expect(symlinkJumpTarget({ target: 'missing', broken: true }, '/p')).toBeNull()
+    expect(symlinkJumpTarget({ target: '/elsewhere', broken: false }, '/p')).toBeNull()
+    expect(symlinkJumpTarget({ target: '/pp/x', broken: false }, '/p')).toBeNull()
+    expect(symlinkJumpTarget({ target: '/p', broken: false }, '/p')).toBeNull()
   })
 })

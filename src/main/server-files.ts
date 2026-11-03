@@ -325,6 +325,42 @@ async function statOrNull(client: SftpClient, remotePath: string): Promise<SftpA
   }
 }
 
+/** 跟随符号链接取属性；断链报「链接目标不存在」（同本地），其余错误原样抛出。 */
+async function statTarget(client: SftpClient, remotePath: string): Promise<SftpAttrs> {
+  try {
+    return await client.stat(remotePath)
+  } catch (error) {
+    const broken =
+      error instanceof SftpStatusError &&
+      error.code === SFTP_STATUS.NO_SUCH_FILE &&
+      (await client.lstat(remotePath).then(
+        (attrs) => sftpEntryKind(attrs) === 'symlink',
+        () => false
+      ))
+    if (broken) throw new Error('链接目标不存在')
+    throw error
+  }
+}
+
+/**
+ * 按真实路径看，destDir 是不是 entryPath 自身或在它里面（entryPath 是文件夹、不是链接时），同本地（ADR-0059）：
+ * 经符号链接把文件夹移进它自己里面，路径上看不出来。取不到真实路径时不算。
+ */
+async function realSelfOrInside(
+  client: SftpClient,
+  entryPath: string,
+  destDir: string
+): Promise<boolean> {
+  const attrs = await client.lstat(entryPath).catch(() => null)
+  if (attrs === null || sftpEntryKind(attrs) !== 'directory') return false
+  try {
+    const [source, dest] = await Promise.all([client.realpath(entryPath), client.realpath(destDir)])
+    return isSelfOrInside(source, dest)
+  } catch {
+    return false
+  }
+}
+
 async function existsRemote(client: SftpClient, remotePath: string): Promise<boolean> {
   try {
     await client.lstat(remotePath)
@@ -335,27 +371,43 @@ async function existsRemote(client: SftpClient, remotePath: string): Promise<boo
   }
 }
 
-/** 列目录：隐藏规则同本地；符号链接按目标类型显示，指向目录的可以展开（断链按文件）。 */
+/** 列目录：隐藏规则同本地；符号链接同本地（docs/prd/symlinks.md）：按目标类型显示，指向目录的可以展开，断链按文件。 */
 export async function listServerDir(serverId: string, dir: string): Promise<FilesDirEntry[]> {
   const { client } = await connected(serverId)
   const names = await client.readdir(dir)
   const entries = await Promise.all(
     names
       .filter((n) => !isIdeIgnoredEntryName(n.filename))
-      .map(async (n): Promise<FilesDirEntry> => {
+      .map((n): FilesDirEntry | Promise<FilesDirEntry> => {
         const entryPath = joinLogicalPath(dir, n.filename)
         const kind = sftpEntryKind(n.attrs)
-        const isDirectory =
-          kind === 'directory' ||
-          (kind === 'symlink' &&
-            (await client.stat(entryPath).then(
-              (target) => sftpEntryKind(target) === 'directory',
-              () => false
-            )))
-        return { name: n.filename, path: entryPath, isDirectory }
+        if (kind === 'symlink') return serverSymlinkEntry(client, n.filename, entryPath)
+        return { name: n.filename, path: entryPath, isDirectory: kind === 'directory' }
       })
   )
   return entries.sort(compareFilesDirEntries)
+}
+
+/** 服务器上的符号链接条目：指向取目标的真实路径，断链（目标不存在）取链接里写的原文。 */
+async function serverSymlinkEntry(
+  client: SftpClient,
+  name: string,
+  entryPath: string
+): Promise<FilesDirEntry> {
+  try {
+    const [target, real] = await Promise.all([client.stat(entryPath), client.realpath(entryPath)])
+    return {
+      name,
+      path: entryPath,
+      isDirectory: sftpEntryKind(target) === 'directory',
+      symlink: { target: real, broken: false }
+    }
+  } catch (error) {
+    const target = await client.readlink(entryPath).catch(() => null)
+    if (target === null) return { name, path: entryPath, isDirectory: false }
+    const broken = error instanceof SftpStatusError && error.code === SFTP_STATUS.NO_SUCH_FILE
+    return { name, path: entryPath, isDirectory: false, symlink: { target, broken } }
+  }
 }
 
 /** 条目信息（跟随符号链接）；不存在为 null。 */
@@ -521,7 +573,7 @@ export async function readServerFile(
   conn.read = controller
   const { signal } = controller
   try {
-    const attrs = await client.stat(remotePath)
+    const attrs = await statTarget(client, remotePath)
     if (sftpEntryKind(attrs) === 'directory') throw new Error('不能打开目录')
     const version = versionOf(attrs)
     const { size } = version
@@ -673,7 +725,9 @@ export async function moveServerEntry(
 ): Promise<FilesTransferResult> {
   const { client } = await connected(serverId)
   if (entryPath === '/') throw new Error('不能移动根文件夹')
-  if (isSelfOrInside(entryPath, destDir)) throw new Error('不能移到它自己里面')
+  if (isSelfOrInside(entryPath, destDir) || (await realSelfOrInside(client, entryPath, destDir))) {
+    throw new Error('不能移到它自己里面')
+  }
   if (!moveDropAllowed(entryPath, destDir)) return { path: entryPath }
   const target = joinLogicalPath(destDir, path.posix.basename(entryPath))
   try {
@@ -866,8 +920,16 @@ type LocalItem =
       size: number
     }
 
-/** 清点本机要上传的内容；文件的符号链接照目标上传，目录的符号链接跳过（免得绕圈）。 */
-async function collectLocal(local: string, remote: string, out: LocalItem[]): Promise<void> {
+/**
+ * 清点本机要上传的内容；文件的符号链接照目标上传。目录的符号链接：直接选中的照目标上传（同下载时直接选中的），
+ * 文件夹里面的跳过（免得绕圈，ADR-0059）。
+ */
+async function collectLocal(
+  local: string,
+  remote: string,
+  out: LocalItem[],
+  selected: boolean
+): Promise<void> {
   const st = await lstat(local)
   const target = st.isSymbolicLink() ? await stat(local).catch(() => null) : st
   if (!target) return
@@ -875,10 +937,10 @@ async function collectLocal(local: string, remote: string, out: LocalItem[]): Pr
     out.push({ kind: 'file', local, remote, size: target.size })
     return
   }
-  if (!target.isDirectory() || st.isSymbolicLink()) return
+  if (!target.isDirectory() || (st.isSymbolicLink() && !selected)) return
   out.push({ kind: 'dir', local, remote })
   for (const name of await readdir(local)) {
-    await collectLocal(path.join(local, name), joinLogicalPath(remote, name), out)
+    await collectLocal(path.join(local, name), joinLogicalPath(remote, name), out, false)
   }
 }
 
@@ -893,7 +955,7 @@ export function uploadToServer(serverId: string, localPaths: string[], remoteDir
     const { signal } = task.controller
     const items: LocalItem[] = []
     for (const local of localPaths) {
-      await collectLocal(local, joinLogicalPath(remoteDir, path.basename(local)), items)
+      await collectLocal(local, joinLogicalPath(remoteDir, path.basename(local)), items, true)
     }
     const files = items.filter((i) => i.kind === 'file')
     const total = files.reduce((n, f) => n + f.size, 0)

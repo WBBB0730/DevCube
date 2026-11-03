@@ -6,9 +6,11 @@
 // 「上一级文件夹」「添加为项目 / 转到项目」（仅空白区 / 根；到文件系统根置灰）与「进入此文件夹」（目录，根自身没有），
 // 见 docs/prd/file-preview-window.md。服务器宿主换成服务器上的那一组（docs/prd/server-files.md）：
 // 新建 → 上传 / 下载 → 在 SSH 终端中打开 → 复制路径 → 重命名/删除（删除不可恢复），没有本机专属项与剪贴板。
-// 多选时只剩能一次处理多项的（docs/prd/files-tree-move-copy.md「右键」）。
+// 多选时只剩能一次处理多项的（docs/prd/files-tree-move-copy.md「右键」）。单个符号链接、目标在树里时，
+// 新建组后另有一组「转到链接目标」（本机与服务器同，docs/prd/symlinks.md）。
 import { useRef } from 'react'
 import {
+  ArrowUpRight,
   ClipboardPaste,
   Copy,
   CornerLeftUp,
@@ -32,7 +34,7 @@ import {
 import { useApp } from '@renderer/store'
 import { relPathUnderRoot } from '@renderer/lib/files-paths'
 import { logicalParentPath } from '@shared/files-path'
-import type { FilesEntryRef } from '@shared/files'
+import { symlinkJumpTarget, type FilesEntryRef } from '@shared/files'
 import { copyablePath } from '@shared/wsl-path'
 import {
   ContextMenuItem,
@@ -79,6 +81,7 @@ export function FilesTreeMenu({
   projectRegistered = false,
   server,
   clipboard,
+  onGoToLinkTarget,
   onClose,
   onRequest
 }: {
@@ -97,6 +100,8 @@ export function FilesTreeMenu({
   server?: FilesTreeServerActions
   /** 本机宿主的剪贴板组 */
   clipboard?: FilesTreeClipboardActions
+  /** 转到符号链接的目标（同「前往路径」：文件夹展开并定位、文件打开）；isDirectory 即链接条目的类型 */
+  onGoToLinkTarget: (target: string, isDirectory: boolean) => void
   /** 归一化项目根（树内逻辑路径的前缀） */
   projectRoot: string
   menu: FilesTreeMenuTarget | null
@@ -116,6 +121,9 @@ export function FilesTreeMenu({
   const subjects = isRoot ? [menu.path] : menu.entries.map((e) => e.path)
   /** 文件行的新建 / 粘贴 / 终端 / 上传「就近」作用于所在目录（目录与根即自身） */
   const nearestDir = menu.isDirectory ? menu.path : logicalParentPath(menu.path)
+  /** 单个符号链接、目标在树里：可以转过去 */
+  const linkTarget =
+    !multi && !isRoot ? symlinkJumpTarget(menu.entries[0]?.symlink, projectRoot) : null
   const request = (req: FilesEntryDialogRequest): void => {
     onClose()
     onRequest(req)
@@ -268,6 +276,14 @@ export function FilesTreeMenu({
           </ContextMenuItem>
           <ContextMenuItem onClick={() => request({ kind: 'create-dir', dir: nearestDir })}>
             <FolderPlus className="size-4" /> 新建文件夹
+          </ContextMenuItem>
+          <ContextMenuSeparator />
+        </>
+      )}
+      {linkTarget !== null && (
+        <>
+          <ContextMenuItem onClick={act(() => onGoToLinkTarget(linkTarget, menu.isDirectory))}>
+            <ArrowUpRight className="size-4" /> 转到链接目标
           </ContextMenuItem>
           <ContextMenuSeparator />
         </>

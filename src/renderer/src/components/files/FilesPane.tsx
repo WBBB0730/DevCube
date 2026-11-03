@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import CodeMirror from '@uiw/react-codemirror'
 import {
+  ArrowUpRight,
   ChevronsDownUp,
   ChevronsUpDown,
   Folder,
   FolderOpen,
+  Link2Off,
   Minus,
   Search,
   WandSparkles
@@ -14,6 +16,8 @@ import {
   pushRecentPath,
   type FilesDirEntry,
   type FilesEntryRef,
+  symlinkJumpTarget,
+  type FilesSymlink,
   type FilesUiState
 } from '@shared/files'
 import { flattenFilesTree, type FilesTreeRow } from '@shared/files-tree-flatten'
@@ -498,15 +502,16 @@ export function FilesPane({
     () => flattenFilesTree(rootLogical, displayChildren, displayExpanded, dirNotices),
     [rootLogical, displayChildren, displayExpanded, dirNotices]
   )
-  /** 树上能选中、能用键盘走到的行（不含提示行），自上而下 */
-  const keyRows = useMemo<TreeKeyRow[]>(
+  /** 树上能选中、能用键盘走到的行（不含提示行），自上而下；带着符号链接的指向，菜单与删除确认要用 */
+  const keyRows = useMemo<(TreeKeyRow & Pick<FilesTreeRow, 'symlink'>)[]>(
     () =>
       flatRows
         .filter((r) => !r.notice)
         .map((r) => ({
           path: r.path,
           isDirectory: r.isDirectory,
-          expanded: r.isDirectory && displayExpanded.has(r.path)
+          expanded: r.isDirectory && displayExpanded.has(r.path),
+          ...(r.symlink !== undefined ? { symlink: r.symlink } : {})
         })),
     [flatRows, displayExpanded]
   )
@@ -886,7 +891,8 @@ export function FilesPane({
       }
       for (const e of nextChildren[dir]) {
         if (!stillActive()) return
-        if (e.isDirectory) await walk(e.path)
+        // 不进符号链接文件夹：链接绕成圈时会一直展开下去（docs/prd/symlinks.md），只能手动展开
+        if (e.isDirectory && e.symlink === undefined) await walk(e.path)
       }
     }
 
@@ -1059,6 +1065,24 @@ export function FilesPane({
     },
     [expandToFile, openFile, scrollToRow]
   )
+
+  /**
+   * 前往一个条目（「前往路径」与「转到链接目标」共用，docs/prd/symlinks.md）：文件夹即展开并定位，文件即打开；
+   * 焦点先交给文件树（目标行已选中并滚到），文本文件打开后再进编辑器。
+   */
+  const goToEntry = useCallback(
+    async (target: string, isDirectory: boolean): Promise<void> => {
+      treeScrollRef.current?.focus({ preventScroll: true })
+      if (isDirectory) await revealInTree(target, true)
+      else await openFromRecent(target)
+    },
+    [treeScrollRef, revealInTree, openFromRecent]
+  )
+  /** 行上箭头的点击：目标在树里才可点（同右键「转到链接目标」）；链接条目的类型即目标的类型 */
+  const jumpToLinkTarget = (row: FilesTreeRow): (() => void) | undefined => {
+    const target = symlinkJumpTarget(row.symlink, rootLogical)
+    return target === null ? undefined : () => void goToEntry(target, row.isDirectory)
+  }
 
   const updateFilterQuery = useCallback((query: string): void => {
     filterSeqRef.current++
@@ -1494,10 +1518,9 @@ export function FilesPane({
   /** 菜单、键盘作用的条目：选中的、去掉被包含的、按树上自上而下的顺序 */
   const selectedEntries = useCallback(
     (): FilesEntryRef[] =>
-      topLevelPaths(selectedInOrder(selectionRef.current, navPaths)).map((path) => ({
-        path,
-        isDirectory: keyRowByPath.get(path)?.isDirectory ?? false
-      })),
+      topLevelPaths(selectedInOrder(selectionRef.current, navPaths)).map((path) =>
+        entryRefOf(keyRowByPath.get(path) ?? { path, isDirectory: false })
+      ),
     [keyRowByPath, navPaths]
   )
 
@@ -1506,10 +1529,11 @@ export function FilesPane({
    * 菜单作用于全部选中；在没选中的行上，选中换成这一行；在空白区清空选中、作用于根。
    */
   const openTreeMenu = useCallback(
-    (path: string, isDirectory: boolean, e: React.MouseEvent) => {
+    (target: FilesEntryRef, e: React.MouseEvent) => {
       e.preventDefault()
       e.stopPropagation()
       if (!connected) return
+      const { path, isDirectory } = target
       let entries: FilesEntryRef[]
       if (path === rootLogical) {
         setSelection(EMPTY_SELECTION)
@@ -1518,7 +1542,7 @@ export function FilesPane({
         entries = selectedEntries()
       } else {
         setSelection(selectOnly(path))
-        entries = [{ path, isDirectory }]
+        entries = [entryRefOf(target)]
       }
       setTreeMenu({ x: e.clientX, y: e.clientY, path, isDirectory, entries })
     },
@@ -1548,8 +1572,8 @@ export function FilesPane({
   }, [])
 
   /**
-   * 「前往路径」：目录即展开并定位，文件即打开；输入不对或路径不存在时就地提示（焦点留在输入框）。
-   * 前往成功后焦点离开输入框、落到目标上：先交给文件树（目标行已选中并滚到），文本文件打开后再进编辑器。
+   * 「前往路径」：目录即展开并定位，文件即打开（goToEntry）；输入不对或路径不存在时就地提示（焦点留在输入框）。
+   * 前往成功后焦点离开输入框、落到目标上。
    */
   const goToPath = useCallback(async () => {
     if (serverId === null || serverHome === null) return
@@ -1565,13 +1589,11 @@ export function FilesPane({
         return
       }
       changeGoQuery('')
-      treeScrollRef.current?.focus({ preventScroll: true })
-      if (st.isDirectory) await revealInTree(target, true)
-      else await openFromRecent(target)
+      await goToEntry(target, st.isDirectory)
     } catch (e) {
       setGoError(ipcErrorMessage(e))
     }
-  }, [serverId, serverHome, goQuery, changeGoQuery, treeScrollRef, revealInTree, openFromRecent])
+  }, [serverId, serverHome, goQuery, changeGoQuery, goToEntry])
 
   /** 「断开连接」：有未保存的修改先问「保存 / 不保存 / 取消」，存不上（冲突 / 出错）就不断开。 */
   const disconnect = useCallback(async () => {
@@ -2594,7 +2616,7 @@ export function FilesPane({
                 name={rootLogical.slice(rootLogical.lastIndexOf('/') + 1) || rootLogical}
                 dropTarget={dropDir === rootLogical}
                 menuActive={treeMenu !== null && treeMenu.path === rootLogical}
-                onContextMenu={(e) => openTreeMenu(rootLogical, true, e)}
+                onContextMenu={(e) => openTreeMenu({ path: rootLogical, isDirectory: true }, e)}
                 onDisconnect={remote ? () => void disconnect() : undefined}
               />
               <div
@@ -2603,7 +2625,7 @@ export function FilesPane({
                 // 焦点在树上时方向键归树，正文的切媒体、翻页让位（见 files-key-guards 的 filesTreeTarget）
                 data-files-tree=""
                 className={TREE_SCROLL}
-                onContextMenu={(e) => openTreeMenu(rootLogical, true, e)}
+                onContextMenu={(e) => openTreeMenu({ path: rootLogical, isDirectory: true }, e)}
                 onKeyDown={onTreeKeyDown}
               >
                 {filterLoading ? (
@@ -2634,6 +2656,15 @@ export function FilesPane({
                               expanded={displayExpanded.has(row.path)}
                               icon={<Folder className={TREE_ICON} />}
                               name={row.name}
+                              mark={
+                                row.symlink && (
+                                  <SymlinkMark
+                                    symlink={row.symlink}
+                                    onJump={jumpToLinkTarget(row)}
+                                  />
+                                )
+                              }
+                              title={row.symlink && symlinkTitle(row.symlink)}
                               selected={selection.paths.has(row.path)}
                               menuActive={menuActive}
                               dropTarget={dropDir === row.path}
@@ -2641,20 +2672,22 @@ export function FilesPane({
                               draggable={connected}
                               onClick={(e) => clickRow(row, e)}
                               onToggle={() => void toggleDir(row.path)}
-                              onContextMenu={(e) => openTreeMenu(row.path, true, e)}
+                              onContextMenu={(e) => openTreeMenu(row, e)}
                               onDragStart={(e) => startRowDrag(row, e)}
                             />
                           ) : (
                             <FileTreeFileRow
                               name={row.name}
                               depth={row.depth}
+                              symlink={row.symlink}
+                              onJumpToLinkTarget={jumpToLinkTarget(row)}
                               selected={selection.paths.has(row.path)}
                               menuActive={menuActive}
                               dimmed={!remote && cutPaths.has(row.path)}
                               draggable={connected}
                               status={statusByRel.get(relPathUnderRoot(rootLogical, row.path))}
                               onClick={(e) => clickRow(row, e)}
-                              onMenu={(e) => openTreeMenu(row.path, false, e)}
+                              onMenu={(e) => openTreeMenu(row, e)}
                               onDragStart={(e) => startRowDrag(row, e)}
                             />
                           )}
@@ -2696,6 +2729,7 @@ export function FilesPane({
               : {})}
             projectRoot={rootLogical}
             menu={treeMenu}
+            onGoToLinkTarget={(target, isDirectory) => void goToEntry(target, isDirectory)}
             onClose={() => setTreeMenu(null)}
             onRequest={setEntryDialog}
           />
@@ -2967,10 +3001,50 @@ function FilesTextEditor({
   )
 }
 
-/** 文件行：文件名与图标按工作区 Git 状态上色（无状态时图标 `--fg-icon`、名正文色）。 */
+/** 树行 → 条目引用（菜单、删除、下载用），只取这三项 */
+function entryRefOf(row: FilesEntryRef): FilesEntryRef {
+  const { path, isDirectory, symlink } = row
+  return symlink !== undefined ? { path, isDirectory, symlink } : { path, isDirectory }
+}
+
+/**
+ * 符号链接紧跟名称的标记：正常链接 `ArrowUpRight`、断链 `Link2Off`（docs/prd/symlinks.md）。
+ * 给 onJump（目标在树里）即可点：转到链接目标，不触发行的单击 / 双击；hover 只改字色。
+ */
+function SymlinkMark({
+  symlink,
+  onJump
+}: {
+  symlink: FilesSymlink
+  onJump: (() => void) | undefined
+}): React.JSX.Element {
+  const Icon = symlink.broken ? Link2Off : ArrowUpRight
+  if (onJump === undefined) return <Icon className="size-3" />
+  return (
+    <span
+      title="转到链接目标"
+      className="flex cursor-pointer items-center transition-colors hover:text-foreground"
+      onClick={(e) => {
+        e.stopPropagation()
+        onJump()
+      }}
+    >
+      <Icon className="size-3" />
+    </span>
+  )
+}
+
+/** 符号链接行的悬停提示：指向哪里，断链注明不存在 */
+function symlinkTitle(symlink: FilesSymlink): string {
+  return symlink.broken ? `指向 ${symlink.target}（不存在）` : `指向 ${symlink.target}`
+}
+
+/** 文件行：文件名与图标按工作区 Git 状态上色（无状态时图标 `--fg-icon`、名正文色）；符号链接带标记与悬停提示。 */
 function FileTreeFileRow({
   name,
   depth,
+  symlink,
+  onJumpToLinkTarget,
   selected,
   menuActive,
   dimmed,
@@ -2982,6 +3056,9 @@ function FileTreeFileRow({
 }: {
   name: string
   depth: number
+  symlink: FilesSymlink | undefined
+  /** 箭头可点时：转到链接目标 */
+  onJumpToLinkTarget: (() => void) | undefined
   selected: boolean
   /** 右键菜单打开中：保持 hover 行底（指针已移入菜单会丢 :hover） */
   menuActive: boolean
@@ -3006,6 +3083,8 @@ function FileTreeFileRow({
       }
       name={name}
       nameColor={colour}
+      mark={symlink && <SymlinkMark symlink={symlink} onJump={onJumpToLinkTarget} />}
+      title={symlink && symlinkTitle(symlink)}
       selected={selected}
       menuActive={menuActive}
       dimmed={dimmed}

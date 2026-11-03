@@ -258,6 +258,13 @@ describe('parseNameStatusZ', () => {
     ])
   })
 
+  it('类型变化（文件与符号链接互换）T 记为修改', () => {
+    expect(parseNameStatusZ('T\0link\0A\0b.ts\0', false)).toEqual([
+      { type: 'M', oldFilePath: 'link', newFilePath: 'link' },
+      { type: 'A', oldFilePath: 'b.ts', newFilePath: 'b.ts' }
+    ])
+  })
+
   it('diff-tree 先回显提交 hash，diffTree=true 时丢掉第一段', () => {
     const stdout = 'abc123\0M\0a.ts\0'
     expect(parseNameStatusZ(stdout, true)).toEqual([

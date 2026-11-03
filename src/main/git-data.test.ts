@@ -138,7 +138,7 @@ describe('buildDiffArgs', () => {
         '-r',
         '--root',
         '--find-renames',
-        '--diff-filter=AMDR',
+        '--diff-filter=AMDRT',
         '-z',
         'abc'
       ],
@@ -154,7 +154,7 @@ describe('buildDiffArgs', () => {
         'diff',
         '--numstat',
         '--find-renames',
-        '--diff-filter=AMDR',
+        '--diff-filter=AMDRT',
         '-z',
         'HEAD'
       ],
@@ -179,7 +179,7 @@ describe('buildUncommittedDiffArgs', () => {
       '--name-status',
       '--cached',
       '--find-renames',
-      '--diff-filter=AMDR',
+      '--diff-filter=AMDRT',
       '-z'
     ])
     expect(buildUncommittedDiffArgs('--numstat', 'staged')).toEqual([
@@ -189,7 +189,7 @@ describe('buildUncommittedDiffArgs', () => {
       '--numstat',
       '--cached',
       '--find-renames',
-      '--diff-filter=AMDR',
+      '--diff-filter=AMDRT',
       '-z'
     ])
   })
@@ -201,7 +201,7 @@ describe('buildUncommittedDiffArgs', () => {
       'diff',
       '--name-status',
       '--find-renames',
-      '--diff-filter=AMDR',
+      '--diff-filter=AMDRT',
       '-z'
     ])
     expect(buildUncommittedDiffArgs('--numstat', 'unstaged')).toEqual([
@@ -210,7 +210,7 @@ describe('buildUncommittedDiffArgs', () => {
       'diff',
       '--numstat',
       '--find-renames',
-      '--diff-filter=AMDR',
+      '--diff-filter=AMDRT',
       '-z'
     ])
   })

@@ -7,6 +7,9 @@ export function sameDirEntries(a: FilesDirEntry[], b: FilesDirEntry[]): boolean 
     const x = a[i]
     const y = b[i]
     if (x.name !== y.name || x.path !== y.path || x.isDirectory !== y.isDirectory) return false
+    if (x.symlink?.target !== y.symlink?.target || x.symlink?.broken !== y.symlink?.broken) {
+      return false
+    }
   }
   return true
 }

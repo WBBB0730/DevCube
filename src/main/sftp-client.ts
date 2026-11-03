@@ -99,6 +99,11 @@ export class SftpClient {
     return this.request('other', (done) => this.sftp.realpath(path, done))
   }
 
+  /** 符号链接里写的原文（不解析） */
+  readlink(path: string): Promise<string> {
+    return this.request('other', (done) => this.sftp.readlink(path, done))
+  }
+
   async stat(path: string): Promise<SftpAttrs> {
     return attrsOf(await this.request<Stats>('other', (done) => this.sftp.stat(path, done)))
   }

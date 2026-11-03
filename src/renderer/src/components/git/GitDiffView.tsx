@@ -40,7 +40,8 @@ import {
   changeBlockStarts,
   currentBlockIndex,
   diffNavIndex,
-  diffNavSequence
+  diffNavSequence,
+  diffSections
 } from './git-details'
 
 /** 头部图标按钮（与查找组件同款禁用态）。 */
@@ -89,7 +90,7 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
     ? `${diffView.fromHash}|${diffView.toHash}|${diffView.file.newFilePath}`
     : ''
 
-  // 官方 git mode 用法：new DiffFile(旧名, '', 新名, '', [git diff 原文]) → initRaw()。
+  // 官方 git mode 用法：new DiffFile(旧名, '', 新名, '', [git diff 原文各段]) → initRaw()（分段见 diffSections）。
   // 空串 content = 无全文（语法高亮由库按文件名推断语言、逐行处理）；主题由
   // diffViewTheme prop 落进实例，无需手动 initTheme。
   const srcFile = diffView?.file
@@ -99,7 +100,13 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
     if (srcFile === undefined || raw === null) return null
     // 无 hunk（纯重命名 / 模式变更 / 空文件新增）：没有内容可渲染，走空态文案
     if (!/^@@ -/m.test(raw)) return null
-    const instance = new DiffFile(srcFile.oldFilePath, '', srcFile.newFilePath, '', [raw])
+    const instance = new DiffFile(
+      srcFile.oldFilePath,
+      '',
+      srcFile.newFilePath,
+      '',
+      diffSections(raw)
+    )
     instance.initRaw()
     return instance
   }, [srcFile, raw])
@@ -357,6 +364,9 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
         // 「* Unmerged path」，实测 DiffFile.initRaw 均吃不下（Invalid hunk header format），
         // 按二进制同款兜底一句说明，不等数据返回
         <CenteredHint>文件处于冲突状态，请在编辑器中解决后暂存</CenteredHint>
+      ) : data !== null && data.symlinkDir === true ? (
+        // 未跟踪的文件夹符号链接：git 对比不了（ADR-0059），同未跟踪目录一句说明
+        <CenteredHint>这是一个指向目录的未跟踪符号链接，没有差异可查看</CenteredHint>
       ) : data !== null && data.binary ? (
         // key=文件身份：换文件即重建组件（images 状态自然归零），不在 effect 里手动重置
         <BinaryBody

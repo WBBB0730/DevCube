@@ -8,16 +8,21 @@
 // 只驱动 git 通道的公共 gitdir 订阅；主工作树的公共 gitdir 就在监听根内，不需要。
 // 该仓库有写动作排队 / 执行中（含余震）时，到点的通知挂起不发，转闲后补发一次——
 // 不与动作抢锁，也不丢动作期间的外部变化。
+// Files 经符号链接列到监听根以外的目录时，另起只驱动 files 通道的监听（linked-dir-watch，ADR-0059）。
 
 import { sep } from 'node:path'
+import { promises as fs } from 'original-fs'
+import { wslDistroOf } from '../shared/wsl-path'
 import { isAppQuitting } from './app-shutdown'
 import { subscribeDir, type DirSubscription, type DirWatchEvent } from './dir-watch'
 import { isRepoBusy, onRepoIdle } from './git-actions'
 import { execGit, repoKeyOf, type GitDirs } from './git-exec'
+import { LinkedDirWatches, hostLinkedDirs } from './linked-dir-watch'
 import {
   classifyCommonDirPath,
   classifyWatchPathAll,
   isPathInside,
+  pathHasIdeIgnoredSegment,
   resolveWatchRoot
 } from './project-watch-classify'
 import {
@@ -55,6 +60,10 @@ interface ProjectWatcherEntry {
   handlers: ProjectWatchHandlers
   subscription: DirSubscription | null
   commonSubscription: DirSubscription | null
+  /** 经符号链接列到监听根以外的目录另起的监听；WSL 项目为 null */
+  linked: LinkedDirWatches | null
+  /** 撤销 linked 的宿主登记 */
+  unhostLinked: (() => void) | null
   closed: boolean
   /** 本轮待发通知 */
   pending: PendingChanges
@@ -79,7 +88,11 @@ async function disposeEntry(projectPath: string, entry: ProjectWatcherEntry): Pr
   const subs = [entry.subscription, entry.commonSubscription]
   entry.subscription = null
   entry.commonSubscription = null
-  await Promise.all(subs.map((sub) => (sub ? sub.unsubscribe() : Promise.resolve())))
+  entry.unhostLinked?.()
+  await Promise.all([
+    ...subs.map((sub) => (sub ? sub.unsubscribe() : Promise.resolve())),
+    entry.linked?.dispose()
+  ])
 }
 
 async function notifyIfNotIgnored(
@@ -184,6 +197,18 @@ function handleCommonDirEvents(
   schedule(entry)
 }
 
+/** 另起的链接目录监听：里面任何不在 IDE 忽略名下的变化（或报错）都只刷新 files 通道。 */
+function handleLinkedEvents(
+  entry: ProjectWatcherEntry,
+  err: Error | null,
+  events: DirWatchEvent[]
+): void {
+  if (entry.closed || isAppQuitting()) return
+  if (err === null && events.every((event) => pathHasIdeIgnoredSegment(event.path))) return
+  addWatchChange(entry.pending, { kind: 'files' })
+  schedule(entry)
+}
+
 /** 链接工作树才需要额外盯公共 gitdir：它在监听根之外（主工作树的 .git 本就在根内）。 */
 function needsCommonDirWatch(watchRoot: string, gitDirs: GitDirs | null): boolean {
   return gitDirs !== null && !isPathInside(watchRoot, gitDirs.commonDir)
@@ -207,6 +232,8 @@ async function startEntry(
     handlers,
     subscription: null,
     commonSubscription: null,
+    linked: null,
+    unhostLinked: null,
     closed: false,
     pending: emptyPending(),
     firstEventAt: null,
@@ -214,6 +241,13 @@ async function startEntry(
     held: false
   }
   watchers.set(projectPath, entry)
+  if (wslDistroOf(projectPath) === null) {
+    const covered = fs.realpath(watchRoot).catch(() => watchRoot)
+    entry.linked = new LinkedDirWatches(covered, (err, events) =>
+      handleLinkedEvents(entry, err, events)
+    )
+    entry.unhostLinked = hostLinkedDirs(projectPath, entry.linked)
+  }
 
   const stale = (): boolean =>
     entry.closed || isAppQuitting() || watchers.get(projectPath) !== entry
@@ -237,6 +271,8 @@ async function startEntry(
       entry.commonSubscription = commonSubscription
     }
   } catch {
+    entry.unhostLinked?.()
+    void entry.linked?.dispose()
     if (watchers.get(projectPath) === entry) watchers.delete(projectPath)
   }
 }

@@ -6,7 +6,7 @@ function matchLine(data: object): string {
 }
 
 describe('buildRgSearchArgs', () => {
-  it('默认：忽略大小写 + 固定串 + 隐藏文件 + 剪枝 .git', () => {
+  it('默认：忽略大小写 + 固定串 + 隐藏文件 + 顺着符号链接（读不了的文件静音）+ 剪枝 .git', () => {
     expect(
       buildRgSearchArgs('todo', {
         caseSensitive: false,
@@ -14,7 +14,19 @@ describe('buildRgSearchArgs', () => {
         regex: false,
         fileMask: ''
       })
-    ).toEqual(['--json', '--hidden', '-g', '!**/.git', '-i', '-F', '--', 'todo', '.'])
+    ).toEqual([
+      '--json',
+      '--hidden',
+      '--follow',
+      '--no-messages',
+      '-g',
+      '!**/.git',
+      '-i',
+      '-F',
+      '--',
+      'todo',
+      '.'
+    ])
   })
 
   it('大小写 / 全词 / 正则开关与文件掩码', () => {

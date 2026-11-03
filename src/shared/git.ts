@@ -225,7 +225,7 @@ export interface GitLoadResult {
 
 /**
  * 文件变更状态。'!' 为冲突（unmerged）：只由未提交明细的 conflicted 桶产出，
- * 不来自 diff 输出（diff 恒 --diff-filter=AMDR，冲突记录天然缺席）。
+ * 不来自 diff 输出（diff 恒 --diff-filter=AMDRT，冲突记录天然缺席）。
  */
 export type GitFileStatus = 'A' | 'M' | 'D' | 'R' | 'U' | '!'
 
@@ -313,6 +313,11 @@ export interface DiffFileData {
   binary: boolean
   /** git 原始 unified diff 文本（含 header 与全部 hunk），透传给渲染层的 diff 组件 */
   raw: string
+  /**
+   * true：工作区里未跟踪的、指向文件夹的符号链接——`git diff --no-index` 顺着它当文件夹读、对比不了，
+   * 没有差异可看（ADR-0059）；raw 恒为 ''。
+   */
+  symlinkDir?: boolean
 }
 
 export interface GitDiffResult {

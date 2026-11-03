@@ -1,15 +1,36 @@
 /** Files Tab 相关共享类型（术语见 CONTEXT.md）。 */
-import { normalizePath } from './files-path'
+import { childPathPrefix, normalizePath } from './files-path'
+
+/**
+ * 符号链接的指向（docs/prd/symlinks.md）：target 为目标的真实路径（落在树的根下时换成树上的写法）；
+ * 断链（目标不存在或绕成了圈）时为链接里写的原文。
+ */
+export interface FilesSymlink {
+  target: string
+  broken: boolean
+}
 
 export interface FilesDirEntry {
   name: string
   /** 项目根内绝对逻辑路径（`/` 分隔） */
   path: string
+  /** 符号链接按目标的类型；断链不是文件夹 */
   isDirectory: boolean
+  /** 条目是符号链接时给出指向 */
+  symlink?: FilesSymlink
 }
 
-/** 树上的一个条目：路径与是不是文件夹（删除、下载等可一次处理多个） */
-export type FilesEntryRef = Pick<FilesDirEntry, 'path' | 'isDirectory'>
+/**
+ * 「转到链接目标」的去处（树上的路径）：链接没断、目标在树的根下（不含根自身）时给出，否则为 null。
+ * 名称后的箭头可点与右键菜单项同一条规则（docs/prd/symlinks.md）。
+ */
+export function symlinkJumpTarget(symlink: FilesSymlink | undefined, root: string): string | null {
+  if (symlink === undefined || symlink.broken) return null
+  return symlink.target.startsWith(childPathPrefix(root)) ? symlink.target : null
+}
+
+/** 树上的一个条目：路径、是不是文件夹、是不是符号链接（删除、下载等可一次处理多个） */
+export type FilesEntryRef = Pick<FilesDirEntry, 'path' | 'isDirectory' | 'symlink'>
 
 /**
  * 移动 / 复制一个条目的结果（docs/prd/files-tree-move-copy.md）：成功给落定的新路径；目标处已有同名条目、
