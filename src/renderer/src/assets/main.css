@@ -570,6 +570,25 @@
 .files-md-preview > .files-md-code:last-child > pre {
   margin-bottom: 0;
 }
+/* frontmatter 表每行一个键（tbody 里的行表头）一个值：prose 只排了 thead 的表头，行表头的留白、字重与配色照 prose-sm
+   的单元格与表头补上，键不折行。嵌套在值里的表与外层同字号、不留表格的上下外边距，外层格子不再叠一层上下留白 */
+.files-md-preview tbody th {
+  padding: 0.6666667em 1em;
+  font-weight: 600;
+  color: var(--tw-prose-headings);
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+.files-md-preview tbody th:first-child {
+  padding-inline-start: 0;
+}
+.files-md-preview td > table {
+  margin: 0;
+  font-size: inherit;
+}
+.files-md-preview td:has(> table) {
+  padding-block: 0;
+}
 
 /* Files Tab · CodeMirror：压过 @codemirror/view baseTheme 的 line-height: 1.4。 */
 /* Files Tab PDF 预览（PDF.js viewer 组件，样式表在顶部以级联层引入）：页面保持白底，去掉库自带的

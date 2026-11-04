@@ -6,14 +6,20 @@
  * - 源码行标注：块元素标上源码起始行，预览与编辑器据此按内容对齐阅读位置。
  * - 原始 HTML：照 GitHub 的白名单渲染（`<br>`、`<details>`、`<kbd>`、`<img width>` 等），脚本、事件属性与 `style` 去掉。
  * - 代码块复制：复制的是代码原文。
+ * - frontmatter：文首 `---` 围起的 YAML 画成表，每行一个键一个值，列表与嵌套的键值对画成嵌套的表；
+ *   写错的 YAML 或不是键值对的原样显示成 YAML 代码块，空的不显示。
  */
-import type { Element, Root } from 'hast'
+import type { Element, ElementContent, Root } from 'hast'
 import { phrasing } from 'hast-util-phrasing'
 import { toString } from 'hast-util-to-string'
+import type { Yaml } from 'mdast'
 import rehypeRaw from 'rehype-raw'
 import rehypeSanitize from 'rehype-sanitize'
 import type { Options } from 'react-markdown'
+import remarkFrontmatter from 'remark-frontmatter'
+import remarkGfm from 'remark-gfm'
 import { visit } from 'unist-util-visit'
+import { isAlias, isMap, isScalar, isSeq, parseDocument } from 'yaml'
 import { locateTextOffset } from './text-find'
 
 /**
@@ -36,6 +42,69 @@ export function rehypeSourceLines(): (tree: Root) => void {
         node.properties.dataLine = line - 1
       }
     })
+  }
+}
+
+/** 预览的 remark 链：GFM，加上文首的 YAML frontmatter */
+export const MARKDOWN_REMARK_PLUGINS: NonNullable<Options['remarkPlugins']> = [
+  remarkGfm,
+  remarkFrontmatter
+]
+
+function hastElement(tagName: string, children: ElementContent[]): Element {
+  return { type: 'element', tagName, properties: {}, children }
+}
+
+/** 一行一项的表；没有项不画 */
+function yamlTable(rows: Element[][]): ElementContent[] {
+  if (rows.length === 0) return []
+  return [
+    hastElement('table', [
+      hastElement(
+        'tbody',
+        rows.map((cells) => hastElement('tr', cells))
+      )
+    ])
+  ]
+}
+
+/**
+ * frontmatter 里的一个 YAML 值：键值对每行一个键（行表头）一个值，列表每行一项；
+ * 标量显示写下的字面（`1.10`、`0x1F`、`~` 不换算），别名写作 `*名字`、不展开
+ */
+function yamlToHast(node: unknown): ElementContent[] {
+  if (isMap(node)) {
+    return yamlTable(
+      node.items.map(({ key, value }) => [
+        hastElement('th', yamlToHast(key)),
+        hastElement('td', yamlToHast(value))
+      ])
+    )
+  }
+  if (isSeq(node)) return yamlTable(node.items.map((item) => [hastElement('td', yamlToHast(item))]))
+  // 解析出的标量都带着字面
+  if (isScalar(node)) return [{ type: 'text', value: node.source! }]
+  if (isAlias(node)) return [{ type: 'text', value: `*${node.source}` }]
+  return []
+}
+
+/** Markdown 语法树转元素：frontmatter 按文件头的规则转，带着它的源码位置 */
+export const MARKDOWN_REMARK_REHYPE_OPTIONS: NonNullable<Options['remarkRehypeOptions']> = {
+  handlers: {
+    yaml(state, node: Yaml, parent) {
+      const { contents, errors } = parseDocument(node.value)
+      if (errors.length === 0 && (contents === null || isMap(contents))) {
+        const [table] = yamlToHast(contents)
+        if (table === undefined) return undefined
+        state.patch(node, table)
+        return state.applyData(node, table)
+      }
+      // 与围栏代码块同一个转换
+      return state.one(
+        { type: 'code', lang: 'yaml', value: node.value, position: node.position },
+        parent
+      )
+    }
   }
 }
 

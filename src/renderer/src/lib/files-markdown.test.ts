@@ -1,12 +1,13 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import Markdown, { type Components } from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { describe, expect, it } from 'vitest'
 import {
   buildMarkdownFindIndex,
   isInlineTag,
   MARKDOWN_REHYPE_PLUGINS,
+  MARKDOWN_REMARK_PLUGINS,
+  MARKDOWN_REMARK_REHYPE_OPTIONS,
   markdownCodeText,
   markdownFindSpans,
   type MarkdownFindBlock,
@@ -63,12 +64,17 @@ describe('markdownFindSpans', () => {
 })
 
 describe('预览渲染链', () => {
-  /** 经预览同一条渲染链（react-markdown + GFM + 原始 HTML 净化 + 源码行）出 HTML */
+  /** 经预览同一条渲染链（react-markdown + GFM + frontmatter + 原始 HTML 净化 + 源码行）出 HTML */
   const render = (source: string, components?: Components): string =>
     renderToStaticMarkup(
       createElement(
         Markdown,
-        { remarkPlugins: [remarkGfm], rehypePlugins: MARKDOWN_REHYPE_PLUGINS, components },
+        {
+          remarkPlugins: MARKDOWN_REMARK_PLUGINS,
+          remarkRehypeOptions: MARKDOWN_REMARK_REHYPE_OPTIONS,
+          rehypePlugins: MARKDOWN_REHYPE_PLUGINS,
+          components
+        },
         source
       )
     )
@@ -120,6 +126,54 @@ describe('预览渲染链', () => {
     expect(html).not.toContain('onclick')
     expect(html).not.toContain('javascript')
     expect(html).toContain('<p data-line="2">文字</p>')
+  })
+
+  it('frontmatter 画成表：每行一个键一个值，标量照字面，表标在第 0 行，正文照常标行', () => {
+    expect(render('---\ntitle: 示例\nversion: 1.10\nempty:\n---\n\n# 正文')).toBe(
+      '<table data-line="0"><tbody>' +
+        '<tr><th>title</th><td>示例</td></tr>' +
+        '<tr><th>version</th><td>1.10</td></tr>' +
+        '<tr><th>empty</th><td></td></tr>' +
+        '</tbody></table>\n<h1 data-line="6">正文</h1>'
+    )
+  })
+
+  it('frontmatter 的列表与嵌套键值对画成嵌套的表，空的留空，别名不展开', () => {
+    expect(
+      render('---\ntags: [a, b]\nauthor:\n  name: 张三\nnone: []\nref: &x 1\nalias: *x\n---')
+    ).toBe(
+      '<table data-line="0"><tbody>' +
+        '<tr><th>tags</th><td><table><tbody><tr><td>a</td></tr><tr><td>b</td></tr></tbody></table></td></tr>' +
+        '<tr><th>author</th><td><table><tbody><tr><th>name</th><td>张三</td></tr></tbody></table></td></tr>' +
+        '<tr><th>none</th><td></td></tr>' +
+        '<tr><th>ref</th><td>1</td></tr>' +
+        '<tr><th>alias</th><td>*x</td></tr>' +
+        '</tbody></table>'
+    )
+  })
+
+  it.each([
+    ['写错的 YAML', 'a: [1'],
+    ['重复的键', 'a: 1\na: 2'],
+    ['列表', '- x\n- y'],
+    ['纯文字', 'just text']
+  ])('frontmatter 是%s时原样显示成 YAML 代码块', (_, yaml) => {
+    expect(render(`---\n${yaml}\n---`)).toBe(
+      `<pre data-line="0"><code class="language-yaml">${yaml}\n</code></pre>`
+    )
+  })
+
+  it('空的 frontmatter（含只有注释的）不显示', () => {
+    expect(render('---\n---\n\n正文')).toBe('<p data-line="3">正文</p>')
+    expect(render('---\n# 注释\n---\n\n正文')).toBe('<p data-line="4">正文</p>')
+  })
+
+  it('frontmatter 值里的 HTML 当文字', () => {
+    expect(render('---\ntitle: <script>alert(1)</script>\n---')).toBe(
+      '<table data-line="0"><tbody>' +
+        '<tr><th>title</th><td>&lt;script&gt;alert(1)&lt;/script&gt;</td></tr>' +
+        '</tbody></table>'
+    )
   })
 })
 

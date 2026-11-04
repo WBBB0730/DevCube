@@ -2,6 +2,7 @@
 // 相对路径图片解析到项目内后经 dc-media 协议流式读取（越界 / 非图片不渲染；服务器上的文件不解析，
 // 相对图片不显示）；链接一律拦截默认跳转，http/https/mailto 交给系统浏览器，其余（锚点 / 相对链接）不动作。
 // 代码块右上角悬停出复制钮，复制代码原文，成功后换勾片刻。
+// 文首的 YAML frontmatter 画成键值表，写错或不是键值对的原样成代码块（见 lib/files-markdown）。
 // 正文可选中复制；Cmd+F 在渲染后的正文里查找（换算见 lib/files-markdown），查找会话与编辑态共用（切换不关、不清空），
 // 高亮同 PPT 走 CSS Custom Highlight、不改页面。
 // 阅读位置与编辑器共用「视口顶边所在的源码行」：块元素标着源码起始行（rehypeSourceLines），以块为对应点分段换算，
@@ -16,7 +17,6 @@ import {
   useState
 } from 'react'
 import Markdown, { type Components } from 'react-markdown'
-import remarkGfm from 'remark-gfm'
 import { isExternalLink } from '@shared/external-link'
 import { buildFilesMediaUrl } from '@shared/files'
 import { resolveWithinProject } from '@shared/files-path'
@@ -26,6 +26,8 @@ import {
   buildMarkdownFindIndex,
   isInlineTag,
   MARKDOWN_REHYPE_PLUGINS,
+  MARKDOWN_REMARK_PLUGINS,
+  MARKDOWN_REMARK_REHYPE_OPTIONS,
   markdownCodeText,
   markdownFindSpans,
   type MarkdownFindIndexBlock
@@ -90,7 +92,6 @@ function collectFindBlocks(body: HTMLElement): { nodes: Text[]; pre: boolean }[]
 }
 
 const NO_MATCH = { total: 0, current: -1 }
-const REMARK_PLUGINS = [remarkGfm]
 
 // 代码块的复制钮：盖在右上角、不占布局（同工作树下拉的行尾钮），悬停代码块时渐显；带代码块底色，横向滚动的长行从它底下过不透出来
 const CODE_COPY_BTN =
@@ -212,7 +213,8 @@ export function FilesMarkdownPreview({
   const body = useMemo(
     () => (
       <Markdown
-        remarkPlugins={REMARK_PLUGINS}
+        remarkPlugins={MARKDOWN_REMARK_PLUGINS}
+        remarkRehypeOptions={MARKDOWN_REMARK_REHYPE_OPTIONS}
         rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
         components={components}
       >
