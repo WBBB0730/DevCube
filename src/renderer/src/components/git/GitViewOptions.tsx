@@ -1,8 +1,10 @@
-// 工具栏「视图选项」Popover（紧挨分支筛选下拉）：五个数据可见性开关 + 提交排序三选一。
+// 工具栏「视图选项」Popover（紧挨分支筛选下拉）：五个数据可见性开关（「显示远程分支」下按远程逐个
+// 勾选显示哪些，写 hideRemotes）+ 提交排序三选一。
 // 原仓库设置面板「常规」区的三态 select 在此收敛为二态 checkbox：checked 按
 // resolveOverride 解析（settings 未拉到前按 default 显示，快照落桶后自动纠正），
 // onChange 写 enabled/disabled（updateSettings 对数据键自动硬刷新）。
 // 浮层观感对齐 GitBranchDropdown（bg-elevated / p-1.5），控件用 shadcn Checkbox / RadioGroup。
+import { Fragment } from 'react'
 import { SlidersHorizontal } from 'lucide-react'
 import {
   GIT_DEFAULTS,
@@ -15,6 +17,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui
 import { Checkbox } from '@renderer/components/ui/checkbox'
 import { RadioGroup, RadioGroupItem } from '@renderer/components/ui/radio-group'
 import { TOOLBAR_BTN } from '@renderer/components/ui/toolbar'
+import { cn } from '@renderer/lib/utils'
 
 const ROW =
   'flex h-7 cursor-pointer select-none items-center gap-1.5 rounded px-1.5 text-[13px] text-foreground transition-colors hover:bg-[var(--bg-row-hover)]'
@@ -48,6 +51,12 @@ const TOGGLE_ROWS: {
   }
 ]
 
+/** 切换某 remote 的隐藏态后的 hideRemotes 新数组（幂等：重复勾选不产生重复项）。 */
+function nextHideRemotes(hideRemotes: string[], remote: string, hidden: boolean): string[] {
+  const without = hideRemotes.filter((r) => r !== remote)
+  return hidden ? [...without, remote] : without
+}
+
 /** 提交排序的三个 radio 选项。 */
 const ORDERING_OPTIONS: { value: GitCommitOrdering; label: string }[] = [
   { value: 'date', label: '提交时间' },
@@ -58,7 +67,13 @@ const ORDERING_OPTIONS: { value: GitCommitOrdering; label: string }[] = [
 /** 视图选项按钮 + Popover：数据全部读 git-store 的 settings，变更即 updateSettings。 */
 export function GitViewOptions({ projectPath }: { projectPath: string }): React.JSX.Element {
   const settings = useGit((s) => gitState(s, projectPath).settings)
+  const remotes = useGit((s) => gitState(s, projectPath).remotes)
   const updateSettings = useGit((s) => s.updateSettings)
+  const showRemoteBranches = resolveOverride(
+    settings?.showRemoteBranches ?? 'default',
+    GIT_DEFAULTS.showRemoteBranches
+  )
+  const hideRemotes = settings?.hideRemotes ?? []
 
   // 'default' 档解析成生效排序值再比对 checked（与表头菜单同一套解析）
   const ordering =
@@ -73,19 +88,40 @@ export function GitViewOptions({ projectPath }: { projectPath: string }): React.
       </PopoverTrigger>
       <PopoverContent className="w-64">
         {TOGGLE_ROWS.map((row) => (
-          <label key={row.key} className={ROW} title={row.title}>
-            <Checkbox
-              checked={resolveOverride(settings?.[row.key] ?? 'default', row.def)}
-              onCheckedChange={(checked) =>
-                // 三态写回：勾选 = enabled、取消 = disabled（updateSettings 对数据键自动硬刷新）。
-                // 计算键的对象字面量会宽化成索引签名，显式收窄回 Partial<GitRepoSettings>
-                void updateSettings(projectPath, {
-                  [row.key]: checked ? 'enabled' : 'disabled'
-                } as Partial<GitRepoSettings>)
-              }
-            />
-            {row.label}
-          </label>
+          <Fragment key={row.key}>
+            <label className={ROW} title={row.title}>
+              <Checkbox
+                checked={resolveOverride(settings?.[row.key] ?? 'default', row.def)}
+                onCheckedChange={(checked) =>
+                  // 三态写回：勾选 = enabled、取消 = disabled（updateSettings 对数据键自动硬刷新）。
+                  // 计算键的对象字面量会宽化成索引签名，显式收窄回 Partial<GitRepoSettings>
+                  void updateSettings(projectPath, {
+                    [row.key]: checked ? 'enabled' : 'disabled'
+                  } as Partial<GitRepoSettings>)
+                }
+              />
+              {row.label}
+            </label>
+            {/* 显示哪些远程：缩进到上一行文字处；「显示远程分支」关时置灰（勾选状态保留） */}
+            {row.key === 'showRemoteBranches' &&
+              remotes.map((remote) => (
+                <label
+                  key={remote}
+                  className={cn(ROW, 'pl-7', !showRemoteBranches && 'opacity-50')}
+                >
+                  <Checkbox
+                    checked={!hideRemotes.includes(remote)}
+                    disabled={!showRemoteBranches}
+                    onCheckedChange={(checked) =>
+                      void updateSettings(projectPath, {
+                        hideRemotes: nextHideRemotes(hideRemotes, remote, !checked)
+                      })
+                    }
+                  />
+                  <span className="min-w-0 truncate">{remote}</span>
+                </label>
+              ))}
+          </Fragment>
         ))}
         <div className="mx-1.5 my-1 h-px bg-[var(--border-input)]" role="separator" />
         <div className="px-1.5 py-1 text-[12px] font-medium text-muted-foreground">提交排序</div>

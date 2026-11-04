@@ -216,7 +216,7 @@ export interface DialogEnv {
   /** 弹一个追问对话框（强制删除 / 不在远程等动作之后的续弹） */
   openChase(spec: DialogSpec): void
   setViewPrefs(patch: Partial<GitViewPrefs>): void
-  /** 写本项目的 git 设置（拉取对话框记住整合方式、两张表单的「总是直接拉取 / 推送」） */
+  /** 写本项目的 git 设置（拉取对话框记住整合方式、两张表单的「不再显示此窗口」） */
   updateSettings(patch: Partial<GitRepoSettings>): void
   /** 前往某目录对应的项目（未登记则先登记）：工作树提示框「转到项目」与新建后的出口 */
   openProject(path: string): void
@@ -1929,7 +1929,7 @@ function RefreshErrorLine({ error }: { error: string | null }): React.JSX.Elemen
  * 过滤——展示口径的 env.branches 被过滤时会让拉取变成死路），行内刷新钮对所选 remote
  * 静默 fetch（runQuietAction 不弹进行中遮罩，成功后软刷新流回选项列表；失败就地提示，
  * 不走全局错误框——那会顶掉表单、丢掉用户已填状态）。
- * 确认时把所选整合方式写回本项目设置（下次默认值的第一层）；跟开关走的入口（工具栏）另有「总是直接拉取」，
+ * 确认时把所选整合方式写回本项目设置（下次默认值的第一层）；跟开关走的入口（工具栏）底栏左侧另有「不再显示此窗口」，
  * 初值为当前开关（按住 ⌘/Ctrl 打开时为勾选，取消勾选即恢复弹对话框），同样确认时才写回。
  */
 function PullBranchDialog({
@@ -2021,6 +2021,14 @@ function PullBranchDialog({
         }
       ]}
       onCancel={env.closeDialog}
+      footerStart={
+        req.offerSkip ? (
+          <label className={CHOICE_ROW}>
+            <Checkbox checked={skipDialog} onCheckedChange={(c) => setSkipDialog(c)} />
+            不再显示此窗口
+          </label>
+        ) : undefined
+      }
     >
       <FieldRow label="从远程拉取">
         <Select
@@ -2102,12 +2110,6 @@ function PullBranchDialog({
           </label>
         </RadioGroup>
       </FieldRow>
-      {req.offerSkip && (
-        <label className={CHOICE_ROW}>
-          <Checkbox checked={skipDialog} onCheckedChange={(c) => setSkipDialog(c)} />
-          总是直接拉取（不再提示）
-        </label>
-      )}
     </FormDialogShell>
   )
 }
@@ -2117,7 +2119,7 @@ function PullBranchDialog({
  * 推送模式。目标远程分支是可输可选 combobox（建议 = 所选 remote 已加载的远程分支，
  * 行内刷新钮同 D10）。「目标跟随本地分支同名直到手动编辑」「设置上游默认 = 目标与本地
  * 同名、点过后不再自动变」都用「没动过则派生、动过存实值」表达，不引 effect 联动。
- * 跟开关走的入口（工具栏、提交并推送）另有「总是直接推送」，初值与写回时机同 D10 的「总是直接拉取」。
+ * 跟开关走的入口（工具栏、提交并推送）底栏左侧另有「不再显示此窗口」，初值与写回时机同 D10。
  */
 function PushBranchDialog({
   req,
@@ -2186,6 +2188,14 @@ function PushBranchDialog({
         }
       ]}
       onCancel={env.closeDialog}
+      footerStart={
+        req.offerSkip ? (
+          <label className={CHOICE_ROW}>
+            <Checkbox checked={skipDialog} onCheckedChange={(c) => setSkipDialog(c)} />
+            不再显示此窗口
+          </label>
+        ) : undefined
+      }
     >
       <FieldRow label="推送到远程">
         <Select
@@ -2269,12 +2279,6 @@ function PushBranchDialog({
           </label>
         </RadioGroup>
       </FieldRow>
-      {req.offerSkip && (
-        <label className={CHOICE_ROW}>
-          <Checkbox checked={skipDialog} onCheckedChange={(c) => setSkipDialog(c)} />
-          总是直接推送（不再提示）
-        </label>
-      )}
     </FormDialogShell>
   )
 }

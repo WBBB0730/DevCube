@@ -136,11 +136,11 @@ export interface GitStoreState {
   openDialog(projectPath: string, req: GitDialogRequest): void
   closeDialog(projectPath: string): void
   /**
-   * 拉取当前分支（工具栏拉取钮）：按点法与「总是直接拉取」开关想直接执行、且默认值指向上游时
+   * 拉取当前分支（工具栏拉取钮）：按点法与「拉取时不显示窗口」开关想直接执行、且默认值指向上游时
    * 直接拉取（= 对话框默认值原样提交），否则打开带开关勾选的拉取对话框。
    */
   pullCurrentBranch(projectPath: string, mode: SkipDialogMode): void
-  /** 推送当前分支（工具栏推送钮、提交并推送）：规则同 pullCurrentBranch，开关为「总是直接推送」。 */
+  /** 推送当前分支（工具栏推送钮、提交并推送）：规则同 pullCurrentBranch，开关为「推送时不显示窗口」。 */
   pushCurrentBranch(projectPath: string, mode: SkipDialogMode): void
   /** 更新查找状态：patch 合并；传 null 整体关闭并清空 */
   setFind(projectPath: string, patch: Partial<GitFindState> | null): void

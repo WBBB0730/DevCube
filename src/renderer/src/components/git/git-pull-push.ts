@@ -16,7 +16,7 @@ export interface DirectActionState {
 }
 
 /**
- * 拉取 / 推送当前分支时怎么对待「总是直接拉取 / 推送」开关：follow = 照开关（单击），
+ * 拉取 / 推送当前分支时怎么对待「拉取 / 推送时不显示窗口」开关：follow = 照开关（单击），
  * invert = 反过来（按住 ⌘/Ctrl 单击），dialog = 一律打开对话框（提交时勾了「修正」）。
  */
 export type SkipDialogMode = 'follow' | 'invert' | 'dialog'

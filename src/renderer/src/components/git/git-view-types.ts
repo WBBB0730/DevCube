@@ -63,7 +63,7 @@ export type GitDialogRequest =
   | { kind: 'rebase'; obj: string; on: GitRebaseOn; displayName: string }
   /** 推送分支（表单式 D5）；branch = 入口预设的本地分支（工具栏 = 当前分支，
       右键 / 提交并推送 = 该入口的分支），remote / 目标分支等其余字段在表单里选；
-      offerSkip = 表单底部带「总是直接推送」勾选（入口本身跟这个开关走：工具栏、提交并推送） */
+      offerSkip = 表单底部带「不再显示此窗口」勾选（入口本身跟这个开关走：工具栏、提交并推送） */
   | { kind: 'push-branch'; branch: string; offerSkip: boolean }
   /** 检出远程分支（创建本地跟踪分支）；remote 为 null 表示孤儿远程 ref */
   | { kind: 'checkout-remote-branch'; remoteRef: string; remote: string | null }
@@ -84,7 +84,7 @@ export type GitDialogRequest =
   | { kind: 'delete-remote-branch'; remoteRef: string; remote: string; branch: string }
   | { kind: 'fetch-into-local'; remote: string; remoteBranch: string; localBranch: string }
   /** 拉取到当前分支（表单式 D10）；preset = 入口预设的 remote 与远程分支（右键远程分支标签），
-      null = 表单按默认规则求值；offerSkip = 表单底部带「总是直接拉取」勾选（入口本身跟这个开关走：工具栏） */
+      null = 表单按默认规则求值；offerSkip = 表单底部带「不再显示此窗口」勾选（入口本身跟这个开关走：工具栏） */
   | {
       kind: 'pull-branch'
       preset: { remote: string; branch: string } | null

@@ -3,7 +3,7 @@
 // GitHub 标志的「登录 GitHub」钮（docs/prd/github-checks.md；登录后即消失）。高 40px、bg-panel，
 // 对齐 Console Tab 栏观感。刷新 = fetch + 静默软重载（store.refresh，fetch 期间换成转圈图标、
 // 结束后转回原位才换回刷新图标，不弹进行中遮罩）；创建分支预设目标后打开既有对话框（GitDialogs）。
-// 拉取 / 推送：单击按本项目的「总是直接拉取 / 推送」开关直接执行（= 对话框默认值原样提交）或打开对话框，
+// 拉取 / 推送：单击按本项目的「拉取 / 推送时不显示窗口」开关直接执行（= 对话框默认值原样提交）或打开对话框，
 // 按住 ⌘/Ctrl 单击反过来；默认值拿不准（无上游等）时两种点法都打开对话框。
 import { useEffect, useState } from 'react'
 import {

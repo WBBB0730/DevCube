@@ -174,7 +174,7 @@ export function CommitForm({ projectPath }: { projectPath: string }): React.JSX.
       store.setCommitDraft(projectPath, { message: '', amend: false, preAmendMessage: '' })
       setNoVerify(false)
       if (push) {
-        // 提交并推送：同工具栏推送钮（「总是直接推送」开关、拿不准弹对话框，见 pushCurrentBranch）；
+        // 提交并推送：同工具栏推送钮（「推送时不显示窗口」开关、拿不准弹对话框，见 pushCurrentBranch）；
         // 勾了「修正」一律打开对话框——修正已推送的提交多半要强制推送。当前分支在动作里从提交后的
         // 最新状态取（runQuietAction 内已 await 软刷新落地）——空仓库的首次提交让分支刚刚出生
         store.pushCurrentBranch(projectPath, draft.amend ? 'dialog' : 'follow')

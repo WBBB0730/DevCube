@@ -150,7 +150,7 @@ type FormDialogShellProps = {
  * dismissible=false：遮罩点击与 Esc 都不收口（长任务进行中，只认明确点按钮），
  * 与 cancelDisabled 正交——取消钮仍可用。
  * 叠在它之上的对话框（错误框、确认框）写在 children 里（嵌套对话框，见 ui/dialog）。
- * footerStart：底栏左侧的辅助动作（如「测试连接」），与右侧的取消 / 主按钮分开。
+ * footerStart：底栏左侧的辅助动作或选项（如「测试连接」「不再显示此窗口」），与右侧的取消 / 主按钮分开。
  */
 export function FormDialogShell({
   message,

@@ -427,9 +427,9 @@ export interface GitRepoSettings {
   worktreeDirectory: string | null
   /** 拉取对话框「整合方式」的记忆值；null = 从未选过（回退仓库 git 配置，再回退合并） */
   pullIntegrationMode: GitPullMode | null
-  /** 拉取对话框勾选过「总是直接拉取」后为 true：工具栏拉取钮直接按默认值执行（拿不准仍弹对话框） */
+  /** 拉取对话框勾选过「不再显示此窗口」（= 仓库设置里的「拉取时不显示窗口」）后为 true：工具栏拉取钮直接按默认值执行（拿不准仍弹对话框） */
   pullSkipDialog: boolean
-  /** 推送对话框勾选过「总是直接推送」后为 true：工具栏推送钮直接按默认值执行（拿不准仍弹对话框） */
+  /** 推送对话框勾选过「不再显示此窗口」（= 仓库设置里的「推送时不显示窗口」）后为 true：工具栏推送钮直接按默认值执行（拿不准仍弹对话框） */
   pushSkipDialog: boolean
 }
 
