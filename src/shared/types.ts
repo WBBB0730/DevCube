@@ -12,6 +12,7 @@ import type {
   FilesDirEntry,
   FilesEntryRef,
   FilesReadResult,
+  FilesStat,
   FilesTransferResult,
   FilesUiState
 } from './files'
@@ -24,7 +25,6 @@ import type { OpenInAppId, OpenInAppResult, OpenInAppStatus } from './open-in-ap
 import type { PanelSizes, PanelSizesPatch } from './panel-sizes'
 import type { RendererBootstrap } from './renderer-bootstrap'
 import type {
-  ServerFileStat,
   ServerFilesReadProgress,
   ServerFilesReadResult,
   ServerFilesState,
@@ -695,7 +695,7 @@ export interface RunAPI extends GitAPI, GitHubAPI {
   onServerFilesStateChanged(cb: (event: ServerFilesStateEvent) => void): () => void
   serverFilesListDir(serverId: string, dir: string): Promise<FilesDirEntry[]>
   /** 条目信息（跟随符号链接）；不存在为 null */
-  serverFilesStat(serverId: string, path: string): Promise<ServerFileStat | null>
+  serverFilesStat(serverId: string, path: string): Promise<FilesStat | null>
   /** 打开服务器上的文件；force = 超过预览上限时「仍然打开」。新的打开会取消旧的（旧的返回 canceled） */
   serverFilesRead(serverId: string, path: string, force: boolean): Promise<ServerFilesReadResult>
   /** 取消进行中的打开 */
@@ -867,6 +867,8 @@ export interface RunAPI extends GitAPI, GitHubAPI {
   filesListDir(projectPath: string, dirPath: string): Promise<FilesDirEntry[]>
   filesFilterTree(projectPath: string, query: string): Promise<FilesTreeFilterResult>
   filesInvalidateIndex(projectPath: string): Promise<void>
+  /** 条目信息（跟随符号链接）；不存在（含断链）为 null，同 serverFilesStat */
+  filesStat(projectPath: string, filePath: string): Promise<FilesStat | null>
   filesRead(projectPath: string, filePath: string): Promise<FilesReadResult>
   filesWrite(
     projectPath: string,

@@ -1210,6 +1210,11 @@ export function FilesPane({
     // 不在 cleanup 里取消：consume 会立刻把 pending 置空并重跑 effect，取消会误杀本次打开。
     void (async () => {
       const logical = normalizePath(req.path)
+      // 要打开的是文件夹（如 Git 里指向文件夹的符号链接）：同「前往路径」，在树里展开并定位（同 JetBrains 的导航）
+      if ((await backend.stat(logical).catch(() => null))?.isDirectory) {
+        await goToEntry(logical, true)
+        return
+      }
       await expandToFile(logical)
       await openFile(logical)
       if (req.at) {
@@ -1218,7 +1223,7 @@ export function FilesPane({
         setEditorJump({ path: logical, ...req.at, nonce: ++editorJumpNonce.current })
       }
     })()
-  }, [ready, pending, storeKey, expandToFile, openFile])
+  }, [ready, pending, storeKey, backend, goToEntry, expandToFile, openFile])
 
   // ⌥⌘F：切到本 Tab 后聚焦文件树筛选，树隐藏时先展开。可见即接下请求：渲染期比对处理过的 nonce（React「渲染中调整
   // state」模式，非 effect）；聚焦要等树挂上，在 effect 里做

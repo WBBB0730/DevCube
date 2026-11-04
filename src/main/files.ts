@@ -32,6 +32,7 @@ import {
   compareFilesDirEntries,
   type FilesDirEntry,
   type FilesReadResult,
+  type FilesStat,
   type FilesTransferResult,
   type FilesUiState
 } from '../shared/files'
@@ -172,6 +173,18 @@ async function detectMime(sysPath: string): Promise<string | null> {
     return ft ? primaryMime(ft.mime) : null
   } catch {
     return null
+  }
+}
+
+/** 条目信息（跟随符号链接）；不存在（含断链）为 null，其余错误照常抛出（同服务器的 statServerPath）。 */
+export async function statEntry(projectPath: string, filePath: string): Promise<FilesStat | null> {
+  try {
+    const st = await fs.stat(filesSysPath(projectPath, filePath))
+    return { isDirectory: st.isDirectory(), size: st.size, mtimeMs: st.mtimeMs }
+  } catch (e) {
+    const code = (e as NodeJS.ErrnoException).code
+    if (code === 'ENOENT' || code === 'ENOTDIR') return null
+    throw e
   }
 }
 

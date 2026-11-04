@@ -236,6 +236,7 @@ const api: RunAPI = {
   filesFilterTree: (projectPath, query) =>
     ipcRenderer.invoke(IPC.filesFilterTree, projectPath, query),
   filesInvalidateIndex: (projectPath) => ipcRenderer.invoke(IPC.filesInvalidateIndex, projectPath),
+  filesStat: (projectPath, filePath) => ipcRenderer.invoke(IPC.filesStat, projectPath, filePath),
   filesRead: (projectPath, filePath) => ipcRenderer.invoke(IPC.filesRead, projectPath, filePath),
   filesWrite: (projectPath, filePath, content) =>
     ipcRenderer.invoke(IPC.filesWrite, projectPath, filePath, content),

@@ -286,15 +286,18 @@ export function canPushAfterCommit(currentBranch: string | null, headHash: strin
   return currentBranch !== null || headHash === null
 }
 
-/** 文件行能否在 Files Tab 打开工作区那份：已删除没有工作区文件，未跟踪目录不是单文件。 */
+/**
+ * 文件行能否在 Files Tab 打开工作区那份：已删除的没有工作区文件；文件夹（未跟踪目录整体条目、指向文件夹的符号链接）
+ * 由 Files Tab 在文件树里展开并定位（docs/prd/symlinks.md）。与文件行菜单的「打开文件」同一条规则。
+ */
 export function canOpenWorkingTreeFile(file: GitFileChange): boolean {
-  return file.type !== 'D' && file.isDir !== true
+  return file.type !== 'D'
 }
 
 /** 文件行 tooltip（§7.4）：可点性提示 • 状态文案，rename 附「旧 → 新」。 */
 export function fileRowTitle(file: GitFileChange): string {
   const click = !diffPossible(file)
-    ? '无法查看差异（这是一个未跟踪目录）'
+    ? '无法查看差异（这是一个未跟踪目录），双击在文件树中显示'
     : canOpenWorkingTreeFile(file)
       ? '点击查看差异，双击打开文件'
       : '点击查看差异'

@@ -4,6 +4,7 @@ import {
   DEFAULT_FILES_UI,
   type FilesDirEntry,
   type FilesReadResult,
+  type FilesStat,
   type FilesTransferResult,
   type FilesUiState
 } from '@shared/files'
@@ -33,6 +34,8 @@ export type FilesWriteResult = ServerFilesWriteResult
 
 export interface FilesBackend {
   listDir(dir: string): Promise<FilesDirEntry[]>
+  /** 条目信息（跟随符号链接）；不存在为 null */
+  stat(path: string): Promise<FilesStat | null>
   /** force：服务器上的文件超过预览上限时「仍然打开」 */
   read(path: string, force?: boolean): Promise<FilesOpenResult>
   /** base：载入时的修改时间与大小 */
@@ -57,6 +60,7 @@ export interface FilesBackend {
 export function localFilesBackend(rootPath: string, persist: boolean): FilesBackend {
   return {
     listDir: (dir) => window.api.filesListDir(rootPath, dir),
+    stat: (path) => window.api.filesStat(rootPath, path),
     read: async (path) => {
       const result = await window.api.filesRead(rootPath, path)
       return result.kind === 'image'
@@ -80,6 +84,7 @@ export function localFilesBackend(rootPath: string, persist: boolean): FilesBack
 export function serverFilesBackend(serverId: string): FilesBackend {
   return {
     listDir: (dir) => window.api.serverFilesListDir(serverId, dir),
+    stat: (path) => window.api.serverFilesStat(serverId, path),
     read: async (path, force = false) => {
       const result = await window.api.serverFilesRead(serverId, path, force)
       if (result.kind !== 'preview') return result

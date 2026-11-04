@@ -241,6 +241,7 @@ import {
   readHeadText,
   renameEntry,
   sanitizeFilesUi,
+  statEntry,
   trashEntry,
   writeFileEntry
 } from './files'
@@ -1226,6 +1227,9 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   )
   ipcMain.handle(IPC.filesInvalidateIndex, (_e, projectPath: string) =>
     invalidateFilesIndex(projectPath)
+  )
+  ipcMain.handle(IPC.filesStat, (_e, projectPath: string, filePath: string) =>
+    statEntry(projectPath, filePath)
   )
   ipcMain.handle(IPC.filesRead, (_e, projectPath: string, filePath: string) =>
     readFileEntry(projectPath, filePath)

@@ -17,6 +17,7 @@ import {
   filesEntryNameError,
   type FilesDirEntry,
   type FilesEntryRef,
+  type FilesStat,
   type FilesTransferResult
 } from '../shared/files'
 import {
@@ -34,7 +35,6 @@ import {
   sameServerFileVersion,
   serverOpenPlan,
   sftpOpenFailureMessage,
-  type ServerFileStat,
   type ServerFileVersion,
   type ServerFilesReadProgress,
   type ServerFilesReadResult,
@@ -414,7 +414,7 @@ async function serverSymlinkEntry(
 export async function statServerPath(
   serverId: string,
   remotePath: string
-): Promise<ServerFileStat | null> {
+): Promise<FilesStat | null> {
   const { client } = await connected(serverId)
   const attrs = await statOrNull(client, remotePath)
   if (!attrs) return null

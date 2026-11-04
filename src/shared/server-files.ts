@@ -88,12 +88,6 @@ export interface ServerFilesReadProgress {
   totalBytes: number
 }
 
-export interface ServerFileStat {
-  isDirectory: boolean
-  size: number
-  mtimeMs: number
-}
-
 /**
  * 保存：写前比对服务器上文件的修改时间与大小（base 为载入时的），变了不写、带回服务器上的当前内容
  * （超过文本上限时为 null）。

@@ -161,10 +161,10 @@ describe('fileRowTitle', () => {
     expect(fileRowTitle(fc('a.ts', { type: 'D' }))).toBe('点击查看差异 • 已删除')
   })
 
-  it('未跟踪目录整体条目提示无法查看差异', () => {
+  it('未跟踪目录整体条目提示无法查看差异、双击在文件树中显示', () => {
     expect(
       fileRowTitle(fc('vendor', { type: 'U', additions: null, deletions: null, isDir: true }))
-    ).toBe('无法查看差异（这是一个未跟踪目录） • 未跟踪')
+    ).toBe('无法查看差异（这是一个未跟踪目录），双击在文件树中显示 • 未跟踪')
   })
 
   it('重命名附注旧路径 → 新路径', () => {
@@ -174,10 +174,10 @@ describe('fileRowTitle', () => {
 })
 
 describe('canOpenWorkingTreeFile', () => {
-  it('普通文件可打开，已删除与未跟踪目录不可', () => {
+  it('普通文件与未跟踪目录（在文件树里定位）可打开，已删除不可', () => {
     expect(canOpenWorkingTreeFile(fc('a.ts'))).toBe(true)
     expect(canOpenWorkingTreeFile(fc('a.ts', { type: 'D' }))).toBe(false)
-    expect(canOpenWorkingTreeFile(fc('vendor', { type: 'U', isDir: true }))).toBe(false)
+    expect(canOpenWorkingTreeFile(fc('vendor', { type: 'U', isDir: true }))).toBe(true)
   })
 })
 

@@ -29,6 +29,13 @@ export function symlinkJumpTarget(symlink: FilesSymlink | undefined, root: strin
   return symlink.target.startsWith(childPathPrefix(root)) ? symlink.target : null
 }
 
+/** 条目信息（跟随符号链接）：本机与服务器同形（FilesBackend.stat） */
+export interface FilesStat {
+  isDirectory: boolean
+  size: number
+  mtimeMs: number
+}
+
 /** 树上的一个条目：路径、是不是文件夹、是不是符号链接（删除、下载等可一次处理多个） */
 export type FilesEntryRef = Pick<FilesDirEntry, 'path' | 'isDirectory' | 'symlink'>
 

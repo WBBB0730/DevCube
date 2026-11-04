@@ -201,6 +201,7 @@ export const IPC = {
   filesFilterTree: 'files:filter-tree',
   /** 兜底刷新（不等监听通知时）：作废该根的文件名索引，下次筛选重建 */
   filesInvalidateIndex: 'files:invalidate-index',
+  filesStat: 'files:stat',
   filesRead: 'files:read',
   filesWrite: 'files:write',
   filesHeadText: 'files:head-text',
