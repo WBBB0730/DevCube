@@ -32,13 +32,13 @@ export async function subscribeDir(
 ): Promise<DirSubscription> {
   const wsl = wslToLinuxPath(root)
   if (wsl === null) {
-    // macOS 的 FSEvents 报回真实路径（ADR-0059）：root 经过符号链接（如 /tmp → /private/tmp）或大小写与磁盘上不同时，
-    // 把事件路径换回 root 的写法，下游才对得上登记的路径。其余平台事件本就是 root 的写法，换算不会命中
+    // 订阅根的真实路径（ADR-0059）：Linux 的 inotify 不跟随链接，经符号链接的根订阅不上；macOS 的 FSEvents 本就报回真实路径。
+    // root 经过符号链接（如 /tmp → /private/tmp）或大小写与磁盘上不同时，把事件路径换回 root 的写法，下游才对得上登记的路径
     const real = await fs.realpath(root).catch(() => root)
     const toRoot = (path: string): string =>
       path === real ? root : path.startsWith(real + sep) ? root + path.slice(real.length) : path
     return parcelWatcher.subscribe(
-      root,
+      real,
       real === root
         ? callback
         : (err, events) =>

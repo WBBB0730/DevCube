@@ -4,6 +4,7 @@ import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { normalizePath } from '../shared/files-path'
 import {
   forgetProjectRepos,
   getProjectRepos,
@@ -40,7 +41,8 @@ function makeRepo(dir: string): void {
 
 let base: string
 beforeEach(() => {
-  base = realpathSync(mkdtempSync(join(tmpdir(), 'devcube-git-repos-')))
+  // native 才展开 Windows 的 8.3 短名（CI 的临时目录在 RUNNER~1 下），与 git 给出的路径同一写法
+  base = realpathSync.native(mkdtempSync(join(tmpdir(), 'devcube-git-repos-')))
 })
 afterEach(() => {
   rmSync(base, { recursive: true, force: true })
@@ -142,7 +144,9 @@ describe('发现', { timeout: 30_000 }, () => {
       ['libs/lib', project]
     ])
     // 子模块的 gitdir 在上级的 .git/modules 里
-    expect(repos[1].gitDirs?.gitDir).toBe(join(project, '.git', 'modules', 'libs', 'lib'))
+    expect(repos[1].gitDirs?.gitDir).toBe(
+      normalizePath(join(project, '.git', 'modules', 'libs', 'lib'))
+    )
   })
 
   it('项目是上层仓库的子目录：认上层仓库，只找项目里面的嵌套仓库', async () => {
@@ -154,9 +158,10 @@ describe('发现', { timeout: 30_000 }, () => {
     makeRepo(join(project, 'inner'))
     makeRepo(join(mono, 'other'))
     const repos = await getProjectRepos(project)
+    // root 是 `/` 分隔（GitRepo.root），path 是本平台写法
     expect(repos.map((r) => [r.name, r.own, r.path, r.root])).toEqual([
-      ['mono', true, project, mono],
-      ['inner', false, join(project, 'inner'), join(project, 'inner')]
+      ['mono', true, project, normalizePath(mono)],
+      ['inner', false, join(project, 'inner'), normalizePath(join(project, 'inner'))]
     ])
   })
 
