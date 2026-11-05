@@ -49,20 +49,20 @@ CARET_ROW_COLOR（深 `#26282E` / 浅 `#F5F8FE`）**不是 CSS 变量**——控
 
 **边框 / 选中 / 强调**
 
-| 变量                    | 深色      | 浅色      | 用途                                                                                                                                                                            |
-| ----------------------- | --------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--border-input`        | `#4F5157` | `#C9CCD6` | input / select / dialog 描边（`Component.borderColor`）                                                                                                                         |
-| `--separator`           | `#1E1F22` | `#EBECF0` | 面板间 1px 分隔（深色是凹槽 = `--bg-deepest`，浅色是描边 ≠ `--bg-deepest`）                                                                                                     |
-| `--selection-row`       | `#2D436E` | `#D4E2FF` | 选中行圆角填充（`*.selectionBackground`）                                                                                                                                       |
-| `--selection-row-hover` | `#35538F` | `#C2D6FC` | 选中（蓝底）行上按钮的 hover 底（非灰；`List.Button.hoverBackground`）                                                                                                          |
-| `--editor-selection`    | `#224283` | `#A6D2FF` | Files 编辑器文本选区（≠ 行选中蓝）。深色 `#224283` 是手取值，官方 Darcula 为 `#214283`                                                                                          |
-| `--primary`             | `#3574F0` | 同深色    | 强调主蓝（New UI，浅深共用同一颗）。CSS 落名为 shadcn 语义 `--primary`；**CSS 里的 `--accent` 是 shadcn hover 语义，勿与主蓝混用**。**焦点环全局关闭**（`--ring: transparent`） |
-| `--link`                | `#548AF7` | `#006DCC` | 链接（HYPERLINK_ATTRIBUTES）                                                                                                                                                    |
-| `--search-match-bg`     | `#BA9752` | `#FEE6B1` | 内容搜索列表命中胶囊底（New UI `SearchMatch.startBackground`＝`endBackground`：深 Yellow5 / 浅 Yellow7，起止同色即纯色）                                                        |
-| `--search-match-fg`     | `#000000` | `#323232` | 命中胶囊文字（平台 `STYLE_SEARCH_MATCH` 写死 `JBColor(Gray._50, Gray._0)`，两侧均深字）                                                                                         |
-| `--find-match-bg` | `#2D543F` | `#FCD47E` | 终端 / Git 查找命中底（深色取 Shell.icls SEARCH_RESULT 绿、浅色取 TEXT_SEARCH_RESULT 黄） |
-| `--find-match-active-bg` | `#3D7A49` | `#C47233` | 终端 / Git 查找当前命中底 |
-| `--fg-info`             | `#6F737A` | `#818594` | 附属信息灰字（New UI `*.infoForeground`：两侧同取 Gray7，恰与深色 `--fg-disabled` / 浅色 `--fg-muted` 各撞值但语义独立；内容搜索列表的行号 / 目录路径 / 计数）                  |
+| 变量                     | 深色      | 浅色      | 用途                                                                                                                                                                            |
+| ------------------------ | --------- | --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--border-input`         | `#4F5157` | `#C9CCD6` | input / select / dialog 描边（`Component.borderColor`）                                                                                                                         |
+| `--separator`            | `#1E1F22` | `#EBECF0` | 面板间 1px 分隔（深色是凹槽 = `--bg-deepest`，浅色是描边 ≠ `--bg-deepest`）                                                                                                     |
+| `--selection-row`        | `#2D436E` | `#D4E2FF` | 选中行圆角填充（`*.selectionBackground`）                                                                                                                                       |
+| `--selection-row-hover`  | `#35538F` | `#C2D6FC` | 选中（蓝底）行上按钮的 hover 底（非灰；`List.Button.hoverBackground`）                                                                                                          |
+| `--editor-selection`     | `#224283` | `#A6D2FF` | Files 编辑器文本选区（≠ 行选中蓝）。深色 `#224283` 是手取值，官方 Darcula 为 `#214283`                                                                                          |
+| `--primary`              | `#3574F0` | 同深色    | 强调主蓝（New UI，浅深共用同一颗）。CSS 落名为 shadcn 语义 `--primary`；**CSS 里的 `--accent` 是 shadcn hover 语义，勿与主蓝混用**。**焦点环全局关闭**（`--ring: transparent`） |
+| `--link`                 | `#548AF7` | `#006DCC` | 链接（HYPERLINK_ATTRIBUTES）                                                                                                                                                    |
+| `--search-match-bg`      | `#BA9752` | `#FEE6B1` | 内容搜索列表命中胶囊底（New UI `SearchMatch.startBackground`＝`endBackground`：深 Yellow5 / 浅 Yellow7，起止同色即纯色）                                                        |
+| `--search-match-fg`      | `#000000` | `#323232` | 命中胶囊文字（平台 `STYLE_SEARCH_MATCH` 写死 `JBColor(Gray._50, Gray._0)`，两侧均深字）                                                                                         |
+| `--find-match-bg`        | `#2D543F` | `#FCD47E` | 终端 / Git 查找命中底（深色取 Shell.icls SEARCH_RESULT 绿、浅色取 TEXT_SEARCH_RESULT 黄）                                                                                       |
+| `--find-match-active-bg` | `#3D7A49` | `#C47233` | 终端 / Git 查找当前命中底                                                                                                                                                       |
+| `--fg-info`              | `#6F737A` | `#818594` | 附属信息灰字（New UI `*.infoForeground`：两侧同取 Gray7，恰与深色 `--fg-disabled` / 浅色 `--fg-muted` 各撞值但语义独立；内容搜索列表的行号 / 目录路径 / 计数）                  |
 
 **运行 / 停止按钮**
 
@@ -78,22 +78,22 @@ CARET_ROW_COLOR（深 `#26282E` / 浅 `#F5F8FE`）**不是 CSS 变量**——控
 
 **状态点**
 
-| 变量               | 深色      | 浅色      | 状态                                                                                                                                         |
-| ------------------ | --------- | --------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| `--status-idle`    | `#868A91` | `#818594` | 空闲 / 从未运行                                                                                                                              |
-| `--status-running` | `#5FAD65` | `#208A3C` | 运行中                                                                                                                                       |
-| `--status-success` | `#57965D` | `#208A3C` | 成功退出（exit 0）                                                                                                                           |
-| `--status-failed`  | `#C94F4F` | `#DB3B4B` | 失败退出（非 0）。深色下与 `--stop-active-bg` 同值，**浅色下两者解绑**                                                                       |
+| 变量               | 深色      | 浅色      | 状态                                                                                                                                                                                           |
+| ------------------ | --------- | --------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `--status-idle`    | `#868A91` | `#818594` | 空闲 / 从未运行                                                                                                                                                                                |
+| `--status-running` | `#5FAD65` | `#208A3C` | 运行中                                                                                                                                                                                         |
+| `--status-success` | `#57965D` | `#208A3C` | 成功退出（exit 0）                                                                                                                                                                             |
+| `--status-failed`  | `#C94F4F` | `#DB3B4B` | 失败退出（非 0）。深色下与 `--stop-active-bg` 同值，**浅色下两者解绑**                                                                                                                         |
 | `--status-pending` | `#C29E4A` | `#A46704` | 提交检查进行中（Git 图谱行与提交详情的黄点）。深色取 Dark.icls `WARNING_ATTRIBUTES` 的 ERROR_STRIPE_COLOR（明度与上面的绿、红相当）；浅色取 `Label.warningForeground`（Yellow1），同为前景变体 |
-| `--chart-1`        | `#3987E5` | `#2A78D6` | 图表系列一（蓝）。取自 dataviz 规范的已验证分类色板，在 `--bg-panel` 上按深 / 浅两档各自验过（色弱可分、对比 ≥ 3:1）；只用于图表线条与其图例 |
-| `--chart-2`        | `#D95926` | `#EB6834` | 图表系列二（橙），同上。**不用状态色（如 `--status-success`）区分系列**——状态色只表达好坏                                                    |
+| `--chart-1`        | `#3987E5` | `#2A78D6` | 图表系列一（蓝）。取自 dataviz 规范的已验证分类色板，在 `--bg-panel` 上按深 / 浅两档各自验过（色弱可分、对比 ≥ 3:1）；只用于图表线条与其图例                                                   |
+| `--chart-2`        | `#D95926` | `#EB6834` | 图表系列二（橙），同上。**不用状态色（如 `--status-success`）区分系列**——状态色只表达好坏                                                                                                      |
 
 前四颗（空闲 / 运行中 / 成功 / 失败）除了 8px 状态点，还兼作提交面板「+N / -N」的 12px 文字色，所以浅色取的是 New UI Light 的**前景**变体（`Badge.greenOutlineForeground` / `Label.errorForeground`，即 Green4 / Red4），不是图标填充用的 Green6 `#55A76A` / Red5 `#E55765`——后者在白底上只有 3:1 上下，当图标够用、当文字太淡。代价是浅色下「运行中」与「成功退出」同色（深色下两者也只差 2 个单位，本就近乎不可辨）。
 
 **GitHub**（GitHub 自家元素沿用 GitHub 的颜色，不从 JetBrains 推导；取自 GitHub 设计系统 Primer，`@primer/primitives` 11.10.0）
 
-| 变量            | 深色      | 浅色      | 用途                                                                 |
-| --------------- | --------- | --------- | -------------------------------------------------------------------- |
+| 变量            | 深色      | 浅色      | 用途                                                                            |
+| --------------- | --------- | --------- | ------------------------------------------------------------------------------- |
 | `--github-star` | `#E3B341` | `#EAC54F` | 关于页「已星标」的实心星（Primer `--button-star-iconColor`，dark / light 主题） |
 
 **Git 文件状态色**（FILESTATUS_*；提交面板 / Files 树文件名与图标）
@@ -118,14 +118,14 @@ CARET_ROW_COLOR（深 `#26282E` / 浅 `#F5F8FE`）**不是 CSS 变量**——控
 
 **Diff 面板**（Git diff 正文；深色为推导，见「待校准」）
 
-| 变量 | 深色 | 浅色 | 用途 |
-| --- | --- | --- | --- |
-| `--diff-add-bg` | `#294436` | `#BEE6BE` | 新增行底 |
-| `--diff-del-bg` | `#3F2C2E` | `#D6D6D6` | 删除行底 |
-| `--diff-add-word-bg` | `#375239` | `#AADEAA` | 词级新增高亮 |
-| `--diff-del-word-bg` | `#553A3D` | `#C8C8C8` | 词级删除高亮 |
-| `--diff-hunk-header-bg` | `#2B2D30` | `#F7F8FA` | hunk 头底 |
-| `--diff-empty-bg` | 黑 15% 叠 `--bg-deepest` | 黑 5% 叠 `--bg-deepest` | 左右对比时对侧空行底 |
+| 变量                    | 深色                     | 浅色                    | 用途                 |
+| ----------------------- | ------------------------ | ----------------------- | -------------------- |
+| `--diff-add-bg`         | `#294436`                | `#BEE6BE`               | 新增行底             |
+| `--diff-del-bg`         | `#3F2C2E`                | `#D6D6D6`               | 删除行底             |
+| `--diff-add-word-bg`    | `#375239`                | `#AADEAA`               | 词级新增高亮         |
+| `--diff-del-word-bg`    | `#553A3D`                | `#C8C8C8`               | 词级删除高亮         |
+| `--diff-hunk-header-bg` | `#2B2D30`                | `#F7F8FA`               | hunk 头底            |
+| `--diff-empty-bg`       | 黑 15% 叠 `--bg-deepest` | 黑 5% 叠 `--bg-deepest` | 左右对比时对侧空行底 |
 
 **滚动条（webkit）**
 
@@ -364,36 +364,36 @@ Git 图谱专用：`GitBranch`(Git Tab) · `SlidersHorizontal`(视图选项) · 
 
 **快捷键**（逻辑键；UI `title` 文案走 `formatShortcutLabel`，见 ADR-0013；与设置 → 快捷键列表同一份，分组与收录范围见 `docs/prd/settings-keymap.md`）：
 
-| 分组       | 动作                                                      | 逻辑键                                                                              |
-| ---------- | --------------------------------------------------------- | ----------------------------------------------------------------------------------- |
-| 通用       | 查找（Files 编辑器与预览、Git、终端、数据源编辑器与表格） | CmdOrCtrl+F（焦点在其中时）                                                         |
-| 通用       | 查找下一个 / 上一个                                       | Enter / Shift+Enter（焦点在查找框时；Git 查找另有 F3 / Shift+F3）                   |
-| 通用       | 弹出「最近打开」（Files Tab 的文件；数据源 Tab 的对象）   | CmdOrCtrl+E（Win/Linux 焦点在终端时让给 shell 的行尾）                              |
-| 通用       | 格式化选中的部分或全文（JSON、SQL）                       | Alt+CmdOrCtrl+L（焦点在 Files 编辑器或数据源的 SQL 编辑器时）                       |
-| 项目与 Tab | 聚焦左树筛选（项目、服务器和数据源）                      | Alt+CmdOrCtrl+P                                                                     |
-| 项目与 Tab | 上一 / 下一条目（项目、服务器或数据源；左树可见序，循环） | Alt+CmdOrCtrl+↑ / ↓                                                                 |
-| 项目与 Tab | 上一 / 下一个 Tab                                         | Alt+CmdOrCtrl+← / →                                                                 |
-| 项目与 Tab | 循环下一 / 上一个 Tab                                     | Ctrl+Tab / Ctrl+Shift+Tab                                                           |
-| 项目与 Tab | 直达第 1–9 个 Tab（常驻 Tab 在前，其后按栏序；越界忽略）  | CmdOrCtrl+1…9                                                                       |
-| 项目与 Tab | 新建终端（数据源条目下为新建数据源标签页）                | CmdOrCtrl+T                                                                         |
-| 项目与 Tab | 关闭当前会话/终端/数据源 Tab（常驻 Tab 无效）             | CmdOrCtrl+W                                                                         |
-| 文件       | 切 Files Tab 并聚焦树顶输入（项目筛选 / 服务器前往路径）  | Alt+CmdOrCtrl+F                                                                     |
-| 文件       | 内容搜索（当前项目，浮层面板）                            | CmdOrCtrl+Shift+F                                                                   |
-| 文件       | 服务器上的文件：保存（手动保存）                          | CmdOrCtrl+S（编辑态与预览态都可；有弹层时让位）                                     |
-| 文件       | 上一个 / 下一个媒体文件                                   | ← / →（看图与音视频 ↑ / ↓ 也可以；焦点在文件树上时归树）                            |
-| 文件       | PDF / PPT 上一页 / 下一页                                 | ↑ / ↓（首页 / 末页再按即切文件；焦点在文件树上时归树）                              |
-| 文件       | 回适应窗口 / 放大 / 缩小（看图、PDF、PPT、Excel）         | CmdOrCtrl+0 / + / -（焦点在预览内；「适应窗口」title 带 ⌘0）                        |
-| 文件       | 拖动画面（PDF、PPT）                                      | 按住空格拖动                                                                        |
-| 文件树     | 移动选中 / 扩大选择                                       | ↑ / ↓、Shift+↑ / ↓（焦点在树上）                                                    |
-| 文件树     | 展开 / 收起                                               | → / ←（同 WebStorm：→ 在已展开的文件夹或文件上同 ↓，← 在其余行上跳到所在文件夹）    |
-| 文件树     | 进入文件（焦点进正文）/ 重命名 / 删除                     | Enter / F2 / Cmd+Backspace（Win/Linux 为 Delete）                                   |
-| Git        | 刷新（fetch + 重载）                                      | CmdOrCtrl+R（仅 Git Tab）                                                           |
-| Git        | Diff 下一处 / 上一处改动                                  | F7 / Shift+F7（Diff 打开时）                                                        |
-| Git        | Diff 上一个 / 下一个文件                                  | Alt+← / →（Diff 打开时）                                                            |
-| 终端       | 复制 / 粘贴（仅 Windows / Linux 列出）                    | 见「终端能力」                                                                      |
-| 数据源     | 执行光标所在的语句或选中的部分                            | CmdOrCtrl+Enter（焦点在控制台编辑器时；执行中、切换库或模式时无效）                 |
-| 数据源     | 唤起补全（编辑器与 WHERE / ORDER BY 框）                  | Ctrl+Space，macOS 另有 Alt+反引号 / Alt+I（焦点在编辑器时）                         |
-| 数据源     | 表格全选 / 扩大选区                                       | CmdOrCtrl+A / Shift+方向键（焦点在表格时）                                          |
+| 分组       | 动作                                                      | 逻辑键                                                                           |
+| ---------- | --------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| 通用       | 查找（Files 编辑器与预览、Git、终端、数据源编辑器与表格） | CmdOrCtrl+F（焦点在其中时）                                                      |
+| 通用       | 查找下一个 / 上一个                                       | Enter / Shift+Enter（焦点在查找框时；Git 查找另有 F3 / Shift+F3）                |
+| 通用       | 弹出「最近打开」（Files Tab 的文件；数据源 Tab 的对象）   | CmdOrCtrl+E（Win/Linux 焦点在终端时让给 shell 的行尾）                           |
+| 通用       | 格式化选中的部分或全文（JSON、SQL）                       | Alt+CmdOrCtrl+L（焦点在 Files 编辑器或数据源的 SQL 编辑器时）                    |
+| 项目与 Tab | 聚焦左树筛选（项目、服务器和数据源）                      | Alt+CmdOrCtrl+P                                                                  |
+| 项目与 Tab | 上一 / 下一条目（项目、服务器或数据源；左树可见序，循环） | Alt+CmdOrCtrl+↑ / ↓                                                              |
+| 项目与 Tab | 上一 / 下一个 Tab                                         | Alt+CmdOrCtrl+← / →                                                              |
+| 项目与 Tab | 循环下一 / 上一个 Tab                                     | Ctrl+Tab / Ctrl+Shift+Tab                                                        |
+| 项目与 Tab | 直达第 1–9 个 Tab（常驻 Tab 在前，其后按栏序；越界忽略）  | CmdOrCtrl+1…9                                                                    |
+| 项目与 Tab | 新建终端（数据源条目下为新建数据源标签页）                | CmdOrCtrl+T                                                                      |
+| 项目与 Tab | 关闭当前会话/终端/数据源 Tab（常驻 Tab 无效）             | CmdOrCtrl+W                                                                      |
+| 文件       | 切 Files Tab 并聚焦树顶输入（项目筛选 / 服务器前往路径）  | Alt+CmdOrCtrl+F                                                                  |
+| 文件       | 内容搜索（当前项目，浮层面板）                            | CmdOrCtrl+Shift+F                                                                |
+| 文件       | 服务器上的文件：保存（手动保存）                          | CmdOrCtrl+S（编辑态与预览态都可；有弹层时让位）                                  |
+| 文件       | 上一个 / 下一个媒体文件                                   | ← / →（看图与音视频 ↑ / ↓ 也可以；焦点在文件树上时归树）                         |
+| 文件       | PDF / PPT 上一页 / 下一页                                 | ↑ / ↓（首页 / 末页再按即切文件；焦点在文件树上时归树）                           |
+| 文件       | 回适应窗口 / 放大 / 缩小（看图、PDF、PPT、Excel）         | CmdOrCtrl+0 / + / -（焦点在预览内；「适应窗口」title 带 ⌘0）                     |
+| 文件       | 拖动画面（PDF、PPT）                                      | 按住空格拖动                                                                     |
+| 文件树     | 移动选中 / 扩大选择                                       | ↑ / ↓、Shift+↑ / ↓（焦点在树上）                                                 |
+| 文件树     | 展开 / 收起                                               | → / ←（同 WebStorm：→ 在已展开的文件夹或文件上同 ↓，← 在其余行上跳到所在文件夹） |
+| 文件树     | 进入文件（焦点进正文）/ 重命名 / 删除                     | Enter / F2 / Cmd+Backspace（Win/Linux 为 Delete）                                |
+| Git        | 刷新（fetch + 重载）                                      | CmdOrCtrl+R（仅 Git Tab）                                                        |
+| Git        | Diff 下一处 / 上一处改动                                  | F7 / Shift+F7（Diff 打开时）                                                     |
+| Git        | Diff 上一个 / 下一个文件                                  | Alt+← / →（Diff 打开时）                                                         |
+| 终端       | 复制 / 粘贴（仅 Windows / Linux 列出）                    | 见「终端能力」                                                                   |
+| 数据源     | 执行光标所在的语句或选中的部分                            | CmdOrCtrl+Enter（焦点在控制台编辑器时；执行中、切换库或模式时无效）              |
+| 数据源     | 唤起补全（编辑器与 WHERE / ORDER BY 框）                  | Ctrl+Space，macOS 另有 Alt+反引号 / Alt+I（焦点在编辑器时）                      |
+| 数据源     | 表格全选 / 扩大选区                                       | CmdOrCtrl+A / Shift+方向键（焦点在表格时）                                       |
 
 窗口聚焦时应用快捷键优先于页面 / xterm / Chromium 默认；**不能**压过 macOS Mission Control 等系统级快捷键，也不抢其它 App 的快捷键。CmdOrCtrl 按平台严格匹配：macOS 只认 ⌘、Windows / Linux 只认 Ctrl，⌃T / ⌃W / ⌃F 等留给 shell 与编辑器；Windows / Linux 焦点在终端时 Ctrl+E 让给 shell，其余照常拦截。注册方式、文案规则与让位机制见 ADR-0013。
 
