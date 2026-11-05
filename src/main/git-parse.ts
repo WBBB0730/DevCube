@@ -302,7 +302,18 @@ export function parseLog(stdout: string): GitCommitRecord[] {
 
 // —— §5 未提交更改 ——
 
-/** 数 `git status -s --porcelain -z` 的变更条数：R/C 记录的原路径是紧随其后的独立 NUL 段，不另算一条。 */
+/**
+ * 嵌套仓库条目：`--untracked-files=all` 下 git 把未跟踪目录展开成文件，只有嵌套仓库（git 不进去）仍以
+ * 带尾斜杠的目录出现。它的改动归它自己（在 Git Tab 切到它看），不算外层的改动。
+ */
+function isNestedRepoEntry(segment: string): boolean {
+  return segment.startsWith('??') && segment.endsWith('/')
+}
+
+/**
+ * 数 `git status -s --porcelain -z` 的变更条数：R/C 记录的原路径是紧随其后的独立 NUL 段，不另算一条；
+ * 嵌套仓库条目不算。
+ */
 export function countStatusEntriesZ(stdout: string): number {
   const segments = stdout.split('\0')
   let count = 0
@@ -310,7 +321,7 @@ export function countStatusEntriesZ(stdout: string): number {
   while (i < segments.length) {
     const segment = segments[i]
     if (segment === '' || segment.length < 4) break // 防御：porcelain 记录至少 "XY <path>"
-    count++
+    if (!isNestedRepoEntry(segment)) count++
     const c1 = segment[0]
     const c2 = segment[1]
     i += c1 === 'R' || c2 === 'R' || c1 === 'C' || c2 === 'C' ? 2 : 1
@@ -329,7 +340,7 @@ export interface GitStatusFiles {
   conflicted: string[]
 }
 
-/** 解析 `git status -s --porcelain -z`：R/C 记录的原路径是紧随其后的独立 NUL 段，要跳过。 */
+/** 解析 `git status -s --porcelain -z`：R/C 记录的原路径是紧随其后的独立 NUL 段，要跳过；嵌套仓库条目不算。 */
 export function parseStatusFilesZ(stdout: string): GitStatusFiles {
   const deleted: string[] = []
   const untracked: string[] = []
@@ -348,7 +359,7 @@ export function parseStatusFilesZ(stdout: string): GitStatusFiles {
       conflicted.push(filePath)
     }
     if (c1 === 'D' || c2 === 'D') deleted.push(filePath)
-    else if (c1 === '?' || c2 === '?') untracked.push(filePath)
+    else if ((c1 === '?' || c2 === '?') && !isNestedRepoEntry(segment)) untracked.push(filePath)
     i += c1 === 'R' || c2 === 'R' || c1 === 'C' || c2 === 'C' ? 2 : 1
   }
   return { deleted, untracked, conflicted }
@@ -471,18 +482,13 @@ export function generateFileChanges(
       }
     }
     for (const filePath of status.untracked) {
-      // untracked 永不出现在 diff 输出里，一律追加。带尾斜杠 = git 折叠的未跟踪目录 /
-      // 嵌套仓库整体条目：去尾斜杠归一成一个可勾选叶子，并标 isDir（不可 diff），
-      // 否则尾斜杠会让 buildFileTree 只建空目录、无文件叶子（未暂存区只见目录、无法勾选）。
-      const isDir = filePath.endsWith('/')
-      const path = isDir ? filePath.slice(0, -1) : filePath
+      // untracked 永不出现在 diff 输出里，一律追加
       fileChanges.push({
-        oldFilePath: path,
-        newFilePath: path,
+        oldFilePath: filePath,
+        newFilePath: filePath,
         type: 'U',
         additions: null,
-        deletions: null,
-        ...(isDir ? { isDir: true } : {})
+        deletions: null
       })
     }
   }

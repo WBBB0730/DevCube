@@ -115,7 +115,7 @@ function makeEnv(
   const chased: DialogSpec[] = []
   let closedCount = 0
   const env: DialogEnv = {
-    projectPath: '/repo',
+    repoPath: '/repo',
     commits: [],
     branches: [],
     remoteBranches: [],

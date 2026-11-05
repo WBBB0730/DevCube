@@ -1,9 +1,9 @@
-// Git Tab 顶部工具栏：左侧「分支：」标签 + 分支筛选下拉 + 工作树图标钮 + 视图选项 Popover + 查找；
-// 右侧图标钮组（提交 / 刷新 / 拉取 / 推送 / 创建分支 / 仓库设置），项目在 GitHub 上而未登录时最前面多一个
-// GitHub 标志的「登录 GitHub」钮（docs/prd/github-checks.md；登录后即消失）。高 40px、bg-panel，
+// Git Tab 顶部工具栏：左侧「分支：」标签 + 分支筛选下拉 + 工作树图标钮 + 视图选项 Popover + 查找；项目里不止一个
+// 仓库时最左边先是「仓库：」标签 + 仓库下拉（GitRepoDropdown）。右侧图标钮组（提交 / 刷新 / 拉取 / 推送 / 创建分支 /
+// 仓库设置），仓库在 GitHub 上而未登录时最前面多一个 GitHub 标志的「登录 GitHub」钮（docs/prd/github-checks.md；登录后即消失）。高 40px、bg-panel，
 // 对齐 Console Tab 栏观感。刷新 = fetch + 静默软重载（store.refresh，fetch 期间换成转圈图标、
 // 结束后转回原位才换回刷新图标，不弹进行中遮罩）；创建分支预设目标后打开既有对话框（GitDialogs）。
-// 拉取 / 推送：单击按本项目的「拉取 / 推送时不显示窗口」开关直接执行（= 对话框默认值原样提交）或打开对话框，
+// 拉取 / 推送：单击按本仓库的「拉取 / 推送时不显示窗口」开关直接执行（= 对话框默认值原样提交）或打开对话框，
 // 按住 ⌘/Ctrl 单击反过来；默认值拿不准（无上游等）时两种点法都打开对话框。
 import { useEffect, useState } from 'react'
 import {
@@ -14,7 +14,7 @@ import {
   Search,
   Settings
 } from 'lucide-react'
-import { GIT_PULL_MODE_LABEL, UNCOMMITTED } from '@shared/git'
+import { GIT_PULL_MODE_LABEL, UNCOMMITTED, showsRepoPicker } from '@shared/git'
 import { SHORTCUT } from '@shared/shortcut-label'
 import { gitState, useGit } from '@renderer/git-store'
 import { useGitHub } from '@renderer/github-store'
@@ -23,6 +23,7 @@ import { RefreshButton, TOOLBAR_BTN, TOOLBAR_SEPARATOR } from '@renderer/compone
 import { GitHubLoginDialog } from '@renderer/components/GitHubLoginDialog'
 import { GitHubMark } from '@renderer/components/ui/github-mark'
 import { GitBranchDropdown } from './GitBranchDropdown'
+import { GitRepoDropdown } from './GitRepoDropdown'
 import { opBlockReason } from './GitOpStatusBar'
 import { GitViewOptions } from './GitViewOptions'
 import { GitWorktreeDropdown } from './GitWorktreeDropdown'
@@ -43,20 +44,27 @@ function pullPushTitle(verb: '拉取' | '推送', what: string | null, skipDialo
 }
 
 /** 工具栏：数据全部读 git-store，仓库设置面板的开合是本组件的局部状态。 */
-export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.Element {
-  const status = useGit((s) => gitState(s, projectPath).status)
-  const isRepo = useGit((s) => gitState(s, projectPath).isRepo)
-  const remotes = useGit((s) => gitState(s, projectPath).remotes)
-  const remoteBranches = useGit((s) => gitState(s, projectPath).remoteBranches)
-  const currentBranch = useGit((s) => gitState(s, projectPath).currentBranch)
-  const headHash = useGit((s) => gitState(s, projectPath).headHash)
-  const config = useGit((s) => gitState(s, projectPath).config)
-  const settings = useGit((s) => gitState(s, projectPath).settings)
-  const fetching = useGit((s) => gitState(s, projectPath).fetching)
-  const opInProgress = useGit((s) => gitState(s, projectPath).opInProgress)
+export function GitToolbar({
+  projectPath,
+  repoPath
+}: {
+  projectPath: string
+  repoPath: string
+}): React.JSX.Element {
+  const repoPickerShown = useGit((s) => showsRepoPicker(s.projectRepos[projectPath]?.list ?? []))
+  const status = useGit((s) => gitState(s, repoPath).status)
+  const isRepo = useGit((s) => gitState(s, repoPath).isRepo)
+  const remotes = useGit((s) => gitState(s, repoPath).remotes)
+  const remoteBranches = useGit((s) => gitState(s, repoPath).remoteBranches)
+  const currentBranch = useGit((s) => gitState(s, repoPath).currentBranch)
+  const headHash = useGit((s) => gitState(s, repoPath).headHash)
+  const config = useGit((s) => gitState(s, repoPath).config)
+  const settings = useGit((s) => gitState(s, repoPath).settings)
+  const fetching = useGit((s) => gitState(s, repoPath).fetching)
+  const opInProgress = useGit((s) => gitState(s, repoPath).opInProgress)
   // 提交钮可用性：图上有任意行即可打开提交面板（无改动也能开，如只勾「修正」改信息）；
   // 空图（空仓库且无改动）禁用——GitPane 此时只渲染占位提示，详情面板无处停靠
-  const hasCommits = useGit((s) => gitState(s, projectPath).commits.length > 0)
+  const hasCommits = useGit((s) => gitState(s, repoPath).commits.length > 0)
   const refresh = useGit((s) => s.refresh)
   const loadRepoConfig = useGit((s) => s.loadRepoConfig)
   const openFind = useGit((s) => s.openFind)
@@ -90,33 +98,39 @@ export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.
   // pull/push 对话框的默认值依赖仓库 config（branch.<name>.remote/merge/rebase）：就绪后
   // 按需预拉一次。StrictMode 双挂载幂等 —— loadRepoConfig 只是覆盖式落桶，重复调用无害。
   useEffect(() => {
-    if (status === 'ready' && isRepo && config === null) void loadRepoConfig(projectPath)
-  }, [status, isRepo, config, projectPath, loadRepoConfig])
+    if (status === 'ready' && isRepo && config === null) void loadRepoConfig(repoPath)
+  }, [status, isRepo, config, repoPath, loadRepoConfig])
 
-  // 登录入口：未登录时问主进程项目在不在 GitHub 上（与查检查结果同一套认法）
+  // 登录入口：未登录时问主进程仓库在不在 GitHub 上（与查检查结果同一套认法）
   useEffect(() => {
     if (signedIn || !isRepo) return
     let alive = true
-    void window.api.githubHasRepo(projectPath).then((yes) => {
+    void window.api.githubHasRepo(repoPath).then((yes) => {
       if (alive) setOnGitHub(yes)
     })
     return () => {
       alive = false
     }
-  }, [projectPath, signedIn, isRepo, remoteUrls])
+  }, [repoPath, signedIn, isRepo, remoteUrls])
 
   return (
     <div className="flex h-10 shrink-0 items-center gap-2 bg-panel px-2">
+      {repoPickerShown && (
+        <>
+          <span className="shrink-0 text-[13px] text-muted-foreground">仓库：</span>
+          <GitRepoDropdown projectPath={projectPath} />
+        </>
+      )}
       <span className="shrink-0 text-[13px] text-muted-foreground">分支：</span>
-      <GitBranchDropdown projectPath={projectPath} />
+      <GitBranchDropdown repoPath={repoPath} />
       <div className="flex shrink-0 items-center gap-0.5">
-        <GitWorktreeDropdown projectPath={projectPath} />
-        <GitViewOptions projectPath={projectPath} />
+        <GitWorktreeDropdown repoPath={repoPath} />
+        <GitViewOptions repoPath={repoPath} />
         <button
           type="button"
           title={shortcutTitle('查找', SHORTCUT.find)}
           className={TOOLBAR_BTN}
-          onClick={() => openFind(projectPath)}
+          onClick={() => openFind(repoPath)}
         >
           <Search className="size-4" />
         </button>
@@ -141,14 +155,14 @@ export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.
           disabled={!hasCommits}
           className={TOOLBAR_BTN}
           // 效果等同点图上「未提交的更改」行：打开提交面板（无该行时也可开，收敛豁免见 store）
-          onClick={() => void openDetails(projectPath, UNCOMMITTED, null)}
+          onClick={() => void openDetails(repoPath, UNCOMMITTED, null)}
         >
           <GitCommitHorizontal className="size-4" />
         </button>
         <RefreshButton
           refreshing={fetching || status === 'loading'}
           title={shortcutTitle('刷新（fetch + 重载）', SHORTCUT.refresh)}
-          onClick={() => void refresh(projectPath)}
+          onClick={() => void refresh(repoPath)}
         />
         <button
           type="button"
@@ -158,7 +172,7 @@ export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.
           disabled={currentBranch === null || remotes.length === 0 || opInProgress !== null}
           className={TOOLBAR_BTN}
           onClick={(e) =>
-            pullCurrentBranch(projectPath, isPrimaryModifierEvent(e) ? 'invert' : 'follow')
+            pullCurrentBranch(repoPath, isPrimaryModifierEvent(e) ? 'invert' : 'follow')
           }
         >
           <CircleArrowDown className="size-4" />
@@ -169,7 +183,7 @@ export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.
           disabled={currentBranch === null || remotes.length === 0}
           className={TOOLBAR_BTN}
           onClick={(e) =>
-            pushCurrentBranch(projectPath, isPrimaryModifierEvent(e) ? 'invert' : 'follow')
+            pushCurrentBranch(repoPath, isPrimaryModifierEvent(e) ? 'invert' : 'follow')
           }
         >
           <CircleArrowUp className="size-4" />
@@ -180,7 +194,7 @@ export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.
           disabled={headHash === null}
           className={TOOLBAR_BTN}
           onClick={() =>
-            headHash !== null && openDialog(projectPath, { kind: 'create-branch', hash: headHash })
+            headHash !== null && openDialog(repoPath, { kind: 'create-branch', hash: headHash })
           }
         >
           <GitBranchPlus className="size-4" />
@@ -195,7 +209,7 @@ export function GitToolbar({ projectPath }: { projectPath: string }): React.JSX.
         </button>
       </div>
       <GitRepoSettings
-        projectPath={projectPath}
+        repoPath={repoPath}
         open={settingsOpen}
         onClose={() => setSettingsOpen(false)}
       />

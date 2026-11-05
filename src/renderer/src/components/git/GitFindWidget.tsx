@@ -86,9 +86,9 @@ const TOGGLE_BTN =
   'flex h-6 shrink-0 items-center justify-center rounded px-1 font-mono text-[11px] transition-colors'
 
 /** 查找浮层：由集成者挂在表格容器（relative）内，find 为 null 或未打开时不渲染。 */
-export function GitFindWidget({ projectPath }: { projectPath: string }): React.JSX.Element | null {
-  const find = useGit((s) => gitState(s, projectPath).find)
-  const commits = useGit((s) => gitState(s, projectPath).commits)
+export function GitFindWidget({ repoPath }: { repoPath: string }): React.JSX.Element | null {
+  const find = useGit((s) => gitState(s, repoPath).find)
+  const commits = useGit((s) => gitState(s, repoPath).commits)
   const openDetailsOnJump = useGit((s) => s.viewPrefs.findOpenCommitDetailsView)
   const setFind = useGit((s) => s.setFind)
   const setViewPrefs = useGit((s) => s.setViewPrefs)
@@ -111,10 +111,10 @@ export function GitFindWidget({ projectPath }: { projectPath: string }): React.J
   const openDetailsIfEnabled = (hash: string): void => {
     const store = useGit.getState()
     if (!store.viewPrefs.findOpenCommitDetailsView) return
-    const st = gitState(store, projectPath)
+    const st = gitState(store, repoPath)
     if (st.expanded?.hash === hash && st.expanded.compareWith === null) return
     const commit = st.commits.find((c) => c.hash === hash)
-    void store.openDetails(projectPath, hash, commit?.stash ?? null)
+    void store.openDetails(repoPath, hash, commit?.stash ?? null)
   }
 
   // 打开即聚焦并全选输入框；已开时再按 ⌘F 或点查找钮同样重新聚焦（focusSeq 变化），同编辑器的查找栏
@@ -131,9 +131,9 @@ export function GitFindWidget({ projectPath }: { projectPath: string }): React.J
     if (!isOpen) return
     const timer = setTimeout(() => {
       const store = useGit.getState()
-      const f = gitState(store, projectPath).find
+      const f = gitState(store, repoPath).find
       if (!f || !f.open) return
-      const matches = findMatches(gitState(store, projectPath).commits, f.query, {
+      const matches = findMatches(gitState(store, repoPath).commits, f.query, {
         caseSensitive: f.caseSensitive,
         regex: f.regex
       })
@@ -141,7 +141,7 @@ export function GitFindWidget({ projectPath }: { projectPath: string }): React.J
       let activeIdx = prevActive !== null ? matches.indexOf(prevActive) : -1
       const moved = activeIdx === -1
       if (moved) activeIdx = matches.length > 0 ? 0 : -1
-      store.setFind(projectPath, { matches, activeIdx })
+      store.setFind(repoPath, { matches, activeIdx })
       if (moved && activeIdx >= 0) {
         scrollToHash(matches[activeIdx])
         openDetailsIfEnabled(matches[activeIdx])
@@ -150,7 +150,7 @@ export function GitFindWidget({ projectPath }: { projectPath: string }): React.J
     return () => clearTimeout(timer)
     // scrollToHash / openDetailsIfEnabled 每次渲染新建但仅用稳定引用，不进 deps
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isOpen, query, caseSensitive, regex, commits, projectPath])
+  }, [isOpen, query, caseSensitive, regex, commits, repoPath])
 
   if (!find || !find.open) return null
 
@@ -160,36 +160,36 @@ export function GitFindWidget({ projectPath }: { projectPath: string }): React.J
   /** 上/下一个匹配：回绕循环（§3.5），滚动 + 详情联动。 */
   const navigate = (dir: 1 | -1): void => {
     const store = useGit.getState()
-    const f = gitState(store, projectPath).find
+    const f = gitState(store, repoPath).find
     if (!f || f.matches.length === 0) return
     const idx = f.activeIdx < 0 ? 0 : (f.activeIdx + dir + f.matches.length) % f.matches.length
-    store.setFind(projectPath, { activeIdx: idx })
+    store.setFind(repoPath, { activeIdx: idx })
     scrollToHash(f.matches[idx])
     openDetailsIfEnabled(f.matches[idx])
   }
 
   /** 关闭：整体清空不保留搜索词（§3.1）。 */
-  const close = (): void => setFind(projectPath, null)
+  const close = (): void => setFind(repoPath, null)
 
   const toggleCase = (): void => {
-    setFind(projectPath, { caseSensitive: !caseSensitive })
+    setFind(repoPath, { caseSensitive: !caseSensitive })
     void setViewPrefs({ findIsCaseSensitive: !caseSensitive })
   }
   const toggleRegex = (): void => {
-    setFind(projectPath, { regex: !regex })
+    setFind(repoPath, { regex: !regex })
     void setViewPrefs({ findIsRegex: !regex })
   }
   const toggleOpenDetails = (): void => {
     const next = !openDetailsOnJump
     void setViewPrefs({ findOpenCommitDetailsView: next })
     // 打开开关的同时，若已有当前匹配则立即联动打开其详情（§3.6）
-    const f = gitState(useGit.getState(), projectPath).find
+    const f = gitState(useGit.getState(), repoPath).find
     if (next && f && f.activeIdx >= 0) {
       const hash = f.matches[f.activeIdx]
       const commit = commits.find((c) => c.hash === hash)
       const store = useGit.getState()
-      const exp = gitState(store, projectPath).expanded
-      if (exp?.hash !== hash) void store.openDetails(projectPath, hash, commit?.stash ?? null)
+      const exp = gitState(store, repoPath).expanded
+      if (exp?.hash !== hash) void store.openDetails(repoPath, hash, commit?.stash ?? null)
     }
   }
 
@@ -206,7 +206,7 @@ export function GitFindWidget({ projectPath }: { projectPath: string }): React.J
         <input
           ref={inputRef}
           value={find.query}
-          onChange={(e) => setFind(projectPath, { query: e.target.value })}
+          onChange={(e) => setFind(repoPath, { query: e.target.value })}
           onKeyDown={(e) => {
             if (e.nativeEvent.isComposing) return // 中文输入法合成中：Enter 是确认候选，不导航
             if (e.key === 'Enter' || e.key === 'F3') {

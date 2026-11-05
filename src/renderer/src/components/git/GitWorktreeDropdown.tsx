@@ -32,14 +32,10 @@ function refText(worktree: GitWorktree): string {
   return worktree.head !== null ? abbrevHash(worktree.head) : ''
 }
 
-export function GitWorktreeDropdown({
-  projectPath
-}: {
-  projectPath: string
-}): React.JSX.Element | null {
-  const worktrees = useGit((s) => gitState(s, projectPath).worktrees)
-  const currentBranch = useGit((s) => gitState(s, projectPath).currentBranch)
-  const headHash = useGit((s) => gitState(s, projectPath).headHash)
+export function GitWorktreeDropdown({ repoPath }: { repoPath: string }): React.JSX.Element | null {
+  const worktrees = useGit((s) => gitState(s, repoPath).worktrees)
+  const currentBranch = useGit((s) => gitState(s, repoPath).currentBranch)
+  const headHash = useGit((s) => gitState(s, repoPath).headHash)
   const openDialog = useGit((s) => s.openDialog)
   const [open, setOpen] = useState(false)
   const [filterText, setFilterText] = useState('')
@@ -67,7 +63,7 @@ export function GitWorktreeDropdown({
     setOpen(false)
     // 工具栏入口：起点 = 当前 HEAD（展示当前分支名，detached 时短 hash），预设新建分支
     const startLabel = currentBranch ?? (headHash !== null ? abbrevHash(headHash) : 'HEAD')
-    openDialog(projectPath, {
+    openDialog(repoPath, {
       kind: 'worktree-add',
       start: { ref: 'HEAD', label: startLabel },
       checkout: 'new-branch',
@@ -77,12 +73,12 @@ export function GitWorktreeDropdown({
   const remove = (e: React.MouseEvent, worktree: GitWorktree): void => {
     e.stopPropagation()
     setOpen(false)
-    openDialog(projectPath, { kind: 'worktree-remove', worktree })
+    openDialog(repoPath, { kind: 'worktree-remove', worktree })
   }
   const prune = (e: React.MouseEvent): void => {
     e.stopPropagation()
     setOpen(false)
-    openDialog(projectPath, { kind: 'worktree-prune' })
+    openDialog(repoPath, { kind: 'worktree-prune' })
   }
 
   return (

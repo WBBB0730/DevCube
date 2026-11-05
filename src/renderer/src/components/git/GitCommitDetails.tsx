@@ -8,8 +8,7 @@
 import { useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from 'react'
 import { ChevronRight, File as FileIcon, Folder, X } from 'lucide-react'
 import { UNCOMMITTED, type GitFileChange } from '@shared/git'
-import { gitState, useGit } from '@renderer/git-store'
-import { useFiles } from '@renderer/files-store'
+import { gitState, openInProjectFiles, repoFilePath, useGit } from '@renderer/git-store'
 import { cn } from '@renderer/lib/utils'
 import { useRememberedPanel } from '@renderer/lib/remembered-panel'
 import { LoadingHint } from '@renderer/components/ui/centered-hint'
@@ -23,7 +22,6 @@ import {
   FILE_STATUS_COLOR,
   buildFileTree,
   canOpenWorkingTreeFile,
-  diffPossible,
   fileRowTitle,
   flattenFileTree,
   normalizeCompare,
@@ -57,14 +55,14 @@ function hashLabel(hash: string): string {
  * 里面的左右分栏另成一组。
  */
 export function GitCommitDetails({
-  projectPath,
+  repoPath,
   panel
 }: {
-  projectPath: string
+  repoPath: string
   panel: React.ComponentProps<typeof ResizablePanel>
 }): React.JSX.Element | null {
-  const exp = useGit((s) => gitState(s, projectPath).expanded)
-  const commits = useGit((s) => gitState(s, projectPath).commits)
+  const exp = useGit((s) => gitState(s, repoPath).expanded)
+  const commits = useGit((s) => gitState(s, repoPath).commits)
   const closeDetails = useGit((s) => s.closeDetails)
   const split = useRememberedPanel('gitDetailsSplit')
   const rootRef = useRef<HTMLDivElement>(null)
@@ -117,7 +115,7 @@ export function GitCommitDetails({
         <button
           type="button"
           title="关闭"
-          onClick={() => closeDetails(projectPath)}
+          onClick={() => closeDetails(repoPath)}
           className="flex size-6 shrink-0 items-center justify-center rounded transition-colors hover:bg-[var(--bg-button-hover)]"
         >
           <X className="size-3.5 text-[color:var(--fg-icon)]" />
@@ -138,10 +136,10 @@ export function GitCommitDetails({
             {/* 左栏：摘要（整栏可选中复制）；提交面板模式换成提交表单 */}
             <ResizablePanel {...split.panelProps} className="select-text px-3 py-2">
               {isCommitPanel ? (
-                <CommitForm projectPath={projectPath} />
+                <CommitForm repoPath={repoPath} />
               ) : (
                 <SummaryPane
-                  projectPath={projectPath}
+                  repoPath={repoPath}
                   exp={exp}
                   rowIndexOf={rowIndexOf}
                   scrollGraphToHash={scrollGraphToHash}
@@ -155,13 +153,13 @@ export function GitCommitDetails({
               两者都自持滚动容器（h-full overflow-auto，开窗按它取可见区间），此处只给高度约束。 */}
             {isCommitPanel ? (
               <ResizablePanel style={{ overflow: 'hidden' }}>
-                <UncommittedFileSections projectPath={projectPath} />
+                <UncommittedFileSections repoPath={repoPath} />
               </ResizablePanel>
             ) : (
               <ResizablePanel style={{ overflow: 'hidden' }}>
                 <FileTreePane
                   key={`${exp.hash}|${exp.compareWith ?? ''}`}
-                  projectPath={projectPath}
+                  repoPath={repoPath}
                   exp={exp}
                   files={files ?? []}
                   rowIndexOf={rowIndexOf}
@@ -180,12 +178,12 @@ export function GitCommitDetails({
  * 未提交普通模式的左栏由 CommitForm 接管，不走这里。
  */
 function SummaryPane({
-  projectPath,
+  repoPath,
   exp,
   rowIndexOf,
   scrollGraphToHash
 }: {
-  projectPath: string
+  repoPath: string
   exp: GitExpandedState
   rowIndexOf: (hash: string) => number
   scrollGraphToHash: (hash: string) => void
@@ -210,8 +208,8 @@ function SummaryPane({
   /** 父提交跳转：目标在已加载列表中才可点（§5.1），点击换开该提交的详情并把图谱滚到它那一行。 */
   const openParent = (hash: string): void => {
     const store = useGit.getState()
-    const commit = gitState(store, projectPath).commits.find((c) => c.hash === hash)
-    void store.openDetails(projectPath, hash, commit?.stash ?? null)
+    const commit = gitState(store, repoPath).commits.find((c) => c.hash === hash)
+    void store.openDetails(repoPath, hash, commit?.stash ?? null)
     // 父提交若不在视口内则滚动到它（block:'nearest' 天然只在越界时滚）
     scrollGraphToHash(hash)
   }
@@ -287,7 +285,7 @@ function SummaryPane({
         <PersonLine name={d.committer} email={d.committerEmail} />
         <span className={FIELD}>{sameDates ? '日期' : '提交日期'}</span>
         <span>{formatDateTime(d.committerDate)}</span>
-        {exp.stash === null && <CommitChecks projectPath={projectPath} hash={d.hash} />}
+        {exp.stash === null && <CommitChecks repoPath={repoPath} hash={d.hash} />}
       </div>
     </>
   )
@@ -297,8 +295,8 @@ function SummaryPane({
  * 字段区的「检查」一栏（docs/prd/github-checks.md）：这个提交在 GitHub 上的各项检查，名字点开在浏览器里看；
  * 结束的显示耗时，运行中的显示已运行时长（每秒走一格）。没有检查、没查过或未登录时整栏不出现。
  */
-function CommitChecks({ projectPath, hash }: { projectPath: string; hash: string }): ReactNode {
-  const runs = useCheckRuns(projectPath, hash)
+function CommitChecks({ repoPath, hash }: { repoPath: string; hash: string }): ReactNode {
+  const runs = useCheckRuns(repoPath, hash)
   if (runs === null || runs.length === 0) return null
   return (
     <>
@@ -374,12 +372,12 @@ function PersonLine({ name, email }: { name: string; email: string }): React.JSX
 
 /** 右栏文件树：单链压缩 + 排序 + 开合记忆（details-diff §7）；单击开 diff、右键出文件菜单。 */
 function FileTreePane({
-  projectPath,
+  repoPath,
   exp,
   files,
   rowIndexOf
 }: {
-  projectPath: string
+  repoPath: string
   exp: GitExpandedState
   files: GitFileChange[]
   rowIndexOf: (hash: string) => number
@@ -393,12 +391,12 @@ function FileTreePane({
   const visible = useVisibleRange({ scrollRef, count: rows.length, size: () => ROW_HEIGHT })
   // 当前打开 diff 的文件身份（端点 + 路径）：据此高亮被选中的文件行
   const selectedKey = useGit((s) => {
-    const d = gitState(s, projectPath).diffView
+    const d = gitState(s, repoPath).diffView
     return d !== null ? `${d.fromHash}|${d.toHash}|${d.file.newFilePath}` : null
   })
   // 右键菜单打开中的文件行（保持 hover 行底：指针已移入菜单会丢 :hover，同左树项目行）
   const menuKey = useGit((s) => {
-    const t = gitState(s, projectPath).contextMenu?.target
+    const t = gitState(s, repoPath).contextMenu?.target
     return t !== undefined && t.kind === 'file'
       ? `${t.fromHash}|${t.toHash}|${t.file.newFilePath}`
       : null
@@ -423,19 +421,19 @@ function FileTreePane({
 
   const openFileDiff = (file: GitFileChange): void => {
     const { fromHash, toHash } = resolveDiffEndpoints(file, exp, rowIndexOf)
-    void useGit.getState().openDiff(projectPath, file, fromHash, toHash)
+    void useGit.getState().openDiff(repoPath, file, fromHash, toHash)
   }
 
   const openInFilesTab = (file: GitFileChange): void => {
     if (!canOpenWorkingTreeFile(file)) return
-    useFiles.getState().openInFiles(projectPath, `${projectPath}/${file.newFilePath}`)
+    openInProjectFiles(repoPath, repoFilePath(repoPath, file.newFilePath))
   }
 
   const onFileMenu = (e: React.MouseEvent, file: GitFileChange): void => {
     e.preventDefault()
     e.stopPropagation()
     const { fromHash, toHash } = resolveDiffEndpoints(file, exp, rowIndexOf)
-    useGit.getState().openContextMenu(projectPath, {
+    useGit.getState().openContextMenu(repoPath, {
       x: e.clientX,
       y: e.clientY,
       target: { kind: 'file', file, fromHash, toHash, isUncommitted: toHash === UNCOMMITTED }
@@ -469,7 +467,6 @@ function FileTreePane({
 
   const renderFile = (row: FileRow): ReactNode => {
     const file = files[row.index]
-    const clickable = diffPossible(file)
     const colour = FILE_STATUS_COLOR[file.type]
     const { fromHash: dFrom, toHash: dTo } = resolveDiffEndpoints(file, exp, rowIndexOf)
     const rowKey = `${dFrom}|${dTo}|${file.newFilePath}`
@@ -479,8 +476,7 @@ function FileTreePane({
         key={`f-${row.index}`}
         title={fileRowTitle(file)}
         className={cn(
-          'mx-1 flex h-[22px] items-center gap-1.5 rounded pr-2 text-[13px] transition-colors',
-          clickable ? 'cursor-pointer' : 'cursor-default',
+          'mx-1 flex h-[22px] cursor-pointer items-center gap-1.5 rounded pr-2 text-[13px] transition-colors',
           // 当前打开 diff 的文件行高亮（选中蓝底固定，不随 hover 变色，同左侧项目树）；
           // 右键菜单打开期间保持 hover 行底
           isSelected
@@ -491,7 +487,7 @@ function FileTreePane({
         )}
         // 额外 +18px 缩进：与文件夹行的 chevron 区对齐
         style={{ paddingLeft: 8 + row.depth * 16 + 18 }}
-        onClick={() => clickable && openFileDiff(file)}
+        onClick={() => openFileDiff(file)}
         onDoubleClick={() => openInFilesTab(file)}
         onContextMenu={(e) => onFileMenu(e, file)}
       >

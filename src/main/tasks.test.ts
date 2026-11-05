@@ -3,7 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { NO_PROGRESS, type TaskInfo } from '../shared/task'
 import { createTaskRegistry } from './tasks'
 
-const owner = { kind: 'git' as const, projectPath: '/p' }
+const owner = { kind: 'git' as const, repoPath: '/p' }
 const title = { action: '推送', target: 'main → origin/main' }
 
 beforeEach(() => vi.useFakeTimers())
@@ -20,7 +20,7 @@ describe('任务登记处', () => {
   it('等待中 → 进行中 → 成功即移除，状态变化立即推送', () => {
     const { registry, pushes } = setup()
     const task = registry.create(owner, title, { queued: true })
-    expect(pushes.at(-1)?.[0]).toMatchObject({ status: 'queued', projectPath: '/p', title })
+    expect(pushes.at(-1)?.[0]).toMatchObject({ status: 'queued', repoPath: '/p', title })
     task.start()
     expect(pushes.at(-1)?.[0].status).toBe('running')
     task.finish({ status: 'ok' })

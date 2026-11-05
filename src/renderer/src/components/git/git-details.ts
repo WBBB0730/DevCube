@@ -36,33 +36,16 @@ export const FILE_STATUS_COLOR: Record<GitFileStatus, string> = {
 
 /**
  * 未提交两段 → 相对仓库根路径的工作区展示状态（供 Files 树上色）。
- * 优先级：冲突 > 未暂存 > 已暂存；跳过 isDir（目录名仍走默认正文色）。
+ * 优先级：冲突 > 未暂存 > 已暂存。
  */
 export function workingTreeStatusByPath(
   uncommitted: GitUncommittedDetails
 ): Map<string, GitFileStatus> {
   const m = new Map<string, GitFileStatus>()
-  for (const f of uncommitted.staged) {
-    if (f.isDir) continue
-    m.set(f.newFilePath, f.type)
-  }
-  for (const f of uncommitted.unstaged) {
-    if (f.isDir) continue
-    m.set(f.newFilePath, f.type)
-  }
-  for (const f of uncommitted.conflicted) {
-    if (f.isDir) continue
-    m.set(f.newFilePath, '!')
-  }
+  for (const f of uncommitted.staged) m.set(f.newFilePath, f.type)
+  for (const f of uncommitted.unstaged) m.set(f.newFilePath, f.type)
+  for (const f of uncommitted.conflicted) m.set(f.newFilePath, '!')
   return m
-}
-
-/**
- * 该文件行能否打开 diff：未跟踪目录整体条目（isDir）没有 diff 可看，其余一律可点——
- * 是否二进制由点开后的单文件 diff 判定（面板内展示「二进制文件不支持对比」），列表阶段不预判。
- */
-export function diffPossible(file: GitFileChange): boolean {
-  return file.isDir !== true
 }
 
 // —— 文件树（details-diff §7.1–7.3） ——
@@ -287,20 +270,19 @@ export function canPushAfterCommit(currentBranch: string | null, headHash: strin
 }
 
 /**
- * 文件行能否在 Files Tab 打开工作区那份：已删除的没有工作区文件；文件夹（未跟踪目录整体条目、指向文件夹的符号链接）
+ * 文件行能否在 Files Tab 打开工作区那份：已删除的没有工作区文件；指向文件夹的符号链接
  * 由 Files Tab 在文件树里展开并定位（docs/prd/symlinks.md）。与文件行菜单的「打开文件」同一条规则。
  */
 export function canOpenWorkingTreeFile(file: GitFileChange): boolean {
   return file.type !== 'D'
 }
 
-/** 文件行 tooltip（§7.4）：可点性提示 • 状态文案，rename 附「旧 → 新」。 */
+/**
+ * 文件行 tooltip（§7.4）：可点性提示 • 状态文案，rename 附「旧 → 新」。文件行一律可点开 diff——是否二进制
+ * 由点开后的单文件 diff 判定（面板内展示「二进制文件不支持对比」），列表阶段不预判。
+ */
 export function fileRowTitle(file: GitFileChange): string {
-  const click = !diffPossible(file)
-    ? '无法查看差异（这是一个未跟踪目录），双击在文件树中显示'
-    : canOpenWorkingTreeFile(file)
-      ? '点击查看差异，双击打开文件'
-      : '点击查看差异'
+  const click = canOpenWorkingTreeFile(file) ? '点击查看差异，双击打开文件' : '点击查看差异'
   const status =
     file.type === 'R'
       ? `${FILE_STATUS_LABEL.R} (${file.oldFilePath} → ${file.newFilePath})`
@@ -459,7 +441,7 @@ function filesInTreeOrder(files: readonly GitFileChange[]): GitFileChange[] {
 /**
  * 左右箭头的文件切换序列：提交面板按显示顺序两段相连（已暂存在前、未暂存含冲突在后，
  * 端点随段），其余（详情 / 比较 / stash）取当前文件树逐个解析端点。收起的文件夹不影响
- * 序列（按完整树顺序走），未跟踪目录条目也保留（面板对它显示提示，不跳过）。
+ * 序列（按完整树顺序走）。
  */
 export function diffNavSequence(
   expanded: (DiffEndpointContext & DiffReconcileExpanded) | null,

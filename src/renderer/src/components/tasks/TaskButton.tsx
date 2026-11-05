@@ -14,6 +14,7 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
 import { ProgressBar } from '@renderer/components/ui/progress'
 import { cn } from '@renderer/lib/utils'
+import { findRepoContext, useGit } from '@renderer/git-store'
 import { useApp } from '@renderer/store'
 import { revealTask, useHiddenTasks } from '@renderer/task-store'
 import { TaskTitleText } from './TaskProgressDialog'
@@ -87,13 +88,32 @@ export function TaskButton({ className }: { className: string }): React.JSX.Elem
   )
 }
 
-/** 清单里的一项：标题 + 行尾取消 / 关闭；所属项目；进度条 + 明细，失败的为原因。点项即找回。 */
+/**
+ * 清单里的一项：标题 + 行尾取消 / 关闭；所属项目（嵌套仓库的再带上仓库名）；进度条 + 明细，失败的为原因。
+ * 点项即找回。
+ */
 function TaskRow({ task, onReveal }: { task: TaskInfo; onReveal: () => void }): React.JSX.Element {
-  const projectName = useApp((s) =>
+  const tree = useApp((s) => s.tree)
+  const currentEntryKey = useApp((s) => s.currentEntryKey)
+  const projectRepos = useGit((s) => s.projectRepos)
+  const ctx =
     task.kind === 'git'
-      ? (s.tree.find((n) => n.project.path === task.projectPath)?.project.name ?? null)
+      ? findRepoContext(
+          projectRepos,
+          [currentEntryKey, ...tree.map((n) => n.project.path)],
+          task.repoPath
+        )
       : null
-  )
+  const projectName =
+    ctx === null
+      ? null
+      : (tree.find((n) => n.project.path === ctx.projectPath)?.project.name ?? null)
+  const ownerLabel =
+    ctx === null || projectName === null
+      ? null
+      : ctx.repo.own
+        ? projectName
+        : `${projectName} · ${ctx.repo.name}`
   const failed = task.status === 'failed'
   // 进度明细：阶段 · 个数 · 已传（速度）
   const detail = [taskPhaseLabel(task), taskItemsLabel(task), progressDetail(taskDetailStats(task))]
@@ -128,8 +148,8 @@ function TaskRow({ task, onReveal }: { task: TaskInfo; onReveal: () => void }): 
           <X className="size-3" />
         </button>
       </div>
-      {projectName !== null && (
-        <div className="truncate text-[12px] text-muted-foreground">{projectName}</div>
+      {ownerLabel !== null && (
+        <div className="truncate text-[12px] text-muted-foreground">{ownerLabel}</div>
       )}
       {failed ? (
         <div

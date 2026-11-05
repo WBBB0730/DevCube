@@ -18,7 +18,7 @@ import type {
 } from './files'
 import type { FilesImagePreview, FilesImagePyramid } from './files-image-tiles'
 import type { FilesTreeFilterResult } from './files-tree-search'
-import type { GitAPI, GitRepoSettings, GitViewPrefs } from './git'
+import type { GitAPI, GitRepoSettings, GitUiState, GitViewPrefs } from './git'
 import type { GitHubAPI } from './github'
 import type { GitCloneInput, GitCloneTargetState } from './git-clone'
 import type { OpenInAppId, OpenInAppResult, OpenInAppStatus } from './open-in-app'
@@ -320,8 +320,13 @@ export interface PersistedState {
   configs: RunConfig[]
   /** 命令型配置上次运行时填的参数值（键 = 配置 id；删除配置、移除所在条目时删掉） */
   runParams: Record<string, RunParams>
-  /** 每项目 git 设置（键 = 项目绝对路径；存的是覆写快照，读取时与默认值合并） */
+  /**
+   * 每仓库 git 设置（键 = GitRepo.path：项目自己的仓库为项目绝对路径，嵌套仓库为它的根目录；
+   * 存的是覆写快照，读取时与默认值合并）
+   */
   gitSettings: Record<string, GitRepoSettings>
+  /** 每项目 Git Tab UI（键 = 项目绝对路径） */
+  gitUi: Record<string, GitUiState>
   /** 跨项目 git 视图偏好（查找选项、「不再提示」标记） */
   gitViewPrefs: GitViewPrefs
   /** 登录的 GitHub 账号：登录名 + 凭证的 safeStorage 密文 base64（不下发渲染端；ADR-0054）；未登录为 null */

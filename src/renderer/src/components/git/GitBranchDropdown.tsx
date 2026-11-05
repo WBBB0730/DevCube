@@ -60,9 +60,9 @@ const ROW =
   'flex h-7 cursor-pointer select-none items-center gap-1.5 rounded px-1.5 text-[13px] transition-colors hover:bg-[var(--bg-row-hover)]'
 
 /** 分支筛选下拉：读 store 的 branches / branchFilter，变更即触发硬刷新。 */
-export function GitBranchDropdown({ projectPath }: { projectPath: string }): React.JSX.Element {
-  const branches = useGit((s) => gitState(s, projectPath).branches)
-  const branchFilter = useGit((s) => gitState(s, projectPath).branchFilter)
+export function GitBranchDropdown({ repoPath }: { repoPath: string }): React.JSX.Element {
+  const branches = useGit((s) => gitState(s, repoPath).branches)
+  const branchFilter = useGit((s) => gitState(s, repoPath).branchFilter)
   const setBranchFilter = useGit((s) => s.setBranchFilter)
   const [open, setOpen] = useState(false)
   const [filterText, setFilterText] = useState('')
@@ -83,7 +83,7 @@ export function GitBranchDropdown({ projectPath }: { projectPath: string }): Rea
     // 与当前一致（都为全部分支、或都为当前分支模式）时不触发，避免无谓的硬刷新
     if (next === null && branchFilter === null) return
     if (isCurrentBranchFilter(next) && isCurrentBranchFilter(branchFilter)) return
-    void setBranchFilter(projectPath, next)
+    void setBranchFilter(repoPath, next)
   }
 
   const onShowAllClick = (): void => {

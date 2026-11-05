@@ -62,7 +62,7 @@ function makeCtx(overrides: Partial<GitMenuContext> = {}): Recorded {
     ctx: null as unknown as GitMenuContext
   }
   rec.ctx = {
-    projectPath: '/repo',
+    repoRoot: '/repo',
     commits: [],
     headHash: null,
     currentBranch: null,

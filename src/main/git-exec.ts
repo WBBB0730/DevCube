@@ -512,10 +512,10 @@ async function realpathOr(path: string): Promise<string> {
 }
 
 /**
- * 无缓存的仓库根查找：rev-parse --show-toplevel + 符号链接回溯（保持用户视角路径）。
- * git 跑不起来（找不到 git、连不上 WSL 发行版）为 undefined：查不了，不等于不在仓库内，不能缓存。
+ * 无缓存的仓库根查找：rev-parse --show-toplevel + 符号链接回溯（保持用户视角路径）。从嵌套仓库里查得到的
+ * 就是离它最近的那个仓库。git 跑不起来（找不到 git、连不上 WSL 发行版）为 undefined：查不了，不等于不在仓库内，不能缓存。
  */
-async function lookupRepoRoot(dir: string): Promise<string | null | undefined> {
+export async function lookupRepoRoot(dir: string): Promise<string | null | undefined> {
   const result = await execGit(dir, ['rev-parse', '--show-toplevel'])
   if (result.error !== null) return undefined
   if (result.code !== 0) return null
@@ -601,16 +601,11 @@ export async function resolveGitDirs(root: string): Promise<GitDirs | null> {
 }
 
 /**
- * 重验仓库根（绕过缓存重新查找并回写）：git init / .git 删除会让缓存失真，
- * watcher 防抖回调与手动刷新入口经此跟进。changed 含首次无缓存的情况。
+ * 重查仓库根（绕过缓存重新查找并回写）：git init / .git 删除会让缓存失真，重新发现项目的仓库时经此跟进。
+ * git 跑不起来为 undefined，缓存维持原样。
  */
-export async function revalidateRepoRoot(
-  dir: string
-): Promise<{ root: string | null; changed: boolean }> {
-  const cached = repoRootCache.get(dir)
+export async function refreshRepoRoot(dir: string): Promise<string | null | undefined> {
   const root = await lookupRepoRoot(dir)
-  // 查不了：维持原判断，不当作变化
-  if (root === undefined) return { root: cached ?? null, changed: false }
-  repoRootCache.set(dir, root)
-  return { root, changed: cached === undefined || cached !== root }
+  if (root !== undefined) repoRootCache.set(dir, root)
+  return root
 }

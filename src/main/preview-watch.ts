@@ -56,7 +56,7 @@ export function watchPreviewRoot(
       subscribeDir(rootSys, (err, events) => {
         if (err || closed) return
         const hit = events.some((event) =>
-          classifyWatchPathAll(rootSys, null, event.path).some((c) => c.kind === 'files')
+          classifyWatchPathAll(rootSys, [], event.path).some((c) => c.kind === 'files')
         )
         if (hit) changed()
       })

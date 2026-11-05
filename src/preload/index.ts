@@ -271,28 +271,30 @@ const api: RunAPI = {
   contentSearchStop: () => ipcRenderer.invoke(IPC.contentSearchStop),
   onContentSearchEvent: (cb) => subscribe(IPC.contentSearchEvent, cb),
 
-  gitLoad: (projectPath, options: GitLoadOptions) =>
-    ipcRenderer.invoke(IPC.gitLoad, projectPath, options),
-  gitDetails: (projectPath, request: GitDetailsRequest) =>
-    ipcRenderer.invoke(IPC.gitDetails, projectPath, request),
-  gitFileDiff: (projectPath, request: GitDiffRequest) =>
-    ipcRenderer.invoke(IPC.gitFileDiff, projectPath, request),
-  gitFileImage: (projectPath, request: GitDiffRequest) =>
-    ipcRenderer.invoke(IPC.gitFileImage, projectPath, request),
-  gitTagDetails: (projectPath, tagName) =>
-    ipcRenderer.invoke(IPC.gitTagDetails, projectPath, tagName),
-  gitRepoConfig: (projectPath) => ipcRenderer.invoke(IPC.gitRepoConfig, projectPath),
-  gitAction: (projectPath, action: GitAction, opts?: { silent?: boolean }) =>
-    ipcRenderer.invoke(IPC.gitAction, projectPath, action, opts),
-  gitGetSettings: (projectPath) => ipcRenderer.invoke(IPC.gitSettingsGet, projectPath),
-  gitSetSettings: (projectPath, patch) =>
-    ipcRenderer.invoke(IPC.gitSettingsSet, projectPath, patch),
+  gitLoad: (repoPath, options: GitLoadOptions) =>
+    ipcRenderer.invoke(IPC.gitLoad, repoPath, options),
+  gitDetails: (repoPath, request: GitDetailsRequest) =>
+    ipcRenderer.invoke(IPC.gitDetails, repoPath, request),
+  gitFileDiff: (repoPath, request: GitDiffRequest) =>
+    ipcRenderer.invoke(IPC.gitFileDiff, repoPath, request),
+  gitFileImage: (repoPath, request: GitDiffRequest) =>
+    ipcRenderer.invoke(IPC.gitFileImage, repoPath, request),
+  gitTagDetails: (repoPath, tagName) => ipcRenderer.invoke(IPC.gitTagDetails, repoPath, tagName),
+  gitRepoConfig: (repoPath) => ipcRenderer.invoke(IPC.gitRepoConfig, repoPath),
+  gitAction: (repoPath, action: GitAction, opts?: { silent?: boolean }) =>
+    ipcRenderer.invoke(IPC.gitAction, repoPath, action, opts),
+  gitGetSettings: (repoPath) => ipcRenderer.invoke(IPC.gitSettingsGet, repoPath),
+  gitSetSettings: (repoPath, patch) => ipcRenderer.invoke(IPC.gitSettingsSet, repoPath, patch),
   gitGetViewPrefs: () => ipcRenderer.invoke(IPC.gitViewPrefsGet),
   gitSetViewPrefs: (patch) => ipcRenderer.invoke(IPC.gitViewPrefsSet, patch),
   onGitChanged: (cb) => subscribe(IPC.gitChanged, cb),
-  gitInvalidateWorkingTree: (projectPath) =>
-    ipcRenderer.invoke(IPC.gitInvalidateWorkingTree, projectPath),
-  gitRevalidate: (projectPath) => ipcRenderer.invoke(IPC.gitRevalidate, projectPath),
+  gitInvalidateWorkingTree: (repoPath) =>
+    ipcRenderer.invoke(IPC.gitInvalidateWorkingTree, repoPath),
+  gitRevalidate: (projectPath, scope) => ipcRenderer.invoke(IPC.gitRevalidate, projectPath, scope),
+  gitRepos: (projectPath) => ipcRenderer.invoke(IPC.gitRepos, projectPath),
+  onGitReposChanged: (cb) => subscribe(IPC.gitReposChanged, cb),
+  gitGetUi: (projectPath) => ipcRenderer.invoke(IPC.gitUiGet, projectPath),
+  gitSetUi: (projectPath, patch) => ipcRenderer.invoke(IPC.gitUiSet, projectPath, patch),
   gitDefaultBranch: (projectPath) => ipcRenderer.invoke(IPC.gitDefaultBranch, projectPath),
 
   githubAccount: () => ipcRenderer.invoke(IPC.githubAccountGet),
@@ -301,13 +303,12 @@ const api: RunAPI = {
   onGitHubLoginCode: (cb) => subscribe(IPC.githubLoginCode, cb),
   githubLoginCancel: () => ipcRenderer.invoke(IPC.githubLoginCancel),
   githubLogout: () => ipcRenderer.invoke(IPC.githubLogout),
-  githubHasRepo: (projectPath) => ipcRenderer.invoke(IPC.githubHasRepo, projectPath),
+  githubHasRepo: (repoPath) => ipcRenderer.invoke(IPC.githubHasRepo, repoPath),
   githubStarred: () => ipcRenderer.invoke(IPC.githubStarGet),
   githubStar: () => ipcRenderer.invoke(IPC.githubStarAdd),
-  githubCommitChecks: (projectPath, hashes) =>
-    ipcRenderer.invoke(IPC.githubCommitChecks, projectPath, hashes),
-  githubCheckRuns: (projectPath, hash) =>
-    ipcRenderer.invoke(IPC.githubCheckRuns, projectPath, hash),
+  githubCommitChecks: (repoPath, hashes) =>
+    ipcRenderer.invoke(IPC.githubCommitChecks, repoPath, hashes),
+  githubCheckRuns: (repoPath, hash) => ipcRenderer.invoke(IPC.githubCheckRuns, repoPath, hash),
 
   onTreeChanged: (cb) => subscribe(IPC.treeChanged, cb),
   onSessionOutput: (cb) => subscribe(IPC.sessionOutput, cb),

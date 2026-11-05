@@ -5,7 +5,7 @@
 
 import type { GitAction, GitPullMode, GitRepoConfig, GitRepoSettings } from '@shared/git'
 
-/** 直接拉取 / 推送要读的仓库快照（git-store 的项目状态即满足）。 */
+/** 直接拉取 / 推送要读的仓库快照（git-store 的仓库状态桶即满足）。 */
 export interface DirectActionState {
   currentBranch: string | null
   remotes: readonly string[]
@@ -101,7 +101,7 @@ export function defaultPullBranch(
 }
 
 /**
- * pull 对话框「整合方式」默认值三层：本项目的记忆值（GitRepoSettings.pullIntegrationMode）→
+ * pull 对话框「整合方式」默认值三层：本仓库的记忆值（GitRepoSettings.pullIntegrationMode）→
  * 仓库 git 配置（branch.<当前分支>.rebase 优先于 pull.rebase，对齐 git 自身的覆盖顺序；
  * true/interactive/merges → 变基，其余 → 合并）→ 合并。
  */
@@ -132,7 +132,7 @@ function upstreamOf(st: DirectActionState): { remote: string; branch: string } |
 }
 
 /**
- * 「直接拉取」的动作 = 拉取对话框的默认值原样提交：上游 remote 与分支、本项目记忆的整合方式、
+ * 「直接拉取」的动作 = 拉取对话框的默认值原样提交：上游 remote 与分支、本仓库记忆的整合方式、
  * 不勾「创建新的合并提交」。只在有上游时成立；拿不准（无上游 / 上游已删 / config 未加载）为 null，
  * 由调用方改弹对话框。
  */

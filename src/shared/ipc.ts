@@ -247,6 +247,11 @@ export const IPC = {
   gitInvalidateWorkingTree: 'git:invalidate-working-tree',
   gitRevalidate: 'git:revalidate',
   gitDefaultBranch: 'git:default-branch',
+  /** 项目里的仓库（docs/prd/git-nested-repos.md）：清单读取与变化推送、每项目 Git Tab UI 的读写 */
+  gitRepos: 'git:repos',
+  gitReposChanged: 'git:repos-changed',
+  gitUiGet: 'git:ui-get',
+  gitUiSet: 'git:ui-set',
   /**
    * GitHub 账号与提交检查（docs/prd/github-checks.md）：账号读取与变更推送、设备授权登录（代码经 login-code
    * 推给发起的窗口）、取消与退出、项目是否在 GitHub 上，以及查一批提交的检查汇总 / 一个提交的各项检查

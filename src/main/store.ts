@@ -34,8 +34,10 @@ import {
 } from '../shared/window-placement'
 import {
   DEFAULT_GIT_REPO_SETTINGS,
+  DEFAULT_GIT_UI,
   DEFAULT_GIT_VIEW_PREFS,
   type GitRepoSettings,
+  type GitUiState,
   type GitViewPrefs
 } from '../shared/git'
 
@@ -61,6 +63,7 @@ export async function initStore(): Promise<void> {
       configs: [],
       runParams: {},
       gitSettings: {},
+      gitUi: {},
       gitViewPrefs: DEFAULT_GIT_VIEW_PREFS,
       githubAccount: null,
       projectSortPrefs: DEFAULT_PROJECT_SORT_PREFS,
@@ -126,6 +129,7 @@ type KeyedField =
   | 'dataSourceCompletionUsage'
   | 'runParams'
   | 'gitSettings'
+  | 'gitUi'
   | 'filesUi'
 
 /** 按键删掉字段里的几条；一条都没有时不写盘。 */
@@ -334,25 +338,43 @@ function pickKnownKeys<T extends object>(defaults: T, stored: Partial<T> | undef
   return out
 }
 
-export function getGitSettings(projectPath: string): GitRepoSettings {
+export function getGitSettings(repoPath: string): GitRepoSettings {
   return {
     ...DEFAULT_GIT_REPO_SETTINGS,
-    ...pickKnownKeys(DEFAULT_GIT_REPO_SETTINGS, store.get('gitSettings')[projectPath])
+    ...pickKnownKeys(DEFAULT_GIT_REPO_SETTINGS, store.get('gitSettings')[repoPath])
   }
 }
 
-export function setGitSettings(
-  projectPath: string,
-  patch: Partial<GitRepoSettings>
-): GitRepoSettings {
-  const merged = { ...getGitSettings(projectPath), ...patch }
-  store.set('gitSettings', { ...store.get('gitSettings'), [projectPath]: merged })
+export function setGitSettings(repoPath: string, patch: Partial<GitRepoSettings>): GitRepoSettings {
+  const merged = { ...getGitSettings(repoPath), ...patch }
+  store.set('gitSettings', { ...store.get('gitSettings'), [repoPath]: merged })
   return merged
 }
 
-/** 项目移除时清掉它的 git 设置，避免残留。 */
-export function deleteGitSettings(projectPath: string): void {
-  deleteEntries('gitSettings', [projectPath])
+/** 存有 git 设置的仓库（键见 PersistedState.gitSettings）。 */
+export function gitSettingsRepoPaths(): string[] {
+  return Object.keys(store.get('gitSettings'))
+}
+
+/** 项目移除时清掉它那些仓库的 git 设置，避免残留（键见 PersistedState.gitSettings）。 */
+export function deleteGitSettings(repoPaths: readonly string[]): void {
+  deleteEntries('gitSettings', repoPaths)
+}
+
+export function getGitUi(projectPath: string): GitUiState {
+  const stored = (store.get('gitUi') ?? {})[projectPath]
+  return { ...DEFAULT_GIT_UI, ...pickKnownKeys(DEFAULT_GIT_UI, stored) }
+}
+
+export function setGitUi(projectPath: string, patch: Partial<GitUiState>): GitUiState {
+  const merged = { ...getGitUi(projectPath), ...patch }
+  store.set('gitUi', { ...(store.get('gitUi') ?? {}), [projectPath]: merged })
+  return merged
+}
+
+/** 项目移除时清掉 Git Tab UI，避免残留。 */
+export function deleteGitUi(projectPath: string): void {
+  deleteEntries('gitUi', [projectPath])
 }
 
 export function getGitViewPrefs(): GitViewPrefs {

@@ -54,20 +54,17 @@ export interface GitHubAPI {
   /** 取消进行中的登录（githubLogin 随后以 cancelled 收口） */
   githubLoginCancel(): Promise<void>
   githubLogout(): Promise<void>
-  /** 项目有没有指向 github.com 的远程（查检查结果用的同一套认法；Git Tab 据此显示登录入口） */
-  githubHasRepo(projectPath: string): Promise<boolean>
+  /** 仓库（GitRepo.path）有没有指向 github.com 的远程（查检查结果用的同一套认法；Git Tab 据此显示登录入口） */
+  githubHasRepo(repoPath: string): Promise<boolean>
   /** 当前账号有没有给 DevCube 的仓库加星标；未登录或查不到为 null */
   githubStarred(): Promise<boolean | null>
   /** 给 DevCube 的仓库加星标（只在用户点按钮时调用；不提供取消），返回之后的状态；失败为 null */
   githubStar(): Promise<boolean | null>
   /**
-   * 一批提交的检查汇总。项目没有指向 GitHub 的远程、未登录或查询失败时返回空表；
+   * 一批提交的检查汇总。仓库没有指向 GitHub 的远程、未登录或查询失败时返回空表；
    * 查到的提交才在表里（GitHub 上没有的为 none）
    */
-  githubCommitChecks(
-    projectPath: string,
-    hashes: string[]
-  ): Promise<Record<string, CommitCheckState>>
+  githubCommitChecks(repoPath: string, hashes: string[]): Promise<Record<string, CommitCheckState>>
   /** 一个提交的各项检查；查不到（同上）为 null */
-  githubCheckRuns(projectPath: string, hash: string): Promise<CheckRun[] | null>
+  githubCheckRuns(repoPath: string, hash: string): Promise<CheckRun[] | null>
 }

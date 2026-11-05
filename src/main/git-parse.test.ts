@@ -199,6 +199,11 @@ describe('countStatusEntriesZ', () => {
   it('冲突记录照常计入（与提交面板冲突桶口径一致）', () => {
     expect(countStatusEntriesZ('UU both.txt\0AA add.txt\0 M other.ts\0')).toBe(3)
   })
+
+  it('嵌套仓库条目（带尾斜杠的未跟踪目录）不算', () => {
+    expect(countStatusEntriesZ('?? inner/\0?? a/b/repo/\0 M x.ts\0')).toBe(1)
+    expect(countStatusEntriesZ('?? inner/\0')).toBe(0)
+  })
 })
 
 describe('parseStatusFilesZ', () => {
@@ -206,6 +211,14 @@ describe('parseStatusFilesZ', () => {
     const stdout = ' D gone.ts\0?? new.ts\0 M other.ts\0'
     expect(parseStatusFilesZ(stdout)).toEqual({
       deleted: ['gone.ts'],
+      untracked: ['new.ts'],
+      conflicted: []
+    })
+  })
+
+  it('嵌套仓库条目不归入 untracked', () => {
+    expect(parseStatusFilesZ('?? inner/\0?? new.ts\0?? deep/repo/\0')).toEqual({
+      deleted: [],
       untracked: ['new.ts'],
       conflicted: []
     })
@@ -320,25 +333,6 @@ describe('generateFileChanges', () => {
     // 合成的 D/U 项没有 numstat 数据，计数保持 null
     expect(changes[1].additions).toBeNull()
     expect(changes[2].additions).toBeNull()
-  })
-
-  it('untracked 目录条目（尾斜杠）去斜杠归一并标 isDir，普通文件不带 isDir', () => {
-    const changes = generateFileChanges([], [], {
-      deleted: [],
-      untracked: ['c.ts', 'sub/'],
-      conflicted: []
-    })
-    expect(changes).toEqual([
-      { oldFilePath: 'c.ts', newFilePath: 'c.ts', type: 'U', additions: null, deletions: null },
-      {
-        oldFilePath: 'sub',
-        newFilePath: 'sub',
-        type: 'U',
-        additions: null,
-        deletions: null,
-        isDir: true
-      }
-    ])
   })
 })
 

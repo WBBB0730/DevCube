@@ -411,6 +411,16 @@ describe('buildStagePathsArgs', () => {
       ['add', '-A', '--', 'src/a b.ts', 'x.txt']
     ])
   })
+  it('全部暂存时按字面排除嵌套仓库；指定 paths 时不用排除', () => {
+    expect(
+      buildStagePathsArgs({ kind: 'stage-paths', paths: [] }, ['inner', 'we*ird/in ner'])
+    ).toEqual([
+      ['add', '-A', '--', '.', ':(exclude,literal)inner', ':(exclude,literal)we*ird/in ner']
+    ])
+    expect(buildStagePathsArgs({ kind: 'stage-paths', paths: ['a.ts'] }, ['inner'])).toEqual([
+      ['add', '-A', '--', 'a.ts']
+    ])
+  })
 })
 
 describe('buildUnstagePathsArgs', () => {
@@ -439,16 +449,16 @@ describe('buildDiscardFileArgs', () => {
 })
 
 describe('buildDeleteUntrackedFileArgs', () => {
-  it('用 clean -fd 删除单个未跟踪文件（-d 覆盖未跟踪目录条目）', () => {
+  it('用 clean -f 删除单个未跟踪文件', () => {
     expect(
       buildDeleteUntrackedFileArgs({ kind: 'delete-untracked-file', paths: ['new file.txt'] })
-    ).toEqual([['clean', '-fd', '--', 'new file.txt']])
+    ).toEqual([['clean', '-f', '--', 'new file.txt']])
   })
 
   it('多文件一条 clean 删除全部路径', () => {
     expect(
       buildDeleteUntrackedFileArgs({ kind: 'delete-untracked-file', paths: ['x.log', 'y.log'] })
-    ).toEqual([['clean', '-fd', '--', 'x.log', 'y.log']])
+    ).toEqual([['clean', '-f', '--', 'x.log', 'y.log']])
   })
 })
 

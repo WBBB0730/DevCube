@@ -177,18 +177,18 @@ async function runQuery<T>(
   })
 }
 
-/** 项目要查的 GitHub 仓库：取远程的获取地址（git 已按 insteadOf 改写），origin 优先。 */
-async function gitHubRepoOf(projectPath: string): Promise<GitHubRepoRef | null> {
-  const root = await resolveRepoRoot(projectPath)
+/** 仓库要查的 GitHub 仓库：取远程的获取地址（git 已按 insteadOf 改写），origin 优先。 */
+async function gitHubRepoOf(repoPath: string): Promise<GitHubRepoRef | null> {
+  const root = await resolveRepoRoot(repoPath)
   if (root === null) return null
   const result = await execGit(root, ['remote', '-v'])
   if (result.code !== 0) return null
   return pickGitHubRepo(parseRemoteList(result.stdout.toString('utf8')))
 }
 
-/** 项目有没有指向 github.com 的远程（Git Tab 据此显示登录入口）。 */
-export async function hasGitHubRepo(projectPath: string): Promise<boolean> {
-  return (await gitHubRepoOf(projectPath)) !== null
+/** 仓库有没有指向 github.com 的远程（Git Tab 据此显示登录入口）。 */
+export async function hasGitHubRepo(repoPath: string): Promise<boolean> {
+  return (await gitHubRepoOf(repoPath)) !== null
 }
 
 /**
@@ -221,23 +221,23 @@ function queryRepo<T>(
   return safeQuery<T>(token, query, { owner: repo.owner, name: repo.name, ...variables })
 }
 
-/** 查项目所需的凭证与仓库；任一缺失为 null。 */
-async function target(projectPath: string): Promise<{ token: string; repo: GitHubRepoRef } | null> {
+/** 查检查所需的凭证与 GitHub 仓库；任一缺失为 null。 */
+async function target(repoPath: string): Promise<{ token: string; repo: GitHubRepoRef } | null> {
   const token = currentToken()
   if (token === null) return null
-  const repo = await gitHubRepoOf(projectPath)
+  const repo = await gitHubRepoOf(repoPath)
   return repo === null ? null : { token, repo }
 }
 
 /** 一批提交的检查汇总（每 ROLLUP_BATCH 个一次请求，依次发出；某批查不到即停）。 */
 export async function getCommitChecks(
-  projectPath: string,
+  repoPath: string,
   hashes: string[]
 ): Promise<Record<string, CommitCheckState>> {
   const states: Record<string, CommitCheckState> = {}
   const valid = hashes.filter(isCommitHash)
   if (valid.length === 0) return states
-  const t = await target(projectPath)
+  const t = await target(repoPath)
   if (t === null) return states
   for (let i = 0; i < valid.length; i += ROLLUP_BATCH) {
     const batch = valid.slice(i, i + ROLLUP_BATCH)
@@ -262,9 +262,9 @@ interface CheckRunsData {
 }
 
 /** 一个提交的各项检查；没有任何检查为空数组，查不到为 null。 */
-export async function getCheckRuns(projectPath: string, hash: string): Promise<CheckRun[] | null> {
+export async function getCheckRuns(repoPath: string, hash: string): Promise<CheckRun[] | null> {
   if (!isCommitHash(hash)) return null
-  const t = await target(projectPath)
+  const t = await target(repoPath)
   if (t === null) return null
   const data = await queryRepo<CheckRunsData>(t.token, t.repo, CHECK_RUNS_QUERY, { oid: hash })
   if (data?.repository == null) return null

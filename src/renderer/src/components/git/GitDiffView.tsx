@@ -26,8 +26,7 @@ import {
   type GitImageResult
 } from '@shared/git'
 import { SHORTCUT } from '@shared/shortcut-label'
-import { gitState, useGit } from '@renderer/git-store'
-import { useFiles } from '@renderer/files-store'
+import { gitState, openInProjectFiles, repoFilePath, useGit } from '@renderer/git-store'
 import { useApp } from '@renderer/store'
 import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import { CenteredHint, LoadingHint } from '@renderer/components/ui/centered-hint'
@@ -72,13 +71,13 @@ function revLabel(fromHash: string, toHash: string, type: GitFileStatus): string
   return `${abbrevHash(fromHash)} → ${abbrevHash(toHash)}`
 }
 
-export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX.Element | null {
-  const diffView = useGit((s) => gitState(s, projectPath).diffView)
+export function GitDiffView({ repoPath }: { repoPath: string }): React.JSX.Element | null {
+  const diffView = useGit((s) => gitState(s, repoPath).diffView)
   const closeDiff = useGit((s) => s.closeDiff)
   const splitView = useGit((s) => s.viewPrefs.diffSplitView)
   const setViewPrefs = useGit((s) => s.setViewPrefs)
-  const expanded = useGit((s) => gitState(s, projectPath).expanded)
-  const commits = useGit((s) => gitState(s, projectPath).commits)
+  const expanded = useGit((s) => gitState(s, repoPath).expanded)
+  const commits = useGit((s) => gitState(s, repoPath).commits)
   // 库按 data-theme 挂两套自带变量，主题变了要跟着换；应用侧在 main.css 里对两个 data-theme
   // 都做了覆写，实际取值仍来自应用 token（漏掉哪个，库那套就会接管）。
   const theme = useApp((s) => s.theme)
@@ -123,9 +122,9 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
       if (navIndex === -1) return
       const entry = navSequence[navIndex + delta]
       if (entry === undefined) return
-      void useGit.getState().openDiff(projectPath, entry.file, entry.fromHash, entry.toHash)
+      void useGit.getState().openDiff(repoPath, entry.file, entry.fromHash, entry.toHash)
     },
-    [navIndex, navSequence, projectPath]
+    [navIndex, navSequence, repoPath]
   )
 
   // —— 头部导航：上下切文件内改动块（块 = 连续 data-state="diff" 行，DOM 量位、纯函数选块）。
@@ -240,10 +239,9 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
 
   if (diffView === null) return null
   const { file, data, error } = diffView
-  // 上下箭头仅在文本 diff 正文可用。非文本正文（错误 / 冲突 / 目录 / 二进制 / 加载中）没有
+  // 上下箭头仅在文本 diff 正文可用。非文本正文（错误 / 冲突 / 二进制 / 加载中）没有
   // 量位容器，effect 提前返回后 blockNav 可能残留上个文件的值，在渲染层据此一并禁用。
-  const hasTextBody =
-    diffFile !== null && error === null && file.type !== '!' && file.isDir !== true
+  const hasTextBody = diffFile !== null && error === null && file.type !== '!'
 
   return (
     <div className="absolute inset-0 z-30 flex flex-col bg-deepest">
@@ -320,9 +318,7 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
             type="button"
             title="打开文件"
             disabled={!canOpenWorkingTreeFile(file)}
-            onClick={() =>
-              useFiles.getState().openInFiles(projectPath, `${projectPath}/${file.newFilePath}`)
-            }
+            onClick={() => openInProjectFiles(repoPath, repoFilePath(repoPath, file.newFilePath))}
             className={HEADER_BTN}
           >
             <FolderSymlink className="size-3.5 text-[color:var(--fg-icon)]" />
@@ -342,7 +338,7 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
           <button
             type="button"
             title="关闭"
-            onClick={() => closeDiff(projectPath)}
+            onClick={() => closeDiff(repoPath)}
             className={HEADER_BTN}
           >
             <X className="size-3.5 text-[color:var(--fg-icon)]" />
@@ -356,22 +352,19 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
             {error}
           </div>
         </div>
-      ) : file.isDir === true ? (
-        // 未跟踪目录整体条目：无单文件 diff（store 已跳过取数），给一句说明占位
-        <CenteredHint>这是一个未跟踪目录，没有差异可查看</CenteredHint>
       ) : file.type === '!' ? (
         // 冲突文件：git diff 对 unmerged 输出 combined diff（diff --cc，hunk 头 @@@）或
         // 「* Unmerged path」，实测 DiffFile.initRaw 均吃不下（Invalid hunk header format），
         // 按二进制同款兜底一句说明，不等数据返回
         <CenteredHint>文件处于冲突状态，请在编辑器中解决后暂存</CenteredHint>
       ) : data !== null && data.symlinkDir === true ? (
-        // 未跟踪的文件夹符号链接：git 对比不了（ADR-0059），同未跟踪目录一句说明
+        // 未跟踪的文件夹符号链接：git 对比不了（ADR-0059），给一句说明
         <CenteredHint>这是一个指向目录的未跟踪符号链接，没有差异可查看</CenteredHint>
       ) : data !== null && data.binary ? (
         // key=文件身份：换文件即重建组件（images 状态自然归零），不在 effect 里手动重置
         <BinaryBody
           key={fileKey}
-          projectPath={projectPath}
+          repoPath={repoPath}
           file={file}
           fromHash={diffView.fromHash}
           toHash={diffView.toHash}
@@ -404,12 +397,12 @@ export function GitDiffView({ projectPath }: { projectPath: string }): React.JSX
  * 其余二进制保持一句说明。图片数据经 gitFileImage 按需取（data URL），换文件时丢弃过期响应。
  */
 function BinaryBody({
-  projectPath,
+  repoPath,
   file,
   fromHash,
   toHash
 }: {
-  projectPath: string
+  repoPath: string
   file: GitFileChange
   fromHash: string
   toHash: string
@@ -420,7 +413,7 @@ function BinaryBody({
     if (!isImage) return
     let stale = false
     void window.api
-      .gitFileImage(projectPath, {
+      .gitFileImage(repoPath, {
         fromHash,
         toHash,
         oldFilePath: file.oldFilePath,
@@ -433,7 +426,7 @@ function BinaryBody({
     return () => {
       stale = true
     }
-  }, [projectPath, file, fromHash, toHash, isImage])
+  }, [repoPath, file, fromHash, toHash, isImage])
 
   if (!isImage) return <CenteredHint>二进制文件不支持对比</CenteredHint>
   if (images === null) return <LoadingHint delay={0} />

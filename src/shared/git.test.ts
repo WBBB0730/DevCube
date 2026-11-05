@@ -1,9 +1,13 @@
-// shared/git 纯函数测试：图片扩展名 → MIME 判定（imageMimeOf）、工作树的分支占用与展示名。
+// shared/git 纯函数测试：图片扩展名 → MIME 判定（imageMimeOf）、工作树的分支占用与展示名、项目里的仓库（选中、
+// 下拉显隐、文件归哪个仓库）。
 import { describe, expect, it } from 'vitest'
 import {
   branchesFreeForWorktree,
   defaultWorktreeDirectory,
   imageMimeOf,
+  innermostRepo,
+  pickSelectedRepo,
+  showsRepoPicker,
   isWorktreeNameInvalid,
   listedWorktrees,
   resolveWorktreePath,
@@ -11,6 +15,7 @@ import {
   worktreeDisplayName,
   worktreeHoldingBranch,
   worktreeNameFromBranch,
+  type GitRepo,
   type GitWorktree
 } from './git'
 
@@ -165,5 +170,58 @@ describe('resolveWorktreePath', () => {
     expect(resolveWorktreePath(anchor, '..\\..\\..\\..\\..\\wt', 'x')).toBe(
       '\\\\wsl.localhost\\Ubuntu\\wt\\x'
     )
+  })
+})
+
+describe('项目里的仓库', () => {
+  const own: GitRepo = { path: '/p/app', root: '/p', name: 'p', own: true }
+  const inner: GitRepo = {
+    path: '/p/app/libs/inner',
+    root: '/p/app/libs/inner',
+    name: 'libs/inner',
+    own: false
+  }
+  const deeper: GitRepo = {
+    path: '/p/app/libs/inner/x',
+    root: '/p/app/libs/inner/x',
+    name: 'libs/inner/x',
+    own: false
+  }
+
+  it('pickSelectedRepo：记住的还在就用它，否则排第一个的；没有仓库为 null', () => {
+    expect(pickSelectedRepo([own, inner], inner.path)).toBe(inner.path)
+    expect(pickSelectedRepo([own, inner], '/gone')).toBe(own.path)
+    expect(pickSelectedRepo([own, inner], null)).toBe(own.path)
+    expect(pickSelectedRepo([inner], null)).toBe(inner.path)
+    expect(pickSelectedRepo([], '/gone')).toBeNull()
+  })
+
+  it('showsRepoPicker：只有项目自己的那一个仓库时不显示', () => {
+    expect(showsRepoPicker([own])).toBe(false)
+    expect(showsRepoPicker([])).toBe(false)
+    expect(showsRepoPicker([inner])).toBe(true)
+    expect(showsRepoPicker([own, inner])).toBe(true)
+  })
+
+  it('innermostRepo：取离路径最近的仓库；不在任何仓库里为 null', () => {
+    const repos = [own, inner, deeper]
+    expect(innermostRepo(repos, '/p/app/src/a.ts')).toBe(own)
+    expect(innermostRepo(repos, '/p/other/b.ts')).toBe(own)
+    expect(innermostRepo(repos, '/p/app/libs/inner/c.ts')).toBe(inner)
+    expect(innermostRepo(repos, '/p/app/libs/inner/x/d.ts')).toBe(deeper)
+    expect(innermostRepo(repos, '/p/app/libs/inner')).toBe(inner)
+    expect(innermostRepo(repos, '/p/app/libs/innerX/e.ts')).toBe(own)
+    expect(innermostRepo(repos, '/q/f.ts')).toBeNull()
+  })
+
+  it('innermostRepo：Windows 路径的反斜杠与盘符大小写不影响判断', () => {
+    const win: GitRepo = {
+      path: 'C:\\code\\inner',
+      root: 'C:/code/inner',
+      name: 'inner',
+      own: false
+    }
+    expect(innermostRepo([win], 'c:\\code\\inner\\a.ts')).toBe(win)
+    expect(innermostRepo([win], 'C:\\code\\other\\a.ts')).toBeNull()
   })
 })

@@ -139,7 +139,7 @@ describe('格式化', () => {
 
 const task = (status: TaskInfo['status'], percent: number | null): TaskInfo => ({
   kind: 'git',
-  projectPath: '/p',
+  repoPath: '/p',
   id: String(Math.random()),
   title: { action: '推送', target: 'main' },
   status,

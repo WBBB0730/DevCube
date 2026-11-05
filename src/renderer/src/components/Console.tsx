@@ -604,8 +604,8 @@ function NewTerminalMenu({ projectPath }: { projectPath: string }): React.JSX.El
 }
 
 // Git Tab：图标 + 「Git」+ 「(分支名)」，无关闭键（左右内边距对称 pl-3/pr-3 即 12px，
-// 其余 Tab 右侧有 × 故 pr-2）。分支名来自 git-store：当前项目由 App 预加载，不必等点开
-// Git Tab；此后 git:changed 软刷新保鲜（检出/提交即时跟随）；detached HEAD 回落缩写 hash。
+// 其余 Tab 右侧有 × 故 pr-2）。分支名是 Git Tab 选中的那个仓库的，来自 git-store：当前项目由 App 预加载，
+// 不必等点开 Git Tab；此后 git:changed 软刷新保鲜（检出/提交即时跟随）；detached HEAD 回落缩写 hash。
 function GitTabItem({
   gitKey,
   projectPath,
@@ -617,7 +617,9 @@ function GitTabItem({
 }): React.JSX.Element {
   const activateTab = useApp((s) => s.activateTab)
   const branch = useGit((s) => {
-    const st = gitState(s, projectPath)
+    const repo = s.projectRepos[projectPath]?.selected ?? null
+    if (repo === null) return null
+    const st = gitState(s, repo)
     return st.currentBranch ?? (st.headHash !== null ? abbrevHash(st.headHash) : null)
   })
   return (
@@ -630,7 +632,8 @@ function GitTabItem({
         // Diff 是临时盖板：已激活时再点即关；切 Tab 那一下不关（切走保留现场，回来接着看）
         if (active) {
           const store = useGit.getState()
-          if (gitState(store, projectPath).diffView) store.closeDiff(projectPath)
+          const repo = store.projectRepos[projectPath]?.selected ?? null
+          if (repo !== null && gitState(store, repo).diffView) store.closeDiff(repo)
         } else {
           activateTab(projectPath, gitKey)
         }

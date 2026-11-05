@@ -56,15 +56,15 @@ const PULL_MODE_ITEMS = [
 
 /** 顺序执行一串动作（出错即停，进行中 / 错误呈现由 GitDialogs 统一负责），全部成功后重拉 config。 */
 async function runActionsThenReloadConfig(
-  projectPath: string,
+  repoPath: string,
   steps: { action: GitAction; label: string }[]
 ): Promise<boolean> {
   const store = useGit.getState()
   for (const step of steps) {
-    const result = await store.runAction(projectPath, step.action, step.label)
+    const result = await store.runAction(repoPath, step.action, step.label)
     if (result.status !== 'ok') return false
   }
-  await store.loadRepoConfig(projectPath)
+  await store.loadRepoConfig(repoPath)
   return true
 }
 
@@ -72,16 +72,16 @@ async function runActionsThenReloadConfig(
 
 /** 仓库设置面板：open=false 时不渲染；打开即重拉仓库 config（用户信息 / 远程依赖它），拉到前整面板显示加载中。 */
 export function GitRepoSettings({
-  projectPath,
+  repoPath,
   open,
   onClose
 }: {
-  projectPath: string
+  repoPath: string
   open: boolean
   onClose: () => void
 }): React.JSX.Element | null {
   const loadRepoConfig = useGit((s) => s.loadRepoConfig)
-  const config = useGit((s) => gitState(s, projectPath).config)
+  const config = useGit((s) => gitState(s, repoPath).config)
   const [overlay, setOverlay] = useState<Overlay | null>(null)
 
   // 打开即重拉 config；重开时清掉上次残留的弹窗
@@ -89,8 +89,8 @@ export function GitRepoSettings({
     if (!open) return
     // eslint-disable-next-line react-hooks/set-state-in-effect -- 面板打开是外部驱动的一次性复位，非渲染热路径
     setOverlay(null)
-    void loadRepoConfig(projectPath)
-  }, [open, projectPath, loadRepoConfig])
+    void loadRepoConfig(repoPath)
+  }, [open, repoPath, loadRepoConfig])
 
   if (!open) return null
   const closeOverlay = (): void => setOverlay(null)
@@ -102,10 +102,10 @@ export function GitRepoSettings({
           <div className="text-[color:var(--fg-muted)]">正在加载…</div>
         ) : (
           <div className="space-y-5">
-            <UserFields projectPath={projectPath} config={config} onOverlay={setOverlay} />
-            <RemotesField projectPath={projectPath} config={config} onOverlay={setOverlay} />
-            {config.remotes.length > 0 && <PullPushFields projectPath={projectPath} />}
-            <WorktreeField projectPath={projectPath} />
+            <UserFields repoPath={repoPath} config={config} onOverlay={setOverlay} />
+            <RemotesField repoPath={repoPath} config={config} onOverlay={setOverlay} />
+            {config.remotes.length > 0 && <PullPushFields repoPath={repoPath} />}
+            <WorktreeField repoPath={repoPath} />
           </div>
         )}
       </div>
@@ -127,10 +127,10 @@ export function GitRepoSettings({
         />
       )}
       {overlay?.kind === 'user' && config !== null && (
-        <UserInfoDialog projectPath={projectPath} config={config} onClose={closeOverlay} />
+        <UserInfoDialog repoPath={repoPath} config={config} onClose={closeOverlay} />
       )}
       {overlay?.kind === 'remote' && (
-        <RemoteDialog projectPath={projectPath} remote={overlay.remote} onClose={closeOverlay} />
+        <RemoteDialog repoPath={repoPath} remote={overlay.remote} onClose={closeOverlay} />
       )}
     </SettingsModal>
   )
@@ -179,11 +179,11 @@ function IdentityLine({ config }: { config: GitRepoConfig }): React.JSX.Element 
 
 /** local / global 的 user.name / user.email（local 优先）；编辑走小对话框，移除先确认。 */
 function UserFields({
-  projectPath,
+  repoPath,
   config,
   onOverlay
 }: {
-  projectPath: string
+  repoPath: string
   config: GitRepoConfig
   onOverlay: (o: Overlay) => void
 }): React.JSX.Element {
@@ -207,7 +207,7 @@ function UserFields({
       title: `移除${loc === 'local' ? '本仓库' : '全局'}配置的用户名与邮箱？`,
       actionLabel: '移除',
       destructive: true,
-      run: () => void runActionsThenReloadConfig(projectPath, steps)
+      run: () => void runActionsThenReloadConfig(repoPath, steps)
     })
   }
 
@@ -236,11 +236,11 @@ function UserFields({
 
 /** 编辑用户信息（叠在面板上）：写入位置默认 = 本地有覆盖则本仓库，否则全局。 */
 function UserInfoDialog({
-  projectPath,
+  repoPath,
   config,
   onClose
 }: {
-  projectPath: string
+  repoPath: string
   config: GitRepoConfig
   onClose: () => void
 }): React.JSX.Element {
@@ -287,7 +287,7 @@ function UserInfoDialog({
         })
       }
     }
-    if (await runActionsThenReloadConfig(projectPath, steps)) onClose()
+    if (await runActionsThenReloadConfig(repoPath, steps)) onClose()
   }
 
   return (
@@ -339,11 +339,11 @@ function UserInfoDialog({
 
 /** config.remotes 列表（行悬停出编辑 / 清理 / 删除）+ 添加；添加 / 编辑走小对话框，删除 / 清理先确认。 */
 function RemotesField({
-  projectPath,
+  repoPath,
   config,
   onOverlay
 }: {
-  projectPath: string
+  repoPath: string
   config: GitRepoConfig
   onOverlay: (o: Overlay) => void
 }): React.JSX.Element {
@@ -354,7 +354,7 @@ function RemotesField({
       actionLabel: '删除',
       destructive: true,
       run: () =>
-        void runActionsThenReloadConfig(projectPath, [
+        void runActionsThenReloadConfig(repoPath, [
           { action: { kind: 'delete-remote', name }, label: '正在删除远程…' }
         ])
     })
@@ -367,7 +367,7 @@ function RemotesField({
       actionLabel: '清理',
       destructive: false,
       run: () =>
-        void runActionsThenReloadConfig(projectPath, [
+        void runActionsThenReloadConfig(repoPath, [
           { action: { kind: 'prune-remote', name }, label: '正在清理远程…' }
         ])
     })
@@ -448,11 +448,11 @@ function RemotesField({
 
 /** 添加 / 编辑远程（叠在面板上）。edit-remote 需要 old/new 全量传，主进程按差异生成命令序列。 */
 function RemoteDialog({
-  projectPath,
+  repoPath,
   remote,
   onClose
 }: {
-  projectPath: string
+  repoPath: string
   remote: Remote | null
   onClose: () => void
 }): React.JSX.Element {
@@ -484,7 +484,7 @@ function RemoteDialog({
             pushUrlNew: pushUrl
           }
     const label = remote === null ? '正在添加远程…' : '正在保存远程修改…'
-    if (await runActionsThenReloadConfig(projectPath, [{ action, label }])) onClose()
+    if (await runActionsThenReloadConfig(repoPath, [{ action, label }])) onClose()
   }
 
   return (
@@ -537,11 +537,11 @@ function RemoteDialog({
 // —— 拉取与推送 ——
 
 /**
- * 拉取的整合方式与工具栏拉取 / 推送钮的行为（都按项目存，变更即写）：整合方式即拉取对话框的记忆值
+ * 拉取的整合方式与工具栏拉取 / 推送钮的行为（都按仓库存，变更即写）：整合方式即拉取对话框的记忆值
  * （「跟随 git 配置」= 清空记忆），两个勾选即两张对话框里的「不再显示此窗口」。无远程时不渲染。
  */
-function PullPushFields({ projectPath }: { projectPath: string }): React.JSX.Element {
-  const settings = useGit((s) => gitState(s, projectPath).settings)
+function PullPushFields({ repoPath }: { repoPath: string }): React.JSX.Element {
+  const settings = useGit((s) => gitState(s, repoPath).settings)
   const updateSettings = useGit((s) => s.updateSettings)
   return (
     <>
@@ -550,7 +550,7 @@ function PullPushFields({ projectPath }: { projectPath: string }): React.JSX.Ele
         <RadioGroup
           value={settings?.pullIntegrationMode ?? FOLLOW_GIT_CONFIG}
           onValueChange={(v) =>
-            void updateSettings(projectPath, {
+            void updateSettings(repoPath, {
               pullIntegrationMode: v === FOLLOW_GIT_CONFIG ? null : (v as GitPullMode)
             })
           }
@@ -569,14 +569,14 @@ function PullPushFields({ projectPath }: { projectPath: string }): React.JSX.Ele
           <label className={CHOICE_ROW}>
             <Checkbox
               checked={settings?.pullSkipDialog ?? false}
-              onCheckedChange={(c) => void updateSettings(projectPath, { pullSkipDialog: c })}
+              onCheckedChange={(c) => void updateSettings(repoPath, { pullSkipDialog: c })}
             />
             拉取时不显示窗口
           </label>
           <label className={CHOICE_ROW}>
             <Checkbox
               checked={settings?.pushSkipDialog ?? false}
-              onCheckedChange={(c) => void updateSettings(projectPath, { pushSkipDialog: c })}
+              onCheckedChange={(c) => void updateSettings(repoPath, { pushSkipDialog: c })}
             />
             推送时不显示窗口
           </label>
@@ -593,15 +593,15 @@ function PullPushFields({ projectPath }: { projectPath: string }): React.JSX.Ele
  * （与 VS Code / GitLens 约定一致）。失焦 / 回车即保存（非数据键，不触发图谱重载）；
  * 标签后的 ⓘ 里说明解析规则，并实时给出按当前值算出的示例路径。
  */
-function WorktreeField({ projectPath }: { projectPath: string }): React.JSX.Element {
-  const settings = useGit((s) => gitState(s, projectPath).settings)
-  const worktrees = useGit((s) => gitState(s, projectPath).worktrees)
+function WorktreeField({ repoPath }: { repoPath: string }): React.JSX.Element {
+  const settings = useGit((s) => gitState(s, repoPath).settings)
+  const worktrees = useGit((s) => gitState(s, repoPath).worktrees)
   const updateSettings = useGit((s) => s.updateSettings)
   /** 编辑中的草稿；null = 未编辑，显示已保存值 */
   const [draft, setDraft] = useState<string | null>(null)
   const saved = settings?.worktreeDirectory ?? ''
   const value = draft ?? saved
-  const anchor = worktreeAnchorPath(worktrees, projectPath)
+  const anchor = worktreeAnchorPath(worktrees, repoPath)
   const preview = resolveWorktreePath(anchor, value === '' ? null : value, '<名称>')
 
   const commit = (): void => {
@@ -609,7 +609,7 @@ function WorktreeField({ projectPath }: { projectPath: string }): React.JSX.Elem
     const next = draft.trim()
     setDraft(null)
     if (next === saved) return
-    void updateSettings(projectPath, { worktreeDirectory: next === '' ? null : next })
+    void updateSettings(repoPath, { worktreeDirectory: next === '' ? null : next })
   }
 
   return (

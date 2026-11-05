@@ -1,8 +1,10 @@
 // 渲染端的 Task 快照（docs/prd/task-progress.md）：主进程任务登记处推来的全量列表，主窗口挂载时接上。
-// 「找回」也在这里：Git 动作的切到所属项目的 Git Tab，克隆的打开克隆对话框——进度弹窗与失败界面随之出现。
+// 「找回」也在这里：Git 动作的切到所属仓库所在项目的 Git Tab 并选中那个仓库，克隆的打开克隆对话框——
+// 进度弹窗与失败界面随之出现。
 import { create } from 'zustand'
 import { gitTabKey } from '@shared/runnable'
 import type { TaskInfo } from '@shared/task'
+import { repoContextOf, useGit } from '@renderer/git-store'
 import { useApp } from '@renderer/store'
 
 export type GitTask = Extract<TaskInfo, { kind: 'git' }>
@@ -34,11 +36,9 @@ export function cloneTaskOf(tasks: TaskInfo[]): CloneTask | undefined {
   return tasks.find((t): t is CloneTask => t.kind === 'clone')
 }
 
-/** 某项目在前台的 Git Task：没被隐藏的按发起先后一次显示一个。 */
-export function foregroundGitTaskOf(tasks: TaskInfo[], projectPath: string): GitTask | undefined {
-  return tasks.find(
-    (t): t is GitTask => t.kind === 'git' && t.projectPath === projectPath && !t.hidden
-  )
+/** 某仓库在前台的 Git Task：没被隐藏的按发起先后一次显示一个。 */
+export function foregroundGitTaskOf(tasks: TaskInfo[], repoPath: string): GitTask | undefined {
+  return tasks.find((t): t is GitTask => t.kind === 'git' && t.repoPath === repoPath && !t.hidden)
 }
 
 /** 打开克隆对话框：有被隐藏的克隆就找回它（对话框显示它的进度或失败界面）。 */
@@ -54,6 +54,10 @@ export function revealTask(task: TaskInfo): void {
     openCloneDialog()
     return
   }
+  // Git Task：回到它那个仓库所在项目的 Git Tab，并选中那个仓库
+  const ctx = repoContextOf(task.repoPath)
   void window.api.revealTask(task.id)
-  useApp.getState().activateTab(task.projectPath, gitTabKey(task.projectPath))
+  if (ctx === null) return
+  useGit.getState().selectRepo(ctx.projectPath, task.repoPath)
+  useApp.getState().activateTab(ctx.projectPath, gitTabKey(ctx.projectPath))
 }

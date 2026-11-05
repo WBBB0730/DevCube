@@ -9,8 +9,7 @@
 import { useCallback, useMemo, useRef, useState, type ReactNode } from 'react'
 import { ChevronRight, Ellipsis, File as FileIcon, Folder } from 'lucide-react'
 import type { GitFileChange } from '@shared/git'
-import { gitState, useGit } from '@renderer/git-store'
-import { useFiles } from '@renderer/files-store'
+import { gitState, openInProjectFiles, repoFilePath, useGit } from '@renderer/git-store'
 import { useDoubleClick } from '@renderer/lib/double-click'
 import { cn } from '@renderer/lib/utils'
 import { Button } from '@renderer/components/ui/button'
@@ -20,7 +19,6 @@ import {
   buildFileTree,
   canOpenWorkingTreeFile,
   canPushAfterCommit,
-  diffPossible,
   fileRowTitle,
   filesInSelection,
   flattenFileTree,
@@ -89,14 +87,12 @@ function sectionBodyCount(view: SectionView, files: number, rows: number): numbe
 // —— 左栏：提交表单 ——
 
 /** 提交表单：信息多行框（草稿存桶，切走不丢）+ 修正上次提交 / 绕过提交钩子 / 推送 + 提交。 */
-export function CommitForm({ projectPath }: { projectPath: string }): React.JSX.Element {
-  const draft = useGit((s) => gitState(s, projectPath).commitDraft)
-  const stagedCount = useGit(
-    (s) => gitState(s, projectPath).expanded?.uncommitted?.staged.length ?? 0
-  )
-  const currentBranch = useGit((s) => gitState(s, projectPath).currentBranch)
-  const headHash = useGit((s) => gitState(s, projectPath).headHash)
-  const opInProgress = useGit((s) => gitState(s, projectPath).opInProgress)
+export function CommitForm({ repoPath }: { repoPath: string }): React.JSX.Element {
+  const draft = useGit((s) => gitState(s, repoPath).commitDraft)
+  const stagedCount = useGit((s) => gitState(s, repoPath).expanded?.uncommitted?.staged.length ?? 0)
+  const currentBranch = useGit((s) => gitState(s, repoPath).currentBranch)
+  const headHash = useGit((s) => gitState(s, repoPath).headHash)
+  const opInProgress = useGit((s) => gitState(s, repoPath).opInProgress)
   /** HEAD 提交信息预填的异步在途标记（期间 checkbox / 提交钮禁点，防连点与预填竞态） */
   const [amendLoading, setAmendLoading] = useState(false)
   /** 提交在途标记（commit 非幂等：双击会排入两个 commit，第二个必以 nothing to commit 报错） */
@@ -116,8 +112,8 @@ export function CommitForm({ projectPath }: { projectPath: string }): React.JSX.
     const store = useGit.getState()
     if (!checked) {
       // 取消勾选：恢复勾选前的草稿（备份存桶，面板收起重开后仍可恢复）
-      store.setCommitDraft(projectPath, {
-        message: gitState(store, projectPath).commitDraft.preAmendMessage,
+      store.setCommitDraft(repoPath, {
+        message: gitState(store, repoPath).commitDraft.preAmendMessage,
         amend: false,
         preAmendMessage: ''
       })
@@ -125,14 +121,14 @@ export function CommitForm({ projectPath }: { projectPath: string }): React.JSX.
     }
     // 勾选：先备份当前草稿并同步置 amend（预填在途期间的提交也按修正意图执行），
     // 再取 HEAD 完整提交信息预填
-    store.setCommitDraft(projectPath, { amend: true, preAmendMessage: draft.message })
+    store.setCommitDraft(repoPath, { amend: true, preAmendMessage: draft.message })
     setAmendLoading(true)
     try {
-      const st = gitState(store, projectPath)
+      const st = gitState(store, repoPath)
       const head = st.headHash !== null ? st.commits.find((c) => c.hash === st.headHash) : undefined
       const result =
         st.headHash !== null
-          ? await window.api.gitDetails(projectPath, {
+          ? await window.api.gitDetails(repoPath, {
               kind: 'commit',
               hash: st.headHash,
               hasParents: (head?.parents.length ?? 0) > 0
@@ -140,9 +136,9 @@ export function CommitForm({ projectPath }: { projectPath: string }): React.JSX.
           : null
       // 预填落地前修正勾选已被撤销（面板重开后取消勾选 / 提交成功清空草稿）：丢弃过期预填，
       // 防止旧 HEAD 消息 + amend 态「复活」草稿导致下次提交意外 --amend
-      if (!gitState(useGit.getState(), projectPath).commitDraft.amend) return
+      if (!gitState(useGit.getState(), repoPath).commitDraft.amend) return
       if (result !== null && result.details !== null) {
-        useGit.getState().setCommitDraft(projectPath, { message: result.details.body })
+        useGit.getState().setCommitDraft(repoPath, { message: result.details.body })
       }
       // 取不到 HEAD 提交信息：静默容错——保持原草稿（amend 已在勾选时置上）
     } finally {
@@ -164,20 +160,20 @@ export function CommitForm({ projectPath }: { projectPath: string }): React.JSX.
     const store = useGit.getState()
     setCommitting(true)
     try {
-      const r = await store.runQuietAction(projectPath, {
+      const r = await store.runQuietAction(repoPath, {
         kind: 'commit',
         message: draft.message,
         amend: draft.amend,
         noVerify
       })
       if (r.status !== 'ok') return // 失败：错误框呈现（actionErrors），不清草稿
-      store.setCommitDraft(projectPath, { message: '', amend: false, preAmendMessage: '' })
+      store.setCommitDraft(repoPath, { message: '', amend: false, preAmendMessage: '' })
       setNoVerify(false)
       if (push) {
         // 提交并推送：同工具栏推送钮（「推送时不显示窗口」开关、拿不准弹对话框，见 pushCurrentBranch）；
         // 勾了「修正」一律打开对话框——修正已推送的提交多半要强制推送。当前分支在动作里从提交后的
         // 最新状态取（runQuietAction 内已 await 软刷新落地）——空仓库的首次提交让分支刚刚出生
-        store.pushCurrentBranch(projectPath, draft.amend ? 'dialog' : 'follow')
+        store.pushCurrentBranch(repoPath, draft.amend ? 'dialog' : 'follow')
       }
     } finally {
       setCommitting(false)
@@ -190,7 +186,7 @@ export function CommitForm({ projectPath }: { projectPath: string }): React.JSX.
       <textarea
         value={draft.message}
         placeholder="提交信息"
-        onChange={(e) => useGit.getState().setCommitDraft(projectPath, { message: e.target.value })}
+        onChange={(e) => useGit.getState().setCommitDraft(repoPath, { message: e.target.value })}
         className="min-h-0 w-full flex-1 resize-none rounded border border-[color:var(--border-input)] bg-transparent px-2.5 py-1.5 text-[13px] text-foreground outline-none transition placeholder:text-[color:var(--fg-disabled)] focus-visible:ring-2 focus-visible:ring-ring"
       />
       {/* 修正 / 绕过钩子 / 推送 三个勾选在左，「提交」按钮靠右；勾了推送则提交后弹推送对话框 */}
@@ -254,18 +250,18 @@ export function CommitForm({ projectPath }: { projectPath: string }): React.JSX.
 
 /** 两段文件树：宿主保证 exp.uncommitted 非 null 时才挂载（防御性判空返回 null）。 */
 export function UncommittedFileSections({
-  projectPath
+  repoPath
 }: {
-  projectPath: string
+  repoPath: string
 }): React.JSX.Element | null {
   const rawStaged = useGit(
-    (s) => gitState(s, projectPath).expanded?.uncommitted?.staged ?? EMPTY_FILES
+    (s) => gitState(s, repoPath).expanded?.uncommitted?.staged ?? EMPTY_FILES
   )
   const rawUnstaged = useGit(
-    (s) => gitState(s, projectPath).expanded?.uncommitted?.unstaged ?? EMPTY_FILES
+    (s) => gitState(s, repoPath).expanded?.uncommitted?.unstaged ?? EMPTY_FILES
   )
   const rawConflicted = useGit(
-    (s) => gitState(s, projectPath).expanded?.uncommitted?.conflicted ?? EMPTY_FILES
+    (s) => gitState(s, repoPath).expanded?.uncommitted?.conflicted ?? EMPTY_FILES
   )
   // 冲突文件本质是未解决的工作区状态：并入未暂存段展示（数据独立成桶只因 AMDRT diff 取不到），
   // 无冲突时保持 rawUnstaged 原引用，树/排序/选区零扰动
@@ -362,9 +358,9 @@ export function UncommittedFileSections({
     // 操作进行中的全取消暂存必须显式传路径：无 pathspec 的 mixed reset 会触发 git 清除
     // MERGE_HEAD / CHERRY_PICK_HEAD / REVERT_HEAD 等状态文件，静默摧毁进行中的操作；
     // 带 pathspec 的 reset 不会（实测）。
-    const opInProgress = gitState(useGit.getState(), projectPath).opInProgress
+    const opInProgress = gitState(useGit.getState(), repoPath).opInProgress
     const emptyPaths = all && !(from === 'staged' && opInProgress !== null)
-    const result = await useGit.getState().runQuietAction(projectPath, {
+    const result = await useGit.getState().runQuietAction(repoPath, {
       kind: from === 'staged' ? 'unstage-paths' : 'stage-paths',
       // R 需要同时传旧 / 新两个路径（pathspec 覆盖重命名两端）；all=空 = 全部
       paths: emptyPaths ? [] : targets.flatMap(pathspecOf)
@@ -435,7 +431,7 @@ export function UncommittedFileSections({
   return (
     <div ref={scrollRef} className="h-full overflow-auto">
       <FileSection
-        projectPath={projectPath}
+        repoPath={repoPath}
         section="staged"
         files={rawStaged}
         rows={stagedRows}
@@ -455,7 +451,7 @@ export function UncommittedFileSections({
       {/* 两段间 1px 分隔 */}
       <div className="my-1 h-px bg-[var(--separator)]" />
       <FileSection
-        projectPath={projectPath}
+        repoPath={repoPath}
         section="unstaged"
         files={unstagedFiles}
         rows={unstagedRows}
@@ -484,7 +480,7 @@ export function UncommittedFileSections({
  * 全取消（unstage-paths []）、未暂存区头点击全部暂存（stage-paths []）。开合与展平行由父组件持有（开窗定位用）。
  */
 function FileSection({
-  projectPath,
+  repoPath,
   section,
   files,
   rows,
@@ -501,7 +497,7 @@ function FileSection({
   anchorRef,
   onHeaderClick
 }: {
-  projectPath: string
+  repoPath: string
   section: 'staged' | 'unstaged'
   files: GitFileChange[]
   /** 本段展平行（已按 view.closed 收起） */
@@ -538,7 +534,7 @@ function FileSection({
    * 右键路径不需要——右键会先把行重置为选区（蓝底自然持久）。
    */
   const menuFilePath = useGit((s) => {
-    const t = gitState(s, projectPath).contextMenu?.target
+    const t = gitState(s, repoPath).contextMenu?.target
     return t !== undefined && t.kind === 'uncommitted-file' && t.section === section
       ? t.file.newFilePath
       : null
@@ -546,7 +542,7 @@ function FileSection({
   // 影子高亮：diff 面板正开着的本段文件（无显式选区时的高亮来源）。派生自 diffView——
   // 关 diff 即失、暂存换段 / 箭头切文件自动跟随，与详情树同法、零同步规则。
   const shadowPath = useGit((s) => {
-    const d = gitState(s, projectPath).diffView
+    const d = gitState(s, repoPath).diffView
     if (d === null) return null
     const ep = uncommittedDiffEndpoints(section)
     return d.fromHash === ep.fromHash && d.toHash === ep.toHash ? d.file.newFilePath : null
@@ -572,12 +568,12 @@ function FileSection({
   const headerLevels = isStaged ? 1 : 2
 
   const openFileDiff = (file: GitFileChange): void => {
-    void useGit.getState().openDiff(projectPath, file, secFrom, secTo)
+    void useGit.getState().openDiff(repoPath, file, secFrom, secTo)
   }
 
   const openInFilesTab = (file: GitFileChange): void => {
     if (!canOpenWorkingTreeFile(file)) return
-    useFiles.getState().openInFiles(projectPath, `${projectPath}/${file.newFilePath}`)
+    openInProjectFiles(repoPath, repoFilePath(repoPath, file.newFilePath))
   }
 
   /** 行的稳定选中 key：目录用 folderPath、文件用 newFilePath（同段内互不冲突）。 */
@@ -611,7 +607,7 @@ function FileSection({
     if (row.kind === 'file') {
       onSelect(EMPTY_KEYS, key)
       const file = files[row.index]
-      if (diffPossible(file)) openFileDiff(file)
+      openFileDiff(file)
     } else {
       onSelect(new Set([key]), key)
     }
@@ -629,7 +625,7 @@ function FileSection({
     if (!selectedKeys.has(key)) onSelect(keys, key)
     const selFiles = filesInSelection(files, keys)
     if (selFiles.length === 0) return
-    useGit.getState().openContextMenu(projectPath, {
+    useGit.getState().openContextMenu(repoPath, {
       x: e.clientX,
       y: e.clientY,
       target:
@@ -659,7 +655,7 @@ function FileSection({
   }
 
   const openMenu = (x: number, y: number, file: GitFileChange): void => {
-    useGit.getState().openContextMenu(projectPath, {
+    useGit.getState().openContextMenu(repoPath, {
       x,
       y,
       target: { kind: 'uncommitted-file', file, section }

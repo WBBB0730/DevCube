@@ -26,8 +26,8 @@ const BAR_BTN =
   'h-6 shrink-0 rounded border border-[color:var(--border-input)] bg-elevated px-2.5 text-[12px] text-foreground transition-colors hover:bg-[var(--bg-row-hover)]'
 
 /** 状态条：数据只订阅 opInProgress，为空即不渲染（挂载点在 GitPane 工具栏之后）。 */
-export function GitOpStatusBar({ projectPath }: { projectPath: string }): React.JSX.Element | null {
-  const op = useGit((s) => gitState(s, projectPath).opInProgress)
+export function GitOpStatusBar({ repoPath }: { repoPath: string }): React.JSX.Element | null {
+  const op = useGit((s) => gitState(s, repoPath).opInProgress)
   if (op === null) return null
   const label = GIT_OP_LABEL[op]
   return (
@@ -46,7 +46,7 @@ export function GitOpStatusBar({ projectPath }: { projectPath: string }): React.
             onClick={() =>
               void useGit
                 .getState()
-                .runAction(projectPath, { kind: 'op-continue', op }, `正在继续${label}`)
+                .runAction(repoPath, { kind: 'op-continue', op }, `正在继续${label}`)
             }
           >
             继续
@@ -57,7 +57,7 @@ export function GitOpStatusBar({ projectPath }: { projectPath: string }): React.
             onClick={() =>
               void useGit
                 .getState()
-                .runAction(projectPath, { kind: 'op-skip', op }, '正在跳过当前提交')
+                .runAction(repoPath, { kind: 'op-skip', op }, '正在跳过当前提交')
             }
           >
             跳过
@@ -67,7 +67,7 @@ export function GitOpStatusBar({ projectPath }: { projectPath: string }): React.
       <button
         type="button"
         className={BAR_BTN}
-        onClick={() => useGit.getState().openDialog(projectPath, { kind: 'op-abort', op })}
+        onClick={() => useGit.getState().openDialog(repoPath, { kind: 'op-abort', op })}
       >
         中止
       </button>

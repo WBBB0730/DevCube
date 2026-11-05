@@ -22,7 +22,7 @@ import {
 } from '@shared/files'
 import { flattenFilesTree, type FilesTreeRow } from '@shared/files-tree-flatten'
 import { wslDistroOf } from '@shared/wsl-path'
-import type { GitFileStatus } from '@shared/git'
+import { innermostRepo, type GitFileStatus, type GitRepo } from '@shared/git'
 import {
   childPathPrefix,
   joinLogicalPath,
@@ -261,14 +261,34 @@ function loadedFrom(result: Exclude<FilesOpenResult, { kind: 'canceled' }>): Non
   return result.kind === 'text' ? { ...result, dirty: false } : result
 }
 
-async function loadWorkingTreeStatus(rootPath: string): Promise<Map<string, GitFileStatus>> {
+/**
+ * 树根下各仓库的工作区状态，键为相对树根的路径（docs/prd/git-nested-repos.md）：仓库给的路径相对仓库根，
+ * 换算后落在树根外的（项目是仓库的子目录时）丢掉；嵌套仓库里的文件按它自己的仓库（外层本就不报它们）。
+ */
+async function loadWorkingTreeStatus(
+  rootPath: string
+): Promise<{ repos: GitRepo[]; status: Map<string, GitFileStatus> }> {
+  const rootLogical = normalizePath(rootPath)
+  const status = new Map<string, GitFileStatus>()
   try {
-    const result = await window.api.gitDetails(rootPath, { kind: 'uncommitted' })
-    return result.error || !result.uncommitted
-      ? new Map()
-      : workingTreeStatusByPath(result.uncommitted)
+    const repos = await window.api.gitRepos(rootPath)
+    const results = await Promise.all(
+      repos.map((repo) =>
+        window.api.gitDetails(repo.path, { kind: 'uncommitted' }).catch(() => null)
+      )
+    )
+    results.forEach((result, i) => {
+      if (result === null || result.error || !result.uncommitted) return
+      const repoRoot = normalizePath(repos[i].root)
+      for (const [rel, fileStatus] of workingTreeStatusByPath(result.uncommitted)) {
+        const path = normalizePath(`${repoRoot}/${rel}`)
+        const underRoot = relPathUnderRoot(rootLogical, path)
+        if (underRoot !== path) status.set(underRoot, fileStatus)
+      }
+    })
+    return { repos, status }
   } catch {
-    return new Map()
+    return { repos: [], status }
   }
 }
 
@@ -425,6 +445,8 @@ export function FilesPane({
   /** 忽略过期的 openFile / git status / 全部展开 / 过滤扫盘 响应。 */
   const openSeqRef = useRef(0)
   const gitStatusSeqRef = useRef(0)
+  /** 树根下的仓库（随 Git 标记一起取）：按它判断 git:changed 是不是这棵树的、写文件后作废哪个仓库 */
+  const gitReposRef = useRef<GitRepo[]>([])
   const expandAllSeqRef = useRef(0)
   const filterSeqRef = useRef(0)
 
@@ -546,21 +568,38 @@ export function FilesPane({
 
   const refreshGitStatus = useCallback(async () => {
     const seq = ++gitStatusSeqRef.current
-    const status = await loadWorkingTreeStatus(rootPath)
-    if (seq === gitStatusSeqRef.current) setStatusByRel(status)
+    const { repos, status } = await loadWorkingTreeStatus(rootPath)
+    if (seq !== gitStatusSeqRef.current) return
+    gitReposRef.current = repos
+    setStatusByRel(status)
   }, [rootPath])
 
-  // Files 可见时拉未提交状态；仓库变动（含工作区 watcher）后刷新（服务器上的文件没有 Git 标记）
+  /** 作废树根下各仓库的工作区快照（主动刷新）；只给 path 时只作废它所在的仓库（自己刚写的文件）。 */
+  const invalidateGitStatus = useCallback((path?: string): Promise<unknown> => {
+    const repos =
+      path === undefined ? gitReposRef.current : [innermostRepo(gitReposRef.current, path)]
+    return Promise.all(
+      repos.flatMap((repo) =>
+        repo === null ? [] : [window.api.gitInvalidateWorkingTree(repo.path)]
+      )
+    )
+  }, [])
+
+  // Files 可见时拉未提交状态；树根下的仓库有变动（含工作区 watcher）、仓库清单变了后刷新
+  // （服务器上的文件没有 Git 标记）
   useEffect(() => {
     if (!visible || remote) return
-    const seq = ++gitStatusSeqRef.current
-    void loadWorkingTreeStatus(rootPath).then((status) => {
-      if (seq === gitStatusSeqRef.current) setStatusByRel(status)
+    void refreshGitStatus()
+    const offGit = window.api.onGitChanged((p) => {
+      if (gitReposRef.current.some((repo) => repo.path === p)) void refreshGitStatus()
     })
-    const dispose = window.api.onGitChanged((p) => {
+    const offRepos = window.api.onGitReposChanged((p) => {
       if (p === rootPath) void refreshGitStatus()
     })
-    return dispose
+    return () => {
+      offGit()
+      offRepos()
+    }
   }, [visible, remote, rootPath, refreshGitStatus])
 
   // 打开文本文件时取 HEAD 基线（gutter diff）；提交 / 暂存等 git 变化后重取
@@ -586,8 +625,9 @@ export function FilesPane({
         })
     }
     load()
+    // 对比的是文件所在的仓库：它有变动（提交、暂存等）才重取
     const dispose = window.api.onGitChanged((p) => {
-      if (p === rootPath) load()
+      if (innermostRepo(gitReposRef.current, openTextPath)?.path === p) load()
     })
     return () => {
       stale = true
@@ -650,8 +690,8 @@ export function FilesPane({
       // 写成了即不再冲突（服务器上已删除的，保存即重新创建）
       setConflict(null)
       if (!remote) {
-        // 自己刚写的文件：不等监听通知，作废工作区快照后立即重拉 Git 标记
-        void window.api.gitInvalidateWorkingTree(rootPath).then(refreshGitStatus)
+        // 自己刚写的文件：不等监听通知，作废它所在仓库的工作区快照后立即重拉 Git 标记
+        void invalidateGitStatus(cur.path).then(refreshGitStatus)
       }
       return true
     } catch (e) {
@@ -660,7 +700,7 @@ export function FilesPane({
     } finally {
       setSaving(false)
     }
-  }, [backend, remote, rootPath, refreshGitStatus])
+  }, [backend, remote, refreshGitStatus, invalidateGitStatus])
 
   const scheduleIdleSave = useCallback(() => {
     if (idleTimer.current) clearTimeout(idleTimer.current)
@@ -1452,16 +1492,13 @@ export function FilesPane({
       if (remote) {
         await syncFromDisk()
       } else {
-        await Promise.all([
-          window.api.filesInvalidateIndex(rootPath),
-          window.api.gitInvalidateWorkingTree(rootPath)
-        ])
+        await Promise.all([window.api.filesInvalidateIndex(rootPath), invalidateGitStatus()])
         await Promise.all([syncFromDisk(), refreshGitStatus()])
       }
     } finally {
       setRefreshing((n) => n - 1)
     }
-  }, [remote, rootPath, syncFromDisk, refreshGitStatus])
+  }, [remote, rootPath, syncFromDisk, refreshGitStatus, invalidateGitStatus])
 
   useEffect(() => {
     if (!ready) return

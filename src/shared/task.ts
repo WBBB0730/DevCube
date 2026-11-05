@@ -57,9 +57,12 @@ interface TaskBase {
   errors: string[]
 }
 
-/** 推给渲染端的 Task 快照：Git 动作属于某个 Project；克隆不属于任何 Project，带着原输入（失败后找回时填回表单）。 */
+/**
+ * 推给渲染端的 Task 快照：Git 动作属于某个仓库（GitRepo.path，渲染端据此找到它所在的 Project）；
+ * 克隆不属于任何 Project，带着原输入（失败后找回时填回表单）。
+ */
 export type TaskInfo =
-  | (TaskBase & { kind: 'git'; projectPath: string })
+  | (TaskBase & { kind: 'git'; repoPath: string })
   | (TaskBase & { kind: 'clone'; input: GitCloneInput })
 
 /** 正在做或排着队的（退出确认、Dock 进度只算它们）。 */

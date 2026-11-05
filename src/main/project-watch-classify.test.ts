@@ -1,18 +1,25 @@
 import { join } from 'path'
 import { describe, expect, it } from 'vitest'
 import {
-  classifyCommonDirPath,
   classifyGitDirRel,
+  classifyRepoGitDirPath,
   classifyWatchPathAll,
   isDiscoveryRootName,
   isPathInside,
   relativeInside,
-  resolveWatchRoot
+  resolveWatchRoot,
+  type WatchRepo
 } from './project-watch-classify'
 
 const project = join('/repo', 'app')
 const monoRoot = join('/mono')
 const nested = join('/mono', 'packages', 'app')
+
+/** 主工作树形态的仓库：gitdir 即 `<根>/.git`。 */
+function repo(path: string, root = path, superPath: string | null = null): WatchRepo {
+  const gitDir = join(root, '.git')
+  return { path, root, gitDirs: { gitDir, commonDir: gitDir }, superPath }
+}
 
 describe('resolveWatchRoot', () => {
   it('有仓库时用仓库根', () => {
@@ -64,45 +71,119 @@ describe('isDiscoveryRootName', () => {
 
 describe('classifyWatchPathAll', () => {
   it('非仓库：.git 出现 → probe；根 package.json → discovery+files', () => {
-    expect(classifyWatchPathAll(project, null, join(project, '.git'))).toEqual([
+    expect(classifyWatchPathAll(project, [], join(project, '.git'))).toEqual([
       { kind: 'git-probe' }
     ])
-    expect(classifyWatchPathAll(project, null, join(project, 'package.json'))).toEqual([
+    expect(classifyWatchPathAll(project, [], join(project, 'package.json'))).toEqual([
       { kind: 'discovery' },
       { kind: 'files' }
     ])
   })
 
   it('非仓库：IDE 忽略名不进 files', () => {
-    expect(classifyWatchPathAll(project, null, join(project, '.DS_Store'))).toEqual([])
+    expect(classifyWatchPathAll(project, [], join(project, '.DS_Store'))).toEqual([])
   })
 
   it('仓库：工作区源码 → git-worktree+files；node_modules 仍进 git-worktree（交 check-ignore）', () => {
+    const repos = [repo(project)]
     const src = join(project, 'src', 'a.ts')
-    expect(classifyWatchPathAll(project, project, src)).toEqual([
-      { kind: 'git-worktree', relPath: join('src', 'a.ts') },
+    expect(classifyWatchPathAll(project, repos, src)).toEqual([
+      { kind: 'git-worktree', repo: project, relPath: join('src', 'a.ts') },
       { kind: 'files' }
     ])
     const nm = join(project, 'node_modules', 'x', 'index.js')
-    expect(classifyWatchPathAll(project, project, nm)).toEqual([
-      { kind: 'git-worktree', relPath: join('node_modules', 'x', 'index.js') },
+    expect(classifyWatchPathAll(project, repos, nm)).toEqual([
+      { kind: 'git-worktree', repo: project, relPath: join('node_modules', 'x', 'index.js') },
       { kind: 'files' }
     ])
   })
 
-  it('仓库：.git/objects 忽略；HEAD 为 meta', () => {
-    expect(classifyWatchPathAll(project, project, join(project, '.git', 'objects', 'aa'))).toEqual(
-      []
-    )
-    expect(classifyWatchPathAll(project, project, join(project, '.git', 'HEAD'))).toEqual([
-      { kind: 'git-meta' }
+  it('仓库：.git/objects 忽略；HEAD 为 meta；.git 自身增删为 probe', () => {
+    const repos = [repo(project)]
+    expect(classifyWatchPathAll(project, repos, join(project, '.git', 'objects', 'aa'))).toEqual([])
+    expect(classifyWatchPathAll(project, repos, join(project, '.git', 'HEAD'))).toEqual([
+      { kind: 'git-meta', repo: project }
+    ])
+    expect(classifyWatchPathAll(project, repos, join(project, '.git'))).toEqual([
+      { kind: 'git-probe' }
     ])
   })
 
-  it('嵌套项目：仓库根下项目外路径只驱动 git-worktree', () => {
+  it('项目是仓库子目录：仓库根下项目外路径只驱动 git-worktree', () => {
     const sibling = join(monoRoot, 'packages', 'other', 'a.ts')
-    expect(classifyWatchPathAll(nested, monoRoot, sibling)).toEqual([
-      { kind: 'git-worktree', relPath: join('packages', 'other', 'a.ts') }
+    expect(classifyWatchPathAll(nested, [repo(nested, monoRoot)], sibling)).toEqual([
+      { kind: 'git-worktree', repo: nested, relPath: join('packages', 'other', 'a.ts') }
+    ])
+  })
+
+  it('嵌套仓库：文件归离它最近的仓库，gitdir 元数据只归它自己', () => {
+    const inner = join(project, 'libs', 'inner')
+    const repos = [repo(project), repo(inner)]
+    expect(classifyWatchPathAll(project, repos, join(inner, 'src', 'b.ts'))).toEqual([
+      { kind: 'git-worktree', repo: inner, relPath: join('src', 'b.ts') },
+      { kind: 'files' }
+    ])
+    expect(classifyWatchPathAll(project, repos, join(inner, '.git', 'HEAD'))).toEqual([
+      { kind: 'git-meta', repo: inner }
+    ])
+  })
+
+  it('嵌套仓库所在目录被删或改名、某处新出现 .git → probe', () => {
+    const inner = join(project, 'libs', 'inner')
+    const repos = [repo(project), repo(inner)]
+    expect(classifyWatchPathAll(project, repos, join(project, 'libs'))).toEqual([
+      { kind: 'git-probe' },
+      { kind: 'git-worktree', repo: project, relPath: 'libs' },
+      { kind: 'files' }
+    ])
+    expect(classifyWatchPathAll(project, repos, inner)).toEqual([
+      { kind: 'git-probe' },
+      { kind: 'files' }
+    ])
+    expect(classifyWatchPathAll(project, repos, join(project, 'new', '.git'))).toEqual([
+      { kind: 'git-probe' },
+      { kind: 'git-worktree', repo: project, relPath: join('new', '.git') }
+    ])
+  })
+
+  it('子模块：gitdir 在上级的 .git/modules 里，元数据归子模块，不归上级', () => {
+    const lib = join(project, 'lib')
+    const libGitDir = join(project, '.git', 'modules', 'lib')
+    const repos: WatchRepo[] = [
+      repo(project),
+      {
+        path: lib,
+        root: lib,
+        gitDirs: { gitDir: libGitDir, commonDir: libGitDir },
+        superPath: project
+      }
+    ]
+    expect(classifyWatchPathAll(project, repos, join(libGitDir, 'HEAD'))).toEqual([
+      { kind: 'git-meta', repo: lib }
+    ])
+    expect(classifyWatchPathAll(project, repos, join(libGitDir, 'objects', 'aa'))).toEqual([])
+  })
+
+  it('主仓库与它的链接工作树都在项目里：任一工作树切分支两边都是 meta', () => {
+    const main = join(project, 'main')
+    const wt = join(project, 'wt')
+    const common = join(main, '.git')
+    const repos: WatchRepo[] = [
+      repo(main),
+      {
+        path: wt,
+        root: wt,
+        gitDirs: { gitDir: join(common, 'worktrees', 'wt'), commonDir: common },
+        superPath: null
+      }
+    ]
+    expect(classifyWatchPathAll(project, repos, join(common, 'worktrees', 'wt', 'HEAD'))).toEqual([
+      { kind: 'git-meta', repo: main },
+      { kind: 'git-meta', repo: wt }
+    ])
+    // 链接工作树自己的 index 只归它
+    expect(classifyWatchPathAll(project, repos, join(common, 'worktrees', 'wt', 'index'))).toEqual([
+      { kind: 'git-meta', repo: wt }
     ])
   })
 })
@@ -136,24 +217,29 @@ describe('classifyGitDirRel：工作树白名单', () => {
   })
 })
 
-describe('classifyCommonDirPath', () => {
+describe('classifyRepoGitDirPath', () => {
   const commonDir = join('/main', '.git')
   const ownGitDir = join('/main', '.git', 'worktrees', 'feat')
+  const linked: WatchRepo = {
+    path: join('/feat'),
+    root: join('/feat'),
+    gitDirs: { gitDir: ownGitDir, commonDir },
+    superPath: null
+  }
 
-  it('公共 gitdir 内的白名单事件 → git-meta；噪声、目录自身与域外 → 空', () => {
-    const meta = [{ kind: 'git-meta' }]
-    expect(
-      classifyCommonDirPath(commonDir, ownGitDir, join(commonDir, 'refs', 'heads', 'x'))
-    ).toEqual(meta)
-    expect(
-      classifyCommonDirPath(commonDir, ownGitDir, join(commonDir, 'worktrees', 'feat'))
-    ).toEqual(meta)
-    expect(classifyCommonDirPath(commonDir, ownGitDir, join(ownGitDir, 'index'))).toEqual(meta)
-    expect(classifyCommonDirPath(commonDir, ownGitDir, join(commonDir, 'index'))).toEqual([])
-    expect(classifyCommonDirPath(commonDir, ownGitDir, join(commonDir, 'objects', 'aa'))).toEqual(
-      []
-    )
-    expect(classifyCommonDirPath(commonDir, ownGitDir, commonDir)).toEqual([])
-    expect(classifyCommonDirPath(commonDir, ownGitDir, join('/elsewhere', 'x'))).toEqual([])
+  it('链接工作树：公共 gitdir 内的白名单事件 → meta；噪声、目录自身 → noise；域外 → null', () => {
+    expect(classifyRepoGitDirPath(linked, join(commonDir, 'refs', 'heads', 'x'))).toBe('meta')
+    expect(classifyRepoGitDirPath(linked, join(commonDir, 'worktrees', 'feat'))).toBe('meta')
+    expect(classifyRepoGitDirPath(linked, join(ownGitDir, 'index'))).toBe('meta')
+    expect(classifyRepoGitDirPath(linked, join(commonDir, 'index'))).toBe('noise')
+    expect(classifyRepoGitDirPath(linked, join(commonDir, 'objects', 'aa'))).toBe('noise')
+    expect(classifyRepoGitDirPath(linked, commonDir)).toBe('noise')
+    expect(classifyRepoGitDirPath(linked, join('/elsewhere', 'x'))).toBeNull()
+  })
+
+  it('gitdir 没解析出来时按 <根>/.git 认', () => {
+    const plain: WatchRepo = { path: project, root: project, gitDirs: null, superPath: null }
+    expect(classifyRepoGitDirPath(plain, join(project, '.git', 'HEAD'))).toBe('meta')
+    expect(classifyRepoGitDirPath(plain, join(project, '.git'))).toBe('probe')
   })
 })

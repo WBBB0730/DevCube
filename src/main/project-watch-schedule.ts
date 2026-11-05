@@ -1,5 +1,5 @@
 // 项目监听的通知调度（纯函数，供 project-watchers 与单测）：discovery / files / git 三个通道
-// 共用一轮待发——尾沿防抖 + 最长等待；git 通道攒待 check-ignore 的工作区路径。
+// 共用一轮待发——尾沿防抖 + 最长等待；git 通道按仓库攒待 check-ignore 的工作区路径。
 // 仓库忙时挂起、转闲补发由 project-watchers 负责（依赖写动作队列的运行期状态）。
 
 import type { WatchEventClass } from './project-watch-classify'
@@ -11,30 +11,37 @@ export const WATCH_MAX_WAIT_MS = 2000
 /** 一轮内待 check-ignore 的工作区路径上限；超过则本轮直接强制刷新。 */
 export const PENDING_PATHS_MAX = 200
 
-/** git 通道：强制刷新（元数据 / 探测 / 需重扫），或待 check-ignore 的工作区相对路径。 */
+/** 一个仓库的 git 通道：强制刷新（元数据 / 需重扫），或待 check-ignore 的工作区相对路径。 */
 export type GitPending = { mode: 'force' } | { mode: 'paths'; paths: Set<string> }
 
-/** 一轮待发的通知：各通道是否有变化；git 为 null 表示无。 */
+/** 一轮待发的通知：各通道是否有变化。 */
 export interface PendingChanges {
   discovery: boolean
   files: boolean
-  git: GitPending | null
+  /** 各仓库的 git 通道（键为 WatchRepo.path）；没有的仓库即无变化 */
+  git: Map<string, GitPending>
+  /** 仓库清单可能变了：重新发现 */
+  probe: boolean
+  /** 监听报事件已丢：全部仓库强制刷新 */
+  rescan: boolean
 }
 
 export function emptyPending(): PendingChanges {
-  return { discovery: false, files: false, git: null }
+  return { discovery: false, files: false, git: new Map(), probe: false, rescan: false }
 }
 
 export function hasPending(pending: PendingChanges): boolean {
-  return pending.discovery || pending.files || pending.git !== null
+  return (
+    pending.discovery || pending.files || pending.git.size > 0 || pending.probe || pending.rescan
+  )
 }
 
-function addGitPath(pending: PendingChanges, relPath: string): void {
-  const git = pending.git
-  if (git === null) {
-    pending.git = { mode: 'paths', paths: new Set([relPath]) }
+function addGitPath(pending: PendingChanges, repo: string, relPath: string): void {
+  const git = pending.git.get(repo)
+  if (git === undefined) {
+    pending.git.set(repo, { mode: 'paths', paths: new Set([relPath]) })
   } else if (git.mode === 'paths') {
-    if (git.paths.size >= PENDING_PATHS_MAX) pending.git = { mode: 'force' }
+    if (git.paths.size >= PENDING_PATHS_MAX) pending.git.set(repo, { mode: 'force' })
     else git.paths.add(relPath)
   }
 }
@@ -49,20 +56,23 @@ export function addWatchChange(pending: PendingChanges, cls: WatchEventClass): v
       pending.files = true
       return
     case 'git-meta':
+      pending.git.set(cls.repo, { mode: 'force' })
+      return
     case 'git-probe':
-      pending.git = { mode: 'force' }
+      pending.probe = true
       return
     case 'git-worktree':
-      addGitPath(pending, cls.relPath)
+      addGitPath(pending, cls.repo, cls.relPath)
       return
   }
 }
 
-/** 监听报「事件已丢、需重扫」：这批不可信，三个通道都强制刷新。 */
+/** 监听报「事件已丢、需重扫」：这批不可信，各通道都强制刷新，仓库清单也重新发现。 */
 export function markRescan(pending: PendingChanges): void {
   pending.discovery = true
   pending.files = true
-  pending.git = { mode: 'force' }
+  pending.probe = true
+  pending.rescan = true
 }
 
 /** 距发出的延迟：尾沿防抖，但不超过本轮首个事件起的最长等待。 */

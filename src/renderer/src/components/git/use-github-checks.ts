@@ -18,15 +18,15 @@ import {
 /** 远程分支指向变化后，继续重查远程分支末端的时长。 */
 const RECHECK_TIPS_MS = 60_000
 
-function query(projectPath: string, mode: CheckQueryMode, recheckTips = false): void {
+function query(repoPath: string, mode: CheckQueryMode, recheckTips = false): void {
   const github = useGitHub.getState()
   const hashes = hashesToQuery(
-    gitState(useGit.getState(), projectPath).commits,
-    commitChecks(github, projectPath),
+    gitState(useGit.getState(), repoPath).commits,
+    commitChecks(github, repoPath),
     mode,
     recheckTips
   )
-  void github.queryChecks(projectPath, hashes)
+  void github.queryChecks(repoPath, hashes)
 }
 
 /**
@@ -54,16 +54,16 @@ function startTieredPolling(tick: () => void): () => void {
  * 前台期间分挡轮询进行中的，远程分支指向变化后 1 分钟内连同远程分支末端上还没有检查的一起查。
  * 回到前台、远程分支指向变化、查到的结果有变化，都让轮询回到最快一挡。
  */
-export function useCommitChecks(projectPath: string, visible: boolean, foreground: boolean): void {
+export function useCommitChecks(repoPath: string, visible: boolean, foreground: boolean): void {
   const signedIn = useGitHub((s) => s.account !== null)
-  const commits = useGit((s) => gitState(s, projectPath).commits)
-  const fetching = useGit((s) => gitState(s, projectPath).fetching)
-  const checks = useGitHub((s) => commitChecks(s, projectPath))
+  const commits = useGit((s) => gitState(s, repoPath).commits)
+  const fetching = useGit((s) => gitState(s, repoPath).fetching)
+  const checks = useGitHub((s) => commitChecks(s, repoPath))
   const tips = useMemo(() => remoteTipsSignature(commits), [commits])
 
   useEffect(() => {
-    if (signedIn && visible) query(projectPath, 'unknown')
-  }, [projectPath, signedIn, visible, commits])
+    if (signedIn && visible) query(repoPath, 'unknown')
+  }, [repoPath, signedIn, visible, commits])
 
   const lastTips = useRef(tips)
   const recheckTipsUntil = useRef(0)
@@ -77,27 +77,25 @@ export function useCommitChecks(projectPath: string, visible: boolean, foregroun
   useEffect(() => {
     const finished = wasFetching.current && !fetching
     wasFetching.current = fetching
-    if (finished && signedIn && visible) query(projectPath, 'all')
-  }, [projectPath, fetching, signedIn, visible])
+    if (finished && signedIn && visible) query(repoPath, 'all')
+  }, [repoPath, fetching, signedIn, visible])
 
   // 检查汇总表只在有变化时换引用（github-store 的 mergeChecks），与远程分支签名一起作为「变化」重启轮询
   useEffect(() => {
     if (!signedIn || !foreground) return
-    return startTieredPolling(() =>
-      query(projectPath, 'poll', Date.now() < recheckTipsUntil.current)
-    )
-  }, [projectPath, signedIn, foreground, tips, checks])
+    return startTieredPolling(() => query(repoPath, 'poll', Date.now() < recheckTipsUntil.current))
+  }, [repoPath, signedIn, foreground, tips, checks])
 }
 
 /** 拉一个提交的各项检查；只有最后发出的那次的响应会落地（首次加载与定时重查可能乱序回来）。 */
 function fetchCheckRuns(
-  projectPath: string,
+  repoPath: string,
   hash: string,
   latest: { current: number },
   apply: (loaded: { hash: string; runs: CheckRun[] | null }) => void
 ): void {
   const seq = ++latest.current
-  void window.api.githubCheckRuns(projectPath, hash).then((runs) => {
+  void window.api.githubCheckRuns(repoPath, hash).then((runs) => {
     if (latest.current === seq) apply({ hash, runs })
   })
 }
@@ -106,8 +104,8 @@ function fetchCheckRuns(
  * 一个提交的各项检查（提交详情用）：打开、换提交、汇总变化时拉一次；列表里还有没结束的项（或汇总仍是进行中）时
  * 分挡重查，某项开始、结束、出现或消失即回到最快一挡，全部结束即停。没有检查、没查过或未登录为 null。
  */
-export function useCheckRuns(projectPath: string, hash: string): CheckRun[] | null {
-  const state = useGitHub((s) => commitChecks(s, projectPath)[hash])
+export function useCheckRuns(repoPath: string, hash: string): CheckRun[] | null {
+  const state = useGitHub((s) => commitChecks(s, repoPath)[hash])
   const [loaded, setLoaded] = useState<{ hash: string; runs: CheckRun[] | null } | null>(null)
   const latest = useRef(0)
   const hasChecks = state !== undefined && state !== 'none'
@@ -116,13 +114,13 @@ export function useCheckRuns(projectPath: string, hash: string): CheckRun[] | nu
   const signature = checkRunsSignature(runs)
 
   useEffect(() => {
-    if (hasChecks) fetchCheckRuns(projectPath, hash, latest, setLoaded)
-  }, [projectPath, hash, hasChecks, state])
+    if (hasChecks) fetchCheckRuns(repoPath, hash, latest, setLoaded)
+  }, [repoPath, hash, hasChecks, state])
 
   useEffect(() => {
     if (!inProgress) return
-    return startTieredPolling(() => fetchCheckRuns(projectPath, hash, latest, setLoaded))
-  }, [projectPath, hash, inProgress, signature])
+    return startTieredPolling(() => fetchCheckRuns(repoPath, hash, latest, setLoaded))
+  }, [repoPath, hash, inProgress, signature])
 
   return runs
 }

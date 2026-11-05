@@ -22,6 +22,7 @@ import {
   resolveGitDirs,
   resolveRepoRoot
 } from './git-exec'
+import { parseNestedRepoEntries } from './git-repos'
 import type { TaskHandle } from './tasks'
 
 /** 按 kind 收窄的动作类型别名，让各构造函数的入参精确到自己的变体。 */
@@ -183,9 +184,23 @@ export function buildCleanUntrackedArgs(action: ActionOf<'clean-untracked'>): st
 
 // —— 暂存与提交（提交面板） ——
 
-/** stage-paths：暂存指定路径；paths 为空数组 = 全部。-A 同时覆盖修改 / 删除 / 未跟踪。 */
-export function buildStagePathsArgs(action: ActionOf<'stage-paths'>): string[][] {
-  return action.paths.length === 0 ? [['add', '-A']] : [['add', '-A', '--', ...action.paths]]
+/**
+ * stage-paths：暂存指定路径；paths 为空数组 = 全部。-A 同时覆盖修改 / 删除 / 未跟踪。全部暂存时排除
+ * 嵌套仓库（nestedRepos，相对仓库根）：不然 git 会把它们记成只指向一个提交的空壳（嵌入仓库），它们的改动归它们自己。
+ */
+export function buildStagePathsArgs(
+  action: ActionOf<'stage-paths'>,
+  nestedRepos: readonly string[] = []
+): string[][] {
+  if (action.paths.length > 0) return [['add', '-A', '--', ...action.paths]]
+  if (nestedRepos.length === 0) return [['add', '-A']]
+  return [['add', '-A', '--', '.', ...nestedRepos.map((path) => `:(exclude,literal)${path}`)]]
+}
+
+/** 仓库里的嵌套仓库（相对仓库根）：未跟踪清单里带尾斜杠的条目（见 git-repos）。读失败按没有算。 */
+async function listNestedRepos(root: string): Promise<string[]> {
+  const result = await execGit(root, ['ls-files', '--others', '--exclude-standard', '-z'])
+  return result.code === 0 ? parseNestedRepoEntries(result.stdout.toString('utf8')) : []
 }
 
 /** unstage-paths：取消暂存；空数组 = 全部。reset 默认相对 HEAD；-q 静默不回显文件列表。 */
@@ -202,9 +217,8 @@ export function buildDiscardFileArgs(action: ActionOf<'discard-file'>): string[]
 export function buildDeleteUntrackedFileArgs(
   action: ActionOf<'delete-untracked-file'>
 ): string[][] {
-  // -d 让未跟踪目录条目（git 折叠目录 / 嵌套仓库整体条目）也能删除；不加 -ff，故嵌套 git
-  // 仓库受 git 保护、被安全跳过而非误删（可能含未推送提交），需用户自行处理
-  return [['clean', '-fd', '--', ...action.paths]]
+  // 未提交列表里只有文件（嵌套仓库不在其中），不带 -d / -ff
+  return [['clean', '-f', '--', ...action.paths]]
 }
 
 /** commit：恒带 -m（否则 git 会尝试打开编辑器导致进程挂起）；消息内嵌换行由 argv 原样传递。 */
@@ -1013,8 +1027,10 @@ async function execAction(
       return toActionResult(await runSequence(cwd, buildResetFileArgs(action)))
     case 'clean-untracked':
       return toActionResult(await runSequence(cwd, buildCleanUntrackedArgs(action)))
-    case 'stage-paths':
-      return toActionResult(await runSequence(cwd, buildStagePathsArgs(action)))
+    case 'stage-paths': {
+      const nested = action.paths.length === 0 ? await listNestedRepos(cwd) : []
+      return toActionResult(await runSequence(cwd, buildStagePathsArgs(action, nested)))
+    }
     case 'unstage-paths':
       return toActionResult(await runSequence(cwd, buildUnstagePathsArgs(action)))
     case 'discard-file':

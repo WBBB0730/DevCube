@@ -2,7 +2,7 @@
 // 移植自 vscode-git-graph：数据由主进程直接跑 git CLI 产出，渲染端只消费结构化结果。
 // 术语见 CONTEXT.md（Git Tab / Commit Graph / Ref / Commit Details / Diff 面板）。
 
-import { lastPathSegment } from './files-path'
+import { childPathPrefix, lastPathSegment, normalizePath } from './files-path'
 
 /** 「未提交更改」虚拟提交的 hash 常量（与参考实现一致，真实 hash 不可能是它）。 */
 
@@ -69,6 +69,65 @@ export interface GitLoadOptions {
  * （变基途中拣选冲突等嵌套）时按外层优先：rebase > cherry-pick > revert > merge。
  */
 export type GitOpInProgress = 'rebase' | 'merge' | 'cherry-pick' | 'revert'
+
+/**
+ * 项目里的一个仓库（Git Tab 仓库下拉的一项；术语见 CONTEXT.md「Repository」）：项目自己所在的仓库，
+ * 或项目里的嵌套仓库、子模块。
+ */
+export interface GitRepo {
+  /**
+   * 在哪个目录里跑 git：项目自己所在的仓库为项目路径（项目可能是仓库的子目录），嵌套仓库为它的根目录。
+   * 也是渲染端状态桶、每仓库设置与 git:changed 的键
+   */
+  path: string
+  /** 仓库根目录（`/` 分隔）：git 给出的文件路径都相对它 */
+  root: string
+  /** 下拉里的名字：项目自己的仓库为仓库根的目录名，嵌套仓库为相对项目根的路径（`/` 分隔） */
+  name: string
+  /** 是项目自己所在的仓库（有则排第一个） */
+  own: boolean
+}
+
+/** 重新发现项目仓库的范围（见 GitAPI.gitRevalidate）。 */
+export type GitRevalidateScope = 'all' | 'own'
+
+/** 每项目 Git Tab 的界面状态（持久化于 electron-store，同 Files 的 filesUi）。 */
+export interface GitUiState {
+  /** 上次选中的仓库（GitRepo.path）；null = 没选过 */
+  selectedRepo: string | null
+}
+
+export const DEFAULT_GIT_UI: GitUiState = { selectedRepo: null }
+
+/** 选中哪个仓库：记住的还在就用它，否则项目自己的仓库（排第一个），再否则第一个嵌套仓库；一个都没有为 null。 */
+export function pickSelectedRepo(
+  repos: readonly GitRepo[],
+  remembered: string | null
+): string | null {
+  if (remembered !== null && repos.some((r) => r.path === remembered)) return remembered
+  return repos[0]?.path ?? null
+}
+
+/** Git Tab 要不要显示仓库下拉：项目里只有它自己所在的那一个仓库时不显示。 */
+export function showsRepoPicker(repos: readonly GitRepo[]): boolean {
+  return repos.length > 1 || (repos.length === 1 && !repos[0].own)
+}
+
+/** 路径所在的最内层仓库（与仓库根都按逻辑路径比，两种分隔符都认）；不在任何仓库里为 null。 */
+export function innermostRepo<T extends GitRepo>(repos: readonly T[], path: string): T | null {
+  const target = normalizePath(path)
+  let best: T | null = null
+  let bestLength = -1
+  for (const repo of repos) {
+    const root = normalizePath(repo.root)
+    const inside = target === root || target.startsWith(childPathPrefix(root))
+    if (inside && root.length > bestLength) {
+      best = repo
+      bestLength = root.length
+    }
+  }
+  return best
+}
 
 /** 同一仓库的一份检出（`git worktree list --porcelain` 的一条记录）；术语见 CONTEXT.md（Worktree）。 */
 export interface GitWorktree {
@@ -237,11 +296,6 @@ export interface GitFileChange {
   /** null：无数据（U / 合成的 D）或二进制文件 */
   additions: number | null
   deletions: number | null
-  /**
-   * true：未跟踪的目录整体条目（嵌套 git 仓库 / git 折叠的未跟踪目录，git status 只报目录不列内部）。
-   * 在文件树里作为一个可勾选叶子呈现（勾选 = git add 整个目录），但不可打开 diff。
-   */
-  isDir?: boolean
 }
 
 export interface GitCommitDetails {
@@ -689,46 +743,58 @@ export type GitActionResult =
 // —— preload 暴露的 Git API（并入 RunAPI） ——
 
 export interface GitAPI {
-  /** 加载某项目的完整图谱数据（仓库概要 + 提交 + refs，主进程内部串联） */
-  gitLoad(projectPath: string, options: GitLoadOptions): Promise<GitLoadResult>
-  /** 提交 / 未提交 / stash 详情，或两提交比较的文件变更列表 */
-  gitDetails(projectPath: string, request: GitDetailsRequest): Promise<GitDetailsResult>
-  /** 单文件 diff（原始 unified diff 文本 + 二进制判定，内置 diff 面板数据源） */
-  gitFileDiff(projectPath: string, request: GitDiffRequest): Promise<GitDiffResult>
-  /** 二进制图片文件的新旧内容（diff 面板预览）；端点语义同 gitFileDiff */
-  gitFileImage(projectPath: string, request: GitDiffRequest): Promise<GitImageResult>
-  /** annotated tag 的详情（tagger / 消息） */
-  gitTagDetails(projectPath: string, tagName: string): Promise<GitTagDetailsResult>
-  /** 仓库 git 配置（remotes / user / pushDefault），仓库设置面板用 */
-  gitRepoConfig(projectPath: string): Promise<GitRepoConfigResult>
   /**
-   * 执行一个写动作；默认完成后主进程推 git:changed 触发刷新。
+   * 项目里的仓库（项目自己所在的仓库排第一个，其后是嵌套仓库与子模块，按名字排）：有缓存直接给，
+   * 没有就先发现一遍。Files Tab 的 Git 标记也按它取（根为预览窗口的目录时同样适用）
+   */
+  gitRepos(projectPath: string): Promise<GitRepo[]>
+  /** 项目的仓库清单变了（新建 / 删除仓库、项目根初始化）：渲染端应重新 gitRepos 该项目 */
+  onGitReposChanged(cb: (projectPath: string) => void): () => void
+  /**
+   * 重新发现项目的仓库（绕过缓存），变化时主进程对齐 watcher 并推 git:repos-changed；返回是否变了。
+   * scope 'all'：整个项目重新发现（非仓库页点刷新、选中的仓库不在了）；'own'：只重查项目自己所在的仓库，
+   * 变了才整个重新发现（Git Tab 到前台时的兜底，便宜）
+   */
+  gitRevalidate(projectPath: string, scope: GitRevalidateScope): Promise<boolean>
+  /** 读 / 写每项目 Git Tab 的界面状态（选中的仓库；写返回更新后的权威快照） */
+  gitGetUi(projectPath: string): Promise<GitUiState>
+  gitSetUi(projectPath: string, patch: Partial<GitUiState>): Promise<GitUiState>
+  // 以下按仓库（GitRepo.path）执行
+  /** 加载某仓库的完整图谱数据（仓库概要 + 提交 + refs，主进程内部串联） */
+  gitLoad(repoPath: string, options: GitLoadOptions): Promise<GitLoadResult>
+  /** 提交 / 未提交 / stash 详情，或两提交比较的文件变更列表 */
+  gitDetails(repoPath: string, request: GitDetailsRequest): Promise<GitDetailsResult>
+  /** 单文件 diff（原始 unified diff 文本 + 二进制判定，内置 diff 面板数据源） */
+  gitFileDiff(repoPath: string, request: GitDiffRequest): Promise<GitDiffResult>
+  /** 二进制图片文件的新旧内容（diff 面板预览）；端点语义同 gitFileDiff */
+  gitFileImage(repoPath: string, request: GitDiffRequest): Promise<GitImageResult>
+  /** annotated tag 的详情（tagger / 消息） */
+  gitTagDetails(repoPath: string, tagName: string): Promise<GitTagDetailsResult>
+  /** 仓库 git 配置（remotes / user / pushDefault），仓库设置面板用 */
+  gitRepoConfig(repoPath: string): Promise<GitRepoConfigResult>
+  /**
+   * 执行一个写动作；默认完成后主进程推 git:changed 触发刷新。init 的 repoPath 为项目路径。
    * opts.silent=true 时不推 git:changed——供渲染端自刷新的静默动作（暂存/提交/撤销）用，
    * 避免与调用方自己的软刷新构成并发 load 竞态（提交面板乐观勾选闪现的根因）。
    */
   gitAction(
-    projectPath: string,
+    repoPath: string,
     action: GitAction,
     opts?: { silent?: boolean }
   ): Promise<GitActionResult>
-  /** 读 / 写每项目 git 设置（写返回更新后的权威快照） */
-  gitGetSettings(projectPath: string): Promise<GitRepoSettings>
-  gitSetSettings(projectPath: string, patch: Partial<GitRepoSettings>): Promise<GitRepoSettings>
+  /** 读 / 写每仓库 git 设置（写返回更新后的权威快照） */
+  gitGetSettings(repoPath: string): Promise<GitRepoSettings>
+  gitSetSettings(repoPath: string, patch: Partial<GitRepoSettings>): Promise<GitRepoSettings>
   /** 读 / 写跨项目视图偏好 */
   gitGetViewPrefs(): Promise<GitViewPrefs>
   gitSetViewPrefs(patch: Partial<GitViewPrefs>): Promise<GitViewPrefs>
-  /** 仓库内容变化（.git 变动 / 动作完成）：渲染端应重新 gitLoad 该项目 */
-  onGitChanged(cb: (projectPath: string) => void): () => void
+  /** 仓库内容变化（.git 变动 / 动作完成）：渲染端应重新 gitLoad 该仓库 */
+  onGitChanged(cb: (repoPath: string) => void): () => void
   /**
-   * 作废项目所在仓库的工作区快照（ADR-0056）：主动刷新（手动、切回、自己的文件操作之后）先调它，
+   * 作废仓库的工作区快照（ADR-0056）：主动刷新（手动、切回、自己的文件操作之后）先调它，
    * 随后的读取重新取；跟随 git:changed 的刷新不必调（主进程推送前已作废）。
    */
-  gitInvalidateWorkingTree(projectPath: string): Promise<void>
-  /**
-   * 重验项目的仓库根（绕过缓存）：init / .git 删除后状态跟进的手动入口
-   * （Git Tab 变为可见、非仓库态点刷新）。变化时主进程对齐 watcher 并推 git:changed。
-   */
-  gitRevalidate(projectPath: string): Promise<boolean>
+  gitInvalidateWorkingTree(repoPath: string): Promise<void>
   /** 当前生效的 init.defaultBranch（未配置回落 'main'），初始化对话框预填用 */
   gitDefaultBranch(projectPath: string): Promise<string>
 }

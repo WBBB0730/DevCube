@@ -32,12 +32,11 @@ import {
 } from '@shared/git'
 import { copyablePath } from '@shared/wsl-path'
 import { dropCommitPossible } from '@renderer/lib/git-graph'
-import { gitState, useGit } from '@renderer/git-store'
-import { useFiles } from '@renderer/files-store'
+import { gitState, openInProjectFiles, repoContextOf, useGit } from '@renderer/git-store'
 import { cn } from '@renderer/lib/utils'
 import { toggleBranch } from './GitBranchDropdown'
 import { opBlockReason } from './GitOpStatusBar'
-import { diffPossible, pathspecOf } from './git-details'
+import { pathspecOf } from './git-details'
 import { abbrevHash } from './git-format'
 import type { GitDialogRequest, GitMenuTarget } from './git-view-types'
 
@@ -71,7 +70,8 @@ export interface GitMenuActions {
 
 /** 构建菜单所需的图谱上下文（全部来自 git-store 的项目桶与视图偏好）。 */
 export interface GitMenuContext {
-  projectPath: string
+  /** 仓库根目录：文件的绝对路径以它拼接（git 给出的路径都相对它） */
+  repoRoot: string
   commits: GitCommit[]
   headHash: string | null
   currentBranch: string | null
@@ -551,19 +551,17 @@ function fileMenu(
 ): (GitMenuItem | 'divider')[] {
   const { actions } = ctx
   const { file, fromHash, toHash, isUncommitted } = target
-  // 可打开 diff：与点击文件行同一口径（二进制同样可看，图片给预览、其余在面板内说明）
-  const diffable = diffPossible(file)
   // 非比较模式推断：详情面板的端点满足 from===to（根提交/stash 第三父）或 from 是 to 的父提交；
   // 目标契约不带比较标记，此为等价近似——「比较直接父子提交」会被视作详情模式，
   // 此时「重置到此版本」语义仍然正确，无害。
   const toCommit = ctx.commits.find((c) => c.hash === toHash)
   const isCompare = !(fromHash === toHash || (toCommit?.parents.includes(fromHash) ?? false))
-  const items: (GitMenuItem | 'divider')[] = []
-  if (diffable) {
-    items.push({ title: '查看差异', onClick: () => actions.openDiff(file, fromHash, toHash) })
-  }
+  // 查看差异：与点击文件行同一口径（二进制同样可看，图片给预览、其余在面板内说明）
+  const items: (GitMenuItem | 'divider')[] = [
+    { title: '查看差异', onClick: () => actions.openDiff(file, fromHash, toHash) }
+  ]
   // 「查看该版本的文件」v1 不做（见文件头注释）
-  if (file.type !== 'D' && !isUncommitted && diffable) {
+  if (file.type !== 'D' && !isUncommitted) {
     items.push({
       title: '与工作区文件对比',
       onClick: () => actions.openDiff(file, toHash, UNCOMMITTED)
@@ -573,11 +571,11 @@ function fileMenu(
     items.push(
       {
         title: '打开文件',
-        onClick: () => actions.openInFiles(`${ctx.projectPath}/${file.newFilePath}`)
+        onClick: () => actions.openInFiles(`${ctx.repoRoot}/${file.newFilePath}`)
       },
       {
         title: '在文件夹中显示',
-        onClick: () => actions.revealInFolder(`${ctx.projectPath}/${file.newFilePath}`)
+        onClick: () => actions.revealInFolder(`${ctx.repoRoot}/${file.newFilePath}`)
       }
     )
   }
@@ -592,10 +590,10 @@ function fileMenu(
   items.push(
     'divider',
     {
-      // 绝对路径以项目根拼接（项目根即打开的仓库目录；见 foundation「打开文件」约定）
+      // 绝对路径以仓库根拼接
       title: '复制文件绝对路径',
       onClick: () =>
-        actions.copyText(copyablePath(`${ctx.projectPath}/${file.newFilePath}`), '文件路径')
+        actions.copyText(copyablePath(`${ctx.repoRoot}/${file.newFilePath}`), '文件路径')
     },
     {
       title: '复制文件相对路径',
@@ -644,21 +642,21 @@ function uncommittedFileMenu(
     items.push(
       {
         title: '打开文件',
-        onClick: () => actions.openInFiles(`${ctx.projectPath}/${file.newFilePath}`)
+        onClick: () => actions.openInFiles(`${ctx.repoRoot}/${file.newFilePath}`)
       },
       {
         title: '在文件夹中显示',
-        onClick: () => actions.revealInFolder(`${ctx.projectPath}/${file.newFilePath}`)
+        onClick: () => actions.revealInFolder(`${ctx.repoRoot}/${file.newFilePath}`)
       }
     )
   }
   items.push(
     'divider',
     {
-      // 绝对路径以项目根拼接（同 fileMenu 的约定）
+      // 绝对路径以仓库根拼接（同 fileMenu）
       title: '复制文件绝对路径',
       onClick: () =>
-        actions.copyText(copyablePath(`${ctx.projectPath}/${file.newFilePath}`), '文件路径')
+        actions.copyText(copyablePath(`${ctx.repoRoot}/${file.newFilePath}`), '文件路径')
     },
     {
       title: '复制文件相对路径',
@@ -731,55 +729,55 @@ export function groupMenuItems(items: (GitMenuItem | 'divider')[]): GitMenuItem[
 // —— 组件层 ——
 
 /** 右键菜单：读 store 的 contextMenu；多入口共用故在鼠标点弹出（PointContextMenu，menus-dialogs §6；非行级 Trigger）。 */
-export function GitContextMenu({ projectPath }: { projectPath: string }): React.JSX.Element | null {
-  const menu = useGit((s) => gitState(s, projectPath).contextMenu)
-  const commits = useGit((s) => gitState(s, projectPath).commits)
-  const headHash = useGit((s) => gitState(s, projectPath).headHash)
-  const currentBranch = useGit((s) => gitState(s, projectPath).currentBranch)
-  const remotes = useGit((s) => gitState(s, projectPath).remotes)
-  const branches = useGit((s) => gitState(s, projectPath).branches)
-  const branchFilter = useGit((s) => gitState(s, projectPath).branchFilter)
-  const settings = useGit((s) => gitState(s, projectPath).settings)
-  const opInProgress = useGit((s) => gitState(s, projectPath).opInProgress)
-  const worktrees = useGit((s) => gitState(s, projectPath).worktrees)
+export function GitContextMenu({ repoPath }: { repoPath: string }): React.JSX.Element | null {
+  const menu = useGit((s) => gitState(s, repoPath).contextMenu)
+  const commits = useGit((s) => gitState(s, repoPath).commits)
+  const headHash = useGit((s) => gitState(s, repoPath).headHash)
+  const currentBranch = useGit((s) => gitState(s, repoPath).currentBranch)
+  const remotes = useGit((s) => gitState(s, repoPath).remotes)
+  const branches = useGit((s) => gitState(s, repoPath).branches)
+  const branchFilter = useGit((s) => gitState(s, repoPath).branchFilter)
+  const settings = useGit((s) => gitState(s, repoPath).settings)
+  const opInProgress = useGit((s) => gitState(s, repoPath).opInProgress)
+  const worktrees = useGit((s) => gitState(s, repoPath).worktrees)
   const viewPrefs = useGit((s) => s.viewPrefs)
 
   // 动作注入：全部经 store / window.api 分发（回调内取 getState 而非闭包，避免过期）
   const actions = useMemo<GitMenuActions>(
     () => ({
-      runAction: (action, label) => void useGit.getState().runAction(projectPath, action, label),
-      runQuietAction: (action) => void useGit.getState().runQuietAction(projectPath, action),
-      openDialog: (req) => useGit.getState().openDialog(projectPath, req),
-      setBranchFilter: (next) => void useGit.getState().setBranchFilter(projectPath, next),
-      updateSettings: (patch) => void useGit.getState().updateSettings(projectPath, patch),
+      runAction: (action, label) => void useGit.getState().runAction(repoPath, action, label),
+      runQuietAction: (action) => void useGit.getState().runQuietAction(repoPath, action),
+      openDialog: (req) => useGit.getState().openDialog(repoPath, req),
+      setBranchFilter: (next) => void useGit.getState().setBranchFilter(repoPath, next),
+      updateSettings: (patch) => void useGit.getState().updateSettings(repoPath, patch),
       openDiff: (file, fromHash, toHash) =>
-        void useGit.getState().openDiff(projectPath, file, fromHash, toHash),
+        void useGit.getState().openDiff(repoPath, file, fromHash, toHash),
       copyText: (text, typeLabel) => {
         navigator.clipboard.writeText(text).catch(() => {
           // 复制失败：复用动作错误框展示。store 契约未开放 setActionErrors，
-          // 这里直接 setState 写桶（桶必然已存在——菜单只会在已加载的项目上打开）。
+          // 这里直接 setState 写桶（桶必然已存在——菜单只会在已加载的仓库上打开）。
           useGit.setState((s) => {
-            const bucket = s.projects[projectPath]
+            const bucket = s.repos[repoPath]
             if (!bucket) return s
             return {
-              projects: {
-                ...s.projects,
-                [projectPath]: { ...bucket, actionErrors: [`无法复制${typeLabel}到剪贴板`] }
+              repos: {
+                ...s.repos,
+                [repoPath]: { ...bucket, actionErrors: [`无法复制${typeLabel}到剪贴板`] }
               }
             }
           })
         })
       },
-      openInFiles: (absolutePath) => useFiles.getState().openInFiles(projectPath, absolutePath),
+      openInFiles: (absolutePath) => openInProjectFiles(repoPath, absolutePath),
       revealInFolder: (absolutePath) => void window.api.revealInFolder(absolutePath)
     }),
-    [projectPath]
+    [repoPath]
   )
 
   if (menu === null) return null
   const groups = groupMenuItems(
     buildMenuItems(menu.target, {
-      projectPath,
+      repoRoot: repoContextOf(repoPath)?.repo.root ?? repoPath,
       commits,
       headHash,
       currentBranch,
@@ -797,7 +795,7 @@ export function GitContextMenu({ projectPath }: { projectPath: string }): React.
   const checkedMode = menu.target.kind === 'header'
 
   return (
-    <PointContextMenu at={menu} onClose={() => useGit.getState().closeContextMenu(projectPath)}>
+    <PointContextMenu at={menu} onClose={() => useGit.getState().closeContextMenu(repoPath)}>
       {groups.map((group, gi) => (
         <Fragment key={gi}>
           {gi > 0 && <ContextMenuSeparator />}

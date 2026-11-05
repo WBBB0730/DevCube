@@ -23,9 +23,8 @@ const SPEED_TICK_MS = 1000
 /** 退出时等各 Task 收尾（结束进程树、删半成品目录）的上限。 */
 const SETTLE_TIMEOUT_MS = 3000
 
-/** Task 属于谁：Git 动作属于某个 Project；克隆带着原输入（失败后找回时填回表单）。 */
-export type TaskOwner =
-  { kind: 'git'; projectPath: string } | { kind: 'clone'; input: GitCloneInput }
+/** Task 属于谁：Git 动作属于某个仓库（GitRepo.path）；克隆带着原输入（失败后找回时填回表单）。 */
+export type TaskOwner = { kind: 'git'; repoPath: string } | { kind: 'clone'; input: GitCloneInput }
 
 /** 执行的终局：成功、取消即移除；失败留到被关掉。 */
 export type TaskOutcome =

@@ -43,7 +43,7 @@ import {
 } from '../shared/files-image-tiles'
 import { ensureImagePreview, ensureImagePyramid } from './files-image-pyramid'
 import { getFilesIndex } from './files-index'
-import { readCheckedOutBlob, resolveRepoRoot } from './git-exec'
+import { lookupRepoRoot, readCheckedOutBlob } from './git-exec'
 import { isGrantedFilesRoot, isPathUnderGrantedRoot } from './files-roots'
 import {
   filesRootAlias,
@@ -307,14 +307,15 @@ export function imagePyramidEntry(
 
 /**
  * 读取文件在 HEAD 的基线文本（编辑器 gutter diff 条纹的对比端），经 readCheckedOutBlob 取检出后的
- * 样子，与编辑器里磁盘上的文件同口径（如 LFS 文件取真实内容而非指针）。
+ * 样子，与编辑器里磁盘上的文件同口径（如 LFS 文件取真实内容而非指针）。对比的是文件所在的仓库：
+ * 从文件所在目录查仓库根，嵌套仓库里的文件取的就是嵌套仓库（docs/prd/git-nested-repos.md）。
  * 符号链接 / 非仓库 / HEAD 无此路径（未跟踪、未出生、重命名未提交）/ 读取失败 / 二进制 / 超限 → null（不显示条纹）。
  */
 export async function readHeadText(projectPath: string, filePath: string): Promise<string | null> {
   const logical = within(projectPath, filePath)
   // 符号链接不显示条纹（同 VS Code、Zed，ADR-0059）：git 里存的是它指向的路径，编辑器里是目标的内容，比不到一起
   if (await isSymlinkPath(toSysPath(logical))) return null
-  const repoRootSys = await resolveRepoRoot(toSysPath(normalizePath(projectPath)))
+  const repoRootSys = await lookupRepoRoot(toSysPath(logicalParentPath(logical)))
   if (!repoRootSys) return null
   const rel = toRepoRel(normalizePath(repoRootSys), logical)
   if (rel === '.') return null

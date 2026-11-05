@@ -32,7 +32,7 @@ import {
 } from '@shared/git'
 import { configKey } from '@shared/runnable'
 import { useApp } from '@renderer/store'
-import { gitState, useGit } from '@renderer/git-store'
+import { gitState, repoContextOf, useGit } from '@renderer/git-store'
 import { foregroundGitTaskOf, useTasks } from '@renderer/task-store'
 import { TaskProgressDialog } from '@renderer/components/tasks/TaskProgressDialog'
 import { cn } from '@renderer/lib/utils'
@@ -191,7 +191,7 @@ export interface DialogSpec {
 
 /** 对话框构建环境：数据快照 + 动作出口（组件层注入；测试注入记录用实现）。 */
 export interface DialogEnv {
-  projectPath: string
+  repoPath: string
   commits: GitCommit[]
   branches: string[]
   /** 全量远程分支（带 remotes/ 前缀，不受显示开关与 hideRemotes 过滤），拉取/推送对话框用 */
@@ -216,7 +216,7 @@ export interface DialogEnv {
   /** 弹一个追问对话框（强制删除 / 不在远程等动作之后的续弹） */
   openChase(spec: DialogSpec): void
   setViewPrefs(patch: Partial<GitViewPrefs>): void
-  /** 写本项目的 git 设置（拉取对话框记住整合方式、两张表单的「不再显示此窗口」） */
+  /** 写本仓库的 git 设置（拉取对话框记住整合方式、两张表单的「不再显示此窗口」） */
   updateSettings(patch: Partial<GitRepoSettings>): void
   /** 前往某目录对应的项目（未登记则先登记）：工作树提示框「转到项目」与新建后的出口 */
   openProject(path: string): void
@@ -402,13 +402,17 @@ export function buildSpec(req: GitDialogRequest, env: DialogEnv): DialogSpec | n
             onClick: (v) => {
               if (v.interactive === true) {
                 env.closeDialog()
-                // 交互式变基：开一个项目终端 Tab 并把命令写进 stdin（menus-dialogs §0）
-                void useApp
-                  .getState()
-                  .newTerminal(env.projectPath)
-                  .then((key) => {
-                    window.api.writeStdin(key, `git rebase --interactive ${req.obj}\n`)
-                  })
+                // 交互式变基：在仓库所在项目开一个终端 Tab（起在仓库目录），把命令写进 stdin（menus-dialogs §0）
+                const ctx = repoContextOf(env.repoPath)
+                if (ctx !== null) {
+                  const cwd = ctx.projectPath === env.repoPath ? undefined : env.repoPath
+                  void useApp
+                    .getState()
+                    .newTerminal(ctx.projectPath, cwd)
+                    .then((key) => {
+                      window.api.writeStdin(key, `git rebase --interactive ${req.obj}\n`)
+                    })
+                }
               } else {
                 dispatch(
                   env,
@@ -1431,23 +1435,23 @@ function createBranchSpec(env: DialogEnv, hash: string): DialogSpec {
  * 对话框宿主：按 store 的 dialog 请求渲染表单，叠加追问链（chase）、前台的 Task、进行中遮罩与错误框。
  * 渲染优先级：错误框 > 前台的 Task > 进行中遮罩 > 追问对话框 > store 对话框（同一时刻全局最多一个，§1.2）。
  */
-export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.Element | null {
-  const dialog = useGit((s) => gitState(s, projectPath).dialog)
-  const actionRunning = useGit((s) => gitState(s, projectPath).actionRunning)
-  const actionErrors = useGit((s) => gitState(s, projectPath).actionErrors)
-  const commits = useGit((s) => gitState(s, projectPath).commits)
-  const branches = useGit((s) => gitState(s, projectPath).branches)
-  const remoteBranches = useGit((s) => gitState(s, projectPath).remoteBranches)
-  const tags = useGit((s) => gitState(s, projectPath).tags)
-  const remotes = useGit((s) => gitState(s, projectPath).remotes)
-  const currentBranch = useGit((s) => gitState(s, projectPath).currentBranch)
-  const config = useGit((s) => gitState(s, projectPath).config)
-  const settings = useGit((s) => gitState(s, projectPath).settings)
+export function GitDialogs({ repoPath }: { repoPath: string }): React.JSX.Element | null {
+  const dialog = useGit((s) => gitState(s, repoPath).dialog)
+  const actionRunning = useGit((s) => gitState(s, repoPath).actionRunning)
+  const actionErrors = useGit((s) => gitState(s, repoPath).actionErrors)
+  const commits = useGit((s) => gitState(s, repoPath).commits)
+  const branches = useGit((s) => gitState(s, repoPath).branches)
+  const remoteBranches = useGit((s) => gitState(s, repoPath).remoteBranches)
+  const tags = useGit((s) => gitState(s, repoPath).tags)
+  const remotes = useGit((s) => gitState(s, repoPath).remotes)
+  const currentBranch = useGit((s) => gitState(s, repoPath).currentBranch)
+  const config = useGit((s) => gitState(s, repoPath).config)
+  const settings = useGit((s) => gitState(s, repoPath).settings)
   const viewPrefs = useGit((s) => s.viewPrefs)
-  const opInProgress = useGit((s) => gitState(s, projectPath).opInProgress)
-  const worktrees = useGit((s) => gitState(s, projectPath).worktrees)
-  /** 本项目在前台的联网动作（Task，docs/prd/task-progress.md）：没被隐藏的按发起先后一次一个 */
-  const task = useTasks((s) => foregroundGitTaskOf(s.tasks, projectPath))
+  const opInProgress = useGit((s) => gitState(s, repoPath).opInProgress)
+  const worktrees = useGit((s) => gitState(s, repoPath).worktrees)
+  /** 本仓库在前台的联网动作（Task，docs/prd/task-progress.md）：没被隐藏的按发起先后一次一个 */
+  const task = useTasks((s) => foregroundGitTaskOf(s.tasks, repoPath))
 
   /**
    * 追问链状态：spec 为 null 即没有追问；nonce 作为表单 key，只增不减（关掉时保留），
@@ -1474,13 +1478,13 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
   useEffect(() => {
     if (tagName === null) return
     let cancelled = false
-    void window.api.gitTagDetails(projectPath, tagName).then((r) => {
+    void window.api.gitTagDetails(repoPath, tagName).then((r) => {
       if (!cancelled) setTagInfo({ name: tagName, result: r })
     })
     return () => {
       cancelled = true
     }
-  }, [tagName, projectPath])
+  }, [tagName, repoPath])
 
   // push remote / pull 表单默认值需要仓库 config（branch.<name>.remote/merge/rebase 等）：
   // 相关对话框打开时按需拉取
@@ -1491,12 +1495,12 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
       dialog.kind === 'push-tag' ||
       dialog.kind === 'add-tag')
   useEffect(() => {
-    if (needsConfig && config === null) void useGit.getState().loadRepoConfig(projectPath)
-  }, [needsConfig, config, projectPath])
+    if (needsConfig && config === null) void useGit.getState().loadRepoConfig(repoPath)
+  }, [needsConfig, config, repoPath])
 
   const env = useMemo<DialogEnv>(
     () => ({
-      projectPath,
+      repoPath,
       commits,
       branches,
       remoteBranches,
@@ -1510,14 +1514,14 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
       worktrees,
       closeDialog: () => {
         setChase((c) => ({ spec: null, nonce: c.nonce }))
-        useGit.getState().closeDialog(projectPath)
+        useGit.getState().closeDialog(repoPath)
       },
-      runAction: (action, label) => useGit.getState().runAction(projectPath, action, label),
-      runQuietAction: (action, opts) => useGit.getState().runQuietAction(projectPath, action, opts),
-      clearActionErrors: () => useGit.getState().clearActionErrors(projectPath),
+      runAction: (action, label) => useGit.getState().runAction(repoPath, action, label),
+      runQuietAction: (action, opts) => useGit.getState().runQuietAction(repoPath, action, opts),
+      clearActionErrors: () => useGit.getState().clearActionErrors(repoPath),
       openChase: (spec) => setChase((c) => ({ spec, nonce: c.nonce + 1 })),
       setViewPrefs: (patch) => void useGit.getState().setViewPrefs(patch),
-      updateSettings: (patch) => void useGit.getState().updateSettings(projectPath, patch),
+      updateSettings: (patch) => void useGit.getState().updateSettings(repoPath, patch),
       openProject: (path) => void useApp.getState().addProjectByPath(path),
       // 工作树目录是否已登记为项目、是否有运行中的会话 / 终端（删除工作树前的防误删判断）
       projectState: (path) => {
@@ -1531,7 +1535,7 @@ export function GitDialogs({ projectPath }: { projectPath: string }): React.JSX.
       removeProject: (path) => void useApp.getState().removeProject(path)
     }),
     [
-      projectPath,
+      repoPath,
       commits,
       branches,
       remoteBranches,
@@ -2396,7 +2400,7 @@ function WorktreeAddDialog({
         ? existing
         : req.start.label
   const name = nameEdited ?? worktreeNameFromBranch(derivedFrom)
-  const anchor = worktreeAnchorPath(env.worktrees, env.projectPath)
+  const anchor = worktreeAnchorPath(env.worktrees, env.repoPath)
   const path = resolveWorktreePath(
     anchor,
     env.settings?.worktreeDirectory ?? null,

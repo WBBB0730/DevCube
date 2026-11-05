@@ -60,6 +60,8 @@ import {
   type GitDiffRequest,
   type GitLoadOptions,
   type GitRepoSettings,
+  type GitRevalidateScope,
+  type GitUiState,
   type GitViewPrefs
 } from '../shared/git'
 import { cwdFromPickedDir, findGitBash, resolveCwd } from './command'
@@ -200,6 +202,7 @@ import {
 import {
   deleteFilesUi,
   deleteGitSettings,
+  deleteGitUi,
   deleteDataSourceTabState,
   deleteTerminalShells,
   getDataSourceCompletionUsage,
@@ -211,6 +214,8 @@ import {
   getRunParams,
   getFilesUi,
   getGitSettings,
+  gitSettingsRepoPaths,
+  getGitUi,
   getGitViewPrefs,
   getAppPrefs,
   getProjectSortPrefs,
@@ -221,6 +226,7 @@ import {
   setAppPrefs,
   setFilesUi,
   setGitSettings,
+  setGitUi,
   setGitViewPrefs,
   setProjectSortPrefs,
   setWorkspaceUi
@@ -276,14 +282,17 @@ import {
   starDevCube
 } from './github'
 import { syncProjectWatchers } from './project-watchers'
+import { clearRepoRootCache, execGit, mainWorktreePathOf } from './git-exec'
 import {
-  clearRepoRootCache,
-  execGit,
-  mainWorktreePathOf,
-  resolveGitDirs,
-  resolveRepoRoot,
-  revalidateRepoRoot
-} from './git-exec'
+  forgetProjectRepos,
+  getProjectRepos,
+  getWatchedRepos,
+  isFullyDiscovered,
+  orphanedRepoPaths,
+  revalidateOwnRepo,
+  revalidateProjectRepos,
+  toGitRepo
+} from './git-repos'
 import {
   checkAppUpdates,
   getAppUpdateState,
@@ -374,14 +383,33 @@ function treeSnapshot(): TreeSnapshot {
 }
 
 /**
- * 某项目的仓库内容变化（.git 变动 / git 动作完成）：先作废工作区快照，再通知渲染端软刷新其图谱。
+ * 某仓库的内容变化（.git 变动 / git 动作完成）：先作废工作区快照，再通知渲染端软刷新其图谱。
  * 处理器在返回前 await 它：通知先于结果送达渲染端（动作的软刷新据此后发先至、落地后才收遮罩）。
  */
-async function emitGitChanged(projectPath: string): Promise<void> {
-  await invalidateWorkingTree(projectPath)
+async function emitGitChanged(repoPath: string): Promise<void> {
+  await invalidateWorkingTree(repoPath)
   if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send(IPC.gitChanged, projectPath)
+    mainWindow.webContents.send(IPC.gitChanged, repoPath)
   }
+}
+
+/**
+ * 重新发现项目的仓库（范围见 GitAPI.gitRevalidate）：清单变了则对齐 watcher（监听根与另起的 gitdir 订阅可能
+ * 跟着变）并通知渲染端重取清单。返回是否变了。
+ */
+async function revalidateRepos(
+  projectPath: string,
+  scope: GitRevalidateScope = 'all'
+): Promise<boolean> {
+  const { changed } = await (scope === 'own'
+    ? revalidateOwnRepo(projectPath)
+    : revalidateProjectRepos(projectPath))
+  if (!changed) return false
+  await refreshProjectWatchers()
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send(IPC.gitReposChanged, projectPath)
+  }
+  return true
 }
 
 /** 某项目工作区文件变化：作废文件名索引，并通知 Files Tab 重拉已缓存目录 / 同步打开文件。 */
@@ -415,8 +443,9 @@ export function openProjectFromExternal(path: string): { registered: boolean } {
   return { registered }
 }
 
-// 每项目一条原生递归监听：解析仓库根后对齐（非仓库 repoRoot=null → 探测 .git 出现）。
-// WSL 项目只在它的发行版连上时才解析、监听：没连上时不碰发行版（docs/prd/wsl-project.md），连上 / 断开时再对齐。
+// 每项目一条原生递归监听：按项目里的仓库对齐（不在仓库里 → 盯项目路径，探测 .git 出现）。没打开过的项目只查
+// 它自己的仓库，渲染端第一次要清单时完整发现、再对齐一次（git-repos 两档）。
+// WSL 项目只在它的发行版连上时才发现、监听：没连上时不碰发行版（docs/prd/wsl-project.md），连上 / 断开时再对齐。
 async function refreshProjectWatchers(): Promise<void> {
   if (isAppQuitting()) return
   const reachable = getProjects().filter((p) => {
@@ -425,36 +454,24 @@ async function refreshProjectWatchers(): Promise<void> {
   })
   const projects = await Promise.all(
     reachable.map(async (p) => {
-      const repoRoot = await resolveRepoRoot(p.path)
-      return {
-        projectPath: p.path,
-        repoRoot,
-        // 链接工作树要额外盯主仓库的公共 gitdir（refs / 各工作树 HEAD），形态由 watcher 侧判断
-        gitDirs: repoRoot === null ? null : await resolveGitDirs(repoRoot)
-      }
+      const repos = await getWatchedRepos(p.path)
+      const own = repos.find((r) => r.own) ?? null
+      return { projectPath: p.path, ownRoot: own?.root ?? null, repos, own }
     })
   )
   syncProjectWatchers(projects, {
     onDiscoveryChange,
     onFilesChange: emitFilesChanged,
-    onGitChange: onGitWatcherChange
+    onGitChange: (repoPath) => void emitGitChanged(repoPath),
+    onReposProbe: (projectPath) => void revalidateRepos(projectPath)
   })
   // 左树的工作树角标：buildTree 同步、不能跑 git，gitdir 在这里已解析好，顺手写入；变了才重推树
   let worktreeOfChanged = false
   for (const p of projects) {
-    const mainPath = p.gitDirs === null ? null : mainWorktreePathOf(p.gitDirs)
+    const mainPath = p.own?.gitDirs == null ? null : mainWorktreePathOf(p.own.gitDirs)
     if (setProjectWorktreeOf(p.projectPath, mainPath)) worktreeOfChanged = true
   }
   if (worktreeOfChanged) emitTree()
-}
-
-// watcher 防抖回调：先重验仓库根（init / .git 删除后缓存失真），变化则对齐 watcher 形态，
-// 再通知渲染端。不变时重验只多一个 rev-parse 进程（防抖收敛后频率很低）。
-function onGitWatcherChange(projectPath: string): void {
-  void revalidateRepoRoot(projectPath).then(async ({ changed }) => {
-    if (changed) await refreshProjectWatchers()
-    await emitGitChanged(projectPath)
-  })
 }
 
 function debounce(fn: () => void, ms: number): () => void {
@@ -596,9 +613,19 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
         .map((shell) => shell.id)
     )
     removeProject(path)
-    deleteGitSettings(path) // 连同它的 git 设置与仓库根缓存
+    // 连同它目录里那些仓库的 git 设置（落在别的项目目录里的留着；按路径判断，没打开过的项目没找过嵌套仓库）、
+    // 仓库清单与仓库根缓存
+    deleteGitSettings(
+      orphanedRepoPaths(
+        gitSettingsRepoPaths(),
+        path,
+        getProjects().map((p) => p.path)
+      )
+    )
+    deleteGitUi(path)
     deleteFilesUi(path)
     deleteWorkspaceUiForEntry(path)
+    forgetProjectRepos(path)
     clearRepoRootCache(path)
     clearProjectWorktreeOf(path)
     forgetWslDiscovery(path)
@@ -1300,58 +1327,62 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   )
 
   // —— Git 图谱 ——
-  // 读操作：每项目设置在 handler 层解析成有效值传入（git-data 不依赖 store，便于测试）。
-  ipcMain.handle(IPC.gitLoad, (_e, projectPath: string, options: GitLoadOptions) =>
-    loadRepo(projectPath, options, resolveRepoSettings(getGitSettings(projectPath)))
+  // 项目里的仓库（docs/prd/git-nested-repos.md）：清单按项目缓存，变化时推 git:repos-changed
+  // 渲染端要清单（选中项目、打开它的 Git / 文件页）：第一次时完整发现，找到的嵌套仓库接进监听
+  ipcMain.handle(IPC.gitRepos, async (_e, projectPath: string) => {
+    const firstTime = !isFullyDiscovered(projectPath)
+    const repos = await getProjectRepos(projectPath)
+    if (firstTime) void refreshProjectWatchers()
+    return repos.map(toGitRepo)
+  })
+  // 重新发现（Git Tab 到前台 / 非仓库态点刷新 / 选中的仓库不在了）：变化则对齐 watcher 并推 git:repos-changed
+  ipcMain.handle(IPC.gitRevalidate, (_e, projectPath: string, scope: GitRevalidateScope) =>
+    revalidateRepos(projectPath, scope)
   )
-  ipcMain.handle(IPC.gitDetails, (_e, projectPath: string, request: GitDetailsRequest) =>
-    getDetails(projectPath, request)
+  ipcMain.handle(IPC.gitUiGet, (_e, projectPath: string) => getGitUi(projectPath))
+  ipcMain.handle(IPC.gitUiSet, (_e, projectPath: string, patch: Partial<GitUiState>) =>
+    setGitUi(projectPath, patch)
   )
-  ipcMain.handle(IPC.gitFileDiff, (_e, projectPath: string, request: GitDiffRequest) =>
-    getFileDiff(projectPath, request)
+  // 以下按仓库（GitRepo.path）执行。读操作：每仓库设置在 handler 层解析成有效值传入（git-data 不依赖 store，便于测试）。
+  ipcMain.handle(IPC.gitLoad, (_e, repoPath: string, options: GitLoadOptions) =>
+    loadRepo(repoPath, options, resolveRepoSettings(getGitSettings(repoPath)))
   )
-  ipcMain.handle(IPC.gitFileImage, (_e, projectPath: string, request: GitDiffRequest) =>
-    getFileImage(projectPath, request)
+  ipcMain.handle(IPC.gitDetails, (_e, repoPath: string, request: GitDetailsRequest) =>
+    getDetails(repoPath, request)
   )
-  ipcMain.handle(IPC.gitTagDetails, (_e, projectPath: string, tagName: string) =>
-    getTagDetails(projectPath, tagName)
+  ipcMain.handle(IPC.gitFileDiff, (_e, repoPath: string, request: GitDiffRequest) =>
+    getFileDiff(repoPath, request)
   )
-  ipcMain.handle(IPC.gitRepoConfig, (_e, projectPath: string) => getRepoConfig(projectPath))
+  ipcMain.handle(IPC.gitFileImage, (_e, repoPath: string, request: GitDiffRequest) =>
+    getFileImage(repoPath, request)
+  )
+  ipcMain.handle(IPC.gitTagDetails, (_e, repoPath: string, tagName: string) =>
+    getTagDetails(repoPath, tagName)
+  )
+  ipcMain.handle(IPC.gitRepoConfig, (_e, repoPath: string) => getRepoConfig(repoPath))
   // 写操作：单通道判别联合。完成后无论成败都作废工作区快照、推 git:changed（部分成功也要刷新）；
   // opts.silent 时不推——渲染端自刷新的静默动作（暂存/提交/撤销）避免并发 load 竞态，但快照照样作废。
   ipcMain.handle(
     IPC.gitAction,
-    async (_e, projectPath: string, action: GitAction, opts?: { silent?: boolean }) => {
+    async (_e, repoPath: string, action: GitAction, opts?: { silent?: boolean }) => {
       // 联网动作是一个 Task：同仓库排队时先是等待中，轮到才开始；失败的留在任务登记处，由界面按它呈现
       const title = gitTaskTitle(action)
       const task =
-        title === null ? null : tasks.create({ kind: 'git', projectPath }, title, { queued: true })
-      const result = await runGitAction(projectPath, action, task)
+        title === null ? null : tasks.create({ kind: 'git', repoPath }, title, { queued: true })
+      const result = await runGitAction(repoPath, action, task)
       task?.finish(taskOutcomeOf(result))
-      if (action.kind === 'init') {
-        // init 会改变仓库根（非仓库 → 仓库）：显式重验 + 对齐 watcher 形态。不等探测
-        // watcher 的事件——动作执行期间（含余震窗口）它挂起，转闲才补发，界面会慢一拍
-        await revalidateRepoRoot(projectPath)
-        await refreshProjectWatchers()
-      }
-      if (opts?.silent === true) await invalidateWorkingTree(projectPath)
-      else await emitGitChanged(projectPath)
+      // init 在项目根新建仓库（repoPath 即项目路径）：显式重新发现 + 对齐 watcher。不等探测
+      // watcher 的事件——动作执行期间（含余震窗口）它挂起，转闲才补发，界面会慢一拍
+      if (action.kind === 'init') await revalidateRepos(repoPath)
+      if (opts?.silent === true) await invalidateWorkingTree(repoPath)
+      else await emitGitChanged(repoPath)
       return result
     }
   )
   // 主动刷新（手动、切回、窗口回到前台、自己的文件操作之后）：作废工作区快照，随后的读取重新取
-  ipcMain.handle(IPC.gitInvalidateWorkingTree, (_e, projectPath: string) =>
-    invalidateWorkingTree(projectPath)
+  ipcMain.handle(IPC.gitInvalidateWorkingTree, (_e, repoPath: string) =>
+    invalidateWorkingTree(repoPath)
   )
-  // 重验仓库根（Git Tab 变为可见 / 非仓库态点刷新）：变化则对齐 watcher 并推 git:changed
-  ipcMain.handle(IPC.gitRevalidate, async (_e, projectPath: string) => {
-    const { changed } = await revalidateRepoRoot(projectPath)
-    if (changed) {
-      await refreshProjectWatchers()
-      await emitGitChanged(projectPath)
-    }
-    return changed
-  })
   // 当前生效的 init.defaultBranch（初始化对话框预填）：未配置回落 'main'
   ipcMain.handle(IPC.gitDefaultBranch, async (_e, projectPath: string) => {
     const result = await execGit(projectPath, ['config', '--get', 'init.defaultBranch'])
@@ -1359,9 +1390,9 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     return value === '' ? 'main' : value
   })
   // 设置与视图偏好：写返回权威快照。
-  ipcMain.handle(IPC.gitSettingsGet, (_e, projectPath: string) => getGitSettings(projectPath))
-  ipcMain.handle(IPC.gitSettingsSet, (_e, projectPath: string, patch: Partial<GitRepoSettings>) =>
-    setGitSettings(projectPath, patch)
+  ipcMain.handle(IPC.gitSettingsGet, (_e, repoPath: string) => getGitSettings(repoPath))
+  ipcMain.handle(IPC.gitSettingsSet, (_e, repoPath: string, patch: Partial<GitRepoSettings>) =>
+    setGitSettings(repoPath, patch)
   )
   ipcMain.handle(IPC.gitViewPrefsGet, () => getGitViewPrefs())
   ipcMain.handle(IPC.gitViewPrefsSet, (_e, patch: Partial<GitViewPrefs>) => setGitViewPrefs(patch))
@@ -1376,14 +1407,14 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   )
   ipcMain.handle(IPC.githubLoginCancel, () => cancelGitHubLogin())
   ipcMain.handle(IPC.githubLogout, () => logoutGitHub())
-  ipcMain.handle(IPC.githubHasRepo, (_e, projectPath: string) => hasGitHubRepo(projectPath))
+  ipcMain.handle(IPC.githubHasRepo, (_e, repoPath: string) => hasGitHubRepo(repoPath))
   ipcMain.handle(IPC.githubStarGet, () => getDevCubeStarred())
   ipcMain.handle(IPC.githubStarAdd, () => starDevCube())
-  ipcMain.handle(IPC.githubCommitChecks, (_e, projectPath: string, hashes: string[]) =>
-    getCommitChecks(projectPath, hashes)
+  ipcMain.handle(IPC.githubCommitChecks, (_e, repoPath: string, hashes: string[]) =>
+    getCommitChecks(repoPath, hashes)
   )
-  ipcMain.handle(IPC.githubCheckRuns, (_e, projectPath: string, hash: string) =>
-    getCheckRuns(projectPath, hash)
+  ipcMain.handle(IPC.githubCheckRuns, (_e, repoPath: string, hash: string) =>
+    getCheckRuns(repoPath, hash)
   )
 
   // —— 应用内更新 ——

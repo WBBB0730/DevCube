@@ -24,7 +24,7 @@ import { countExecutedStatements } from '@renderer/lib/data-source-completion-us
 import { useRememberedPanel } from '@renderer/lib/remembered-panel'
 import { useFiles } from '@renderer/files-store'
 import { orderedTabKeys, resolveTabs, useApp } from '@renderer/store'
-import { gitState, useGit } from '@renderer/git-store'
+import { useGit } from '@renderer/git-store'
 import { cloneTaskOf, connectTasks, useTasks } from '@renderer/task-store'
 import type { AppShortcut } from '@shared/app-shortcut'
 import { wslDistroOf } from '@shared/wsl-path'
@@ -222,10 +222,15 @@ function App(): React.JSX.Element {
     const offRemoved = window.api.onSessionRemoved((key) =>
       useApp.getState().handleSessionRemoved(key)
     )
-    // 仓库变化（.git 变动 / git 动作完成）→ 软刷新对应项目的图谱；从未加载过的项目跳过。
-    const offGit = window.api.onGitChanged((projectPath) => {
+    // 仓库变化（.git 变动 / git 动作完成）→ 软刷新对应仓库的图谱；从未加载过的仓库跳过。
+    const offGit = window.api.onGitChanged((repoPath) => {
       const git = useGit.getState()
-      if (git.projects[projectPath]) void git.load(projectPath)
+      if (git.repos[repoPath]) void git.load(repoPath)
+    })
+    // 项目的仓库清单变化（新建 / 删除仓库、项目根初始化）→ 重取清单；从未取过清单的项目跳过。
+    const offGitRepos = window.api.onGitReposChanged((projectPath) => {
+      const git = useGit.getState()
+      if (git.projectRepos[projectPath]) void git.loadRepos(projectPath)
     })
     // 应用快捷键：主进程 before-input-event → IPC（抢在 xterm / 编辑器 / Chromium 默认之前）。
     const offShortcut = window.api.onAppShortcut(handleAppShortcut)
@@ -249,6 +254,7 @@ function App(): React.JSX.Element {
       offStatus()
       offRemoved()
       offGit()
+      offGitRepos()
       offShortcut()
       offUpdate()
       offTasks()
@@ -256,14 +262,12 @@ function App(): React.JSX.Element {
     }
   }, [init])
 
-  // 当前项目提前全量 load：Tab 栏始终能显示分支名，不必等点开 Git Tab。
-  // 仅 idle 时触发；已加载过的靠 onGitChanged 软刷新保鲜。load 同步置 loading，StrictMode 双挂载幂等。
+  // 当前项目提前取仓库清单并加载选中的仓库：Tab 栏始终能显示分支名，不必等点开 Git Tab。
+  // 仅没取过清单时触发；已取过的靠 onGitReposChanged / onGitChanged 保鲜。StrictMode 双挂载幂等（代际号去重）。
   useEffect(() => {
     if (!currentProjectPath) return
     const git = useGit.getState()
-    if (gitState(git, currentProjectPath).status === 'idle') {
-      void git.load(currentProjectPath)
-    }
+    if (git.projectRepos[currentProjectPath] === undefined) void git.loadRepos(currentProjectPath)
   }, [currentProjectPath])
 
   // 自动获取的定时部分：每隔固定间隔「刷新」当时的当前项目（不论选中哪个 Tab、窗口是否在前台）；
@@ -277,7 +281,8 @@ function App(): React.JSX.Element {
       // WSL 项目没连上时不为定时获取去连：窗口关到托盘后闲置断开的发行版不再被叫醒（docs/prd/wsl-project.md）
       const distro = wslDistroOf(entryKey)
       if (distro !== null && (await window.api.getWslState(distro)).status !== 'connected') return
-      void useGit.getState().refresh(entryKey, { suppressErrorBox: true })
+      const selected = useGit.getState().projectRepos[entryKey]?.selected ?? null
+      if (selected !== null) void useGit.getState().refresh(selected, { suppressErrorBox: true })
     }, GIT_DEFAULTS.autoFetchIntervalMs)
     return () => clearInterval(timer)
   }, [gitAutoFetch])

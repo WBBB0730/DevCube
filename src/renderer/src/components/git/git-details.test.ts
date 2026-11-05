@@ -9,7 +9,6 @@ import {
   changeBlockStarts,
   diffNavIndex,
   diffNavSequence,
-  diffPossible,
   diffSections,
   fileRowTitle,
   filesInSelection,
@@ -45,16 +44,15 @@ function fc(path: string, overrides: Partial<GitFileChange> = {}): GitFileChange
 }
 
 describe('workingTreeStatusByPath', () => {
-  it('未暂存覆盖已暂存；冲突优先；跳过 isDir', () => {
+  it('未暂存覆盖已暂存；冲突优先', () => {
     const m = workingTreeStatusByPath({
       staged: [fc('a.ts', { type: 'A' }), fc('b.ts', { type: 'M' })],
-      unstaged: [fc('b.ts', { type: 'M' }), fc('nested/', { type: 'U', isDir: true })],
+      unstaged: [fc('b.ts', { type: 'M' })],
       conflicted: [fc('c.ts', { type: '!' })]
     })
     expect(m.get('a.ts')).toBe('A')
     expect(m.get('b.ts')).toBe('M')
     expect(m.get('c.ts')).toBe('!')
-    expect(m.has('nested/')).toBe(false)
   })
 })
 
@@ -136,22 +134,6 @@ describe('treeRowKeys', () => {
   })
 })
 
-describe('diffPossible', () => {
-  it('未跟踪文件可打开 diff', () => {
-    expect(diffPossible(fc('a.bin', { type: 'U', additions: null, deletions: null }))).toBe(true)
-  })
-
-  it('无行数的文件（如二进制）也可打开 diff（是否二进制由点开后判定）', () => {
-    expect(diffPossible(fc('a.png', { additions: null, deletions: null }))).toBe(true)
-  })
-
-  it('未跟踪目录整体条目不可打开 diff', () => {
-    expect(
-      diffPossible(fc('vendor', { type: 'U', additions: null, deletions: null, isDir: true }))
-    ).toBe(false)
-  })
-})
-
 describe('fileRowTitle', () => {
   it('可 diff 的普通修改显示「点击查看差异，双击打开文件 • 已修改」', () => {
     expect(fileRowTitle(fc('a.ts'))).toBe('点击查看差异，双击打开文件 • 已修改')
@@ -161,12 +143,6 @@ describe('fileRowTitle', () => {
     expect(fileRowTitle(fc('a.ts', { type: 'D' }))).toBe('点击查看差异 • 已删除')
   })
 
-  it('未跟踪目录整体条目提示无法查看差异、双击在文件树中显示', () => {
-    expect(
-      fileRowTitle(fc('vendor', { type: 'U', additions: null, deletions: null, isDir: true }))
-    ).toBe('无法查看差异（这是一个未跟踪目录），双击在文件树中显示 • 未跟踪')
-  })
-
   it('重命名附注旧路径 → 新路径', () => {
     const file = fc('b.ts', { oldFilePath: 'a.ts', type: 'R' })
     expect(fileRowTitle(file)).toBe('点击查看差异，双击打开文件 • 已重命名 (a.ts → b.ts)')
@@ -174,10 +150,9 @@ describe('fileRowTitle', () => {
 })
 
 describe('canOpenWorkingTreeFile', () => {
-  it('普通文件与未跟踪目录（在文件树里定位）可打开，已删除不可', () => {
+  it('普通文件可打开，已删除不可', () => {
     expect(canOpenWorkingTreeFile(fc('a.ts'))).toBe(true)
     expect(canOpenWorkingTreeFile(fc('a.ts', { type: 'D' }))).toBe(false)
-    expect(canOpenWorkingTreeFile(fc('vendor', { type: 'U', isDir: true }))).toBe(true)
   })
 })
 
@@ -640,21 +615,21 @@ describe('diffNavSequence / diffNavIndex', () => {
     ])
   })
 
-  it('提交面板：已暂存段在前、未暂存（含冲突）在后，端点随段；未跟踪目录条目保留', () => {
+  it('提交面板：已暂存段在前、未暂存（含冲突）在后，端点随段', () => {
     const staged = fc('b.ts')
-    const untrackedDir = fc('nested', { type: 'U', isDir: true })
+    const untracked = fc('nested', { type: 'U' })
     const conflicted = fc('c.ts', { type: '!' })
     const seq = diffNavSequence(
       navExp({
         hash: UNCOMMITTED,
-        uncommitted: { staged: [staged], unstaged: [untrackedDir], conflicted: [conflicted] }
+        uncommitted: { staged: [staged], unstaged: [untracked], conflicted: [conflicted] }
       }),
       () => -1
     )
     expect(seq).toEqual([
       { file: staged, fromHash: 'HEAD', toHash: GIT_INDEX },
       { file: conflicted, fromHash: GIT_INDEX, toHash: UNCOMMITTED },
-      { file: untrackedDir, fromHash: GIT_INDEX, toHash: UNCOMMITTED }
+      { file: untracked, fromHash: GIT_INDEX, toHash: UNCOMMITTED }
     ])
   })
 

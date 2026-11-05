@@ -106,24 +106,24 @@ interface RowActions {
 }
 
 /** 提交表格（含图谱 SVG 与「加载更多」页脚）；数据与打开态全部读 git-store。 */
-export function GitCommitTable({ projectPath }: { projectPath: string }): React.JSX.Element {
-  const commits = useGit((s) => gitState(s, projectPath).commits)
-  const headHash = useGit((s) => gitState(s, projectPath).headHash)
-  const currentBranch = useGit((s) => gitState(s, projectPath).currentBranch)
-  const worktrees = useGit((s) => gitState(s, projectPath).worktrees)
-  const moreCommitsAvailable = useGit((s) => gitState(s, projectPath).moreCommitsAvailable)
-  const expandedHash = useGit((s) => gitState(s, projectPath).expanded?.hash ?? null)
-  const compareWith = useGit((s) => gitState(s, projectPath).expanded?.compareWith ?? null)
+export function GitCommitTable({ repoPath }: { repoPath: string }): React.JSX.Element {
+  const commits = useGit((s) => gitState(s, repoPath).commits)
+  const headHash = useGit((s) => gitState(s, repoPath).headHash)
+  const currentBranch = useGit((s) => gitState(s, repoPath).currentBranch)
+  const worktrees = useGit((s) => gitState(s, repoPath).worktrees)
+  const moreCommitsAvailable = useGit((s) => gitState(s, repoPath).moreCommitsAvailable)
+  const expandedHash = useGit((s) => gitState(s, repoPath).expanded?.hash ?? null)
+  const compareWith = useGit((s) => gitState(s, repoPath).expanded?.compareWith ?? null)
   // 右键菜单目标行（contextMenuActive 高亮）：有 hash 的目标取 hash，未提交目标取 '*'
   const menuHash = useGit((s) => {
-    const t = gitState(s, projectPath).contextMenu?.target
+    const t = gitState(s, repoPath).contextMenu?.target
     if (!t) return null
     if ('hash' in t) return t.hash
     return t.kind === 'uncommitted' ? UNCOMMITTED : null
   })
-  const find = useGit((s) => gitState(s, projectPath).find)
+  const find = useGit((s) => gitState(s, repoPath).find)
   const loadMore = useGit((s) => s.loadMore)
-  const checks = useGitHub((s) => commitChecks(s, projectPath))
+  const checks = useGitHub((s) => commitChecks(s, repoPath))
 
   const viewRef = useRef<HTMLDivElement>(null)
   const tableRef = useRef<HTMLTableElement>(null)
@@ -226,16 +226,16 @@ export function GitCommitTable({ projectPath }: { projectPath: string }): React.
       // 单击行开详情 / 再点收起；Ctrl/Cmd+点进入比较（graph-table §7）。标签内点击已 stopPropagation。
       rowClick: (e, commit) => {
         const store = useGit.getState()
-        const exp = gitState(store, projectPath).expanded
+        const exp = gitState(store, repoPath).expanded
         if ((e.metaKey || e.ctrlKey) && exp) {
-          if (commit.hash === exp.hash) store.closeDetails(projectPath)
+          if (commit.hash === exp.hash) store.closeDetails(repoPath)
           else if (commit.hash === exp.compareWith)
-            void store.openDetails(projectPath, exp.hash, exp.stash) // 退出比较回基准详情
-          else void store.openCompare(projectPath, exp.hash, commit.hash)
+            void store.openDetails(repoPath, exp.hash, exp.stash) // 退出比较回基准详情
+          else void store.openCompare(repoPath, exp.hash, commit.hash)
         } else if (exp && exp.hash === commit.hash && exp.compareWith === null) {
-          store.closeDetails(projectPath)
+          store.closeDetails(repoPath)
         } else {
-          void store.openDetails(projectPath, commit.hash, commit.stash)
+          void store.openDetails(repoPath, commit.hash, commit.stash)
         }
       },
       rowContextMenu: (e, commit) => {
@@ -246,16 +246,16 @@ export function GitCommitTable({ projectPath }: { projectPath: string }): React.
             : commit.stash !== null
               ? { kind: 'stash', hash: commit.hash, stash: commit.stash }
               : { kind: 'commit', hash: commit.hash }
-        useGit.getState().openContextMenu(projectPath, { x: e.clientX, y: e.clientY, target })
+        useGit.getState().openContextMenu(repoPath, { x: e.clientX, y: e.clientY, target })
       },
       // 单击标签只关已开的菜单，不打开详情（防误触，§7）
       refClick: (e) => {
         e.stopPropagation()
-        useGit.getState().closeContextMenu(projectPath)
+        useGit.getState().closeContextMenu(repoPath)
       },
       branchDoubleClick: (e, name) => {
         e.stopPropagation()
-        const state = gitState(useGit.getState(), projectPath)
+        const state = gitState(useGit.getState(), repoPath)
         // 操作进行中（变基/合并等冲突中途）：双击无可视禁用面，handler 早退拦截，
         // 原因由常驻状态条解释（右键菜单同款入口是置灰 + hover 原因）
         if (state.opInProgress !== null) return
@@ -264,13 +264,13 @@ export function GitCommitTable({ projectPath }: { projectPath: string }): React.
         if (holder !== null) {
           useGit
             .getState()
-            .openDialog(projectPath, { kind: 'branch-in-worktree', branch: name, worktree: holder })
+            .openDialog(repoPath, { kind: 'branch-in-worktree', branch: name, worktree: holder })
           return
         }
         void useGit
           .getState()
           .runAction(
-            projectPath,
+            repoPath,
             { kind: 'checkout-branch', branch: name, remoteBranch: null },
             `正在检出分支 “${name}”`
           )
@@ -278,18 +278,18 @@ export function GitCommitTable({ projectPath }: { projectPath: string }): React.
       remoteDoubleClick: (e, fullRef, remote) => {
         e.stopPropagation()
         // 同 branchDoubleClick：操作进行中早退
-        if (gitState(useGit.getState(), projectPath).opInProgress !== null) return
+        if (gitState(useGit.getState(), repoPath).opInProgress !== null) return
         useGit
           .getState()
-          .openDialog(projectPath, { kind: 'checkout-remote-branch', remoteRef: fullRef, remote })
+          .openDialog(repoPath, { kind: 'checkout-remote-branch', remoteRef: fullRef, remote })
       },
       refContextMenu: (e, target) => {
         e.preventDefault()
         e.stopPropagation()
-        useGit.getState().openContextMenu(projectPath, { x: e.clientX, y: e.clientY, target })
+        useGit.getState().openContextMenu(repoPath, { x: e.clientX, y: e.clientY, target })
       }
     }),
-    [projectPath]
+    [repoPath]
   )
 
   // 距底 25px 自动加载（§8）；loadMore 自身带 ready 校验与在途防重入
@@ -297,7 +297,7 @@ export function GitCommitTable({ projectPath }: { projectPath: string }): React.
     const el = e.currentTarget
     if (!moreCommitsAvailable) return
     if (el.scrollTop > 0 && el.scrollTop + el.clientHeight >= el.scrollHeight - 25) {
-      void loadMore(projectPath)
+      void loadMore(repoPath)
     }
   }
 
@@ -310,7 +310,7 @@ export function GitCommitTable({ projectPath }: { projectPath: string }): React.
             <tr
               onContextMenu={(e) => {
                 e.preventDefault()
-                useGit.getState().openContextMenu(projectPath, {
+                useGit.getState().openContextMenu(repoPath, {
                   x: e.clientX,
                   y: e.clientY,
                   target: { kind: 'header' }
@@ -456,7 +456,7 @@ export function GitCommitTable({ projectPath }: { projectPath: string }): React.
         <div className="flex justify-center py-2.5">
           <button
             type="button"
-            onClick={() => void loadMore(projectPath)}
+            onClick={() => void loadMore(repoPath)}
             className="h-7 w-[180px] rounded-lg border border-[color:var(--border-input)] bg-elevated text-[13px] text-foreground transition-colors hover:bg-[var(--bg-row-hover)]"
           >
             加载更多提交

@@ -65,9 +65,9 @@ const ORDERING_OPTIONS: { value: GitCommitOrdering; label: string }[] = [
 ]
 
 /** 视图选项按钮 + Popover：数据全部读 git-store 的 settings，变更即 updateSettings。 */
-export function GitViewOptions({ projectPath }: { projectPath: string }): React.JSX.Element {
-  const settings = useGit((s) => gitState(s, projectPath).settings)
-  const remotes = useGit((s) => gitState(s, projectPath).remotes)
+export function GitViewOptions({ repoPath }: { repoPath: string }): React.JSX.Element {
+  const settings = useGit((s) => gitState(s, repoPath).settings)
+  const remotes = useGit((s) => gitState(s, repoPath).remotes)
   const updateSettings = useGit((s) => s.updateSettings)
   const showRemoteBranches = resolveOverride(
     settings?.showRemoteBranches ?? 'default',
@@ -95,7 +95,7 @@ export function GitViewOptions({ projectPath }: { projectPath: string }): React.
                 onCheckedChange={(checked) =>
                   // 三态写回：勾选 = enabled、取消 = disabled（updateSettings 对数据键自动硬刷新）。
                   // 计算键的对象字面量会宽化成索引签名，显式收窄回 Partial<GitRepoSettings>
-                  void updateSettings(projectPath, {
+                  void updateSettings(repoPath, {
                     [row.key]: checked ? 'enabled' : 'disabled'
                   } as Partial<GitRepoSettings>)
                 }
@@ -113,7 +113,7 @@ export function GitViewOptions({ projectPath }: { projectPath: string }): React.
                     checked={!hideRemotes.includes(remote)}
                     disabled={!showRemoteBranches}
                     onCheckedChange={(checked) =>
-                      void updateSettings(projectPath, {
+                      void updateSettings(repoPath, {
                         hideRemotes: nextHideRemotes(hideRemotes, remote, !checked)
                       })
                     }
@@ -129,7 +129,7 @@ export function GitViewOptions({ projectPath }: { projectPath: string }): React.
           className="gap-0"
           value={ordering}
           onValueChange={(v) =>
-            void updateSettings(projectPath, { commitOrdering: v as GitCommitOrdering })
+            void updateSettings(repoPath, { commitOrdering: v as GitCommitOrdering })
           }
         >
           {ORDERING_OPTIONS.map((opt) => (

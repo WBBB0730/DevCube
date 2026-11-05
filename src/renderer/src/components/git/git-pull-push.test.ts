@@ -129,7 +129,7 @@ describe('defaultPullBranch', () => {
 })
 
 describe('defaultPullMode', () => {
-  it('本项目的记忆值优先于仓库 git 配置', () => {
+  it('本仓库的记忆值优先于仓库 git 配置', () => {
     const c = config({ pullRebase: 'true' })
     expect(defaultPullMode('squash', 'dev', c)).toBe('squash')
   })
@@ -192,7 +192,7 @@ describe('directPullAction / directPushAction', () => {
     })
   })
 
-  it('直接拉取的整合方式取本项目记忆值，其次仓库 git 配置', () => {
+  it('直接拉取的整合方式取本仓库记忆值，其次仓库 git 配置', () => {
     const remembered = { ...DEFAULT_GIT_REPO_SETTINGS, pullIntegrationMode: 'squash' as const }
     expect(directPullAction(state({ settings: remembered }))?.mode).toBe('squash')
     const c = config({
