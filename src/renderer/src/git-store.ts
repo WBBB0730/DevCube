@@ -227,10 +227,9 @@ export function gitState(s: GitStoreState, repoPath: string): GitRepoState {
   return s.repos[repoPath] ?? EMPTY_REPO
 }
 
-/** 项目选中的仓库；清单没取过或为空为 null。 */
-export function selectedRepoOf(s: GitStoreState, projectPath: string): GitRepo | null {
-  const repos = s.projectRepos[projectPath]
-  return repos?.list.find((r) => r.path === repos.selected) ?? null
+/** 项目选中的仓库（GitRepo.path）；清单没取过或为空为 null。 */
+export function selectedRepoPathOf(s: GitStoreState, projectPath: string): string | null {
+  return s.projectRepos[projectPath]?.selected ?? null
 }
 
 /**
@@ -260,9 +259,14 @@ export function findRepoContext(
   return null
 }
 
+/** 仓库根目录（`/` 分隔，git 给出的文件路径都相对它）；还不在任何项目的清单里时按 repoPath 算。 */
+export function repoRootOf(repoPath: string): string {
+  return repoContextOf(repoPath)?.repo.root ?? repoPath
+}
+
 /** 仓库里一个文件的绝对路径（relPath 相对仓库根，即 git 给出的路径）。 */
 export function repoFilePath(repoPath: string, relPath: string): string {
-  return `${repoContextOf(repoPath)?.repo.root ?? repoPath}/${relPath}`
+  return `${repoRootOf(repoPath)}/${relPath}`
 }
 
 /**
@@ -276,6 +280,16 @@ export function openInProjectFiles(repoPath: string, absolutePath: string): void
   const root = normalizePath(ctx.projectPath)
   if (path !== root && !path.startsWith(childPathPrefix(root))) return
   useFiles.getState().openInFiles(ctx.projectPath, path)
+}
+
+/**
+ * 打开在项目根初始化仓库的对话框（非仓库页的按钮与仓库下拉共用）：预填当前生效的 init.defaultBranch
+ * （未配置回落 main），拿到后再弹；对话框开在项目路径那一桶上。
+ */
+export function openInitDialog(projectPath: string): void {
+  void window.api.gitDefaultBranch(projectPath).then((defaultBranch) => {
+    useGit.getState().openDialog(projectPath, { kind: 'init', defaultBranch })
+  })
 }
 
 // —— 私有辅助（纯函数） ——

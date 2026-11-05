@@ -1,7 +1,7 @@
 import type { Stats } from 'node:fs'
 // 用户的文件用不带 asar 改装的原版 fs：Electron 改装过的 fs 会把 .asar 文件当成文件夹往里读（ADR-0051）
 import { promises as originalFs } from 'original-fs'
-import { basename, join, relative, sep } from 'node:path'
+import { basename, join, relative } from 'node:path'
 import {
   MAC_JUNK_HEADER_BYTES,
   archiveEntryName,
@@ -15,6 +15,7 @@ import {
 } from '../shared/compress'
 import { normalizePath } from '../shared/files-path'
 import { execGit, findGit, getErrorMessage } from './git-exec'
+import { toSlashPath } from './sys-path'
 
 /**
  * 压缩清单（docs/prd/compress.md「清单」）：列出所选条目里要装进包的目录、文件与符号链接。
@@ -430,9 +431,7 @@ export async function scanCompressItems(
     if (await insideWorkTree(parent)) {
       flags.hasRepo = true
       if (useGit) {
-        const selection = items.map((item) =>
-          asGitName(relative(parent, item).split(sep).join('/'))
-        )
+        const selection = items.map((item) => asGitName(toSlashPath(relative(parent, item))))
         await listByGit(parent, top, selection)
         return
       }

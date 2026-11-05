@@ -86,7 +86,7 @@ import {
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
 import { TOOLBAR_BTN, TOOLBAR_BTN_SM } from '@renderer/components/ui/toolbar'
-import { gitState, useGit } from '@renderer/git-store'
+import { gitState, selectedRepoPathOf, useGit } from '@renderer/git-store'
 import { createKeyedSubscription } from '@renderer/lib/keyed-subscription'
 import { findSeed } from '@renderer/lib/find-seed'
 import { isPrimaryModifierEvent, shortcutLabel, shortcutTitle } from '@renderer/lib/shortcut-label'
@@ -617,7 +617,7 @@ function GitTabItem({
 }): React.JSX.Element {
   const activateTab = useApp((s) => s.activateTab)
   const branch = useGit((s) => {
-    const repo = s.projectRepos[projectPath]?.selected ?? null
+    const repo = selectedRepoPathOf(s, projectPath)
     if (repo === null) return null
     const st = gitState(s, repo)
     return st.currentBranch ?? (st.headHash !== null ? abbrevHash(st.headHash) : null)
@@ -632,7 +632,7 @@ function GitTabItem({
         // Diff 是临时盖板：已激活时再点即关；切 Tab 那一下不关（切走保留现场，回来接着看）
         if (active) {
           const store = useGit.getState()
-          const repo = store.projectRepos[projectPath]?.selected ?? null
+          const repo = selectedRepoPathOf(store, projectPath)
           if (repo !== null && gitState(store, repo).diffView) store.closeDiff(repo)
         } else {
           activateTab(projectPath, gitKey)

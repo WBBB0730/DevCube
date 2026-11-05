@@ -24,7 +24,7 @@ import { countExecutedStatements } from '@renderer/lib/data-source-completion-us
 import { useRememberedPanel } from '@renderer/lib/remembered-panel'
 import { useFiles } from '@renderer/files-store'
 import { orderedTabKeys, resolveTabs, useApp } from '@renderer/store'
-import { useGit } from '@renderer/git-store'
+import { selectedRepoPathOf, useGit } from '@renderer/git-store'
 import { cloneTaskOf, connectTasks, useTasks } from '@renderer/task-store'
 import type { AppShortcut } from '@shared/app-shortcut'
 import { wslDistroOf } from '@shared/wsl-path'
@@ -281,7 +281,7 @@ function App(): React.JSX.Element {
       // WSL 项目没连上时不为定时获取去连：窗口关到托盘后闲置断开的发行版不再被叫醒（docs/prd/wsl-project.md）
       const distro = wslDistroOf(entryKey)
       if (distro !== null && (await window.api.getWslState(distro)).status !== 'connected') return
-      const selected = useGit.getState().projectRepos[entryKey]?.selected ?? null
+      const selected = selectedRepoPathOf(useGit.getState(), entryKey)
       if (selected !== null) void useGit.getState().refresh(selected, { suppressErrorBox: true })
     }, GIT_DEFAULTS.autoFetchIntervalMs)
     return () => clearInterval(timer)

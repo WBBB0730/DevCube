@@ -9,8 +9,9 @@
 // 打开它的 Git / 文件页）才完整发现，同主流工具「打开项目时才找」。结果按项目缓存，监听看到 `.git` 增删时
 // 按已有的那一档重新发现（ipc 侧接线）。
 
-import { isAbsolute, join, relative, sep } from 'node:path'
+import { join, relative } from 'node:path'
 import { promises as fs } from 'original-fs'
+import pLimit from 'p-limit'
 import { lastPathSegment, normalizePath } from '../shared/files-path'
 import type { GitRepo } from '../shared/git'
 import {
@@ -20,6 +21,8 @@ import {
   resolveGitDirs,
   type GitDirs
 } from './git-exec'
+import { isPathInside, relativeInside } from './project-watch-classify'
+import { toSlashPath } from './sys-path'
 
 /** 主进程里的仓库条目：比渲染端多出监听与写动作队列要的信息。 */
 export interface ProjectRepo extends GitRepo {
@@ -57,36 +60,27 @@ export function parseSubmodulePaths(stdout: string): string[] {
     .filter((path) => path !== '')
 }
 
-/** 同时在跑的 git 进程与读目录上限：一个目录里有几十个仓库时不一口气起几十个进程。 */
-const DISCOVERY_CONCURRENCY = 8
-let running = 0
-const waiting: Array<() => void> = []
-
-async function limited<T>(task: () => Promise<T>): Promise<T> {
-  if (running < DISCOVERY_CONCURRENCY) running++
-  // 排到时由结束的那个直接把名额交过来
-  else await new Promise<void>((resolve) => waiting.push(resolve))
-  try {
-    return await task()
-  } finally {
-    const next = waiting.shift()
-    if (next) next()
-    else running--
-  }
+/** 仓库里的嵌套仓库（相对 cwd，`/` 分隔；「全部暂存」排除它们也用这个）。读失败按没有算。 */
+export async function listNestedRepos(cwd: string): Promise<string[]> {
+  const result = await execGit(cwd, ['ls-files', '--others', '--exclude-standard', '-z'])
+  return result.code === 0 ? parseNestedRepoEntries(result.stdout.toString('utf8')) : []
 }
+
+/** 同时在跑的 git 进程与读目录上限：一个目录里有几十个仓库时不一口气起几十个进程。 */
+const limit = pLimit(8)
 
 /** 目录本身是不是仓库根（rev-parse 查到的根就是它；与加载图谱时的判断同一口径，顺带刷新仓库根缓存）。 */
 async function isRepoRoot(dir: string): Promise<boolean> {
-  const root = await limited(() => refreshRepoRoot(dir))
+  const root = await limit(() => refreshRepoRoot(dir))
   return root !== undefined && root !== null && normalizePath(root) === normalizePath(dir)
 }
 
 /** 项目自己所在的仓库根；不在仓库里、或被上层仓库忽略为 null；git 跑不起来为 undefined。 */
 async function ownRepoRoot(projectPath: string): Promise<string | null | undefined> {
-  const root = await limited(() => refreshRepoRoot(projectPath))
+  const root = await limit(() => refreshRepoRoot(projectPath))
   if (root === undefined || root === null) return root
   if (normalizePath(root) === normalizePath(projectPath)) return root
-  const ignored = await limited(() => execGit(projectPath, ['check-ignore', '-q', '.']))
+  const ignored = await limit(() => execGit(projectPath, ['check-ignore', '-q', '.']))
   return ignored.code === 0 ? null : root
 }
 
@@ -106,9 +100,9 @@ async function scanRepo(
   root: string,
   found: FoundRepo[]
 ): Promise<void> {
-  const [others, modules] = await Promise.all([
-    limited(() => execGit(repoPath, ['ls-files', '--others', '--exclude-standard', '-z'])),
-    limited(() =>
+  const [nested, modules] = await Promise.all([
+    limit(() => listNestedRepos(repoPath)),
+    limit(() =>
       execGit(root, [
         'config',
         '--file',
@@ -119,18 +113,13 @@ async function scanRepo(
       ])
     )
   ])
-  const children = new Map<string, string | null>()
-  if (others.code === 0) {
-    for (const rel of parseNestedRepoEntries(others.stdout.toString('utf8'))) {
-      children.set(join(repoPath, rel), null)
-    }
-  }
+  const children = new Map<string, string | null>(nested.map((rel) => [join(repoPath, rel), null]))
   if (modules.code === 0) {
     for (const rel of parseSubmodulePaths(modules.stdout.toString('utf8'))) {
       // 只认项目里面的子模块（项目可能是仓库的子目录）
       const path = join(root, rel)
-      const fromProject = relative(projectPath, path)
-      if (fromProject !== '' && !fromProject.startsWith('..')) children.set(path, repoPath)
+      const fromProject = relativeInside(projectPath, path)
+      if (fromProject !== null && fromProject !== '') children.set(path, repoPath)
     }
   }
   const candidates = [...children].filter(
@@ -147,7 +136,7 @@ async function scanRepo(
 
 /** 不在任何仓库里的目录：逐层读目录，有 `.git` 且确是仓库根的交给 scanRepo，其余接着往下找。 */
 async function walkDir(projectPath: string, dir: string, found: FoundRepo[]): Promise<void> {
-  const entries = await limited(() => fs.readdir(dir, { withFileTypes: true })).catch(() => [])
+  const entries = await limit(() => fs.readdir(dir, { withFileTypes: true })).catch(() => [])
   if (
     dir !== projectPath &&
     entries.some((entry) => entry.name === '.git') &&
@@ -164,10 +153,6 @@ async function walkDir(projectPath: string, dir: string, found: FoundRepo[]): Pr
   )
 }
 
-function toSlash(path: string): string {
-  return path.split(sep).join('/')
-}
-
 /**
  * 发现一遍：项目自己的仓库排第一个，嵌套仓库按名字排；full 为 false 时只要项目自己的仓库。
  * git 跑不起来为 undefined（查不了，不等于没有仓库）。
@@ -179,7 +164,7 @@ async function discover(projectPath: string, full: boolean): Promise<ProjectRepo
   if (full && ownRoot !== null) await scanRepo(projectPath, projectPath, ownRoot, found)
   else if (full) await walkDir(projectPath, projectPath, found)
   const nested = found
-    .map((f) => ({ ...f, name: toSlash(relative(projectPath, f.path)) }))
+    .map((f) => ({ ...f, name: toSlashPath(relative(projectPath, f.path)) }))
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' }))
   const entries: Array<Omit<ProjectRepo, 'gitDirs'>> = [
     ...(ownRoot !== null
@@ -195,7 +180,7 @@ async function discover(projectPath: string, full: boolean): Promise<ProjectRepo
       : []),
     ...nested.map((n) => ({
       path: n.path,
-      root: toSlash(n.path),
+      root: toSlashPath(n.path),
       name: n.name,
       own: false,
       superPath: n.superPath
@@ -204,7 +189,7 @@ async function discover(projectPath: string, full: boolean): Promise<ProjectRepo
   return Promise.all(
     entries.map(async (entry) => ({
       ...entry,
-      gitDirs: await limited(() => resolveGitDirs(entry.own ? entry.root : entry.path))
+      gitDirs: await limit(() => resolveGitDirs(entry.own ? entry.root : entry.path))
     }))
   )
 }
@@ -325,12 +310,6 @@ export function forgetProjectRepos(projectPath: string): void {
   sequence.delete(projectPath)
 }
 
-/** path 是否就是 dir 或在它里面（本平台路径）。 */
-function isWithin(path: string, dir: string): boolean {
-  const rel = relative(dir, path)
-  return rel === '' || (rel !== '..' && !rel.startsWith(`..${sep}`) && !isAbsolute(rel))
-}
-
 /**
  * 项目移除后没人再用的仓库键（GitRepo.path，每仓库设置的键）：在移除的项目目录里、又不在任何剩下的项目目录里
  * （剩下的项目可能就是它里面的嵌套仓库，或者它本身是剩下项目里的嵌套仓库）。按路径判断，不靠发现过的清单——
@@ -343,8 +322,8 @@ export function orphanedRepoPaths(
 ): string[] {
   return repoPaths.filter(
     (path) =>
-      isWithin(path, removedProject) &&
-      !remainingProjects.some((project) => isWithin(path, project))
+      isPathInside(removedProject, path) &&
+      !remainingProjects.some((project) => isPathInside(project, path))
   )
 }
 

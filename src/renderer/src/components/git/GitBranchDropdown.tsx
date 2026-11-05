@@ -7,8 +7,13 @@ import { useRef, useState } from 'react'
 import { Check, ChevronDown } from 'lucide-react'
 import { gitState, useGit } from '@renderer/git-store'
 import { cn } from '@renderer/lib/utils'
-import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
-import { TOOLBAR_SELECT } from '@renderer/components/ui/toolbar'
+import { PopoverTrigger } from '@renderer/components/ui/popover'
+import {
+  FILTER_ROW,
+  FILTER_SELECT_TRIGGER,
+  FilterPopover,
+  matchesFilter
+} from '@renderer/components/ui/filter-popover'
 
 // —— 纯逻辑（选中语义 §2.5，导出供测试） ——
 
@@ -54,11 +59,6 @@ export function branchFilterLabel(filter: string[] | null): string {
   return `${names.slice(0, -1).join('、')} 和 ${names[names.length - 1]}`
 }
 
-// 触发行：共用的显示当前值的下拉钮（TOOLBAR_SELECT），宽度随内容、min 138px / max 30vw（§2.3）
-const TRIGGER = cn(TOOLBAR_SELECT, 'min-w-[138px] max-w-[30vw]')
-const ROW =
-  'flex h-7 cursor-pointer select-none items-center gap-1.5 rounded px-1.5 text-[13px] transition-colors hover:bg-[var(--bg-row-hover)]'
-
 /** 分支筛选下拉：读 store 的 branches / branchFilter，变更即触发硬刷新。 */
 export function GitBranchDropdown({ repoPath }: { repoPath: string }): React.JSX.Element {
   const branches = useGit((s) => gitState(s, repoPath).branches)
@@ -70,14 +70,10 @@ export function GitBranchDropdown({ repoPath }: { repoPath: string }): React.JSX
   const lastShowAllClick = useRef(0)
 
   const label = branchFilterLabel(branchFilter)
-  const lower = filterText.toLowerCase()
   // 过滤只影响显示、不影响选中态（§2.4）；「全部分支」「当前分支」行同样参与按名过滤
-  const showAllVisible = filterText === '' || '全部分支'.includes(filterText)
-  const currentVisible = filterText === '' || '当前分支'.includes(filterText)
-  const shown =
-    filterText === ''
-      ? branches
-      : branches.filter((b) => branchDisplayName(b).toLowerCase().includes(lower))
+  const showAllVisible = matchesFilter(filterText, '全部分支')
+  const currentVisible = matchesFilter(filterText, '当前分支')
+  const shown = branches.filter((b) => matchesFilter(filterText, branchDisplayName(b)))
 
   const apply = (next: string[] | null): void => {
     // 与当前一致（都为全部分支、或都为当前分支模式）时不触发，避免无谓的硬刷新
@@ -98,73 +94,56 @@ export function GitBranchDropdown({ repoPath }: { repoPath: string }): React.JSX
   }
 
   return (
-    <Popover
+    <FilterPopover
       open={open}
-      onOpenChange={(o) => {
-        setOpen(o)
-        if (o) setFilterText('') // 打开即清空过滤词（§2.2），输入框 autoFocus 聚焦
-      }}
+      onOpenChange={setOpen}
+      filter={filterText}
+      onFilterChange={setFilterText}
+      placeholder="筛选分支…"
+      empty={!showAllVisible && !currentVisible && shown.length === 0}
+      trigger={
+        <PopoverTrigger className={FILTER_SELECT_TRIGGER} title={label}>
+          <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left">
+            {label}
+          </span>
+          <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+        </PopoverTrigger>
+      }
     >
-      <PopoverTrigger className={TRIGGER} title={label}>
-        <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-left">
-          {label}
-        </span>
-        <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
-      </PopoverTrigger>
-      <PopoverContent className="max-h-none w-72 overflow-hidden p-0">
-        <div className="border-b border-[color:var(--separator)] p-1.5">
-          <input
-            autoFocus
-            value={filterText}
-            onChange={(e) => setFilterText(e.target.value)}
-            placeholder="筛选分支…"
-            className="h-7 w-full rounded border border-[color:var(--border-input)] bg-[var(--bg-deepest)] px-2 text-[13px] text-foreground outline-none placeholder:text-[color:var(--fg-disabled)] focus-visible:ring-2 focus-visible:ring-ring"
+      {showAllVisible && (
+        <div className={FILTER_ROW} onClick={onShowAllClick}>
+          <Check className={cn('size-3.5 shrink-0', branchFilter !== null && 'invisible')} />
+          <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+            全部分支
+          </span>
+        </div>
+      )}
+      {currentVisible && (
+        <div className={FILTER_ROW} onClick={() => apply(CURRENT_BRANCH_FILTER)}>
+          <Check
+            className={cn('size-3.5 shrink-0', !isCurrentBranchFilter(branchFilter) && 'invisible')}
           />
+          <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
+            当前分支
+          </span>
         </div>
-        {/* 菜单最大高度 ≈ 参考的 297px（§2.3），超出滚动 */}
-        <div className="max-h-[297px] overflow-y-auto p-1.5">
-          {showAllVisible && (
-            <div className={ROW} onClick={onShowAllClick}>
-              <Check className={cn('size-3.5 shrink-0', branchFilter !== null && 'invisible')} />
-              <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-                全部分支
-              </span>
-            </div>
-          )}
-          {currentVisible && (
-            <div className={ROW} onClick={() => apply(CURRENT_BRANCH_FILTER)}>
-              <Check
-                className={cn(
-                  'size-3.5 shrink-0',
-                  !isCurrentBranchFilter(branchFilter) && 'invisible'
-                )}
-              />
-              <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-                当前分支
-              </span>
-            </div>
-          )}
-          {shown.map((b) => (
-            <div key={b} className={ROW} onClick={() => apply(toggleBranch(branchFilter, b))}>
-              <Check
-                className={cn(
-                  'size-3.5 shrink-0',
-                  !(branchFilter?.includes(b) ?? false) && 'invisible'
-                )}
-              />
-              <span
-                className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
-                title={b}
-              >
-                {branchDisplayName(b)}
-              </span>
-            </div>
-          ))}
-          {!showAllVisible && !currentVisible && shown.length === 0 && (
-            <div className="px-1.5 py-1 text-[13px] text-muted-foreground">未找到结果。</div>
-          )}
+      )}
+      {shown.map((b) => (
+        <div key={b} className={FILTER_ROW} onClick={() => apply(toggleBranch(branchFilter, b))}>
+          <Check
+            className={cn(
+              'size-3.5 shrink-0',
+              !(branchFilter?.includes(b) ?? false) && 'invisible'
+            )}
+          />
+          <span
+            className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap"
+            title={b}
+          >
+            {branchDisplayName(b)}
+          </span>
         </div>
-      </PopoverContent>
-    </Popover>
+      ))}
+    </FilterPopover>
   )
 }

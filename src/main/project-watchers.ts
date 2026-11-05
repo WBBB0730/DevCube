@@ -11,7 +11,6 @@
 // 不与动作抢锁，也不丢动作期间的外部变化。
 // Files 经符号链接列到监听根以外的目录时，另起只驱动 files 通道的监听（linked-dir-watch，ADR-0059）。
 
-import { normalize, sep } from 'node:path'
 import { promises as fs } from 'original-fs'
 import { wslDistroOf } from '../shared/wsl-path'
 import { isAppQuitting } from './app-shutdown'
@@ -34,6 +33,7 @@ import {
   watchFlushDelay,
   type PendingChanges
 } from './project-watch-schedule'
+import { toSlashPath, toSysPath } from './sys-path'
 
 export type ProjectWatchHandlers = {
   /** 项目根的清单 / lockfile / 约定指纹变了（WSL 项目要先重读它的探测缓存） */
@@ -98,7 +98,7 @@ async function disposeEntry(projectPath: string, entry: ProjectWatcherEntry): Pr
 async function hasUnignored(repoRoot: string, paths: string[]): Promise<boolean> {
   // -z 只能配合 --stdin（ADR-0009）：路径经标准输入传入。分隔符统一为 `/`：WSL 仓库的 git 在发行版里执行，
   // 只认 `/`（Windows 版 git 两种都认）
-  const input = paths.map((p) => p.split(sep).join('/')).join('\0') + '\0'
+  const input = paths.map(toSlashPath).join('\0') + '\0'
   const result = await execGit(
     repoRoot,
     ['check-ignore', '--stdin', '-z'],
@@ -205,19 +205,15 @@ function handleLinkedEvents(
   schedule(entry)
 }
 
-/** 与监听事件同口径的路径（仓库根来自 git，是 `/` 分隔的）。 */
-function sysPath(path: string): string {
-  return normalize(path)
-}
-
 function watchReposOf(target: ProjectWatchTarget): WatchRepo[] {
   return target.repos.map((repo) => ({
     path: repo.path,
-    root: sysPath(repo.root),
+    // 换成与监听事件同口径的本平台路径（仓库根来自 git，是 `/` 分隔的）
+    root: toSysPath(repo.root),
     gitDirs:
       repo.gitDirs === null
         ? null
-        : { gitDir: sysPath(repo.gitDirs.gitDir), commonDir: sysPath(repo.gitDirs.commonDir) },
+        : { gitDir: toSysPath(repo.gitDirs.gitDir), commonDir: toSysPath(repo.gitDirs.commonDir) },
     superPath: repo.superPath
   }))
 }
@@ -247,7 +243,7 @@ async function startEntry(
   const { projectPath } = target
   const watchRoot = resolveWatchRoot(
     projectPath,
-    target.ownRoot === null ? null : sysPath(target.ownRoot)
+    target.ownRoot === null ? null : toSysPath(target.ownRoot)
   )
   const repos = watchReposOf(target)
   const entry: ProjectWatcherEntry = {
@@ -302,7 +298,7 @@ async function startEntry(
 function needsResubscribe(entry: ProjectWatcherEntry, target: ProjectWatchTarget): boolean {
   const watchRoot = resolveWatchRoot(
     target.projectPath,
-    target.ownRoot === null ? null : sysPath(target.ownRoot)
+    target.ownRoot === null ? null : toSysPath(target.ownRoot)
   )
   if (entry.watchRoot !== watchRoot) return true
   return entry.extraDirs.join('\0') !== extraDirsOf(watchRoot, watchReposOf(target)).join('\0')

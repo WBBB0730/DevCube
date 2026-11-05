@@ -22,7 +22,7 @@ import {
   resolveGitDirs,
   resolveRepoRoot
 } from './git-exec'
-import { parseNestedRepoEntries } from './git-repos'
+import { listNestedRepos } from './git-repos'
 import type { TaskHandle } from './tasks'
 
 /** 按 kind 收窄的动作类型别名，让各构造函数的入参精确到自己的变体。 */
@@ -195,12 +195,6 @@ export function buildStagePathsArgs(
   if (action.paths.length > 0) return [['add', '-A', '--', ...action.paths]]
   if (nestedRepos.length === 0) return [['add', '-A']]
   return [['add', '-A', '--', '.', ...nestedRepos.map((path) => `:(exclude,literal)${path}`)]]
-}
-
-/** 仓库里的嵌套仓库（相对仓库根）：未跟踪清单里带尾斜杠的条目（见 git-repos）。读失败按没有算。 */
-async function listNestedRepos(root: string): Promise<string[]> {
-  const result = await execGit(root, ['ls-files', '--others', '--exclude-standard', '-z'])
-  return result.code === 0 ? parseNestedRepoEntries(result.stdout.toString('utf8')) : []
 }
 
 /** unstage-paths：取消暂存；空数组 = 全部。reset 默认相对 HEAD；-q 静默不回显文件列表。 */

@@ -32,7 +32,7 @@ import {
 } from '@shared/git'
 import { copyablePath } from '@shared/wsl-path'
 import { dropCommitPossible } from '@renderer/lib/git-graph'
-import { gitState, openInProjectFiles, repoContextOf, useGit } from '@renderer/git-store'
+import { gitState, openInProjectFiles, repoRootOf, useGit } from '@renderer/git-store'
 import { cn } from '@renderer/lib/utils'
 import { toggleBranch } from './GitBranchDropdown'
 import { opBlockReason } from './GitOpStatusBar'
@@ -551,6 +551,8 @@ function fileMenu(
 ): (GitMenuItem | 'divider')[] {
   const { actions } = ctx
   const { file, fromHash, toHash, isUncommitted } = target
+  // 绝对路径以仓库根拼接
+  const absPath = `${ctx.repoRoot}/${file.newFilePath}`
   // 非比较模式推断：详情面板的端点满足 from===to（根提交/stash 第三父）或 from 是 to 的父提交；
   // 目标契约不带比较标记，此为等价近似——「比较直接父子提交」会被视作详情模式，
   // 此时「重置到此版本」语义仍然正确，无害。
@@ -571,11 +573,11 @@ function fileMenu(
     items.push(
       {
         title: '打开文件',
-        onClick: () => actions.openInFiles(`${ctx.repoRoot}/${file.newFilePath}`)
+        onClick: () => actions.openInFiles(absPath)
       },
       {
         title: '在文件夹中显示',
-        onClick: () => actions.revealInFolder(`${ctx.repoRoot}/${file.newFilePath}`)
+        onClick: () => actions.revealInFolder(absPath)
       }
     )
   }
@@ -590,10 +592,8 @@ function fileMenu(
   items.push(
     'divider',
     {
-      // 绝对路径以仓库根拼接
       title: '复制文件绝对路径',
-      onClick: () =>
-        actions.copyText(copyablePath(`${ctx.repoRoot}/${file.newFilePath}`), '文件路径')
+      onClick: () => actions.copyText(copyablePath(absPath), '文件路径')
     },
     {
       title: '复制文件相对路径',
@@ -615,6 +615,8 @@ function uncommittedFileMenu(
 ): (GitMenuItem | 'divider')[] {
   const { actions } = ctx
   const { file, section } = target
+  // 绝对路径以仓库根拼接（同 fileMenu）
+  const absPath = `${ctx.repoRoot}/${file.newFilePath}`
   const items: (GitMenuItem | 'divider')[] = []
   if (section === 'staged') {
     items.push({
@@ -642,21 +644,19 @@ function uncommittedFileMenu(
     items.push(
       {
         title: '打开文件',
-        onClick: () => actions.openInFiles(`${ctx.repoRoot}/${file.newFilePath}`)
+        onClick: () => actions.openInFiles(absPath)
       },
       {
         title: '在文件夹中显示',
-        onClick: () => actions.revealInFolder(`${ctx.repoRoot}/${file.newFilePath}`)
+        onClick: () => actions.revealInFolder(absPath)
       }
     )
   }
   items.push(
     'divider',
     {
-      // 绝对路径以仓库根拼接（同 fileMenu）
       title: '复制文件绝对路径',
-      onClick: () =>
-        actions.copyText(copyablePath(`${ctx.repoRoot}/${file.newFilePath}`), '文件路径')
+      onClick: () => actions.copyText(copyablePath(absPath), '文件路径')
     },
     {
       title: '复制文件相对路径',
@@ -777,7 +777,7 @@ export function GitContextMenu({ repoPath }: { repoPath: string }): React.JSX.El
   if (menu === null) return null
   const groups = groupMenuItems(
     buildMenuItems(menu.target, {
-      repoRoot: repoContextOf(repoPath)?.repo.root ?? repoPath,
+      repoRoot: repoRootOf(repoPath),
       commits,
       headHash,
       currentBranch,

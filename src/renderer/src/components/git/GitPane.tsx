@@ -6,7 +6,7 @@
 // （fetch + 软刷新；导航类快捷键改由主进程 before-input-event；F/R 须排除 Alt）。
 import { useEffect, useRef, useSyncExternalStore } from 'react'
 import { UNCOMMITTED } from '@shared/git'
-import { gitState, useGit } from '@renderer/git-store'
+import { gitState, openInitDialog, useGit } from '@renderer/git-store'
 import { useApp } from '@renderer/store'
 import { useRememberedPanel } from '@renderer/lib/remembered-panel'
 import { isPrimaryModifierEvent } from '@renderer/lib/shortcut-label'
@@ -100,12 +100,7 @@ function GitNoRepo({ projectPath }: { projectPath: string }): React.JSX.Element 
       <div className="flex items-center gap-2">
         <button
           type="button"
-          onClick={() => {
-            // 预填当前生效的 init.defaultBranch（未配置回落 main），拿到后再弹对话框
-            void window.api.gitDefaultBranch(projectPath).then((defaultBranch) => {
-              useGit.getState().openDialog(projectPath, { kind: 'init', defaultBranch })
-            })
-          }}
+          onClick={() => openInitDialog(projectPath)}
           className="h-7 rounded-lg border border-[color:var(--border-input)] bg-elevated px-4 text-[13px] text-foreground transition-colors hover:bg-[var(--bg-row-hover)]"
         >
           初始化 Git 仓库
