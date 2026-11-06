@@ -294,6 +294,15 @@ function buildEditorTheme(ICLS: EditorScheme, dark: boolean): Extension {
         color: `${ICLS.docTag} !important`,
         fontStyle: 'normal',
         textDecoration: 'underline'
+      },
+      // 按住 ⌘ / Ctrl 悬停的网址（见 cm6-links）：CTRL_CLICKABLE（链接色 + 下划线）+ 手形。
+      // 网址包在最外层，里面的语法色（含上面 JSDoc 的 !important）一并盖掉
+      '.cm-links-armed .cm-link:hover': {
+        textDecoration: 'underline',
+        cursor: 'pointer'
+      },
+      '.cm-links-armed .cm-link:hover, .cm-links-armed .cm-link:hover *': {
+        color: `${ICLS.link} !important`
       }
     },
     { dark }

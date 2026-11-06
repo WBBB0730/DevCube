@@ -3,6 +3,7 @@
 // 与 React 无关；组件文件受 react-refresh only-export-components 限制不宜导出纯函数，
 // 故独立成模块供 GitCommitDetails / GitDiffView 消费并单测（写法对齐 git-format.ts）。
 
+import { findUrls } from '@renderer/lib/text-urls'
 import {
   GIT_INDEX,
   UNCOMMITTED,
@@ -510,26 +511,6 @@ export function currentBlockIndex(tops: readonly number[], anchorY: number): num
 
 export type BodyToken = { kind: 'text'; text: string } | { kind: 'link'; text: string; url: string }
 
-/** URL 起始匹配；结尾标点与不成对右括号由 trimUrlTail 修剪（§5.1 的成对括号截断）。 */
-const URL_REGEX = /https?:\/\/\S+/g
-
-/** 修剪 URL 尾部：常见结尾标点一律截掉；右括号仅在数量多于左括号（不成对）时截掉。 */
-function trimUrlTail(raw: string): string {
-  let url = raw
-  for (;;) {
-    const last = url[url.length - 1]
-    if (last !== undefined && ',.?!\'":;'.includes(last)) {
-      url = url.slice(0, -1)
-      continue
-    }
-    if (last === ')' && (url.match(/\(/g)?.length ?? 0) < (url.match(/\)/g)?.length ?? 0)) {
-      url = url.slice(0, -1)
-      continue
-    }
-    return url
-  }
-}
-
 /** 提交信息 → 段落：按空行切分（连续空行算一处，空行可含空白），详情左栏逐段显示、段距小于与字段区的距离。 */
 export function splitParagraphs(message: string): string[] {
   return message.split(/\r?\n(?:[ \t]*\r?\n)+/).filter((paragraph) => paragraph.trim() !== '')
@@ -542,14 +523,11 @@ export function tokenizeBody(body: string): BodyToken[] {
     if (text !== '') tokens.push({ kind: 'text', text })
   }
   let last = 0
-  let m: RegExpExecArray | null
-  URL_REGEX.lastIndex = 0
-  while ((m = URL_REGEX.exec(body)) !== null) {
-    const url = trimUrlTail(m[0])
-    pushText(body.slice(last, m.index))
+  for (const { from, to } of findUrls(body)) {
+    const url = body.slice(from, to)
+    pushText(body.slice(last, from))
     tokens.push({ kind: 'link', text: url, url })
-    last = m.index + url.length
-    URL_REGEX.lastIndex = last // 修剪掉的尾标点归还给后续文本
+    last = to
   }
   pushText(body.slice(last))
   return tokens

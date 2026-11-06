@@ -61,6 +61,7 @@ import {
   languageExtensionForPath
 } from '@renderer/lib/cm6-setup'
 import { EditorView } from '@codemirror/view'
+import { filesLinks } from '@renderer/lib/cm6-links'
 import { rememberEditorView, restoreEditorView } from '@renderer/lib/cm6-view-state'
 import { formatKeymap } from '@renderer/lib/cm6-format'
 import { filesFormatLanguage, formatFileInEditor } from '@renderer/lib/files-format'
@@ -2935,6 +2936,7 @@ function FilesTextEditor({
       filesHighlighting[theme],
       filesEditorConfig,
       filesGutters,
+      filesLinks,
       languageExtensionForPath(path),
       findExtension,
       formatShortcut,
