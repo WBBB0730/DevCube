@@ -16,12 +16,13 @@ import {
   type GitPullMode,
   type GitRepoConfig
 } from '@shared/git'
-import { gitState, useGit } from '@renderer/git-store'
+import { gitState, runActionsThenReloadConfig, useGit } from '@renderer/git-store'
 import { SettingsModal } from '@renderer/components/SettingsModal'
 import { Button } from '@renderer/components/ui/button'
 import { CHOICE_ROW, Checkbox } from '@renderer/components/ui/checkbox'
 import { ConfirmDialog, FieldRow, FormDialogShell } from '@renderer/components/ui/form-dialog'
 import { Input } from '@renderer/components/ui/input'
+import { RepoUrlInput } from '@renderer/components/RepoUrlInput'
 import { RadioGroup, RadioGroupItem } from '@renderer/components/ui/radio-group'
 import { TOOLBAR_BTN } from '@renderer/components/ui/toolbar'
 
@@ -53,20 +54,6 @@ const PULL_MODE_ITEMS = [
     label: GIT_PULL_MODE_LABEL[m]
   }))
 ]
-
-/** 顺序执行一串动作（出错即停，进行中 / 错误呈现由 GitDialogs 统一负责），全部成功后重拉 config。 */
-async function runActionsThenReloadConfig(
-  repoPath: string,
-  steps: { action: GitAction; label: string }[]
-): Promise<boolean> {
-  const store = useGit.getState()
-  for (const step of steps) {
-    const result = await store.runAction(repoPath, step.action, step.label)
-    if (result.status !== 'ok') return false
-  }
-  await store.loadRepoConfig(repoPath)
-  return true
-}
 
 // —— 面板本体 ——
 
@@ -129,8 +116,13 @@ export function GitRepoSettings({
       {overlay?.kind === 'user' && config !== null && (
         <UserInfoDialog repoPath={repoPath} config={config} onClose={closeOverlay} />
       )}
-      {overlay?.kind === 'remote' && (
-        <RemoteDialog repoPath={repoPath} remote={overlay.remote} onClose={closeOverlay} />
+      {overlay?.kind === 'remote' && config !== null && (
+        <RemoteDialog
+          repoPath={repoPath}
+          config={config}
+          remote={overlay.remote}
+          onClose={closeOverlay}
+        />
       )}
     </SettingsModal>
   )
@@ -446,13 +438,18 @@ function RemotesField({
   )
 }
 
-/** 添加 / 编辑远程（叠在面板上）。edit-remote 需要 old/new 全量传，主进程按差异生成命令序列。 */
+/**
+ * 添加 / 编辑远程（叠在面板上）。edit-remote 需要 old/new 全量传，主进程按差异生成命令序列。
+ * 添加时仓库还没有 origin 的，名称占位为 origin、留空即用它（同工作树存放目录「占位即默认值」）。
+ */
 function RemoteDialog({
   repoPath,
+  config,
   remote,
   onClose
 }: {
   repoPath: string
+  config: GitRepoConfig
   remote: Remote | null
   onClose: () => void
 }): React.JSX.Element {
@@ -462,6 +459,9 @@ function RemoteDialog({
     pushUrl: remote?.pushUrl ?? '',
     fetchAfter: true
   }))
+  const defaultName =
+    remote === null && !config.remotes.some((r) => r.name === 'origin') ? 'origin' : undefined
+  const name = form.name.trim() === '' ? (defaultName ?? '') : form.name.trim()
 
   const submit = async (): Promise<void> => {
     const pushUrl = form.pushUrl.trim() === '' ? null : form.pushUrl.trim()
@@ -469,7 +469,7 @@ function RemoteDialog({
       remote === null
         ? {
             kind: 'add-remote',
-            name: form.name.trim(),
+            name,
             url: form.url.trim(),
             pushUrl,
             fetchAfter: form.fetchAfter
@@ -477,7 +477,7 @@ function RemoteDialog({
         : {
             kind: 'edit-remote',
             nameOld: remote.name,
-            nameNew: form.name.trim(),
+            nameNew: name,
             urlOld: remote.url,
             urlNew: form.url.trim() === '' ? null : form.url.trim(),
             pushUrlOld: remote.pushUrl,
@@ -493,7 +493,7 @@ function RemoteDialog({
       buttons={[
         {
           label: remote === null ? '添加' : '保存',
-          disabled: form.name.trim() === '' || (remote === null && form.url.trim() === ''),
+          disabled: name === '' || (remote === null && form.url.trim() === ''),
           onClick: () => void submit()
         }
       ]}
@@ -503,22 +503,19 @@ function RemoteDialog({
         <Input
           className="font-mono"
           value={form.name}
+          placeholder={defaultName}
           onChange={(e) => setForm({ ...form, name: e.target.value })}
           autoFocus
         />
       </FieldRow>
       <FieldRow label="Fetch URL">
-        <Input
-          className="font-mono"
-          value={form.url}
-          onChange={(e) => setForm({ ...form, url: e.target.value })}
-        />
+        <RepoUrlInput value={form.url} onChange={(url) => setForm({ ...form, url })} />
       </FieldRow>
-      <FieldRow label="Push URL" info="留空则使用 Fetch URL。">
-        <Input
-          className="font-mono"
+      <FieldRow label="Push URL">
+        <RepoUrlInput
           value={form.pushUrl}
-          onChange={(e) => setForm({ ...form, pushUrl: e.target.value })}
+          placeholder="留空则使用 Fetch URL"
+          onChange={(pushUrl) => setForm({ ...form, pushUrl })}
         />
       </FieldRow>
       {remote === null && (

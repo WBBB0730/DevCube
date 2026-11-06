@@ -14,6 +14,7 @@ import { THEME_MODES, type ThemeMode } from '../shared/theme'
 import { normalizeCompressOptions } from '../shared/compress'
 import { normalizeCollapsedShortcutGroups } from '../shared/app-shortcut-list'
 import { isWslIdleMinutes, type WslIdleMinutes } from '../shared/wsl'
+import { GITHUB_REPO_PROTOCOLS, type GitHubRepoProtocol } from '../shared/github'
 import type { Server } from '../shared/server'
 import type { DataSource } from '../shared/data-source'
 import type { SavedConsoleContext } from '../shared/data-source-context'
@@ -419,6 +420,12 @@ function normalizeWslIdleMinutes(value: unknown): WslIdleMinutes {
   return isWslIdleMinutes(value) ? value : DEFAULT_APP_PREFS.wslIdleMinutes
 }
 
+function normalizeGitHubRepoProtocol(value: unknown): GitHubRepoProtocol {
+  return typeof value === 'string' && (GITHUB_REPO_PROTOCOLS as readonly string[]).includes(value)
+    ? (value as GitHubRepoProtocol)
+    : DEFAULT_APP_PREFS.githubRepoProtocol
+}
+
 function normalizePageSize(value: unknown): number {
   return isPageSize(value) ? value : DEFAULT_APP_PREFS.dataPageSize
 }
@@ -433,7 +440,8 @@ export function getAppPrefs(): AppPrefs {
     dataPageSize: normalizePageSize(stored?.dataPageSize),
     compressOptions: normalizeCompressOptions(stored?.compressOptions),
     wslIdleMinutes: normalizeWslIdleMinutes(stored?.wslIdleMinutes),
-    collapsedShortcutGroups: normalizeCollapsedShortcutGroups(stored?.collapsedShortcutGroups)
+    collapsedShortcutGroups: normalizeCollapsedShortcutGroups(stored?.collapsedShortcutGroups),
+    githubRepoProtocol: normalizeGitHubRepoProtocol(stored?.githubRepoProtocol)
   }
 }
 
@@ -452,6 +460,9 @@ export function setAppPrefs(patch: Partial<AppPrefs>): AppPrefs {
     ),
     collapsedShortcutGroups: normalizeCollapsedShortcutGroups(
       patch.collapsedShortcutGroups ?? current.collapsedShortcutGroups
+    ),
+    githubRepoProtocol: normalizeGitHubRepoProtocol(
+      patch.githubRepoProtocol ?? current.githubRepoProtocol
     )
   }
   store.set('appPrefs', merged)

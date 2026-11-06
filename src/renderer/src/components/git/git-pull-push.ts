@@ -27,16 +27,17 @@ export function prefersDirect(skipDialog: boolean, mode: SkipDialogMode): boolea
 }
 
 /**
- * push remote 默认值（D5/D13）：branch 的 pushRemote → branch 的 remote → push.default →
- * origin → 第一个 remote。config 未加载（null）时直接走后两级回退。
+ * push remote 默认值（D5/D13；工具栏「在浏览器中打开」也开它）：branch 的 pushRemote → branch 的 remote →
+ * push.default → origin → 第一个 remote。config 未加载（null）时直接走后两级回退；branch 为 null（分离 HEAD）
+ * 时跳过前两级。
  */
 export function defaultPushRemote(
-  branch: string,
+  branch: string | null,
   remotes: readonly string[],
   config: GitRepoConfig | null
 ): string {
   if (remotes.length === 0) return ''
-  const bc = config?.branches[branch]
+  const bc = branch === null ? undefined : config?.branches[branch]
   if (bc !== undefined && bc.pushRemote !== null && remotes.includes(bc.pushRemote)) {
     return bc.pushRemote
   }

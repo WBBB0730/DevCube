@@ -47,6 +47,7 @@ import {
   InfoIcon
 } from '@renderer/components/ui/form-dialog'
 import { Input } from '@renderer/components/ui/input'
+import { RepoUrlInput } from '@renderer/components/RepoUrlInput'
 import { CHOICE_ROW, Checkbox } from '@renderer/components/ui/checkbox'
 import { RadioGroup, RadioGroupItem } from '@renderer/components/ui/radio-group'
 import {
@@ -112,6 +113,15 @@ interface SelectOption {
 type DialogInputSpec =
   | {
       type: 'text'
+      key: string
+      label: string
+      default: string
+      placeholder?: string
+      info?: string
+    }
+  | {
+      /** 仓库地址：等宽输入，登录 GitHub 后带「从 GitHub 选择仓库」（RepoUrlInput） */
+      type: 'repo-url'
       key: string
       label: string
       default: string
@@ -280,7 +290,7 @@ export function buildSpec(req: GitDialogRequest, env: DialogEnv): DialogSpec | n
             info: '留空使用 Git 默认分支名。'
           },
           {
-            type: 'text',
+            type: 'repo-url',
             key: 'remote',
             label: '远程地址',
             default: '',
@@ -1322,7 +1332,7 @@ function pushTagSpec(env: DialogEnv, name: string, hash: string): DialogSpec {
             key: 'remotes',
             label: '',
             options: env.remotes.map((r) => ({ name: r, value: r })),
-            defaults: [defaultPushRemote('', env.remotes, env.config)]
+            defaults: [defaultPushRemote(null, env.remotes, env.config)]
           }
         ]
       : [],
@@ -1696,9 +1706,10 @@ function DialogForm({
   )
   const valid = !hasInvalid && !hasEmpty
 
-  // 第一个 Text/TextRef 输入自动聚焦（§1.2）
+  // 第一个文本输入（Text / TextRef / 仓库地址）自动聚焦（§1.2）
   const autoFocusKey =
-    spec.inputs.find((i) => i.type === 'text' || i.type === 'text-ref')?.key ?? null
+    spec.inputs.find((i) => i.type === 'text' || i.type === 'text-ref' || i.type === 'repo-url')
+      ?.key ?? null
 
   // 确认类（有问句标题、没有输入）：确认框
   if (spec.title !== undefined && spec.inputs.length === 0) {
@@ -1748,7 +1759,7 @@ function DialogForm({
   )
 }
 
-/** 单个表单输入行：类型 → 控件映射（Text/TextRef → Input，Select/Radio/Checkbox → ui 封装）。 */
+/** 单个表单输入行：类型 → 控件映射（Text/TextRef → Input，仓库地址 → RepoUrlInput，Select/Radio/Checkbox → ui 封装）。 */
 function DialogInputRow({
   input,
   value,
@@ -1789,6 +1800,16 @@ function DialogInputRow({
           autoFocus={autoFocusInput}
           placeholder={input.placeholder}
           onChange={(e) => setValue(input.key, e.target.value)}
+        />
+      )
+      break
+    case 'repo-url':
+      control = (
+        <RepoUrlInput
+          value={value as string}
+          autoFocus={autoFocusInput}
+          placeholder={input.placeholder}
+          onChange={(v) => setValue(input.key, v)}
         />
       )
       break

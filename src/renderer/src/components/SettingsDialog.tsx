@@ -12,6 +12,11 @@ import { FILES_OPEN_WITH_EXTS } from '@shared/files-kind'
 import type { AppPrefs, WindowsShell, WindowsShellOption } from '@shared/types'
 import { DEFAULT_APP_PREFS } from '@shared/types'
 import { WSL_IDLE_MINUTES_OPTIONS } from '@shared/wsl'
+import {
+  GITHUB_REPO_PROTOCOLS,
+  GITHUB_REPO_PROTOCOL_LABELS,
+  type GitHubRepoProtocol
+} from '@shared/github'
 import { THEME_MODES, type ThemeMode } from '@shared/theme'
 import { Check, ChevronRight, LoaderCircle, Star } from 'lucide-react'
 import { SettingsModal } from '@renderer/components/SettingsModal'
@@ -254,11 +259,11 @@ export function SettingsDialog({
     if (value) setStarredNow(githubLogin)
   }
 
-  // shell 选项只有 Windows 用得上，非 win32 不去探测。
+  // 偏好栏与账号栏（「仓库地址」）读偏好；shell 选项只有 Windows 的偏好栏用得上，非 win32 不去探测。
   useEffect(() => {
-    if (section !== 'prefs') return
+    if (section !== 'prefs' && section !== 'account') return
     void window.api.getAppPrefs().then(setPrefs)
-    if (isWin) void window.api.getWindowsShellOptions().then(setShellOptions)
+    if (section === 'prefs' && isWin) void window.api.getWindowsShellOptions().then(setShellOptions)
   }, [section, isWin])
 
   // 系统集成状态全部实时探测（文件 / 注册表 / TOML），每次切入都重查。
@@ -361,6 +366,11 @@ export function SettingsDialog({
     const next = { ...(prefs ?? DEFAULT_APP_PREFS), windowsShell }
     setPrefs(next)
     void window.api.setAppPrefs({ windowsShell }).then(setPrefs)
+  }
+
+  const setGitHubRepoProtocol = (githubRepoProtocol: GitHubRepoProtocol): void => {
+    setPrefs({ ...(prefs ?? DEFAULT_APP_PREFS), githubRepoProtocol })
+    void window.api.setAppPrefs({ githubRepoProtocol }).then(setPrefs)
   }
 
   const setWslIdleMinutes = (value: string): void => {
@@ -604,7 +614,7 @@ export function SettingsDialog({
                 <div className="flex items-center gap-1.5 text-[color:var(--fg-primary)]">
                   <GitHubMark className="size-4" />
                   GitHub
-                  <InfoIcon text="用于访问 GitHub 仓库信息，如检查结果" />
+                  <InfoIcon text="用于查看提交的检查结果，以及选择、新建仓库" />
                 </div>
                 <div className="flex min-h-7 items-center gap-2 text-foreground">
                   <span>{githubAccount?.login ?? '未登录'}</span>
@@ -629,6 +639,24 @@ export function SettingsDialog({
                   )}
                 </div>
               </div>
+              {/* 从 GitHub 选仓库时填哪种地址：只在登录后有用 */}
+              {githubAccount !== null && (
+                <div className="space-y-2">
+                  <div className="text-[color:var(--fg-primary)]">仓库地址</div>
+                  {prefs ? (
+                    <SegmentedControl
+                      value={prefs.githubRepoProtocol}
+                      onValueChange={(v) => setGitHubRepoProtocol(v as GitHubRepoProtocol)}
+                      items={GITHUB_REPO_PROTOCOLS.map((p) => ({
+                        value: p,
+                        label: GITHUB_REPO_PROTOCOL_LABELS[p]
+                      }))}
+                    />
+                  ) : (
+                    <div className="text-[color:var(--fg-muted)]">正在加载…</div>
+                  )}
+                </div>
+              )}
             </div>
           )}
 

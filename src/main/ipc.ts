@@ -47,6 +47,7 @@ import {
 } from '../shared/data-source'
 import { serverConnectionChanged, type ServerInput, type ServerTestInput } from '../shared/server'
 import type { SshPromptResponse } from '../shared/ssh-connect'
+import type { GitHubCreateRepoInput } from '../shared/github'
 import type { TransferConflictResponse } from '../shared/server-files'
 import { dataSourceEntryKey, serverEntryKey } from '../shared/tree-entry'
 import { resolveClonePath, type GitCloneInput } from '../shared/git-clone'
@@ -272,15 +273,19 @@ import { tasks, type TaskOutcome } from './tasks'
 import { invalidateWorkingTree } from './git-working-tree'
 import {
   cancelGitHubLogin,
+  createGitHubRepo,
   getCheckRuns,
   getCommitChecks,
   getDevCubeStarred,
   getGitHubAccount,
   hasGitHubRepo,
+  listGitHubOrgs,
+  listGitHubRepos,
   loginGitHub,
   logoutGitHub,
   starDevCube
 } from './github'
+import { getRemoteWebUrl } from './git-remote-web'
 import { syncProjectWatchers } from './project-watchers'
 import { clearRepoRootCache, execGit, mainWorktreePathOf } from './git-exec'
 import {
@@ -1389,6 +1394,9 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
     const value = result.code === 0 ? result.stdout.toString('utf8').trim() : ''
     return value === '' ? 'main' : value
   })
+  ipcMain.handle(IPC.gitRemoteWebUrl, (_e, repoPath: string, remote: string) =>
+    getRemoteWebUrl(repoPath, remote)
+  )
   // 设置与视图偏好：写返回权威快照。
   ipcMain.handle(IPC.gitSettingsGet, (_e, repoPath: string) => getGitSettings(repoPath))
   ipcMain.handle(IPC.gitSettingsSet, (_e, repoPath: string, patch: Partial<GitRepoSettings>) =>
@@ -1415,6 +1423,11 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   )
   ipcMain.handle(IPC.githubCheckRuns, (_e, repoPath: string, hash: string) =>
     getCheckRuns(repoPath, hash)
+  )
+  ipcMain.handle(IPC.githubRepos, () => listGitHubRepos())
+  ipcMain.handle(IPC.githubOrgs, () => listGitHubOrgs())
+  ipcMain.handle(IPC.githubCreateRepo, (_e, input: GitHubCreateRepoInput) =>
+    createGitHubRepo(input)
   )
 
   // —— 应用内更新 ——

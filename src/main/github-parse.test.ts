@@ -1,11 +1,16 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildRollupQuery,
+  createRepoErrorMessage,
+  creatableOrgs,
   deviceFlowErrorMessage,
   isCommitHash,
+  isInsufficientScopes,
+  lastPageOf,
   parseCheckRuns,
   parseGitHubRemote,
   parseRemoteList,
+  parseRestRepo,
   parseRollupResponse,
   pickGitHubRepo,
   rollupState,
@@ -271,5 +276,95 @@ describe('deviceFlowErrorMessage', () => {
     expect(deviceFlowErrorMessage('expired_token')).toBe('代码已过期，请重新登录')
     expect(deviceFlowErrorMessage('unsupported_grant_type')).toBeNull()
     expect(deviceFlowErrorMessage(undefined)).toBeNull()
+  })
+})
+
+describe('parseRestRepo', () => {
+  it('取全名与两种地址', () => {
+    expect(
+      parseRestRepo({
+        full_name: 'owner/repo',
+        clone_url: 'https://github.com/owner/repo.git',
+        ssh_url: 'git@github.com:owner/repo.git'
+      })
+    ).toEqual({
+      fullName: 'owner/repo',
+      httpsUrl: 'https://github.com/owner/repo.git',
+      sshUrl: 'git@github.com:owner/repo.git'
+    })
+  })
+})
+
+describe('createRepoErrorMessage', () => {
+  it('同名已存在按名字说明', () => {
+    expect(
+      createRepoErrorMessage('repo', {
+        message: 'Repository creation failed.',
+        errors: [
+          {
+            resource: 'Repository',
+            code: 'custom',
+            field: 'name',
+            message: 'name already exists on this account'
+          } as { message: string }
+        ]
+      })
+    ).toBe('仓库 “repo” 已存在')
+  })
+
+  it('其余用逐项原因，没有逐项原因用总说明', () => {
+    expect(createRepoErrorMessage('repo', { message: 'x', errors: ['a', { message: 'b' }] })).toBe(
+      'a\nb'
+    )
+    expect(createRepoErrorMessage('repo', { message: 'Validation Failed', errors: [] })).toBe(
+      'Validation Failed'
+    )
+  })
+
+  it('什么都没有为 null', () => {
+    expect(createRepoErrorMessage('repo', undefined)).toBeNull()
+    expect(createRepoErrorMessage('repo', { errors: [{ code: 'missing' }] })).toBeNull()
+  })
+})
+
+describe('creatableOrgs / isInsufficientScopes', () => {
+  it('只取能新建仓库的组织，跳过空节点', () => {
+    expect(
+      creatableOrgs({
+        viewer: {
+          organizations: {
+            nodes: [
+              { login: 'a', viewerCanCreateRepositories: true },
+              null,
+              { login: 'b', viewerCanCreateRepositories: false },
+              { login: 'c', viewerCanCreateRepositories: true }
+            ],
+            pageInfo: { hasNextPage: false, endCursor: null }
+          }
+        }
+      })
+    ).toEqual(['a', 'c'])
+  })
+
+  it('认出缺授权的 GraphQL 出错', () => {
+    expect(isInsufficientScopes({ errors: [{ type: 'INSUFFICIENT_SCOPES' }] })).toBe(true)
+    expect(isInsufficientScopes({ errors: [{ type: 'NOT_FOUND' }] })).toBe(false)
+    expect(isInsufficientScopes(new Error('network'))).toBe(false)
+  })
+})
+
+describe('lastPageOf', () => {
+  it('取 rel="last" 那一页的页码', () => {
+    expect(
+      lastPageOf(
+        '<https://api.github.com/user/repos?sort=pushed&per_page=100&page=2>; rel="next", ' +
+          '<https://api.github.com/user/repos?sort=pushed&per_page=100&page=3>; rel="last"'
+      )
+    ).toBe(3)
+  })
+
+  it('没有 link 头或没有 rel="last" 为 1', () => {
+    expect(lastPageOf(undefined)).toBe(1)
+    expect(lastPageOf('<https://api.github.com/user/repos?page=1>; rel="prev"')).toBe(1)
   })
 })

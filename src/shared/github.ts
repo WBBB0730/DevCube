@@ -1,5 +1,6 @@
-// GitHub 账号与提交检查（docs/prd/github-checks.md）—— main / preload / renderer 三端共享的类型与 IPC 契约。
-// 只认 github.com 上的仓库；登录走 OAuth 设备授权，凭证只留在主进程（ADR-0054）。术语见 CONTEXT.md（Check）。
+// GitHub 账号、提交检查与仓库（docs/prd/github-checks.md、docs/prd/git-remote-github.md）—— main / preload / renderer
+// 三端共享的类型与 IPC 契约。只认 github.com 上的仓库；登录走 OAuth 设备授权，凭证只留在主进程（ADR-0054）。
+// 术语见 CONTEXT.md（Check）。
 
 /** 已登录的 GitHub 账号（渲染端只拿得到登录名，凭证不出主进程）。 */
 export interface GitHubAccount {
@@ -39,6 +40,76 @@ export type GitHubLoginResult =
   | { status: 'cancelled' }
   | { status: 'error'; message: string }
 
+// —— 仓库（docs/prd/git-remote-github.md） ——
+
+/** 从 GitHub 选仓库时填哪种地址（设置 → 账号，全局记住）。 */
+export type GitHubRepoProtocol = 'https' | 'ssh'
+
+export const GITHUB_REPO_PROTOCOLS: readonly GitHubRepoProtocol[] = ['https', 'ssh']
+
+export const GITHUB_REPO_PROTOCOL_LABELS: Record<GitHubRepoProtocol, string> = {
+  https: 'HTTPS',
+  ssh: 'SSH'
+}
+
+/** 当前账号能访问的一个 GitHub 仓库（自己的、参与协作的、所在组织的）。 */
+export interface GitHubRepo {
+  /** owner/name */
+  fullName: string
+  /** https://github.com/owner/name.git */
+  httpsUrl: string
+  /** git@github.com:owner/name.git */
+  sshUrl: string
+}
+
+/** 仓库按设置的地址形式取地址。 */
+export function gitHubRepoUrl(repo: GitHubRepo, protocol: GitHubRepoProtocol): string {
+  return protocol === 'ssh' ? repo.sshUrl : repo.httpsUrl
+}
+
+export type GitHubReposResult =
+  { status: 'ok'; repos: GitHubRepo[] } | { status: 'error'; message: string }
+
+/**
+ * 新建仓库时可选的组织（当前账号能在其中新建仓库的，按 GitHub 给的顺序）。orgScopeMissing：凭证是申请 read:org 之前
+ * 登录拿到的，列不出组织，重新登录即可。
+ */
+export type GitHubOrgsResult =
+  { status: 'ok'; orgs: string[]; orgScopeMissing: boolean } | { status: 'error'; message: string }
+
+/** 新建一个空仓库（不带 README 等初始文件）。 */
+export interface GitHubCreateRepoInput {
+  /** 建在哪个组织下；null 为当前账号 */
+  org: string | null
+  name: string
+  /** 空串为不写描述 */
+  description: string
+  isPrivate: boolean
+}
+
+export type GitHubCreateRepoResult =
+  { status: 'ok'; repo: GitHubRepo } | { status: 'error'; message: string }
+
+/** GitHub 仓库名的上限长度。 */
+const GITHUB_REPO_NAME_MAX = 100
+
+/** 仓库名不合法的原因；合法为 null。GitHub 只收 ASCII 字母、数字与 `.` `-` `_`，且不能是 `.` / `..`。 */
+export function gitHubRepoNameError(name: string): string | null {
+  if (name === '') return '请输入仓库名'
+  if (name.length > GITHUB_REPO_NAME_MAX) return `仓库名不能超过 ${GITHUB_REPO_NAME_MAX} 个字符`
+  if (!/^[A-Za-z0-9._-]+$/.test(name)) return '仓库名只能包含字母、数字与 . - _'
+  if (name === '.' || name === '..') return '仓库名不能是 . 或 ..'
+  return null
+}
+
+/** 由目录名派生默认仓库名：GitHub 不收的字符换成 `-`、连续的并成一个（同 GitHub 网页的处理）。 */
+export function defaultGitHubRepoName(dirName: string): string {
+  return dirName
+    .trim()
+    .replace(/[^A-Za-z0-9._-]+/g, '-')
+    .slice(0, GITHUB_REPO_NAME_MAX)
+}
+
 /** preload 暴露的 GitHub API（并入 RunAPI）。 */
 export interface GitHubAPI {
   /** 当前登录的账号；未登录为 null */
@@ -67,4 +138,10 @@ export interface GitHubAPI {
   githubCommitChecks(repoPath: string, hashes: string[]): Promise<Record<string, CommitCheckState>>
   /** 一个提交的各项检查；查不到（同上）为 null */
   githubCheckRuns(repoPath: string, hash: string): Promise<CheckRun[] | null>
+  /** 当前账号能访问的全部仓库，最近推送的在前；未登录或读不到为 error */
+  githubRepos(): Promise<GitHubReposResult>
+  /** 新建仓库时可选的组织；未登录或读不到为 error */
+  githubOrgs(): Promise<GitHubOrgsResult>
+  /** 在当前账号或组织下新建仓库 */
+  githubCreateRepo(input: GitHubCreateRepoInput): Promise<GitHubCreateRepoResult>
 }

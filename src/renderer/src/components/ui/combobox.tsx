@@ -31,16 +31,19 @@ function Combobox<Value, Multiple extends boolean | undefined = false>(
 function ComboboxTrigger({
   className,
   title,
+  chevron = true,
   children
 }: {
   className?: string
   title?: string
+  /** 末尾的 ChevronDown；图标钮（如输入框旁的「从 GitHub 选择」）不带 */
+  chevron?: boolean
   children?: React.ReactNode
 }): React.JSX.Element {
   return (
     <BaseCombobox.Trigger className={className} title={title}>
       {children}
-      <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />
+      {chevron && <ChevronDown className="size-3.5 shrink-0 text-muted-foreground" />}
     </BaseCombobox.Trigger>
   )
 }
@@ -58,10 +61,13 @@ const stopContextMenu = (e: React.MouseEvent): void => {
 function ComboboxContent({
   className,
   align = 'start',
+  finalFocus,
   children
 }: {
   className?: string
   align?: 'start' | 'center' | 'end'
+  /** 收起后焦点去哪（同 Base UI 的 finalFocus）；不给为回到钮上 */
+  finalFocus?: BaseCombobox.Popup.Props['finalFocus']
   children?: React.ReactNode
 }): React.JSX.Element {
   return (
@@ -75,6 +81,7 @@ function ComboboxContent({
             className
           )}
           onContextMenu={stopContextMenu}
+          finalFocus={finalFocus}
         >
           {children}
         </BaseCombobox.Popup>
@@ -118,12 +125,15 @@ function ComboboxItem({
   className,
   value,
   title,
+  indicator = true,
   children
 }: {
   className?: string
   value: unknown
   /** 悬停看全（名字过长截断时） */
   title?: string
+  /** 单选的选中指示列；只用来挑一项填进别处、永远没有选中项的列表（如「从 GitHub 选择仓库」）不留这一列 */
+  indicator?: boolean
   children?: React.ReactNode
 }): React.JSX.Element {
   const multiple = useContext(MultipleContext)
@@ -150,11 +160,13 @@ function ComboboxItem({
         </span>
       ) : (
         // 选中指示：未选中时保留 16px 占位列，选项文字纵向对齐
-        <span className="flex size-4 shrink-0 items-center justify-center">
-          <BaseCombobox.ItemIndicator className="flex">
-            <Check className="size-3.5" />
-          </BaseCombobox.ItemIndicator>
-        </span>
+        indicator && (
+          <span className="flex size-4 shrink-0 items-center justify-center">
+            <BaseCombobox.ItemIndicator className="flex">
+              <Check className="size-3.5" />
+            </BaseCombobox.ItemIndicator>
+          </span>
+        )
       )}
       <span className="min-w-0 flex-1 truncate">{children}</span>
     </BaseCombobox.Item>

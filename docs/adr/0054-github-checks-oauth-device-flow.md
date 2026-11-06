@@ -18,3 +18,4 @@ Git Tab 要显示提交在 GitHub 上的检查结果（**Check**：Actions 的�
 - client ID 写在主进程代码里，跟随安装包分发；换 OAuth App 要发版。
 - 未登录时不发出任何 GitHub 请求，Git Tab 与此前完全一致；查询失败一律静默，不打断 Git Tab。
 - Octokit 是纯 ESM，主进程（CJS 产物）以动态 import 加载，与 electron-store 同法；三个包放 `dependencies`（ADR-0036）。
+- 同一个登录也用于列出、新建仓库（`docs/prd/git-remote-github.md`）：列出与新建（含私有）在 `repo` 里；为了新建时能选组织，另申请 `read:org`（授权页多一行「读取组织与团队成员关系」）。加这项之前登录的凭证照常可用，只是列不出组织，界面在那里给「重新登录」；不强制已登录的人重新授权。

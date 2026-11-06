@@ -247,6 +247,8 @@ export const IPC = {
   gitInvalidateWorkingTree: 'git:invalidate-working-tree',
   gitRevalidate: 'git:revalidate',
   gitDefaultBranch: 'git:default-branch',
+  /** 远程的仓库网页地址（工具栏「在浏览器中打开」；docs/prd/git-remote-github.md） */
+  gitRemoteWebUrl: 'git:remote-web-url',
   /** 项目里的仓库（docs/prd/git-nested-repos.md）：清单读取与变化推送、每项目 Git Tab UI 的读写 */
   gitRepos: 'git:repos',
   gitReposChanged: 'git:repos-changed',
@@ -268,6 +270,10 @@ export const IPC = {
   githubStarAdd: 'github:star-add',
   githubCommitChecks: 'github:commit-checks',
   githubCheckRuns: 'github:check-runs',
+  /** 仓库选择列表、新建仓库可选的组织与新建仓库（docs/prd/git-remote-github.md） */
+  githubRepos: 'github:repos',
+  githubOrgs: 'github:orgs',
+  githubCreateRepo: 'github:create-repo',
   /** 主进程 before-input-event 命中后下发的应用快捷键 */
   appShortcut: 'app:shortcut',
   /** 渲染端上报焦点进出终端（xterm），主进程据此把与 shell 冲突的快捷键让出去 */

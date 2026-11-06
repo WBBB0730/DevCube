@@ -18,6 +18,7 @@ import type {
 } from './files'
 import type { FilesImagePreview, FilesImagePyramid } from './files-image-tiles'
 import type { FilesTreeFilterResult } from './files-tree-search'
+import type { GitHubRepoProtocol } from './github'
 import type { GitAPI, GitRepoSettings, GitUiState, GitViewPrefs } from './git'
 import type { GitHubAPI } from './github'
 import type { GitCloneInput, GitCloneTargetState } from './git-clone'
@@ -189,6 +190,8 @@ export interface AppPrefs {
   wslIdleMinutes: WslIdleMinutes
   /** 设置 → 快捷键里收起的分组（全局，记住上次的选择；docs/prd/settings-keymap.md） */
   collapsedShortcutGroups: AppShortcutGroupId[]
+  /** 从 GitHub 选仓库时填哪种地址（设置 → 账号；docs/prd/git-remote-github.md） */
+  githubRepoProtocol: GitHubRepoProtocol
 }
 
 export const WINDOWS_SHELLS: readonly WindowsShell[] = ['git-bash', 'powershell', 'cmd']
@@ -196,7 +199,7 @@ export const WINDOWS_SHELLS: readonly WindowsShell[] = ['git-bash', 'powershell'
 /**
  * shell 默认 Git Bash，探测不到时运行时回退 PowerShell（见 ADR-0022）；主题默认深色；自动获取默认开；
  * 数据源表格每页 500 行；压缩窗口的勾选见 DEFAULT_COMPRESS_OPTIONS；记住窗口和面板布局默认开；
- * 闲置 15 分钟后断开 WSL；快捷键分组全部展开。
+ * 闲置 15 分钟后断开 WSL；快捷键分组全部展开；从 GitHub 选仓库时填 HTTPS 地址。
  */
 export const DEFAULT_APP_PREFS: AppPrefs = {
   windowsShell: 'git-bash',
@@ -207,7 +210,8 @@ export const DEFAULT_APP_PREFS: AppPrefs = {
   compressOptions: DEFAULT_COMPRESS_OPTIONS,
   rememberLayout: true,
   wslIdleMinutes: DEFAULT_WSL_IDLE_MINUTES,
-  collapsedShortcutGroups: []
+  collapsedShortcutGroups: [],
+  githubRepoProtocol: 'https'
 }
 
 /** Windows shell 选项及本机是否可用（供设置页置灰不可选项）。 */

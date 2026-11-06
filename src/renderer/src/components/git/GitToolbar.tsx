@@ -1,6 +1,8 @@
 // Git Tab 顶部工具栏：左侧「分支：」标签 + 分支筛选下拉 + 工作树图标钮 + 视图选项 Popover + 查找；项目里不止一个
-// 仓库时最左边先是「仓库：」标签 + 仓库下拉（GitRepoDropdown）。右侧图标钮组（提交 / 刷新 / 拉取 / 推送 / 创建分支 /
-// 仓库设置），仓库在 GitHub 上而未登录时最前面多一个 GitHub 标志的「登录 GitHub」钮（docs/prd/github-checks.md；登录后即消失）。高 40px、bg-panel，
+// 仓库时最左边先是「仓库：」标签 + 仓库下拉（GitRepoDropdown）。右侧先是通往远程平台的一组：仓库在 GitHub 上而未登录时
+// 一个 GitHub 标志的「登录 GitHub」钮（docs/prd/github-checks.md；登录后即消失）+「在浏览器中打开」（打开当前分支推送用的
+// 远程的仓库网页，仓库没有远程时同一处换成「添加远程」——GitAddRemoteDialog；docs/prd/git-remote-github.md），分隔线后是
+// Git 操作（提交 / 刷新 / 拉取 / 推送 / 创建分支 / 仓库设置）。高 40px、bg-panel，
 // 对齐 Console Tab 栏观感。刷新 = fetch + 静默软重载（store.refresh，fetch 期间换成转圈图标、
 // 结束后转回原位才换回刷新图标，不弹进行中遮罩）；创建分支预设目标后打开既有对话框（GitDialogs）。
 // 拉取 / 推送：单击按本仓库的「拉取 / 推送时不显示窗口」开关直接执行（= 对话框默认值原样提交）或打开对话框，
@@ -11,6 +13,8 @@ import {
   CircleArrowUp,
   GitBranchPlus,
   GitCommitHorizontal,
+  Globe,
+  GlobePlus,
   Search,
   Settings
 } from 'lucide-react'
@@ -28,7 +32,8 @@ import { opBlockReason } from './GitOpStatusBar'
 import { GitViewOptions } from './GitViewOptions'
 import { GitWorktreeDropdown } from './GitWorktreeDropdown'
 import { GitRepoSettings } from './GitRepoSettings'
-import { directPullAction, directPushAction } from './git-pull-push'
+import { GitAddRemoteDialog } from './GitAddRemoteDialog'
+import { defaultPushRemote, directPullAction, directPushAction } from './git-pull-push'
 
 /**
  * 拉取 / 推送钮的 title：首行 = 单击做什么，次行 = 按住主修饰键单击做什么。what = 直接执行时
@@ -76,6 +81,13 @@ export function GitToolbar({
   const signedIn = useGitHub((s) => s.account !== null)
   const [onGitHub, setOnGitHub] = useState(false)
   const [githubLoginOpen, setGitHubLoginOpen] = useState(false)
+  const [addRemoteOpen, setAddRemoteOpen] = useState(false)
+  // 「在浏览器中打开」开哪个远程：同推送的默认远程（分支的 pushRemote → remote → remote.pushDefault → origin → 第一个）
+  const browseRemote =
+    remotes.length === 0 ? null : defaultPushRemote(currentBranch, remotes, config)
+  /** 问过主进程的网页地址，连同它对应的远程（远程变了旧结果即作废）；null 为不对应网页 */
+  const [web, setWeb] = useState<{ remote: string; url: string | null } | null>(null)
+  const webUrl = web !== null && web.remote === browseRemote ? web.url : undefined
   // title 里写出直接执行时做什么（对话框默认值原样提交）；null = 拿不准，点了照样打开对话框
   const directState = { currentBranch, remotes, remoteBranches, config, settings }
   const directPull = directPullAction(directState)
@@ -100,6 +112,18 @@ export function GitToolbar({
   useEffect(() => {
     if (status === 'ready' && isRepo && config === null) void loadRepoConfig(repoPath)
   }, [status, isRepo, config, repoPath, loadRepoConfig])
+
+  // 网页地址由主进程换算（取 git 展开 insteadOf 后的地址、解 SSH 主机别名）；远程或其地址变了重新问
+  useEffect(() => {
+    if (browseRemote === null) return
+    let alive = true
+    void window.api.gitRemoteWebUrl(repoPath, browseRemote).then((url) => {
+      if (alive) setWeb({ remote: browseRemote, url })
+    })
+    return () => {
+      alive = false
+    }
+  }, [repoPath, browseRemote, remoteUrls])
 
   // 登录入口：未登录时问主进程仓库在不在 GitHub 上（与查检查结果同一套认法）
   useEffect(() => {
@@ -137,18 +161,45 @@ export function GitToolbar({
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-0.5">
         {!signedIn && onGitHub && (
-          <>
-            <button
-              type="button"
-              title="登录 GitHub，查看提交的检查结果"
-              className={TOOLBAR_BTN}
-              onClick={() => setGitHubLoginOpen(true)}
-            >
-              <GitHubMark className="size-4" />
-            </button>
-            <span role="separator" className={TOOLBAR_SEPARATOR} />
-          </>
+          <button
+            type="button"
+            title="登录 GitHub，查看提交的检查结果"
+            className={TOOLBAR_BTN}
+            onClick={() => setGitHubLoginOpen(true)}
+          >
+            <GitHubMark className="size-4" />
+          </button>
         )}
+        {/* 仓库读到之前不知道有没有远程：先按有远程画（置灰），免得没远程的才闪一下「添加远程」 */}
+        {browseRemote === null && status === 'ready' ? (
+          <button
+            type="button"
+            title="添加远程"
+            className={TOOLBAR_BTN}
+            onClick={() => setAddRemoteOpen(true)}
+          >
+            <GlobePlus className="size-4" />
+          </button>
+        ) : (
+          <button
+            type="button"
+            title={
+              browseRemote === null
+                ? '在浏览器中打开'
+                : webUrl === null
+                  ? `远程 “${browseRemote}” 的地址没有对应的网页`
+                  : `在浏览器中打开 “${browseRemote}”`
+            }
+            disabled={webUrl == null}
+            className={TOOLBAR_BTN}
+            onClick={() => {
+              if (webUrl != null) void window.api.openExternal(webUrl)
+            }}
+          >
+            <Globe className="size-4" />
+          </button>
+        )}
+        <span role="separator" className={TOOLBAR_SEPARATOR} />
         <button
           type="button"
           title="提交（打开提交面板）"
@@ -214,6 +265,9 @@ export function GitToolbar({
         onClose={() => setSettingsOpen(false)}
       />
       {githubLoginOpen && <GitHubLoginDialog onClose={() => setGitHubLoginOpen(false)} />}
+      {addRemoteOpen && (
+        <GitAddRemoteDialog repoPath={repoPath} onClose={() => setAddRemoteOpen(false)} />
+      )}
     </div>
   )
 }

@@ -7,6 +7,7 @@ import { FolderOpen } from 'lucide-react'
 import { CHOICE_ROW, Checkbox } from '@renderer/components/ui/checkbox'
 import { FieldRow, FormDialogShell } from '@renderer/components/ui/form-dialog'
 import { INPUT_ICON_BTN, Input } from '@renderer/components/ui/input'
+import { RepoUrlInput } from '@renderer/components/RepoUrlInput'
 import { TaskProgressDialog } from '@renderer/components/tasks/TaskProgressDialog'
 import { useApp } from '@renderer/store'
 import { cloneTaskOf, useTasks } from '@renderer/task-store'
@@ -135,12 +136,11 @@ export function CloneProjectDialog(): React.JSX.Element | null {
       }}
     >
       <FieldRow label="仓库地址">
-        <Input
+        <RepoUrlInput
           value={url}
           autoFocus
           placeholder="https://github.com/owner/repo.git"
-          className="font-mono"
-          onChange={(e) => setUrl(e.target.value)}
+          onChange={setUrl}
         />
       </FieldRow>
       <FieldRow label="位置">

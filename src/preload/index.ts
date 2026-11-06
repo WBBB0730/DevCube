@@ -296,6 +296,7 @@ const api: RunAPI = {
   gitGetUi: (projectPath) => ipcRenderer.invoke(IPC.gitUiGet, projectPath),
   gitSetUi: (projectPath, patch) => ipcRenderer.invoke(IPC.gitUiSet, projectPath, patch),
   gitDefaultBranch: (projectPath) => ipcRenderer.invoke(IPC.gitDefaultBranch, projectPath),
+  gitRemoteWebUrl: (repoPath, remote) => ipcRenderer.invoke(IPC.gitRemoteWebUrl, repoPath, remote),
 
   githubAccount: () => ipcRenderer.invoke(IPC.githubAccountGet),
   onGitHubAccountChanged: (cb) => subscribe(IPC.githubAccountChanged, cb),
@@ -309,6 +310,9 @@ const api: RunAPI = {
   githubCommitChecks: (repoPath, hashes) =>
     ipcRenderer.invoke(IPC.githubCommitChecks, repoPath, hashes),
   githubCheckRuns: (repoPath, hash) => ipcRenderer.invoke(IPC.githubCheckRuns, repoPath, hash),
+  githubRepos: () => ipcRenderer.invoke(IPC.githubRepos),
+  githubOrgs: () => ipcRenderer.invoke(IPC.githubOrgs),
+  githubCreateRepo: (input) => ipcRenderer.invoke(IPC.githubCreateRepo, input),
 
   onTreeChanged: (cb) => subscribe(IPC.treeChanged, cb),
   onSessionOutput: (cb) => subscribe(IPC.sessionOutput, cb),

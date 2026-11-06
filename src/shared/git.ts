@@ -797,4 +797,6 @@ export interface GitAPI {
   gitInvalidateWorkingTree(repoPath: string): Promise<void>
   /** 当前生效的 init.defaultBranch（未配置回落 'main'），初始化对话框预填用 */
   gitDefaultBranch(projectPath: string): Promise<string>
+  /** 远程的仓库网页地址（工具栏「在浏览器中打开」）；地址不对应网页（本地路径等）或读不到为 null */
+  gitRemoteWebUrl(repoPath: string, remote: string): Promise<string | null>
 }

@@ -292,6 +292,23 @@ export function openInitDialog(projectPath: string): void {
   })
 }
 
+/**
+ * 顺序执行一串动作（出错即停，进行中 / 错误呈现由 GitDialogs 统一负责），全部成功后重拉 config；返回是否全部成功。
+ * 仓库设置与工具栏「添加远程」共用。
+ */
+export async function runActionsThenReloadConfig(
+  repoPath: string,
+  steps: { action: GitAction; label: string }[]
+): Promise<boolean> {
+  const store = useGit.getState()
+  for (const step of steps) {
+    const result = await store.runAction(repoPath, step.action, step.label)
+    if (result.status !== 'ok') return false
+  }
+  await store.loadRepoConfig(repoPath)
+  return true
+}
+
 // —— 私有辅助（纯函数） ——
 
 function sameStrings(a: string[], b: string[]): boolean {
