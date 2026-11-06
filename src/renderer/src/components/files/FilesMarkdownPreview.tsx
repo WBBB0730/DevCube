@@ -1,5 +1,5 @@
 // Files Tab · Markdown 预览：react-markdown + GFM。原始 HTML 照 GitHub 的白名单渲染，脚本、事件属性与 style 去掉（见 lib/files-markdown）；
-// 相对路径图片解析到项目内后经 dc-media 协议流式读取（越界 / 非图片不渲染；服务器上的文件不解析，
+// 网络图片照原地址加载；相对路径图片解析到项目内后经 dc-media 协议流式读取（越界 / 非图片不渲染；服务器上的文件不解析，
 // 相对图片不显示）；链接一律拦截默认跳转，http/https/mailto 交给系统浏览器，其余（锚点 / 相对链接）不动作。
 // 代码块右上角悬停出复制钮，复制代码原文，成功后换勾片刻。
 // 文首的 YAML frontmatter 画成键值表，写错或不是键值对的原样成代码块（见 lib/files-markdown）。
