@@ -216,6 +216,8 @@ export function SettingsDialog({
   const setTheme = useApp((s) => s.setTheme)
   const gitAutoFetch = useApp((s) => s.gitAutoFetch)
   const setGitAutoFetch = useApp((s) => s.setGitAutoFetch)
+  const filesEditorTabs = useApp((s) => s.filesEditorTabs)
+  const setFilesEditorTabs = useApp((s) => s.setFilesEditorTabs)
   const rememberLayout = useApp((s) => s.rememberLayout)
   const setRememberLayout = useApp((s) => s.setRememberLayout)
   const collapsedShortcutGroups = useApp((s) => s.collapsedShortcutGroups)
@@ -529,6 +531,17 @@ export function SettingsDialog({
               </div>
 
               <div className="space-y-2">
+                <div className="text-[color:var(--fg-primary)]">文件</div>
+                <label className="flex cursor-pointer select-none items-center gap-1.5 text-foreground">
+                  <Checkbox
+                    checked={filesEditorTabs}
+                    onCheckedChange={(checked) => void setFilesEditorTabs(checked)}
+                  />
+                  启用编辑器标签页
+                </label>
+              </div>
+
+              <div className="space-y-2">
                 <div className="text-[color:var(--fg-primary)]">窗口</div>
                 <label className="flex cursor-pointer select-none items-center gap-1.5 text-foreground">
                   <Checkbox
@@ -701,7 +714,7 @@ export function SettingsDialog({
             // 按场景分组、可折叠：标题行 = 组标题（同 Git 仓库设置的区块小标题，12px、muted）+ 一条浅色分隔线（同菜单分隔线）
             // + 行尾折叠箭头（同设置里的 Info 图标，平时淡、hover 标题行才提亮）；单击标题行开合
             <div>
-              {appShortcutGroupsFor(platform).map((group, i) => {
+              {appShortcutGroupsFor(platform, { filesEditorTabs }).map((group, i) => {
                 const open = !collapsedShortcutGroups.includes(group.id)
                 return (
                   <section key={group.id} className={cn(i > 0 && 'mt-3')}>

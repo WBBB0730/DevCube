@@ -17,6 +17,10 @@ export type AppShortcut =
   | { id: 'closeTab' }
   | { id: 'cycleTabNext' }
   | { id: 'cycleTabPrev' }
+  /** Files 的 Editor Tab（docs/prd/files-editor-tabs.md）：当前栏里上一个 / 下一个，向右分屏 */
+  | { id: 'prevEditorTab' }
+  | { id: 'nextEditorTab' }
+  | { id: 'splitEditor' }
 
 /** 与 Electron `Input` / DOM KeyboardEvent 对齐的最小字段。 */
 export interface ShortcutInput {
@@ -87,6 +91,21 @@ export function matchAppShortcut(input: ShortcutInput, ctx: ShortcutContext): Ap
   // （macOS 用 ⌘ 不冲突）
   if (mod && !alt && !shift && (key === 'e' || key === 'E' || code === 'KeyE')) {
     return ctx.terminalFocused && input.control ? null : { id: 'recentFiles' }
+  }
+
+  // Editor Tab 上一个 / 下一个：macOS ⇧⌘[ / ⇧⌘]，Windows / Linux Ctrl+PageUp / Ctrl+PageDown（同 VS Code、浏览器）；
+  // 后者在终端里是 vim 等程序的键，焦点在终端时让给它
+  if (ctx.platform === 'darwin') {
+    if (mod && shift && !alt && code === 'BracketLeft') return { id: 'prevEditorTab' }
+    if (mod && shift && !alt && code === 'BracketRight') return { id: 'nextEditorTab' }
+  } else if (mod && !shift && !alt && (code === 'PageUp' || code === 'PageDown')) {
+    if (ctx.terminalFocused) return null
+    return { id: code === 'PageUp' ? 'prevEditorTab' : 'nextEditorTab' }
+  }
+
+  // CmdOrCtrl+\：向右分屏（同 VS Code）；Ctrl+\ 在终端里是 SIGQUIT，焦点在终端时让给 shell
+  if (mod && !alt && !shift && code === 'Backslash') {
+    return ctx.terminalFocused && input.control ? null : { id: 'splitEditor' }
   }
 
   // Ctrl+Tab / Ctrl+Shift+Tab（必须是 Control，不用 Cmd——macOS ⌘Tab 是系统切 App）

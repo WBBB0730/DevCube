@@ -1,10 +1,12 @@
 import { describe, expect, it } from 'vitest'
 import {
-  dropPathKeys,
+  dropScopedKeys,
+  paneScopeKey,
+  remapScopedKeys,
+  seedPaneScope,
   lineAtPos,
   monotonicLinePoints,
   posAtLine,
-  remapPathKeys,
   viewStateOf,
   type FilesViewMemory,
   type LinePoint
@@ -100,23 +102,45 @@ describe('按文件记的阅读位置', () => {
     expect(viewStateOf(memory, '/p/a.md').get('line')).toBe(12.5)
     expect(viewStateOf(memory, '/p/b.md').get('line')).toBeUndefined()
   })
+})
 
-  it('改名时记录整份跟到新路径（含目录下的文件），视图手里的仍是同一份', () => {
+describe('按「栏 + 文件」记的状态', () => {
+  it('某栏第一次打开某文件时取另一栏的那份（另起一份），本栏已有就不动', () => {
     const memory: FilesViewMemory = new Map()
-    const file = viewStateOf(memory, '/p/docs/a.md')
-    const other = viewStateOf(memory, '/p/b.md')
-    remapPathKeys(memory, (p) => p.replace(/^\/p\/docs(?=\/|$)/, '/p/guide'))
-    expect([...memory.keys()].sort()).toEqual(['/p/b.md', '/p/guide/a.md'])
-    expect(memory.get('/p/guide/a.md')).toBe(file)
-    expect(memory.get('/p/b.md')).toBe(other)
+    viewStateOf(memory, paneScopeKey('p1', '/p/a.md')).set('line', 30)
+    seedPaneScope(memory, 'p2', '/p/a.md', ['p1'], (v) => v.clone())
+    const seeded = viewStateOf(memory, paneScopeKey('p2', '/p/a.md'))
+    expect(seeded.get('line')).toBe(30)
+    seeded.set('line', 5)
+    expect(viewStateOf(memory, paneScopeKey('p1', '/p/a.md')).get('line')).toBe(30)
+    seedPaneScope(memory, 'p2', '/p/a.md', ['p1'], (v) => v.clone())
+    expect(viewStateOf(memory, paneScopeKey('p2', '/p/a.md')).get('line')).toBe(5)
   })
 
-  it('删除时丢掉（含目录下的文件）', () => {
+  it('改名时整份跟到新路径（含目录下的文件），栏不变、视图手里的仍是同一份', () => {
     const memory: FilesViewMemory = new Map()
-    viewStateOf(memory, '/p/docs/a.md')
-    viewStateOf(memory, '/p/docs/sub/b.md')
-    viewStateOf(memory, '/p/docs.md')
-    dropPathKeys(memory, (p) => p === '/p/docs' || p.startsWith('/p/docs/'))
-    expect([...memory.keys()]).toEqual(['/p/docs.md'])
+    const left = viewStateOf(memory, paneScopeKey('p1', '/p/docs/a.md'))
+    const right = viewStateOf(memory, paneScopeKey('p2', '/p/docs/a.md'))
+    const other = viewStateOf(memory, paneScopeKey('p1', '/p/b.md'))
+    remapScopedKeys(memory, (p) => p.replace(/^\/p\/docs(?=\/|$)/, '/p/guide'))
+    expect([...memory.keys()].sort()).toEqual(
+      [
+        paneScopeKey('p1', '/p/b.md'),
+        paneScopeKey('p1', '/p/guide/a.md'),
+        paneScopeKey('p2', '/p/guide/a.md')
+      ].sort()
+    )
+    expect(memory.get(paneScopeKey('p1', '/p/guide/a.md'))).toBe(left)
+    expect(memory.get(paneScopeKey('p2', '/p/guide/a.md'))).toBe(right)
+    expect(memory.get(paneScopeKey('p1', '/p/b.md'))).toBe(other)
+  })
+
+  it('删除时丢掉（含目录下的文件），不误伤同名前缀', () => {
+    const memory: FilesViewMemory = new Map()
+    viewStateOf(memory, paneScopeKey('p1', '/p/docs/a.md'))
+    viewStateOf(memory, paneScopeKey('p2', '/p/docs/sub/b.md'))
+    viewStateOf(memory, paneScopeKey('p1', '/p/docs.md'))
+    dropScopedKeys(memory, (p) => p === '/p/docs' || p.startsWith('/p/docs/'))
+    expect([...memory.keys()]).toEqual([paneScopeKey('p1', '/p/docs.md')])
   })
 })

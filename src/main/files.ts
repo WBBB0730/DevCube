@@ -22,6 +22,7 @@ import {
   resolveWithinProject
 } from '../shared/files-path'
 import { copyNameCandidate, isSelfOrInside, moveDropAllowed } from '../shared/files-tree-ops'
+import { activeEditorPath, dropEditorPaths, editorLayoutPaths } from '../shared/files-editor-tabs'
 import { isIdeIgnoredEntryName } from '../shared/files-tree-filter'
 import { filterFilesListTree, type FilesTreeFilterResult } from '../shared/files-tree-search'
 import {
@@ -511,16 +512,21 @@ export async function fileExists(projectPath: string, filePath: string): Promise
   }
 }
 
-/** 读取 UI 态时清掉已不存在的 openPath / 最近打开；最近列表空且仍有 openPath 时用其种子。 */
+/**
+ * 读取 UI 态时去掉已不存在的文件（Editor Tab 与最近打开）；最近列表空且仍有打开的文件时，用当前栏的当前 Tab 作种子。
+ * 都没变时原样返回。
+ */
 export async function sanitizeFilesUi(
   projectPath: string,
   ui: FilesUiState
 ): Promise<FilesUiState> {
-  let openPath = ui.openPath
-  if (openPath) {
-    const ok = await fileExists(projectPath, openPath).catch(() => false)
-    if (!ok) openPath = null
-  }
+  const tabPaths = [...editorLayoutPaths(ui.editors)]
+  const present = await Promise.all(
+    tabPaths.map((p) => fileExists(projectPath, p).catch(() => false))
+  )
+  const missing = new Set(tabPaths.filter((_p, i) => !present[i]))
+  const editors = dropEditorPaths(ui.editors, (p) => missing.has(p))
+  const openPath = activeEditorPath(editors)
 
   const recentPaths: string[] = []
   for (const p of ui.recentPaths) {
@@ -534,6 +540,6 @@ export async function sanitizeFilesUi(
   const recentSame =
     recentPaths.length === ui.recentPaths.length &&
     recentPaths.every((p, i) => p === ui.recentPaths[i])
-  if (openPath === ui.openPath && recentSame) return ui
-  return { ...ui, openPath, recentPaths }
+  if (editors === ui.editors && recentSame) return ui
+  return { ...ui, editors, recentPaths }
 }

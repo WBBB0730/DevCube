@@ -1,6 +1,6 @@
 import type ElectronStore from 'electron-store'
 import type { FilesUiState } from '../shared/files'
-import { DEFAULT_FILES_UI } from '../shared/files'
+import { normalizeFilesUi } from '../shared/files'
 import type {
   AppPrefs,
   PersistedState,
@@ -488,12 +488,7 @@ export function setPanelSizes(sizes: PanelSizes): void {
 }
 
 export function getFilesUi(entryKey: string): FilesUiState {
-  const all = store.get('filesUi') ?? {}
-  const stored = all[entryKey]
-  return {
-    ...DEFAULT_FILES_UI,
-    ...pickKnownKeys(DEFAULT_FILES_UI, stored)
-  }
+  return normalizeFilesUi((store.get('filesUi') ?? {})[entryKey])
 }
 
 export function setFilesUi(entryKey: string, patch: Partial<FilesUiState>): FilesUiState {

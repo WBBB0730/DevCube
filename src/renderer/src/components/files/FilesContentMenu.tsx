@@ -1,10 +1,11 @@
 // 正文区右键菜单（任何已打开的条目）：复制图片（仅看图 / SVG 预览态）/ 复制文件 / 在文件夹中显示 /
 // 在其他应用中打开。在鼠标点弹出（PointContextMenu），同树菜单模式。复制图片走渲染层 canvas
 // 栅格化（lib/copy-image），复制文件走主进程系统剪贴板（clipboard-file）。
-// 服务器上的文件没有本机专属的三项，换成「下载…」。
+// 服务器上的文件没有本机专属的三项，换成「下载…」（断开期间不给）。宿主参数同文件树右键菜单。
 import { Copy, Download, Files, FolderOpen, SquareArrowOutUpRight } from 'lucide-react'
 import { copyImageToClipboard } from '@renderer/lib/copy-image'
 import { ContextMenuItem, PointContextMenu } from '@renderer/components/ui/context-menu'
+import type { FilesTreeServerActions } from './FilesTreeMenu'
 
 export interface FilesContentMenuTarget {
   x: number
@@ -17,12 +18,15 @@ export interface FilesContentMenuTarget {
 
 export function FilesContentMenu({
   menu,
-  onDownload,
+  server,
+  connected,
   onClose
 }: {
   menu: FilesContentMenuTarget | null
-  /** 服务器上的文件：给「下载…」，不给本机专属项 */
-  onDownload?: (path: string) => void
+  /** 服务器宿主：不给本机专属项，换成「下载…」 */
+  server?: FilesTreeServerActions
+  /** 服务器断开期间不给「下载…」 */
+  connected: boolean
   onClose: () => void
 }): React.JSX.Element | null {
   if (menu === null) return null
@@ -42,15 +46,17 @@ export function FilesContentMenu({
           <Copy className="size-4" /> 复制图片
         </ContextMenuItem>
       )}
-      {onDownload !== undefined ? (
-        <ContextMenuItem
-          onClick={() => {
-            onClose()
-            onDownload(menu.path)
-          }}
-        >
-          <Download className="size-4" /> 下载…
-        </ContextMenuItem>
+      {server !== undefined ? (
+        connected && (
+          <ContextMenuItem
+            onClick={() => {
+              onClose()
+              server.onDownload([{ path: menu.path, isDirectory: false }])
+            }}
+          >
+            <Download className="size-4" /> 下载…
+          </ContextMenuItem>
+        )
       ) : (
         <>
           <ContextMenuItem

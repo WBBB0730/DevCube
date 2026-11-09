@@ -39,7 +39,7 @@ Markdown 与 SVG 文件的工具栏出现「编辑 ↔ 预览」两态切换：�
 - frontmatter：`remark-frontmatter` 只认文首 `---` 围起的 YAML（同 GitHub、VS Code），不认 TOML 的 `+++`。表格对齐 VS Code 的预览，每行一个键（`tbody` 里的 `th`，不折行）一个值；列表画成每行一项的嵌套表，嵌套的键值对画成嵌套的键值表，空列表、空键值对与空值留空。YAML 用 `yaml` 解析，取值直接读语法树：标量显示写下的字面（`1.10`、`0x1F`、`~` 不换算），键序照原文，别名写作 `*名字`、不展开（避免自引用无限展开）。写错的 YAML（含重复的键）或不是键值对的（列表、纯文字）原样显示成 YAML 代码块，与围栏代码块走同一个转换（同样有复制钮）；空的（含只有注释的）不显示。转换在 Markdown 语法树转元素那一步（remark-rehype 的 `yaml` 处理），值只生成文字节点，不经原始 HTML 解析；表格与代码块带 frontmatter 的源码位置，阅读位置与查找照常。表格只用 prose 已有的表格样式，补上行表头的留白、字重与配色，嵌套的表不留表格外边距。
 - 排版用 `@tailwindcss/typography` 的 prose 类，色板通过官方 `--tw-prose-*` 变量对齐工作区 token（随应用主题），代码块用 `--font-mono`。
 - SVG 预览用 `<img>` + `data:image/svg+xml`（CSP 已放行 `data:`），不当 inline XML，脚本不执行；放大时按新尺寸重新栅格化矢量，任何倍率清晰。打开分流仍为 text。
-- 两态（编辑 / 预览）而非 WebStorm 三态分屏；状态会话内保持、不落盘，默认预览、新建文件时切回编辑。Markdown、SVG 与 CSV 共用同一开关。
+- 两态（编辑 / 预览）而非 WebStorm 三态分屏；状态会话内保持、不落盘，默认预览、新建文件时切回编辑。Markdown、SVG 与 CSV 共用同一开关；开着 Editor Tab 分栏时每栏各一个，同一个文件可一栏编辑、一栏预览（见 `files-editor-tabs.md`）。
 - 切换钮在 Files 工具栏右侧钮区最左，与「最近打开 / 在文件树中显示 / …」以既有 1×12px `--border-input` 竖线隔成单独一组（同「显示文件树」）。
 - 相对路径图片：按当前文件目录解析、限制在根内，经既有 dc-media 协议流式读取（CSP `img-src` 放行 `dc-media:`）。越界或非图片扩展名不渲染。
 - 网络图片：http / https 地址照原样交给 `<img>` 加载（CSP `img-src` 放行 `https:` `http:`，同 GitHub，http 图片也显示）；本机与服务器上的文件一样。
@@ -62,7 +62,7 @@ Markdown 与 SVG 文件的工具栏出现「编辑 ↔ 预览」两态切换：�
 
 ## Out of Scope
 
-- 编辑 / 预览分屏与边滚边跟的滚动同步（WebStorm 三态）；两态切换那一刻的位置对齐不在此列。
+- 编辑 / 预览边滚边跟的滚动同步（WebStorm 三态；Editor Tab 分栏的一栏编辑、一栏预览各自滚动）；两态切换那一刻的位置对齐不在此列。
 - 代码块语法高亮。
 - 相对链接跳转到项目内其他文件。
 - Mermaid / KaTeX 等扩展渲染。
@@ -72,4 +72,4 @@ Markdown 与 SVG 文件的工具栏出现「编辑 ↔ 预览」两态切换：�
 
 ## Further Notes
 
-若未来要三态分屏，两态的预览组件可直接复用，只动编辑器的布局层。
+左右对照已可用 Editor Tab 的分栏（`files-editor-tabs.md`）；若未来要边滚边跟，两态的预览组件可直接复用，只需在两栏之间同步源码行。

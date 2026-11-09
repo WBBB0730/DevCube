@@ -5,6 +5,7 @@
 
 import {
   deleteEntryShortcut,
+  editorTabShortcuts,
   formatShortcutLabel,
   SHORTCUT,
   type ShortcutChord
@@ -16,6 +17,14 @@ export type AppShortcutListRow = {
   keys: (platform: string) => string
   /** 只在这些平台出现；不给即全平台 */
   platforms?: readonly string[]
+  /** 只在这个偏好开着时出现 */
+  pref?: keyof AppShortcutListPrefs
+}
+
+/** 决定条目出不出现的偏好 */
+export type AppShortcutListPrefs = {
+  /** 启用编辑器标签页（docs/prd/files-editor-tabs.md） */
+  filesEditorTabs: boolean
 }
 
 /** 分组的稳定标识：记住哪些分组收起了靠它，不靠会改的标题。 */
@@ -91,6 +100,16 @@ export const APP_SHORTCUT_GROUPS: AppShortcutListGroup[] = [
     rows: [
       { label: '聚焦文件筛选或前往路径', keys: chords(SHORTCUT.filesFilter) },
       { label: '搜索文件内容', keys: chords(SHORTCUT.contentSearch) },
+      { label: '关闭当前文件', keys: chords(SHORTCUT.closeTab) },
+      {
+        label: '上一个 / 下一个编辑器标签页',
+        keys: chordsBy((platform) => {
+          const { prev, next } = editorTabShortcuts(platform)
+          return [prev, next]
+        }),
+        pref: 'filesEditorTabs'
+      },
+      { label: '向右分屏', keys: chords(SHORTCUT.splitEditor), pref: 'filesEditorTabs' },
       { label: '保存服务器上的文件', keys: chords(SHORTCUT.save) },
       { label: '上一个 / 下一个媒体文件', keys: chords(LEFT, RIGHT) },
       { label: 'PDF / PPT 上一页 / 下一页', keys: chords(UP, DOWN) },
@@ -174,15 +193,17 @@ export const APP_SHORTCUT_GROUPS: AppShortcutListGroup[] = [
   }
 ]
 
-/** 当前平台要显示的分组与条目（键位已格式化）；某组没有条目时整组不出。 */
+/** 当前平台与偏好下要显示的分组与条目（键位已格式化）；某组没有条目时整组不出。 */
 export function appShortcutGroupsFor(
-  platform: string
+  platform: string,
+  prefs: AppShortcutListPrefs
 ): { id: AppShortcutGroupId; title: string; rows: { label: string; keys: string }[] }[] {
   return APP_SHORTCUT_GROUPS.map((group) => ({
     id: group.id,
     title: group.title,
     rows: group.rows
       .filter((row) => row.platforms === undefined || row.platforms.includes(platform))
+      .filter((row) => row.pref === undefined || prefs[row.pref])
       .map((row) => ({ label: row.label, keys: row.keys(platform) }))
   })).filter((group) => group.rows.length > 0)
 }

@@ -1,5 +1,12 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
-import CodeMirror from '@uiw/react-codemirror'
+import {
+  useCallback,
+  useEffect,
+  useEffectEvent,
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  useState
+} from 'react'
 import {
   ArrowUpRight,
   ChevronsDownUp,
@@ -8,8 +15,7 @@ import {
   FolderOpen,
   Link2Off,
   Minus,
-  Search,
-  WandSparkles
+  Search
 } from 'lucide-react'
 import {
   FILES_TEXT_MAX_BYTES,
@@ -20,6 +26,33 @@ import {
   type FilesSymlink,
   type FilesUiState
 } from '@shared/files'
+import {
+  EMPTY_EDITOR_LAYOUT,
+  activeEditorPath,
+  activeEditorPaths,
+  adjacentEditorPath,
+  closeAllEditors,
+  closeEditor,
+  closeEditorsToLeft,
+  closeEditorsToRight,
+  closeOtherEditors,
+  currentEditorPane,
+  dropEditorPaths,
+  editorLayoutPaths,
+  editorLayoutsEqual,
+  editorPaneOf,
+  editorTabLimit,
+  focusEditorPane,
+  leavingEditorPaths,
+  moveEditor,
+  normalizeEditorLayout,
+  openEditor,
+  pinEditor,
+  remapEditorPaths,
+  splitEditor,
+  type EditorLayout,
+  type EditorPane
+} from '@shared/files-editor-tabs'
 import { flattenFilesTree, type FilesTreeRow } from '@shared/files-tree-flatten'
 import { wslDistroOf } from '@shared/wsl-path'
 import { innermostRepo, type GitFileStatus, type GitRepo } from '@shared/git'
@@ -52,47 +85,21 @@ import { createKeyedSubscription } from '@renderer/lib/keyed-subscription'
 import { useDoubleClick } from '@renderer/lib/double-click'
 import { useRememberedPanel } from '@renderer/lib/remembered-panel'
 import { isPrimaryModifierEvent, shortcutTitle } from '@renderer/lib/shortcut-label'
-import {
-  FILES_BASIC_SETUP,
-  filesEditorConfig,
-  filesEditorTheme,
-  filesGutters,
-  filesHighlighting,
-  languageExtensionForPath
-} from '@renderer/lib/cm6-setup'
-import { EditorView } from '@codemirror/view'
-import { filesLinks } from '@renderer/lib/cm6-links'
-import { rememberEditorView, restoreEditorView } from '@renderer/lib/cm6-view-state'
-import { formatKeymap } from '@renderer/lib/cm6-format'
-import { filesFormatLanguage, formatFileInEditor } from '@renderer/lib/files-format'
-import { useEditorFind } from '@renderer/lib/use-editor-find'
+import { EditorDocSync } from '@renderer/lib/cm6-doc-sync'
 import { useFindSession, type FindMemory, type FindSession } from '@renderer/lib/use-find-session'
 import {
-  dropPathKeys,
-  remapPathKeys,
+  dropScopedKeys,
+  paneScopeKey,
+  remapScopedKeys,
+  seedPaneScope,
   viewStateOf,
-  type FilesViewMemory,
-  type FilesViewState
+  type FilesViewMemory
 } from '@renderer/lib/files-view-state'
-import { gitDiffGutter, type GitGutterHunkClickPayload } from '@renderer/lib/cm6-git-gutter'
-import { FilesFindWidget } from './FilesFindWidget'
-import {
-  adjacentMediaPath,
-  isCsvPath,
-  isMarkdownPath,
-  isMediaPreviewPath,
-  isPreviewableSourcePath,
-  isSvgPath
-} from '@shared/files-kind'
+import type { GitGutterHunkClickPayload } from '@renderer/lib/cm6-git-gutter'
+import { adjacentMediaPath, isMediaPreviewPath, isSvgPath } from '@shared/files-kind'
 import { FilesGutterHunkPopover } from './FilesGutterHunkPopover'
-import { FilesMarkdownPreview } from './FilesMarkdownPreview'
 import type { MediaFitMode } from '@renderer/lib/files-media-zoom'
-import {
-  FilesMediaPreview,
-  FilesSvgPreview,
-  MediaFitButtons,
-  type MediaPreviewHandle
-} from './FilesMediaPreview'
+import { FilesMediaPreview, MediaFitButtons, type MediaPreviewHandle } from './FilesMediaPreview'
 import { FilesEntryDialog } from './FilesEntryDialog'
 import { removalRequest, type FilesEntryDialogRequest } from './files-entry-request'
 import {
@@ -124,6 +131,8 @@ import { SqliteFileView } from '@renderer/components/database/SqliteFileView'
 import { FilesToolbar } from './FilesToolbar'
 import { FilesContentMenu, type FilesContentMenuTarget } from './FilesContentMenu'
 import { FilesTreeIcon } from './FilesTreeIcon'
+import { EditorTabsDnd, FilesEditorTabs, type EditorTabsActions } from './FilesEditorTabs'
+import { FilesTextEditor, type EditorJumpRequest, type FilesPaneToolbar } from './FilesTextEditor'
 import {
   arrowDirection,
   editableTarget,
@@ -141,7 +150,7 @@ import {
 import { ipcErrorMessage } from '@renderer/lib/ipc-error'
 import { typeToInput } from '@renderer/lib/type-to-input'
 import { useTreeVirtualReveal } from '@renderer/lib/use-tree-virtual-reveal'
-import { useFiles } from '@renderer/files-store'
+import { useFiles, type FilesEditorCommand } from '@renderer/files-store'
 import { useApp } from '@renderer/store'
 import { BAR_INPUT_ICON, BarInput } from '@renderer/components/ui/bar-input'
 import { Button } from '@renderer/components/ui/button'
@@ -175,15 +184,6 @@ import {
   type ServerSaveState
 } from './ServerFileViews'
 
-/** 编辑器跳转请求（FilesPane → FilesTextEditor）：内容搜索带行与选中区间；不带行只聚焦（最近打开选取后）。 */
-interface EditorJumpRequest {
-  path: string
-  line?: number
-  col?: number
-  endCol?: number
-  nonce: number
-}
-
 // 每个项目的 Files 面板常驻，共用一个工作区变化监听、按项目路径分发（项目数没有上限）。
 const subscribeFilesChanged = createKeyedSubscription(
   (cb: (projectPath: string) => void) => window.api.onFilesChanged(cb),
@@ -213,42 +213,41 @@ const SERVER_TREE_DRAG = 'application/x-devcube-server-paths'
 /** 文件树的行在定位里认的键：路径；提示行不能被定位 */
 const filesRowKey = (row: FilesTreeRow): string | undefined => (row.notice ? undefined : row.path)
 
-type Loaded =
-  | ((
-      | {
-          kind: 'text'
-          path: string
-          content: string
-          /** 载入 / 上次保存时文件的修改时间与大小：判断文件是否被别处改过 */
-          mtimeMs: number
-          size: number
-          dirty: boolean
-        }
-      | {
-          kind: 'image'
-          path: string
-          mediaUrl: string
-          mime: string
-          width?: number
-          height?: number
-          tiled?: boolean
-          /** 经主进程出图用的本机文件（服务器上的图即下载的缓存） */
-          decode: { root: string; path: string }
-        }
-      | { kind: 'audio'; path: string; mediaUrl: string; mime: string }
-      | { kind: 'video'; path: string; mediaUrl: string; mime: string }
-      | { kind: 'pdf'; path: string; mediaUrl: string }
-      | { kind: 'pptx'; path: string; mediaUrl: string }
-      | { kind: 'xlsx'; path: string; mediaUrl: string; size: number }
-      | { kind: 'sqlite'; path: string }
-      | { kind: 'other'; path: string; size: number }
-      /** 服务器上较大的文件：占位，canForce 时可「仍然打开」 */
-      | { kind: 'too-large'; path: string; size: number; canForce: boolean }
-    ) & {
-      /** 服务器上的非文本文件载入时的版本（见 FilesOpenResult） */
-      version?: ServerFileVersion
-    })
-  | null
+/** 一个打开的文件在正文里的样子（按打开分流的类型） */
+type FilesLoaded = (
+  | {
+      kind: 'text'
+      path: string
+      content: string
+      /** 载入 / 上次保存时文件的修改时间与大小：判断文件是否被别处改过 */
+      mtimeMs: number
+      size: number
+      dirty: boolean
+    }
+  | {
+      kind: 'image'
+      path: string
+      mediaUrl: string
+      mime: string
+      width?: number
+      height?: number
+      tiled?: boolean
+      /** 经主进程出图用的本机文件（服务器上的图即下载的缓存） */
+      decode: { root: string; path: string }
+    }
+  | { kind: 'audio'; path: string; mediaUrl: string; mime: string }
+  | { kind: 'video'; path: string; mediaUrl: string; mime: string }
+  | { kind: 'pdf'; path: string; mediaUrl: string }
+  | { kind: 'pptx'; path: string; mediaUrl: string }
+  | { kind: 'xlsx'; path: string; mediaUrl: string; size: number }
+  | { kind: 'sqlite'; path: string }
+  | { kind: 'other'; path: string; size: number }
+  /** 服务器上较大的文件：占位，canForce 时可「仍然打开」 */
+  | { kind: 'too-large'; path: string; size: number; canForce: boolean }
+) & {
+  /** 服务器上的非文本文件载入时的版本（见 FilesOpenResult） */
+  version?: ServerFileVersion
+}
 
 /** 未保存的编辑与别处的改动撞上 */
 type FilesConflict =
@@ -257,9 +256,47 @@ type FilesConflict =
   /** 服务器上的文件已被删除（本地自动保存，碰不到） */
   | { kind: 'gone' }
 
-/** 打开结果 → 正文状态（被取消的打开不改正文，调用方先挡掉）。 */
-function loadedFrom(result: Exclude<FilesOpenResult, { kind: 'canceled' }>): NonNullable<Loaded> {
-  return result.kind === 'text' ? { ...result, dirty: false } : result
+/**
+ * 一个打开的文件：按路径一份，两栏开同一个文件时共用（docs/prd/files-editor-tabs.md「同一文件两栏」）。
+ * 只留某栏正显示着的，和服务器上没保存的（手动保存）；本地文件切走即自动保存并放掉，切回来重读。
+ */
+interface FilesDoc {
+  loaded: FilesLoaded
+  conflict: FilesConflict | null
+  /** 保存出错（本地写在工具栏，服务器写在保存栏） */
+  saveError: string | null
+  /** 服务器上的文件正在保存（保存栏转圈） */
+  saving: boolean
+}
+
+/** 按栏的视图开关（会话内保持，不持久化）：Markdown / SVG / CSV 编辑 ↔ 预览（默认预览）、PDF / PPT 缩略图（默认开） */
+type PaneView = { sourcePreview: boolean; pageThumbnails: boolean }
+const DEFAULT_PANE_VIEW: PaneView = { sourcePreview: true, pageThumbnails: true }
+
+const NO_PREFETCH: readonly string[] = []
+
+/** 打开结果 → 一份打开的文件（被取消的打开不改正文，调用方先挡掉）。 */
+function docFrom(result: Exclude<FilesOpenResult, { kind: 'canceled' }>): FilesDoc {
+  const loaded: FilesLoaded = result.kind === 'text' ? { ...result, dirty: false } : result
+  return { loaded, conflict: null, saveError: null, saving: false }
+}
+
+function isDirtyDoc(doc: FilesDoc | undefined): boolean {
+  return doc?.loaded.kind === 'text' && doc.loaded.dirty
+}
+
+/** 给一栏的当前文件建查找会话（hook 要在组件里调）：按「栏 + 文件」各记一份 */
+function PaneFindScope({
+  scope,
+  memory,
+  children
+}: {
+  scope: string | null
+  memory: FindMemory
+  children: (find: FindSession) => React.ReactNode
+}): React.JSX.Element {
+  const find = useFindSession(scope, memory)
+  return <>{children(find)}</>
 }
 
 /**
@@ -319,20 +356,22 @@ export type FilesPaneHost =
     }
   | {
       kind: 'preview'
-      /** 初始打开的文件（已删除等无文件时 null） */
-      initialFile: string | null
+      /** 初始打开的文件（Editor Tab 与分栏）；换根重挂时，宿主带着留在新根里的那些 */
+      initialLayout: EditorLayout
       /** 「上一级」（树空白区右键菜单）；null = 已到文件系统根 */
       onAscend: (() => void) | null
       /** 「添加为项目」/「转到项目」（树空白区右键菜单；窗口顶栏另有一份） */
       onAddProject: () => void
       projectRegistered: boolean
-      /** 当前打开文件变化（宿主上翻根时据此保留打开的文件） */
-      onOpenPathChange: (path: string | null) => void
+      /** 打开的文件变了（宿主据此更新标题、换根时带过去） */
+      onLayoutChange: (layout: EditorLayout) => void
       /** 把某目录设为树的根（树菜单「作为根目录」） */
       onSetRoot: (dir: string) => void
       /** 树顶类型筛选（勾选类别集合；全选即未筛选） */
       typeFilter: ReadonlySet<FilesTypeCategory>
       onTypeFilterChange: (next: ReadonlySet<FilesTypeCategory>) => void
+      /** 关窗：⌘W 关掉最后一个 Editor Tab、或本来就没有打开的文件时（docs/prd/files-editor-tabs.md「键位」） */
+      onCloseWindow: () => void
     }
 
 const PROJECT_HOST: FilesPaneHost = { kind: 'project' }
@@ -367,24 +406,33 @@ export function FilesPane({
    * 打开文件时换成它；树上只有这一种高亮
    */
   const [selection, setSelection] = useState<TreeSelection>(EMPTY_SELECTION)
-  const [loaded, setLoaded] = useState<Loaded>(null)
-  const [saveError, setSaveError] = useState<string | null>(null)
-  const [conflict, setConflict] = useState<FilesConflict | null>(null)
+  /** 偏好「启用编辑器标签页」→ Tab 上限（docs/prd/files-editor-tabs.md、ADR-0061） */
+  const tabsEnabled = useApp((s) => s.filesEditorTabs)
+  const limit = editorTabLimit(tabsEnabled)
+  /** 打开的 Editor Tab 与分栏；一切变化经 transitionLayout */
+  const [layout, setLayout] = useState<EditorLayout>(EMPTY_EDITOR_LAYOUT)
+  /** 打开的文件，按路径一份（见 FilesDoc） */
+  const [docs, setDocs] = useState<Record<string, FilesDoc>>({})
+  /** 打开失败的原因，按栏：留在那一栏的工具栏上，下一次在那栏打开成功即清掉 */
+  const [paneNotices, setPaneNotices] = useState<Record<string, string>>({})
+  /** 按栏的视图开关（见 PaneView） */
+  const [paneViews, setPaneViews] = useState<Record<string, PaneView>>({})
   /** 相对项目根路径 → 工作区 Git 状态（与提交面板文件树上色同源） */
   const [statusByRel, setStatusByRel] = useState<Map<string, GitFileStatus>>(() => new Map())
-  /** 当前打开文本文件在 HEAD 的基线（gutter diff 条纹）；无基线为 null */
-  const [headText, setHeadText] = useState<{ path: string; content: string } | null>(null)
+  /** 正显示着的文本文件在 HEAD 的基线（gutter diff 条纹），按路径；没有基线的不在里面 */
+  const [baselines, setBaselines] = useState<Record<string, string>>({})
   const [recentPaths, setRecentPaths] = useState<string[]>([])
-  /** 工具栏「最近打开文件」下拉开合（受控，供 ⌘E 打开） */
+  /** 当前栏工具栏的「最近打开文件」下拉开合（受控，供 ⌘E 打开） */
   const [recentMenuOpen, setRecentMenuOpen] = useState(false)
   /** 展开后读不出来的目录 → 原因（如「没有权限」），树里在它的子级位置显示提示行 */
   const [dirNotices, setDirNotices] = useState<Record<string, string>>({})
   /**
-   * 正在打开的服务器文件：正文区盖上「正在加载…」，开始下载后换成进度（可取消）；progress 为下载进度，
-   * 开始下载才有（用副本、只给占位的没有）
+   * 正在打开的服务器文件：它要开进的那一栏盖上「正在加载…」，开始下载后换成进度（可取消）；progress 为下载进度，
+   * 开始下载才有（用副本、只给占位的没有）。同一台服务器同一时刻只打开一个
    */
   const [opening, setOpening] = useState<{
     path: string
+    paneId: string
     progress: { doneBytes: number; totalBytes: number } | null
   } | null>(null)
   const openingRef = useRef(opening)
@@ -403,48 +451,54 @@ export function FilesPane({
   /** 移动、复制、粘贴、删除多项等没有自己弹窗的操作出错 */
   const [opError, setOpError] = useState<string | null>(null)
 
-  const loadedRef = useRef(loaded)
+  const layoutRef = useRef(layout)
+  const docsRef = useRef(docs)
   const selectionRef = useRef(selection)
   const recentPathsRef = useRef(recentPaths)
   const expandedRef = useRef(expanded)
   const childrenByDirRef = useRef(childrenByDir)
   const idleTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  /** 看图相机：工具栏「适应」钮组驱动 */
-  const imageRef = useRef<MediaPreviewHandle>(null)
-  /** 看图当前所处的档；null = 自由倍率，四颗钮都不亮。 */
-  const [imageFit, setImageFit] = useState<MediaFitMode | null>(null)
+  /** 看图相机，按栏：工具栏「适应」钮组驱动 */
+  const imageHandles = useRef(new Map<string, MediaPreviewHandle>())
+  /** 看图当前所处的档，按栏；null = 自由倍率，四颗钮都不亮。 */
+  const [imageFits, setImageFits] = useState<Record<string, MediaFitMode | null>>({})
   /** 右侧文件树可见性；不持久化，重挂载默认展开。 */
   const [treeVisible, setTreeVisible] = useState(true)
-  /** Markdown / SVG / CSV 编辑 ↔ 预览两态；会话内保持，不持久化，默认预览（新建文件时切回编辑）。 */
-  const [sourcePreview, setSourcePreview] = useState(true)
   /**
-   * 查找（Cmd+F）跟着文件走：按文件各记一份（开关、查询与选项），切走再切回来原样恢复；编辑与预览共用一份。
+   * 查找（Cmd+F）跟着文件走，按「栏 + 文件」各记一份（开关、查询与选项），切走再切回来原样恢复；编辑与预览共用一份。
    * 会话内保持，不持久化；改名 / 删除时跟着改。
    */
   const [findMemory] = useState<FindMemory>(() => new Map())
-  const find = useFindSession(loaded?.path ?? null, findMemory)
   /**
-   * 阅读位置跟着文件走（docs/prd/files-tab.md「阅读位置」）：按文件各记一份交给正文视图，切走再切回来原样恢复。
-   * 会话内保持，不持久化；改名 / 删除时跟着改。渲染时取用即建（同一路径恒为同一份），不影响渲染结果
+   * 阅读位置跟着文件走（docs/prd/files-tab.md「阅读位置」），按「栏 + 文件」各记一份交给正文视图。
+   * 会话内保持，不持久化；改名 / 删除时跟着改。渲染时取用即建（同一个键恒为同一份），不影响渲染结果
    */
   const [viewMemory] = useState<FilesViewMemory>(() => new Map())
-  /** PDF / PPT 缩略图侧栏可见性（两者共用一个开关）；会话内保持，不持久化，默认显示。 */
-  const [pageThumbnails, setPageThumbnails] = useState(true)
+  /** 同一文件两栏的编辑器互相转发改动 */
+  const [docSync] = useState(() => new EditorDocSync())
   /** 文件树右键菜单目标与条目操作弹窗（新建 / 重命名 / 删除）。 */
   const [treeMenu, setTreeMenu] = useState<FilesTreeMenuTarget | null>(null)
   /** 正文区（看图 / SVG 预览）右键菜单：复制图片 / 在文件夹中显示 / 在其他应用中打开 */
   const [contentMenu, setContentMenu] = useState<FilesContentMenuTarget | null>(null)
   const [entryDialog, setEntryDialog] = useState<FilesEntryDialogRequest | null>(null)
-  /** gutter diff 弹窗（点击标记行号格子；文档一变即关，见 onChange / openFile）。 */
-  const [hunkPopup, setHunkPopup] = useState<GitGutterHunkClickPayload | null>(null)
-  /** 编辑器跳转：内容搜索选中命中区间并滚到行、最近打开只聚焦（nonce 支持同位置重跳）。 */
-  const [editorJump, setEditorJump] = useState<EditorJumpRequest | null>(null)
+  /** gutter diff 弹窗（点击标记行号格子；文档一变即关）：哪一栏的哪个文件 */
+  const [hunkPopup, setHunkPopup] = useState<{
+    path: string
+    payload: GitGutterHunkClickPayload
+  } | null>(null)
+  /** 编辑器跳转：内容搜索选中命中区间并滚到行、最近打开只聚焦（nonce 支持同位置重跳）；作用于哪一栏 */
+  const [editorJump, setEditorJump] = useState<(EditorJumpRequest & { paneId: string }) | null>(
+    null
+  )
   const editorJumpNonce = useRef(0)
   const [ready, setReady] = useState(false)
-  /** 看图：上一张/下一张普通位图的 dc-media URL，供提前解码；超大位图改为提前生成预览与金字塔。 */
+  /** 看图：当前栏上一张/下一张普通位图的 dc-media URL，供提前解码；超大位图改为提前生成预览与金字塔。 */
   const [prefetch, setPrefetch] = useState<string[]>([])
   /** 忽略过期的 openFile / git status / 全部展开 / 过滤扫盘 响应。 */
   const openSeqRef = useRef(0)
+  /** 按需读取进行中的文件；用户在进度上点了「取消」的那个（见 loadShown） */
+  const loadingRef = useRef(new Set<string>())
+  const userCanceledRef = useRef<string | null>(null)
   const gitStatusSeqRef = useRef(0)
   /** 树根下的仓库（随 Git 标记一起取）：按它判断 git:changed 是不是这棵树的、写文件后作废哪个仓库 */
   const gitReposRef = useRef<GitRepo[]>([])
@@ -466,7 +520,8 @@ export function FilesPane({
   const filterViewRef = useRef(filterView)
 
   useLayoutEffect(() => {
-    loadedRef.current = loaded
+    layoutRef.current = layout
+    docsRef.current = docs
     selectionRef.current = selection
     recentPathsRef.current = recentPaths
     expandedRef.current = expanded
@@ -474,7 +529,29 @@ export function FilesPane({
     filterViewRef.current = filterView
     openingRef.current = opening
     dirNoticesRef.current = dirNotices
-  }, [loaded, selection, recentPaths, expanded, childrenByDir, filterView, opening, dirNotices])
+  }, [
+    layout,
+    docs,
+    selection,
+    recentPaths,
+    expanded,
+    childrenByDir,
+    filterView,
+    opening,
+    dirNotices
+  ])
+
+  /** 当前栏与它正显示的文件 */
+  const currentPane = currentEditorPane(layout)
+  const currentDoc = currentPane.active === null ? undefined : docs[currentPane.active]
+  const currentLoaded = currentDoc?.loaded ?? null
+  /** 改一栏的视图开关 */
+  const setPaneView = useCallback((paneId: string, patch: Partial<PaneView>): void => {
+    setPaneViews((prev) => ({
+      ...prev,
+      [paneId]: { ...(prev[paneId] ?? DEFAULT_PANE_VIEW), ...patch }
+    }))
+  }, [])
 
   // 隐藏时丢弃临时过滤（服务器为「前往路径」的输入）、gutter 弹窗与最近打开下拉；其它 Files 状态继续常驻。
   const [filterVisible, setFilterVisible] = useState(visible)
@@ -603,43 +680,50 @@ export function FilesPane({
     }
   }, [visible, remote, rootPath, refreshGitStatus])
 
-  // 打开文本文件时取 HEAD 基线（gutter diff）；提交 / 暂存等 git 变化后重取
-  const openTextPath = loaded?.kind === 'text' ? loaded.path : null
+  // 正显示着的本地文本文件取 HEAD 基线（gutter diff）；文件所在的仓库有变动（提交、暂存等）后重取
+  const shownTextKey = remote
+    ? ''
+    : [...activeEditorPaths(layout)].filter((p) => docs[p]?.loaded.kind === 'text').join('\n')
   useEffect(() => {
-    if (!visible || remote || openTextPath === null) return
+    if (!visible || shownTextKey === '') return
+    const paths = shownTextKey.split('\n')
     let stale = false
-    const load = (): void => {
+    const drop = (path: string): void =>
+      setBaselines((prev) => {
+        if (!(path in prev)) return prev
+        const next = { ...prev }
+        delete next[path]
+        return next
+      })
+    const load = (path: string): void => {
       window.api
-        .filesHeadText(rootPath, openTextPath)
+        .filesHeadText(rootPath, path)
         .then((content) => {
           if (stale) return
-          setHeadText((prev) =>
-            content === null
-              ? null
-              : prev && prev.path === openTextPath && prev.content === content
-                ? prev
-                : { path: openTextPath, content }
-          )
+          if (content === null) drop(path)
+          else
+            setBaselines((prev) => (prev[path] === content ? prev : { ...prev, [path]: content }))
         })
         .catch(() => {
-          if (!stale) setHeadText(null)
+          if (!stale) drop(path)
         })
     }
-    load()
-    // 对比的是文件所在的仓库：它有变动（提交、暂存等）才重取
+    paths.forEach(load)
+    // 对比的是文件所在的仓库：它有变动才重取
     const dispose = window.api.onGitChanged((p) => {
-      if (innermostRepo(gitReposRef.current, openTextPath)?.path === p) load()
+      for (const path of paths) if (innermostRepo(gitReposRef.current, path)?.path === p) load(path)
     })
     return () => {
       stale = true
       dispose()
     }
-  }, [visible, remote, openTextPath, rootPath])
+  }, [visible, shownTextKey, rootPath])
 
   /** 落盘 UI 态（项目与服务器）；预览窗口一律不写集中配置存储（由 backend 决定） */
   const setUi = useCallback((patch: Partial<FilesUiState>) => backend.setUi(patch), [backend])
+  /** 落盘打开的文件与树展开（取 ref 里的现值） */
   const persistUi = useCallback(
-    (openPath: string | null, expandedPaths: string[]) => setUi({ openPath, expandedPaths }),
+    () => setUi({ editors: layoutRef.current, expandedPaths: [...expandedRef.current] }),
     [setUi]
   )
 
@@ -654,129 +738,316 @@ export function FilesPane({
     [setUi]
   )
 
-  /** 服务器上的文件正在保存（保存栏转圈） */
-  const [saving, setSaving] = useState(false)
+  /** 记一次打开（「最近打开」按打开与切换的先后排，⌘E 据此回到上一个文件） */
+  const pushRecent = useCallback(
+    (path: string): void => {
+      const next = pushRecentPath(recentPathsRef.current, path)
+      recentPathsRef.current = next
+      setRecentPaths(next)
+      setUi({ recentPaths: next })
+    },
+    [setUi]
+  )
+
+  /** 换掉打开的文件（同步写 ref，免得紧接着的读到旧值，如保存触发的 files:changed 误报冲突） */
+  const replaceDocs = useCallback((next: Record<string, FilesDoc>): void => {
+    docsRef.current = next
+    setDocs(next)
+  }, [])
+  /** 改一份打开的文件；它已被放掉就不动 */
+  const updateDoc = useCallback(
+    (path: string, update: (doc: FilesDoc) => FilesDoc): void => {
+      const doc = docsRef.current[path]
+      if (doc !== undefined) replaceDocs({ ...docsRef.current, [path]: update(doc) })
+    },
+    [replaceDocs]
+  )
+  /** 放掉不再要的文件：只留某栏正显示着的，和服务器上没保存的（见 FilesDoc） */
+  const pruneDocs = useCallback((): void => {
+    const shown = activeEditorPaths(layoutRef.current)
+    const open = editorLayoutPaths(layoutRef.current)
+    const cur = docsRef.current
+    const kept = Object.entries(cur).filter(
+      ([p, doc]) => shown.has(p) || (open.has(p) && isDirtyDoc(doc))
+    )
+    if (kept.length !== Object.keys(cur).length) replaceDocs(Object.fromEntries(kept))
+  }, [replaceDocs])
 
   /**
-   * 写入当前文本。服务器上的文件在编辑期间被别处改过时不写，转为冲突（本地弹框，服务器在保存栏里处理）。
+   * 写入一个文件。服务器上的文件在编辑期间被别处改过时不写，转为冲突（本地弹框，服务器在保存栏里处理）。
    * 保存期间又键入的内容不算已保存：写完只更新基准，内容变过就仍是未保存。
    */
-  const flushSave = useCallback(async (): Promise<boolean> => {
-    const cur = loadedRef.current
-    if (!cur || cur.kind !== 'text' || !cur.dirty) return true
-    setSaving(true)
-    try {
-      const result = await backend.write(cur.path, cur.content, {
-        mtimeMs: cur.mtimeMs,
-        size: cur.size
-      })
-      if ('conflict' in result) {
-        const { content, mtimeMs, size } = result.conflict
-        setConflict({ kind: 'changed', disk: content, mtimeMs, size })
-        return false
-      }
-      // 同步写 ref，避免保存触发的 files:changed 仍读到旧 dirty/mtime 而误报冲突
-      const settle = (prev: Loaded): Loaded =>
-        prev && prev.kind === 'text' && prev.path === cur.path
-          ? {
-              ...prev,
-              mtimeMs: result.mtimeMs,
-              size: result.size,
-              dirty: prev.content !== cur.content
+  const flushSave = useCallback(
+    async (path: string): Promise<boolean> => {
+      const cur = docsRef.current[path]
+      if (!cur || cur.loaded.kind !== 'text' || !cur.loaded.dirty) return true
+      const { content, mtimeMs, size } = cur.loaded
+      updateDoc(path, (doc) => ({ ...doc, saving: true }))
+      try {
+        const result = await backend.write(path, content, { mtimeMs, size })
+        if ('conflict' in result) {
+          const disk = result.conflict
+          updateDoc(path, (doc) => ({
+            ...doc,
+            conflict: {
+              kind: 'changed',
+              disk: disk.content,
+              mtimeMs: disk.mtimeMs,
+              size: disk.size
             }
-          : prev
-      loadedRef.current = settle(loadedRef.current)
-      setLoaded(settle)
-      setSaveError(null)
-      // 写成了即不再冲突（服务器上已删除的，保存即重新创建）
-      setConflict(null)
-      if (!remote) {
-        // 自己刚写的文件：不等监听通知，作废它所在仓库的工作区快照后立即重拉 Git 标记
-        void invalidateGitStatus(cur.path).then(refreshGitStatus)
+          }))
+          return false
+        }
+        // 写成了即不再冲突（服务器上已删除的，保存即重新创建）
+        updateDoc(path, (doc) =>
+          doc.loaded.kind === 'text'
+            ? {
+                ...doc,
+                loaded: {
+                  ...doc.loaded,
+                  mtimeMs: result.mtimeMs,
+                  size: result.size,
+                  dirty: doc.loaded.content !== content
+                },
+                saveError: null,
+                conflict: null
+              }
+            : doc
+        )
+        if (!remote) {
+          // 自己刚写的文件：不等监听通知，作废它所在仓库的工作区快照后立即重拉 Git 标记
+          void invalidateGitStatus(path).then(refreshGitStatus)
+        }
+        return true
+      } catch (e) {
+        updateDoc(path, (doc) => ({ ...doc, saveError: ipcErrorMessage(e) }))
+        return false
+      } finally {
+        updateDoc(path, (doc) => ({ ...doc, saving: false }))
+        // 服务器上切走了的文件存好即放掉
+        pruneDocs()
       }
-      return true
-    } catch (e) {
-      setSaveError(ipcErrorMessage(e))
-      return false
-    } finally {
-      setSaving(false)
-    }
-  }, [backend, remote, refreshGitStatus, invalidateGitStatus])
+    },
+    [backend, remote, updateDoc, pruneDocs, refreshGitStatus, invalidateGitStatus]
+  )
+
+  /** 写入全部有未保存修改的文件：本地自动保存的各个时机；服务器上的「全部保存」逐个写 */
+  const flushAll = useCallback(async (): Promise<boolean> => {
+    const dirty = Object.keys(docsRef.current).filter((p) => isDirtyDoc(docsRef.current[p]))
+    if (!remote) return (await Promise.all(dirty.map((p) => flushSave(p)))).every(Boolean)
+    for (const p of dirty) if (!(await flushSave(p))) return false
+    return true
+  }, [remote, flushSave])
 
   const scheduleIdleSave = useCallback(() => {
     if (idleTimer.current) clearTimeout(idleTimer.current)
     idleTimer.current = setTimeout(() => {
-      void flushSave()
+      void flushAll()
     }, IDLE_SAVE_MS)
-  }, [flushSave])
+  }, [flushAll])
+
+  /** 从 base 到 next 要先安顿的文件：本地被关掉或切走的、服务器上被关掉的，且有未保存的修改 */
+  const unsettledDocs = useCallback(
+    (base: EditorLayout, next: EditorLayout): string[] =>
+      leavingEditorPaths(base, next, { keepDeactivated: remote }).filter((p) =>
+        isDirtyDoc(docsRef.current[p])
+      ),
+    [remote]
+  )
 
   /**
-   * 打开条目。force：不先处理当前文件的未保存编辑（调用方已处理，或本就要丢掉）；openLarge：服务器上的大文件「仍然打开」。
-   * 换到别的文件前：本地先自动保存；服务器上的文件手动保存，先问「保存 / 不保存 / 取消」。
-   * 正在编辑的文件再点一次不重读，免得冲掉未保存的修改。
-   * 服务器上的文件先下载，期间正文区盖上进度，「取消」即回到原来的正文；意外断开期间不打开（正文不动）。
+   * 安顿要离开的文件：本地的先自动保存，存不上就不继续；服务器上的先问一次（多个文件一起问），「保存」逐个写、存不上就
+   * 不继续，「不保存」即丢掉这些修改，「取消」不继续。
+   */
+  const settleDocs = useCallback(
+    async (paths: readonly string[]): Promise<boolean> => {
+      if (paths.length === 0) return true
+      if (!remote) return (await Promise.all(paths.map((p) => flushSave(p)))).every(Boolean)
+      const choice = await useApp.getState().askUnsaved(paths.map(baseName))
+      if (choice === 'cancel') return false
+      if (choice === 'save') {
+        for (const p of paths) if (!(await flushSave(p))) return false
+        return true
+      }
+      for (const p of paths) {
+        updateDoc(p, (doc) =>
+          doc.loaded.kind === 'text' ? { ...doc, loaded: { ...doc.loaded, dirty: false } } : doc
+        )
+      }
+      return true
+    },
+    [remote, flushSave, updateDoc]
+  )
+
+  /** 换上新布局：落盘、放掉不再要的文件（调用方已安顿过要离开的） */
+  const commitLayout = useCallback(
+    (next: EditorLayout): void => {
+      if (next === layoutRef.current) return
+      layoutRef.current = next
+      setLayout(next)
+      persistUi()
+      pruneDocs()
+    },
+    [persistUi, pruneDocs]
+  )
+
+  /**
+   * 布局变化的唯一入口（docs/prd/files-editor-tabs.md、ADR-0061）：按当前布局算出新布局，先安顿要离开的文件，再换上。
+   * 安顿要等用户回答或写盘，期间布局可能又变了，所以安顿完按那时的布局重算一遍。安顿不成（取消、存不上）返回 null。
+   */
+  const transitionLayout = useCallback(
+    async (make: (base: EditorLayout) => EditorLayout): Promise<EditorLayout | null> => {
+      for (;;) {
+        const base = layoutRef.current
+        const next = make(base)
+        if (next === base) return base
+        const pending = unsettledDocs(base, next)
+        if (pending.length === 0) {
+          commitLayout(next)
+          return next
+        }
+        if (!(await settleDocs(pending))) return null
+      }
+    },
+    [unsettledDocs, settleDocs, commitLayout]
+  )
+
+  /** 树上的选中退回当前栏正显示的文件 */
+  const selectShown = useCallback((): void => {
+    const shown = activeEditorPath(layoutRef.current)
+    setSelection(shown === null ? EMPTY_SELECTION : selectOnly(shown))
+  }, [])
+
+  /** 读不出来的文件：原因留在那一栏；服务器上已经不在的从「最近打开」里去掉（本地的在启动时剔除） */
+  const noteUnreadable = useCallback(
+    (paneId: string, path: string, error: unknown): void => {
+      setPaneNotices((prev) => ({ ...prev, [paneId]: ipcErrorMessage(error) }))
+      if (serverId === null) return
+      void window.api.serverFilesStat(serverId, path).then(
+        (st) => {
+          if (st === null) dropRecent(path)
+        },
+        () => undefined
+      )
+    },
+    [serverId, dropRecent]
+  )
+
+  /** 那一栏打开成功：撤掉留着的出错原因 */
+  const clearPaneNotice = useCallback((paneId: string): void => {
+    setPaneNotices((prev) => {
+      if (!(paneId in prev)) return prev
+      const next = { ...prev }
+      delete next[paneId]
+      return next
+    })
+  }, [])
+
+  /**
+   * 打开文件（docs/prd/files-editor-tabs.md「打开」）：在某栏（默认当前栏）打开并让它成为当前栏——已有它的 Tab 即激活，
+   * 否则替换临时 Tab 或新开一个；pin 时同时固定（就地重读见 reloadDoc）。
+   * 要离开的文件先安顿（本地自动保存，服务器上被关掉的未保存修改先问——不让人等完下载再被问）；没打开过的先读完再换布局：
+   * 服务器上的文件先下载，期间那一栏盖上进度，「取消」即一切照旧；读不出来就去掉这个 Tab，原因留在那一栏的工具栏上。
+   * 已打开的文件不重读，免得冲掉未保存的修改；意外断开期间不打开。
    */
   const openFile = useCallback(
-    async (filePath: string, opts?: { force?: boolean; openLarge?: boolean }) => {
+    async (filePath: string, opts?: { pane?: string; pin?: boolean }): Promise<void> => {
       if (!connected) return
       setHunkPopup(null)
-      if (idleTimer.current) {
-        clearTimeout(idleTimer.current)
-        idleTimer.current = null
-      }
+      const paneId =
+        opts?.pane !== undefined && editorPaneOf(layoutRef.current, opts.pane) !== undefined
+          ? opts.pane
+          : layoutRef.current.current
+      const make = (base: EditorLayout): EditorLayout =>
+        openEditor(base, filePath, { pane: paneId, pin: opts?.pin, limit })
       const seq = ++openSeqRef.current
-      const cur = loadedRef.current
-      if (cur?.kind === 'text' && cur.dirty && !opts?.force) {
-        if (cur.path === filePath) return
-        if (remote) {
-          const choice = await useApp.getState().askUnsaved(baseName(cur.path))
-          if (choice === 'cancel' || (choice === 'save' && !(await flushSave()))) return
-        } else if (!(await flushSave())) {
+      if (docsRef.current[filePath] !== undefined) {
+        setSelection(selectOnly(filePath))
+        if ((await transitionLayout(make)) === null) {
+          selectShown()
           return
         }
-        if (seq !== openSeqRef.current) return
+        clearPaneNotice(paneId)
+        pushRecent(filePath)
+        return
       }
+      const base = layoutRef.current
+      if (!(await settleDocs(unsettledDocs(base, make(base))))) return
+      if (seq !== openSeqRef.current) return
       // 树上的选中先切过去，不等读完（服务器上的文件要下载一会儿）；被取消时退回正文所在的那个
       setSelection(selectOnly(filePath))
-      if (remote) setOpening({ path: filePath, progress: null })
+      if (remote) setOpening({ path: filePath, paneId, progress: null })
       try {
-        const result = await backend.read(filePath, opts?.openLarge)
+        const result = await backend.read(filePath)
         if (seq !== openSeqRef.current) return
         if (result.kind === 'canceled') {
-          const shown = loadedRef.current?.path
-          setSelection(shown === undefined ? EMPTY_SELECTION : selectOnly(shown))
+          selectShown()
           return
         }
-        setLoaded(loadedFrom(result))
-        setConflict(null)
-        setSaveError(null)
-        const nextRecent = pushRecentPath(recentPathsRef.current, filePath)
-        setRecentPaths(nextRecent)
-        setUi({
-          openPath: filePath,
-          expandedPaths: [...expandedRef.current],
-          recentPaths: nextRecent
-        })
+        replaceDocs({ ...docsRef.current, [filePath]: docFrom(result) })
+        if ((await transitionLayout(make)) === null) {
+          pruneDocs()
+          selectShown()
+          return
+        }
+        clearPaneNotice(paneId)
+        pushRecent(filePath)
       } catch (e) {
         if (seq !== openSeqRef.current) return
-        setSaveError(ipcErrorMessage(e))
-        setLoaded(null)
         setSelection(EMPTY_SELECTION)
-        persistUi(null, [...expandedRef.current])
-        // 服务器上已经不在的从「最近打开」里去掉（本地的在启动时剔除）
-        if (serverId !== null) {
-          void window.api.serverFilesStat(serverId, filePath).then(
-            (st) => {
-              if (st === null) dropRecent(filePath)
-            },
-            () => undefined
-          )
-        }
+        noteUnreadable(paneId, filePath, e)
+        // 按打开换上（替换掉的临时 Tab 随之没了），但不留打不开的这个
+        await transitionLayout((b) => closeEditor(make(b), paneId, filePath))
       } finally {
         if (seq === openSeqRef.current) setOpening(null)
       }
     },
-    [connected, backend, remote, serverId, flushSave, persistUi, setUi, dropRecent]
+    [
+      connected,
+      limit,
+      backend,
+      remote,
+      transitionLayout,
+      settleDocs,
+      unsettledDocs,
+      replaceDocs,
+      pruneDocs,
+      selectShown,
+      pushRecent,
+      clearPaneNotice,
+      noteUnreadable
+    ]
+  )
+
+  /**
+   * 就地重读一个打开着的文件，布局不动（放弃修改、冲突时换成别处的版本、「仍然打开」、磁盘上换了类型）：服务器上的在
+   * 正显示它的那栏（当前栏优先）盖上进度；读不出来就去掉它的 Tab。
+   */
+  const reloadDoc = useCallback(
+    async (path: string, opts?: { openLarge?: boolean }): Promise<void> => {
+      const cur = layoutRef.current
+      const showing = [currentEditorPane(cur), ...cur.panes].find((p) => p.active === path)
+      if (showing === undefined || !connected) return
+      const seq = ++openSeqRef.current
+      if (remote) setOpening({ path, paneId: showing.id, progress: null })
+      try {
+        const result = await backend.read(path, opts?.openLarge)
+        if (seq !== openSeqRef.current || result.kind === 'canceled') return
+        replaceDocs({ ...docsRef.current, [path]: docFrom(result) })
+        clearPaneNotice(showing.id)
+      } catch (e) {
+        if (seq !== openSeqRef.current) return
+        setPaneNotices((prev) => ({ ...prev, [showing.id]: ipcErrorMessage(e) }))
+        // 要丢掉的修改调用方已经认可（放弃修改）或没有：直接去掉
+        updateDoc(path, (doc) =>
+          doc.loaded.kind === 'text' ? { ...doc, loaded: { ...doc.loaded, dirty: false } } : doc
+        )
+        commitLayout(dropEditorPaths(layoutRef.current, (p) => p === path))
+      } finally {
+        if (seq === openSeqRef.current) setOpening(null)
+      }
+    },
+    [connected, remote, backend, replaceDocs, clearPaneNotice, updateDoc, commitLayout]
   )
 
   // 服务器：打开时的下载进度
@@ -854,7 +1125,7 @@ export function FilesPane({
       else next.delete(dirPath)
       expandedRef.current = next
       setExpanded(next)
-      persistUi(loadedRef.current?.path ?? null, [...next])
+      persistUi()
     },
     [connected, ensureDirLoaded, filterQuery, persistUi]
   )
@@ -871,7 +1142,7 @@ export function FilesPane({
     const next = new Set<string>()
     expandedRef.current = next
     setExpanded(next)
-    persistUi(loadedRef.current?.path ?? null, [])
+    persistUi()
   }, [filterQuery, persistUi])
 
   /**
@@ -943,7 +1214,7 @@ export function FilesPane({
       if (stillActive()) {
         flushChildren()
         flushExpanded()
-        persistUi(loadedRef.current?.path ?? null, [...expandedRef.current])
+        persistUi()
       }
     }
   }, [filterQuery, persistUi, backend, rootLogical])
@@ -979,21 +1250,23 @@ export function FilesPane({
 
   const expandToFile = useCallback(
     async (logical: string): Promise<void> => {
-      const next = await expandToPath(logical, false)
-      persistUi(logical, [...next])
+      await expandToPath(logical, false)
+      persistUi()
     },
     [expandToPath, persistUi]
   )
 
   /**
    * 上一个 / 下一个媒体（位图 / SVG / PDF / PPT / 音视频）按**树里当前可见的顺序**走——跨目录、跨类型，
-   * 但只进已展开的目录（折叠的不自动钻），并尊重类型筛选；到头停下。
-   * 当前正文是媒体才响应（看图 / SVG 预览态 / PDF / PPT / 音视频，及服务器上超过预览上限的媒体占位）。
+   * 但只进已展开的目录（折叠的不自动钻），并尊重类型筛选；到头停下。以当前栏正显示的文件为起点，走「打开」
+   * （于是开进临时 Tab，docs/prd/files-editor-tabs.md「方向键切媒体」）。
+   * 当前栏正文是媒体才响应（看图 / SVG 预览态 / PDF / PPT / 音视频，及服务器上超过预览上限的媒体占位）。
    * 服务器上的还在下载时，从正在打开的那个往下数：连按即连跳，不会反复重开同一个。
    */
   const goAdjacentMedia = useCallback(
     async (dir: -1 | 1) => {
-      const cur = loadedRef.current
+      const pane = currentEditorPane(layoutRef.current)
+      const cur = pane.active === null ? undefined : docsRef.current[pane.active]?.loaded
       if (!cur) return
       const isMedia =
         cur.kind === 'image' ||
@@ -1006,18 +1279,19 @@ export function FilesPane({
       if (!isMedia) return
       const next = adjacentMediaPath(flatRows, openingRef.current?.path ?? cur.path, dir)
       if (next === null) return
-      if (isSvgPath(next)) setSourcePreview(true)
-      await openFile(next)
+      if (isSvgPath(next)) setPaneView(pane.id, { sourcePreview: true })
+      await openFile(next, { pane: pane.id })
     },
-    [flatRows, openFile]
+    [flatRows, openFile, setPaneView]
   )
   const goPrevImage = useCallback(() => void goAdjacentMedia(-1), [goAdjacentMedia])
   const goNextImage = useCallback(() => void goAdjacentMedia(1), [goAdjacentMedia])
 
-  // 音视频正文与服务器上的大媒体占位（没有自己的键盘处理）：四个方向键切上一个 / 下一个媒体
+  // 当前栏的音视频正文与服务器上的大媒体占位（没有自己的键盘处理）：四个方向键切上一个 / 下一个媒体
   // （同看图；守卫同看图——不抢输入框与弹层）。焦点落在播放器上时也拦下，播放器自己的键盘进度 / 音量让位给切换，进度条仍可拖。
-  const avOpen = loaded?.kind === 'audio' || loaded?.kind === 'video'
-  const arrowKeysHere = avOpen || (loaded?.kind === 'too-large' && isMediaPreviewPath(loaded.path))
+  const avOpen = currentLoaded?.kind === 'audio' || currentLoaded?.kind === 'video'
+  const arrowKeysHere =
+    avOpen || (currentLoaded?.kind === 'too-large' && isMediaPreviewPath(currentLoaded.path))
   useEffect(() => {
     if (!visible || !arrowKeysHere) return
     const onKey = (e: KeyboardEvent): void => {
@@ -1032,14 +1306,14 @@ export function FilesPane({
     return () => window.removeEventListener('keydown', onKey, true)
   }, [visible, arrowKeysHere, goAdjacentMedia])
 
-  /** 分页文档预览：PDF 用 PDF.js，PPT 用 pptx-renderer，外壳与参数相同 */
-  const PagedPreview = loaded?.kind === 'pptx' ? FilesPptxPreview : FilesPdfPreview
-
+  // 当前栏在看图（位图或 SVG 预览态）时预取相邻的图
   const viewingImagePath =
-    loaded?.kind === 'image'
-      ? loaded.path
-      : loaded?.kind === 'text' && isSvgPath(loaded.path) && sourcePreview
-        ? loaded.path
+    currentLoaded?.kind === 'image'
+      ? currentLoaded.path
+      : currentLoaded?.kind === 'text' &&
+          isSvgPath(currentLoaded.path) &&
+          (paneViews[currentPane.id] ?? DEFAULT_PANE_VIEW).sourcePreview
+        ? currentLoaded.path
         : null
 
   // 服务器上的图要先下载，不预取相邻的。进出预取时都清空：渲染期比对上一次是否在预取（React「渲染中调整 state」模式，
@@ -1081,28 +1355,32 @@ export function FilesPane({
     }
   }, [viewingImagePath, remote, flatRows, rootPath])
 
-  /** 在右侧文件树展开并滚到目标（不打开/切换正文，除非本来就是该文件）。 */
+  /** 在右侧文件树展开并滚到目标（不打开/切换正文）。 */
   const revealInTree = useCallback(
     async (logical: string, isDirectory: boolean): Promise<void> => {
       setTreeVisible(true)
-      const next = await expandToPath(logical, isDirectory)
+      await expandToPath(logical, isDirectory)
       setSelection(selectOnly(logical))
       // 已是焦点行时不会跟随定位，显式再滚一次
       scrollToRow(logical)
-      const openPath = loadedRef.current?.path ?? null
-      persistUi(openPath, [...next])
+      persistUi()
     },
     [expandToPath, persistUi, scrollToRow]
   )
 
+  /** 从「最近打开」（及前往路径、转到链接目标）打开：开进某栏（默认当前栏），焦点进正文 */
   const openFromRecent = useCallback(
-    async (logical: string) => {
+    async (logical: string, paneId?: string) => {
       await expandToFile(logical)
-      await openFile(logical)
+      await openFile(logical, { pane: paneId })
       // 已是当前文件时焦点行不变、不会跟随定位，须显式再滚一次（同「在文件树中显示」）
       scrollToRow(logical)
       // 焦点进正文：文本进编辑器直接可键入（非文本不渲染编辑器，请求自然落空）
-      setEditorJump({ path: logical, nonce: ++editorJumpNonce.current })
+      setEditorJump({
+        paneId: layoutRef.current.current,
+        path: logical,
+        nonce: ++editorJumpNonce.current
+      })
     },
     [expandToFile, openFile, scrollToRow]
   )
@@ -1138,7 +1416,7 @@ export function FilesPane({
   /** 清掉筛选：回到整棵树并定位到打开的文件（没有打开的就是焦点行），选中换成它 */
   const exitFilter = useCallback(async () => {
     updateFilterQuery('')
-    const open = loadedRef.current?.path ?? selectionRef.current.focus
+    const open = activeEditorPath(layoutRef.current) ?? selectionRef.current.focus
     if (open) {
       await expandToFile(open)
       setSelection(selectOnly(open))
@@ -1181,10 +1459,10 @@ export function FilesPane({
     }
   }, [filterQuery, rootPath, rootLogical, visible])
 
-  // 首次变为可见时：项目与服务器宿主恢复树展开与上次打开（pending 由下一 effect 统一消费，避免竞态），
-  // 服务器头一回打开（没有记住的展开）时展开到家目录；
-  // 预览宿主不读落盘态，展开到初始文件并打开（可预览的源文件按默认的预览态打开，SVG 起手即图）。
-  const previewInitialFile = host.kind === 'preview' ? host.initialFile : null
+  // 首次变为可见时：项目与服务器宿主恢复树展开与打开的文件（按当前上限读入；pending 由下一 effect 统一消费），
+  // 服务器头一回打开（没有记住的展开）时展开到家目录；预览宿主不读落盘态，展开到初始文件并打开（可预览的源文件按默认的
+  // 预览态打开，SVG 起手即图）。各栏正显示的文件由下面的按需读取读进来
+  const previewInitialLayout = host.kind === 'preview' ? host.initialLayout : null
   const serverHome = host.kind === 'server' ? host.home : null
   useEffect(() => {
     if (!visible || ready) return
@@ -1193,12 +1471,12 @@ export function FilesPane({
       await ensureDirLoaded(rootLogical)
       if (cancelled) return
       if (!persist) {
-        if (previewInitialFile) {
-          await expandToFile(previewInitialFile)
-          if (cancelled) return
-          await openFile(previewInitialFile, { force: true })
-        }
+        const initial = normalizeEditorLayout(previewInitialLayout, limit)
+        const shown = activeEditorPath(initial)
+        if (shown !== null) await expandToFile(shown)
         if (cancelled) return
+        commitLayout(initial)
+        if (shown !== null) setSelection(selectOnly(shown))
         setReady(true)
         return
       }
@@ -1212,9 +1490,10 @@ export function FilesPane({
       if (cancelled) return
       if (serverHome !== null && exp.size === 0) await revealInTree(serverHome, true)
       if (cancelled) return
-      const hasPending = !!useFiles.getState().pendingOpenByProject[storeKey]
-      if (!hasPending && ui.openPath) await openFile(ui.openPath, { force: true })
-      if (cancelled) return
+      const restored = normalizeEditorLayout(ui.editors, limit)
+      commitLayout(restored)
+      const shown = activeEditorPath(restored)
+      if (shown !== null) setSelection(selectOnly(shown))
       setReady(true)
     })()
     return () => {
@@ -1224,25 +1503,78 @@ export function FilesPane({
     visible,
     ready,
     persist,
-    previewInitialFile,
+    previewInitialLayout,
     serverHome,
+    limit,
     backend,
-    storeKey,
     ensureDirLoaded,
     expandToFile,
     revealInTree,
-    openFile,
+    commitLayout,
     rootLogical
   ])
 
-  // 预览宿主：把当前打开文件回报给窗口壳（上翻根时据此保留打开的文件、更新标题）
-  const onOpenPathChange = host.kind === 'preview' ? host.onOpenPathChange : null
-  const openPath = loaded?.path ?? null
+  /**
+   * 按需读取：某栏正显示的文件还没读进来（重启恢复、改名移动之后、分栏或开关切换后）就读；读不出来就去掉这个 Tab，
+   * 原因留在那一栏。服务器上同一时刻只打开一个（新的打开会取消旧的）：一个一个读，有打开在进行时先等它；被别的打开顶掉的
+   * 下一轮再读，用户点了「取消」的才去掉这个 Tab
+   */
+  const loadShown = useCallback(
+    async (paneId: string, path: string): Promise<void> => {
+      loadingRef.current.add(path)
+      if (remote) setOpening({ path, paneId, progress: null })
+      try {
+        const result = await backend.read(path)
+        if (result.kind === 'canceled') {
+          if (userCanceledRef.current === path) {
+            await transitionLayout((base) => closeEditor(base, paneId, path))
+          }
+          return
+        }
+        if (activeEditorPaths(layoutRef.current).has(path) && docsRef.current[path] === undefined) {
+          replaceDocs({ ...docsRef.current, [path]: docFrom(result) })
+        }
+      } catch (e) {
+        noteUnreadable(paneId, path, e)
+        await transitionLayout((base) => closeEditor(base, paneId, path))
+      } finally {
+        loadingRef.current.delete(path)
+        if (userCanceledRef.current === path) userCanceledRef.current = null
+        if (remote) setOpening((prev) => (prev?.path === path ? null : prev))
+      }
+    },
+    [remote, backend, transitionLayout, replaceDocs, noteUnreadable]
+  )
   useEffect(() => {
-    if (ready) onOpenPathChange?.(openPath)
-  }, [ready, openPath, onOpenPathChange])
+    if (!ready || !connected) return
+    for (const pane of layout.panes) {
+      const path = pane.active
+      if (path === null || docs[path] !== undefined || loadingRef.current.has(path)) continue
+      if (remote && (opening !== null || loadingRef.current.size > 0)) return
+      void loadShown(pane.id, path)
+    }
+  }, [ready, connected, layout, docs, remote, opening, loadShown])
 
-  // Git / 内容搜索等外部 pending open（ready 之后才消费）
+  // 关掉「启用编辑器标签页」：只留当前栏的当前 Tab（成为临时），其余按关闭处理；服务器上没保存的选了「取消」或存不上，
+  // 开关退回开着（docs/prd/files-editor-tabs.md「开关」）
+  const collapseToOne = useEffectEvent(async () => {
+    const next = await transitionLayout((base) => {
+      const one = normalizeEditorLayout(base, 1)
+      return editorLayoutsEqual(one, base) ? base : one
+    })
+    if (next === null) void useApp.getState().setFilesEditorTabs(true)
+  })
+  useEffect(() => {
+    if (ready && !tabsEnabled) void collapseToOne()
+  }, [ready, tabsEnabled])
+
+  // 预览宿主：把打开的文件回报给窗口壳（更新标题、上翻根时据此带过去）
+  const onLayoutChange = host.kind === 'preview' ? host.onLayoutChange : null
+  useEffect(() => {
+    if (ready) onLayoutChange?.(layout)
+  }, [ready, layout, onLayoutChange])
+
+  // Git / 内容搜索等外部 pending open（ready 之后才消费）：开进当前栏
   const pending = useFiles((s) => s.pendingOpenByProject[storeKey])
   useEffect(() => {
     if (!ready || !pending) return
@@ -1260,11 +1592,12 @@ export function FilesPane({
       await openFile(logical)
       if (req.at) {
         // 定位落在编辑器上：Markdown / SVG 若停在预览态先切回编辑
-        setSourcePreview(false)
-        setEditorJump({ path: logical, ...req.at, nonce: ++editorJumpNonce.current })
+        const paneId = layoutRef.current.current
+        setPaneView(paneId, { sourcePreview: false })
+        setEditorJump({ paneId, path: logical, ...req.at, nonce: ++editorJumpNonce.current })
       }
     })()
-  }, [ready, pending, storeKey, backend, goToEntry, expandToFile, openFile])
+  }, [ready, pending, storeKey, backend, goToEntry, expandToFile, openFile, setPaneView])
 
   // ⌥⌘F：切到本 Tab 后聚焦文件树筛选，树隐藏时先展开。可见即接下请求：渲染期比对处理过的 nonce（React「渲染中调整
   // state」模式，非 effect）；聚焦要等树挂上，在 effect 里做
@@ -1294,20 +1627,174 @@ export function FilesPane({
 
   // 离开 Files Tab / 失焦 → 保存（仅本地；服务器上的文件手动保存，见 docs/prd/server-files.md）
   useEffect(() => {
-    if (!visible && !remote) void flushSave()
-  }, [visible, remote, flushSave])
+    if (!visible && !remote) void flushAll()
+  }, [visible, remote, flushAll])
 
   useEffect(() => {
     if (remote) return
     const onBlur = (): void => {
-      void flushSave()
+      void flushAll()
     }
     window.addEventListener('blur', onBlur)
     return () => window.removeEventListener('blur', onBlur)
-  }, [remote, flushSave])
+  }, [remote, flushAll])
+
+  // —— Editor Tab 的操作（docs/prd/files-editor-tabs.md）：都经 transitionLayout ——
+
+  /** 只换当前栏（在某栏里按下鼠标即是），不动任何 Tab */
+  const focusPane = useCallback(
+    (paneId: string): void => commitLayout(focusEditorPane(layoutRef.current, paneId)),
+    [commitLayout]
+  )
+  const closeTab = useCallback(
+    (paneId: string, path: string) => transitionLayout((b) => closeEditor(b, paneId, path)),
+    [transitionLayout]
+  )
+  /** 编辑或显式动作固定 Tab（上限为 1 时不固定） */
+  const pinTab = useCallback(
+    (paneId: string, path: string): void =>
+      commitLayout(pinEditor(layoutRef.current, paneId, path, limit)),
+    [commitLayout, limit]
+  )
+  /** 向右分屏：当前栏的某个文件（默认当前 Tab）在右栏再开一份，同一个文件共用内容 */
+  const splitTab = useCallback(
+    (path?: string) => transitionLayout((b) => splitEditor(b, limit, path)),
+    [transitionLayout, limit]
+  )
+  const moveTab = useCallback(
+    (fromPaneId: string, path: string, toPaneId: string, index?: number) =>
+      transitionLayout((b) => moveEditor(b, fromPaneId, path, toPaneId, index)),
+    [transitionLayout]
+  )
 
   /**
-   * 磁盘变更（ADR-0011）：重拉已缓存目录；过滤态重扫；同步当前打开文件。
+   * 键盘命令（⌘W、⇧⌘[ / ⇧⌘]、⌘\）：作用于当前栏。预览窗口里 ⌘W 关掉最后一个 Tab、或本来就没有打开的文件时关窗；
+   * 主窗口里没有可关的时无效（Files Tab 本身任何时候都不关）。
+   */
+  const runEditorCommand = useCallback(
+    async (command: FilesEditorCommand): Promise<void> => {
+      const base = layoutRef.current
+      const pane = currentEditorPane(base)
+      if (command === 'split') {
+        await splitTab()
+        return
+      }
+      if (command === 'prev' || command === 'next') {
+        const target = adjacentEditorPath(base, command === 'prev' ? -1 : 1)
+        if (target !== null) await openFile(target, { pane: pane.id })
+        return
+      }
+      const closeWindow = host.kind === 'preview' ? host.onCloseWindow : null
+      if (pane.active === null) {
+        closeWindow?.()
+        return
+      }
+      const last = editorLayoutPaths(base).size === 1 && base.panes.length === 1
+      const next = await closeTab(pane.id, pane.active)
+      if (next !== null && last) closeWindow?.()
+    },
+    [host, splitTab, openFile, closeTab]
+  )
+  // 收命令：只认挂载之后的（同 ⌥⌘F / ⌘E）；命令到时面板须可见
+  const editorCommand = useFiles((s) => s.editorCommandByKey[storeKey])
+  const handledCommandNonce = useRef(editorCommand?.nonce ?? 0)
+  useEffect(() => {
+    if (editorCommand === undefined || editorCommand.nonce === handledCommandNonce.current) return
+    handledCommandNonce.current = editorCommand.nonce
+    if (visible && ready) void runEditorCommand(editorCommand.command)
+  }, [editorCommand, visible, ready, runEditorCommand])
+
+  /**
+   * 一个打开着的文件跟上磁盘（服务器上的跟上服务器）：修改时间与大小都没变不动；无脏静默重载、有脏转冲突；已删除即静默
+   * 关掉它的 Tab 并剔除最近打开（服务器上有未保存修改的不关、不重开——手动保存，修改可能放了很久——已删除、长过文本上限
+   * 都转为保存栏里的冲突）；换了类型、预览与占位变了即就地重读。
+   */
+  const syncDoc = useCallback(
+    async (path: string): Promise<void> => {
+      const clearDoc = (): void => {
+        commitLayout(dropEditorPaths(layoutRef.current, (p) => p === path))
+        dropRecent(path)
+      }
+      if (serverId !== null) {
+        // 正在打开别的文件时不动（查完再看一次）：同一台服务器同一时刻只能有一个打开，这里再读会把那个取消掉
+        if (openingRef.current !== null) return
+        const st = await window.api.serverFilesStat(serverId, path).catch(() => undefined)
+        const still = docsRef.current[path]
+        if (st === undefined || !still || openingRef.current !== null) return
+        const dirty = isDirtyDoc(still)
+        if (st === null) {
+          if (dirty) updateDoc(path, (doc) => ({ ...doc, conflict: { kind: 'gone' } }))
+          else clearDoc()
+          return
+        }
+        // 文本比对载入 / 上次保存时的版本，其余比对载入时的；预览与占位变了就重新打开
+        const base = still.loaded.kind === 'text' ? still.loaded : still.loaded.version
+        if (base === undefined || sameServerFileVersion(st, base)) return
+        if (still.loaded.kind !== 'text' || st.size > FILES_TEXT_MAX_BYTES) {
+          if (dirty) {
+            updateDoc(path, (doc) => ({
+              ...doc,
+              conflict: { kind: 'changed', disk: null, mtimeMs: st.mtimeMs, size: st.size }
+            }))
+          } else {
+            await reloadDoc(path)
+          }
+          return
+        }
+      }
+
+      let fresh: FilesOpenResult | null = null
+      try {
+        fresh = await backend.read(path)
+      } catch {
+        fresh = null
+      }
+      const still = docsRef.current[path]
+      if (!still || fresh?.kind === 'canceled') return
+      // 服务器上查完到读之间又变了（被删、长过上限）：有未保存的修改先不动，下次刷新按上面处理
+      const unreadable = fresh === null || fresh.kind === 'too-large'
+      if (remote && unreadable && isDirtyDoc(still)) return
+      // 服务器上的文本长过了上限：重开即落到占位
+      if (fresh?.kind === 'too-large') {
+        await reloadDoc(path)
+        return
+      }
+
+      if (still.loaded.kind === 'text') {
+        const decision = resolveOpenTextDiskSync(still.loaded, fresh)
+        if (decision.action === 'noop') return
+        if (decision.action === 'reload') {
+          const { content, mtimeMs, size } = decision
+          updateDoc(path, (doc) => ({
+            ...doc,
+            loaded: { kind: 'text', path, content, mtimeMs, size, dirty: false }
+          }))
+          return
+        }
+        if (decision.action === 'conflict') {
+          const { disk, mtimeMs, size } = decision
+          updateDoc(path, (doc) => ({ ...doc, conflict: { kind: 'changed', disk, mtimeMs, size } }))
+          return
+        }
+        if (decision.action === 'gone') {
+          clearDoc()
+          return
+        }
+        await reloadDoc(path)
+        return
+      }
+
+      if (!fresh) {
+        clearDoc()
+        return
+      }
+      if (fresh.kind !== still.loaded.kind) await reloadDoc(path)
+    },
+    [serverId, remote, backend, commitLayout, dropRecent, updateDoc, reloadDoc]
+  )
+
+  /**
+   * 磁盘变更（ADR-0011）：重拉已缓存目录；过滤态重扫；同步打开着的文件。
    * 隐藏不卸载时也跟进，切回 Files Tab 时树与正文已是新态。
    * 服务器：只重读已展开的目录与根（其余缓存丢掉，再展开时现读）；打开的文件先看修改时间与大小，
    * 变了才处理——文本重读，预览与占位重新打开；意外断开期间不刷新——读失败会被当成目录已删、把树收起。
@@ -1348,7 +1835,7 @@ export function FilesPane({
         if (nextExp.size !== expandedRef.current.size) {
           expandedRef.current = nextExp
           setExpanded(nextExp)
-          persistUi(loadedRef.current?.path ?? null, [...nextExp])
+          persistUi()
         }
       }
     }
@@ -1379,106 +1866,8 @@ export function FilesPane({
       }
     }
 
-    const cur = loadedRef.current
-    if (!cur) return
-    const path = cur.path
-
-    const clearOpen = (): void => {
-      setLoaded(null)
-      setConflict(null)
-      const nextRecent = recentPathsRef.current.filter((p) => p !== path)
-      setRecentPaths(nextRecent)
-      setUi({
-        openPath: null,
-        expandedPaths: [...expandedRef.current],
-        recentPaths: nextRecent
-      })
-    }
-
-    if (serverId !== null) {
-      // 正在打开别的文件时不动（查完再看一次）：同一台服务器同一时刻只能有一个打开，这里再读会把那个取消掉
-      if (openingRef.current !== null) return
-      const st = await window.api.serverFilesStat(serverId, path).catch(() => undefined)
-      const still = loadedRef.current
-      if (st === undefined || !still || still.path !== path || openingRef.current !== null) return
-      // 有未保存的修改时不关、不重开（手动保存，修改可能放了很久）：已删除、长过文本上限都转为冲突，在保存栏里处理
-      const dirty = still.kind === 'text' && still.dirty
-      if (st === null) {
-        if (dirty) setConflict({ kind: 'gone' })
-        else clearOpen()
-        return
-      }
-      // 文本比对载入 / 上次保存时的版本，其余比对载入时的；预览与占位变了就重新打开
-      const base = still.kind === 'text' ? still : still.version
-      if (base === undefined || sameServerFileVersion(st, base)) return
-      if (still.kind !== 'text' || st.size > FILES_TEXT_MAX_BYTES) {
-        if (dirty) setConflict({ kind: 'changed', disk: null, mtimeMs: st.mtimeMs, size: st.size })
-        else await openFile(path, { force: true })
-        return
-      }
-    }
-
-    let fresh: FilesOpenResult | null = null
-    try {
-      fresh = await backend.read(path)
-    } catch {
-      fresh = null
-    }
-    const still = loadedRef.current
-    if (!still || still.path !== path || fresh?.kind === 'canceled') return
-    // 服务器上查完到读之间又变了（被删、长过上限）：有未保存的修改先不动，下次刷新按上面处理
-    const unreadable = fresh === null || fresh.kind === 'too-large'
-    if (remote && unreadable && still.kind === 'text' && still.dirty) return
-    // 服务器上的文本长过了上限：重开即落到占位
-    if (fresh?.kind === 'too-large') {
-      await openFile(path, { force: true })
-      return
-    }
-
-    if (still.kind === 'text') {
-      const decision = resolveOpenTextDiskSync(still, fresh)
-      if (decision.action === 'noop') return
-      if (decision.action === 'reload') {
-        setLoaded({
-          kind: 'text',
-          path,
-          content: decision.content,
-          mtimeMs: decision.mtimeMs,
-          size: decision.size,
-          dirty: false
-        })
-        return
-      }
-      if (decision.action === 'conflict') {
-        const { disk, mtimeMs, size } = decision
-        setConflict({ kind: 'changed', disk, mtimeMs, size })
-        return
-      }
-      if (decision.action === 'gone') {
-        clearOpen()
-        return
-      }
-      await openFile(path, { force: true })
-      return
-    }
-
-    if (!fresh) {
-      clearOpen()
-      return
-    }
-    if (fresh.kind !== still.kind) await openFile(path, { force: true })
-  }, [
-    connected,
-    remote,
-    serverId,
-    backend,
-    filterQuery,
-    openFile,
-    persistUi,
-    setUi,
-    rootPath,
-    rootLogical
-  ])
+    for (const path of Object.keys(docsRef.current)) await syncDoc(path)
+  }, [connected, remote, backend, filterQuery, syncDoc, persistUi, rootPath, rootLogical])
 
   /**
    * 主动刷新（手动、切回、窗口回到前台、自己的文件操作与上传之后）：进行中「刷新」钮的图标转圈、钮置灰，
@@ -1512,9 +1901,11 @@ export function FilesPane({
   // 服务器上的变化没人通知，本地的监听通知也可能迟迟不到（ADR-0011）。
   const refreshRef = useRef(refreshFromDisk)
   const flushSaveRef = useRef(flushSave)
+  const flushAllRef = useRef(flushAll)
   useLayoutEffect(() => {
     refreshRef.current = refreshFromDisk
     flushSaveRef.current = flushSave
+    flushAllRef.current = flushAll
   })
   const refreshArmed = useRef(false)
   useEffect(() => {
@@ -1526,25 +1917,32 @@ export function FilesPane({
     return () => window.removeEventListener('focus', onFocus)
   }, [ready, visible, connected])
 
-  // 服务器上的文件有未保存的修改时登记到全局：断开、编辑或移除服务器、退出前据此先问（见 store）
-  const unsavedName =
-    serverId !== null && loaded?.kind === 'text' && loaded.dirty ? baseName(loaded.path) : null
+  // 服务器上有未保存修改的文件登记到全局：断开、编辑或移除服务器、退出前据此一次问完（见 store）
+  const unsavedKey =
+    serverId === null
+      ? ''
+      : Object.keys(docs)
+          .filter((p) => isDirtyDoc(docs[p]))
+          .join('\n')
   useEffect(() => {
     if (serverId === null) return
+    const paths = unsavedKey === '' ? [] : unsavedKey.split('\n')
     useApp
       .getState()
-      .setUnsavedServerFile(
+      .setUnsavedServerFiles(
         serverId,
-        unsavedName === null ? null : { name: unsavedName, save: () => flushSaveRef.current() }
+        paths.length === 0
+          ? null
+          : { names: paths.map(baseName), save: () => flushAllRef.current() }
       )
-  }, [serverId, unsavedName])
+  }, [serverId, unsavedKey])
   useEffect(() => {
     if (serverId === null) return
-    return () => useApp.getState().setUnsavedServerFile(serverId, null)
+    return () => useApp.getState().setUnsavedServerFiles(serverId, null)
   }, [serverId])
 
-  // ⌘S / Ctrl+S：保存服务器上的文件（编辑态与预览态都行；有弹层时让位）
-  const savable = remote && visible && connected && loaded?.kind === 'text'
+  // ⌘S / Ctrl+S：保存当前栏正显示的服务器上的文件（编辑态与预览态都行；有弹层时让位）
+  const savable = remote && visible && connected && currentLoaded?.kind === 'text'
   useEffect(() => {
     if (!savable) return
     const onKey = (e: KeyboardEvent): void => {
@@ -1552,7 +1950,8 @@ export function FilesPane({
         return
       if (overlayOpen()) return
       e.preventDefault()
-      void flushSaveRef.current()
+      const shown = activeEditorPath(layoutRef.current)
+      if (shown !== null) void flushSaveRef.current(shown)
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -1645,9 +2044,9 @@ export function FilesPane({
   }, [host])
 
   /**
-   * 移动（含重命名）落定之后：展开集、选中、查找与阅读位置、最近打开按路径前缀重映射；打开的文件受影响时先切到新路径
-   * （本机重新打开；服务器上就地换路径——不重新下载，未保存的编辑也还在，改路径不改内容与修改时间）。再从磁盘刷新树
-   * （反过来刷新会把旧路径判「已消失」误清），补载换了 key 的已展开目录。没有移动的（复制之后）只刷新。
+   * 移动（含重命名）落定之后：展开集、选中、查找与阅读位置、最近打开、Editor Tab 按路径前缀重映射；打开着的文件跟着新路径
+   * （服务器上就地换路径——不重新下载，未保存的编辑也还在，改路径不改内容与修改时间；本机的先放掉，由按需读取按新路径重读）。
+   * 再从磁盘刷新树（反过来刷新会把旧路径判「已消失」误清），补载换了 key 的已展开目录。没有移动的（复制之后）只刷新。
    */
   const applyMoves = useCallback(
     async (pairs: readonly { from: string; to: string }[]): Promise<void> => {
@@ -1664,22 +2063,22 @@ export function FilesPane({
         expandedRef.current = nextExpanded
         setExpanded(nextExpanded)
         setSelection((prev) => remapSelection(prev, remap))
-        remapPathKeys(findMemory, remap)
-        remapPathKeys(viewMemory, remap)
+        remapScopedKeys(findMemory, remap)
+        remapScopedKeys(viewMemory, remap)
         const nextRecent = recentPathsRef.current.map(remap)
+        recentPathsRef.current = nextRecent
         setRecentPaths(nextRecent)
-        const cur = loadedRef.current
-        const openRemapped = cur === null ? null : remap(cur.path)
-        setUi({ openPath: openRemapped, expandedPaths: [...nextExpanded], recentPaths: nextRecent })
-        if (cur !== null && openRemapped !== null && openRemapped !== cur.path) {
-          if (remote) {
-            const relocated = { ...cur, path: openRemapped }
-            loadedRef.current = relocated
-            setLoaded(relocated)
-          } else {
-            await openFile(openRemapped, { force: true })
-          }
+        setUi({ recentPaths: nextRecent })
+        const nextDocs: Record<string, FilesDoc> = {}
+        for (const [path, doc] of Object.entries(docsRef.current)) {
+          const to = remap(path)
+          if (to === path) nextDocs[path] = doc
+          else if (remote) nextDocs[to] = { ...doc, loaded: { ...doc.loaded, path: to } }
         }
+        replaceDocs(nextDocs)
+        // 本机移动前已落盘，不必再安顿；commitLayout 连同展开集一起落盘
+        commitLayout(remapEditorPaths(layoutRef.current, remap))
+        persistUi()
       }
       await refreshFromDisk()
       for (const dir of expandedRef.current) {
@@ -1688,33 +2087,44 @@ export function FilesPane({
         }
       }
     },
-    [findMemory, viewMemory, setUi, remote, openFile, refreshFromDisk, ensureDirLoaded]
+    [
+      findMemory,
+      viewMemory,
+      setUi,
+      remote,
+      replaceDocs,
+      commitLayout,
+      persistUi,
+      refreshFromDisk,
+      ensureDirLoaded
+    ]
   )
 
-  /** 条目没了（删除）：打开的文件在其中就清空正文（撤掉挂起的自动保存，免得写回来），查找与阅读位置一并丢掉 */
+  /**
+   * 条目没了（删除）：打开着的文件在其中即放掉并关掉它们的 Tab（先放掉，免得挂起的自动保存写回来），查找与阅读位置、
+   * 最近打开一并丢掉
+   */
   const applyRemovals = useCallback(
     (paths: readonly string[]): void => {
       const gone = (p: string): boolean => paths.some((r) => p === r || p.startsWith(r + '/'))
-      const cur = loadedRef.current
-      if (cur !== null && gone(cur.path)) {
-        if (idleTimer.current) {
-          clearTimeout(idleTimer.current)
-          idleTimer.current = null
-        }
-        setLoaded(null)
-        setConflict(null)
-        const nextRecent = recentPathsRef.current.filter((p) => !gone(p))
-        setRecentPaths(nextRecent)
-        setUi({
-          openPath: null,
-          expandedPaths: [...expandedRef.current].filter((p) => !gone(p)),
-          recentPaths: nextRecent
-        })
+      const kept = Object.entries(docsRef.current).filter(([p]) => !gone(p))
+      if (kept.length !== Object.keys(docsRef.current).length) {
+        replaceDocs(Object.fromEntries(kept))
       }
-      dropPathKeys(findMemory, gone)
-      dropPathKeys(viewMemory, gone)
+      commitLayout(dropEditorPaths(layoutRef.current, gone))
+      const nextRecent = recentPathsRef.current.filter((p) => !gone(p))
+      if (nextRecent.length !== recentPathsRef.current.length) {
+        recentPathsRef.current = nextRecent
+        setRecentPaths(nextRecent)
+      }
+      setUi({
+        recentPaths: nextRecent,
+        expandedPaths: [...expandedRef.current].filter((p) => !gone(p))
+      })
+      dropScopedKeys(findMemory, gone)
+      dropScopedKeys(viewMemory, gone)
     },
-    [setUi, findMemory, viewMemory]
+    [replaceDocs, commitLayout, setUi, findMemory, viewMemory]
   )
 
   /**
@@ -1735,7 +2145,7 @@ export function FilesPane({
           await revealInTree(entry.path, true)
         } else {
           // 新建的是空文件，可预览的类型也先落在编辑态
-          setSourcePreview(false)
+          setPaneView(layoutRef.current.current, { sourcePreview: false })
           await expandToFile(entry.path)
           await openFile(entry.path)
         }
@@ -1744,7 +2154,7 @@ export function FilesPane({
 
       if (req.kind === 'rename') {
         // 本地先落未保存的编辑（旧路径此刻仍在），失败则不动文件；服务器上的文件手动保存，编辑留在编辑器里跟着改名
-        if (!remote && !(await flushSave())) {
+        if (!remote && !(await flushAll())) {
           throw new Error('有未保存的更改且写入失败，已取消重命名')
         }
         const { path: newPath } = await backend.rename(req.path, name)
@@ -1776,7 +2186,8 @@ export function FilesPane({
       revealInTree,
       expandToFile,
       openFile,
-      flushSave,
+      flushAll,
+      setPaneView,
       applyMoves,
       applyRemovals
     ]
@@ -1816,7 +2227,7 @@ export function FilesPane({
       )
       if (items.length === 0) return
       // 移动前先落未保存的编辑（旧路径此刻仍在），失败则不动文件；服务器上的文件手动保存，编辑跟着改路径
-      if (mode === 'move' && !remote && !(await flushSave())) {
+      if (mode === 'move' && !remote && !(await flushAll())) {
         setOpError('有未保存的更改且写入失败，已取消移动')
         return
       }
@@ -1844,13 +2255,13 @@ export function FilesPane({
       }
       await applyMoves(moves)
       if (landed.length > 0) {
-        const next = await expandToPath(destDir, true)
-        persistUi(loadedRef.current?.path ?? null, [...next])
+        await expandToPath(destDir, true)
+        persistUi()
         setSelection(selectPaths(landed))
       }
       if (error !== null) setOpError(error)
     },
-    [backend, remote, flushSave, askSameName, applyMoves, expandToPath, persistUi]
+    [backend, remote, flushAll, askSameName, applyMoves, expandToPath, persistUi]
   )
 
   /** 「复制」「剪切」：放进系统剪贴板（剪切另记下这一批，粘贴即移动） */
@@ -1887,67 +2298,72 @@ export function FilesPane({
   )
 
   /** 冲突时换成别处的版本（服务器上的已删除或新版本超过文本上限时重开，落到出错或占位） */
-  const reloadFromConflict = (): void => {
-    if (conflict === null) return
-    setConflict(null)
+  const reloadFromConflict = (path: string): void => {
+    const conflict = docsRef.current[path]?.conflict
+    if (!conflict) return
+    updateDoc(path, (doc) => ({ ...doc, conflict: null }))
     if (conflict.kind === 'gone' || conflict.disk === null) {
-      if (loaded !== null) void openFile(loaded.path, { force: true })
+      void reloadDoc(path)
       return
     }
     const { disk, mtimeMs, size } = conflict
-    setLoaded((prev) =>
-      prev && prev.kind === 'text' ? { ...prev, content: disk, mtimeMs, size, dirty: false } : prev
+    updateDoc(path, (doc) =>
+      doc.loaded.kind === 'text'
+        ? { ...doc, loaded: { ...doc.loaded, content: disk, mtimeMs, size, dirty: false } }
+        : doc
     )
   }
   /** 冲突时保留编辑器内容：以别处的版本为基准，下次保存即覆盖它（服务器上已删除的，下次保存即重新创建） */
-  const keepEditorContent = (): void => {
-    if (conflict === null) return
-    setConflict(null)
+  const keepEditorContent = (path: string): void => {
+    const conflict = docsRef.current[path]?.conflict
+    if (!conflict) return
+    updateDoc(path, (doc) => ({ ...doc, conflict: null }))
     if (conflict.kind === 'gone') return
     const { mtimeMs, size } = conflict
-    const rebase = (prev: Loaded): Loaded =>
-      prev && prev.kind === 'text' ? { ...prev, mtimeMs, size } : prev
-    loadedRef.current = rebase(loadedRef.current)
-    setLoaded(rebase)
+    updateDoc(path, (doc) =>
+      doc.loaded.kind === 'text' ? { ...doc, loaded: { ...doc.loaded, mtimeMs, size } } : doc
+    )
   }
 
-  // 服务器上的文本文件手动保存：保存栏（常驻在面包屑工具栏之下），冲突也在这里处理
-  const textDirty = loaded?.kind === 'text' && loaded.dirty
-  const saveState: ServerSaveState =
-    conflict !== null
-      ? { kind: 'conflict', gone: conflict.kind === 'gone' }
-      : saving
-        ? { kind: 'saving' }
-        : !connected
-          ? { kind: 'offline', dirty: textDirty }
-          : saveError !== null && textDirty
-            ? { kind: 'failed', message: saveError }
-            : textDirty
-              ? { kind: 'dirty' }
-              : { kind: 'clean' }
-  const saveBar =
-    remote && loaded?.kind === 'text' ? (
+  /** 服务器上的文本文件手动保存：保存栏（每栏一条，常驻在面包屑工具栏之下），冲突也在这里处理 */
+  const saveBarOf = (doc: FilesDoc): React.ReactNode => {
+    const { loaded, conflict, saving, saveError } = doc
+    if (!remote || loaded.kind !== 'text') return undefined
+    const path = loaded.path
+    const state: ServerSaveState =
+      conflict !== null
+        ? { kind: 'conflict', gone: conflict.kind === 'gone' }
+        : saving
+          ? { kind: 'saving' }
+          : !connected
+            ? { kind: 'offline', dirty: loaded.dirty }
+            : saveError !== null && loaded.dirty
+              ? { kind: 'failed', message: saveError }
+              : loaded.dirty
+                ? { kind: 'dirty' }
+                : { kind: 'clean' }
+    return (
       <ServerSaveBar
-        state={saveState}
-        onSave={() => void flushSave()}
+        state={state}
+        onSave={() => void flushSave(path)}
         // 放弃修改：重新读服务器上的版本
-        onDiscard={() => void openFile(loaded.path, { force: true })}
-        onReload={reloadFromConflict}
+        onDiscard={() => void reloadDoc(path)}
+        onReload={() => reloadFromConflict(path)}
         onOverwrite={() => {
-          keepEditorContent()
-          void flushSave()
+          keepEditorContent(path)
+          void flushSave(path)
         }}
       />
-    ) : undefined
+    )
+  }
 
   const filterHint = shortcutTitle('筛选文件', SHORTCUT.filesFilter)
   const goHint = shortcutTitle('前往路径…', SHORTCUT.filesFilter)
   /** 服务器上某个文件的「下载」与「在 SSH 终端中打开」（占位与正文菜单用） */
   const downloadFile = (path: string): void =>
     serverActions?.onDownload([{ path, isDirectory: false }])
-  /** 预览出错的占位里的「下载」：服务器上打开的文件没有「在其他应用中打开」，给它一个出口；断开时不给 */
-  const downloadOpenFile =
-    remote && connected && loaded !== null ? () => downloadFile(loaded.path) : null
+  /** Editor Tab：服务器上有未保存修改的显示圆点 */
+  const tabUnsaved = (path: string): boolean => remote && isDirtyDoc(docs[path])
 
   // —— 拖拽（docs/prd/files-tree-move-copy.md「拖拽落点」「拖拽机制」） ——
 
@@ -2134,15 +2550,14 @@ export function FilesPane({
   }
 
   /**
-   * 进入文件（双击、Enter）：没打开的先打开，再把焦点交给正文——文本进编辑器（直接可键入），其余离开文件树
-   * （焦点可能在树的某一行上），正文的方向键随即接管
+   * 进入文件（双击、Enter）：打开并固定（docs/prd/files-editor-tabs.md「固定」），再把焦点交给正文——文本进编辑器
+   * （直接可键入），其余离开文件树（焦点可能在树的某一行上），正文的方向键随即接管
    */
   const enterFile = (path: string): void => {
-    const opened = loadedRef.current?.path === path ? Promise.resolve() : openFile(path)
-    void opened.then(() => {
+    void openFile(path, { pin: true }).then(() => {
       const active = document.activeElement
       if (active instanceof HTMLElement && treeScrollRef.current?.contains(active)) active.blur()
-      setEditorJump({ path, nonce: ++editorJumpNonce.current })
+      setEditorJump({ paneId: layoutRef.current.current, path, nonce: ++editorJumpNonce.current })
     })
   }
 
@@ -2228,820 +2643,598 @@ export function FilesPane({
   }
 
   const treePanel = useRememberedPanel('treePanel')
+  const editorSplit = useRememberedPanel('filesEditorSplit')
+  const split = layout.panes.length > 1
+  const lastPaneId = layout.panes[layout.panes.length - 1].id
+  const statusOfPath = (path: string): GitFileStatus | undefined =>
+    statusByRel.get(relPathUnderRoot(rootLogical, path))
+  /** 文本改动（本栏键入的）：标未保存、固定它的 Tab（docs/prd/files-editor-tabs.md「固定」），本地排上空闲保存 */
+  const changeText = (paneId: string, path: string, value: string): void => {
+    // 文档一变，gutter 弹窗的 hunk 即过期，统一在此关闭（含弹窗内回滚）
+    setHunkPopup(null)
+    updateDoc(path, (doc) =>
+      doc.loaded.kind === 'text'
+        ? { ...doc, loaded: { ...doc.loaded, content: value, dirty: true } }
+        : doc
+    )
+    pinTab(paneId, path)
+    // 服务器上的文件手动保存，不自动写回
+    if (!remote) scheduleIdleSave()
+  }
+  /** 点了 gutter 标记行：打开那个文件这一处改动的 diff 弹窗 */
+  const openHunk = useCallback(
+    (path: string, payload: GitGutterHunkClickPayload) => setHunkPopup({ path, payload }),
+    []
+  )
+  /** 本地有冲突（未保存的编辑撞上磁盘上的改动）的文件，一次问一个 */
+  const conflictPath = remote
+    ? null
+    : (Object.keys(docs).find((p) => docs[p].conflict?.kind === 'changed') ?? null)
 
-  return (
-    <FilesLocalContext.Provider value={!remote}>
-      <FilesDownloadContext.Provider value={downloadOpenFile}>
-        <ResizablePanelGroup {...treePanel.groupProps}>
-          <ResizablePanel
-            className="relative bg-deepest"
-            onContextMenu={(e) => {
-              // 任何已打开的条目都有正文菜单；空态没有。看图 / SVG 预览态另给「复制图片」取图源
-              const cur = loaded
-              if (!cur) return
-              e.preventDefault()
-              let imageSrc: (() => Promise<string>) | null = null
-              if (cur.kind === 'image') {
-                // 复制屏上正显示的那张：超大位图与浏览器解不了、改由主进程出图的都是预览图（长边 4096），
-                // 整图塞剪贴板不现实；加载中 / 打不开时不给复制
-                const shown = imageRef.current?.displayedSrc() ?? null
-                if (shown) imageSrc = () => Promise.resolve(shown)
-              } else if (cur.kind === 'text' && isSvgPath(cur.path) && sourcePreview) {
-                const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(cur.content)}`
-                imageSrc = () => Promise.resolve(src)
-              }
-              setContentMenu({ x: e.clientX, y: e.clientY, path: cur.path, imageSrc })
-            }}
-          >
-            {/* 不按文件重挂：盖上之后换打开别的文件也一直盖着，旧文件不会在两次打开之间露出来 */}
-            {opening !== null && serverId !== null && (
-              <ServerOpenProgress
-                path={opening.path}
-                progress={opening.progress}
-                onCancel={() => void window.api.serverFilesCancelRead(serverId)}
-              />
-            )}
-            {!loaded && (
-              <div className="flex h-full min-h-0 flex-col">
-                {/* 打开失败（如没有权限）会回到空态：原因留在这里 */}
-                <FilesToolbar
-                  path={null}
-                  projectRoot={rootLogical}
-                  error={saveError}
-                  recentPaths={recentPaths}
-                  recentMenuOpen={recentMenuOpen}
-                  onRecentMenuOpenChange={setRecentMenuOpen}
-                  fileStatus={undefined}
-                  treeVisible={treeVisible}
-                  onShowTree={() => setTreeVisible(true)}
-                  onToggleTree={() => setTreeVisible((v) => !v)}
-                  onRevealInTree={revealInTree}
-                  onOpenRecent={openFromRecent}
-                />
-                <CenteredHint>在右侧选择文件</CenteredHint>
-              </div>
-            )}
-            {loaded?.kind === 'text' && (
-              <FilesTextEditor
-                path={loaded.path}
-                content={loaded.content}
-                find={find}
-                viewState={viewStateOf(viewMemory, loaded.path)}
-                baseline={
-                  headText !== null && headText.path === loaded.path ? headText.content : null
-                }
-                projectRoot={rootLogical}
-                // 服务器上的文件保存出错写在保存栏里
-                error={remote ? null : saveError}
-                saveBar={saveBar}
-                recentPaths={recentPaths}
-                recentMenuOpen={recentMenuOpen}
-                onRecentMenuOpenChange={setRecentMenuOpen}
-                fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
-                treeVisible={treeVisible}
-                sourcePreview={sourcePreview}
-                onToggleSourcePreview={() => {
-                  const next = !sourcePreview
-                  // 本地切到预览前落盘，预览与磁盘一致（服务器上的预览看的是编辑器里的内容）；
-                  // 编辑器卸载，gutter 弹窗一并关闭
-                  if (next && !remote) void flushSave()
-                  setHunkPopup(null)
-                  setSourcePreview(next)
-                }}
-                onShowTree={() => setTreeVisible(true)}
-                onToggleTree={() => setTreeVisible((v) => !v)}
-                onRevealInTree={revealInTree}
-                onOpenRecent={openFromRecent}
-                jump={editorJump}
-                onJumpDone={() => setEditorJump(null)}
-                onHunkClick={setHunkPopup}
-                onImagePrev={goPrevImage}
-                onImageNext={goNextImage}
-                active={visible}
-                imagePrefetch={prefetch}
-                onChange={(v) => {
-                  // 文档一变，gutter 弹窗的 hunk 即过期，统一在此关闭（含弹窗内回滚）
-                  setHunkPopup(null)
-                  setLoaded((prev) =>
-                    prev && prev.kind === 'text' ? { ...prev, content: v, dirty: true } : prev
-                  )
-                  // 服务器上的文件手动保存，不自动写回
-                  if (!remote) scheduleIdleSave()
-                }}
-              />
-            )}
-            {loaded?.kind === 'image' && (
-              <div className="flex h-full min-h-0 flex-col">
-                <FilesToolbar
-                  path={loaded.path}
-                  projectRoot={rootLogical}
-                  error={null}
-                  recentPaths={recentPaths}
-                  recentMenuOpen={recentMenuOpen}
-                  onRecentMenuOpenChange={setRecentMenuOpen}
-                  fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
-                  treeVisible={treeVisible}
-                  onShowTree={() => setTreeVisible(true)}
-                  onToggleTree={() => setTreeVisible((v) => !v)}
-                  onRevealInTree={revealInTree}
-                  onOpenRecent={openFromRecent}
-                  extra={
-                    <MediaFitButtons
-                      active={imageFit}
-                      onFit={(axis) => imageRef.current?.fit(axis)}
-                    />
-                  }
-                />
-                <FilesMediaPreview
-                  // 服务器上的图是在进度遮罩后面换的：沿用旧图过渡会在遮罩撤掉时闪出上一张，按文件重挂
-                  key={remote ? loaded.path : undefined}
-                  ref={imageRef}
-                  onFitChange={setImageFit}
-                  viewState={viewStateOf(viewMemory, loaded.path)}
-                  src={loaded.mediaUrl}
-                  path={loaded.decode.path}
-                  projectPath={loaded.decode.root}
-                  width={loaded.width}
-                  height={loaded.height}
-                  tiled={loaded.tiled === true}
-                  prefetch={prefetch}
-                  active={visible}
-                  onPrev={goPrevImage}
-                  onNext={goNextImage}
-                />
-              </div>
-            )}
-            {loaded?.kind === 'video' && (
-              <div className="flex h-full min-h-0 flex-col">
-                <FilesToolbar
-                  path={loaded.path}
-                  projectRoot={rootLogical}
-                  error={null}
-                  recentPaths={recentPaths}
-                  recentMenuOpen={recentMenuOpen}
-                  onRecentMenuOpenChange={setRecentMenuOpen}
-                  fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
-                  treeVisible={treeVisible}
-                  onShowTree={() => setTreeVisible(true)}
-                  onToggleTree={() => setTreeVisible((v) => !v)}
-                  onRevealInTree={revealInTree}
-                  onOpenRecent={openFromRecent}
-                />
-                <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
-                  <video
-                    key={loaded.mediaUrl}
-                    controls
-                    preload="metadata"
-                    className="max-h-full max-w-full"
-                  >
-                    <source src={loaded.mediaUrl} type={loaded.mime} />
-                  </video>
-                </div>
-              </div>
-            )}
-            {loaded?.kind === 'audio' && (
-              <div className="flex h-full min-h-0 flex-col">
-                <FilesToolbar
-                  path={loaded.path}
-                  projectRoot={rootLogical}
-                  error={null}
-                  recentPaths={recentPaths}
-                  recentMenuOpen={recentMenuOpen}
-                  onRecentMenuOpenChange={setRecentMenuOpen}
-                  fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
-                  treeVisible={treeVisible}
-                  onShowTree={() => setTreeVisible(true)}
-                  onToggleTree={() => setTreeVisible((v) => !v)}
-                  onRevealInTree={revealInTree}
-                  onOpenRecent={openFromRecent}
-                />
-                <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
-                  <audio key={loaded.mediaUrl} controls preload="metadata">
-                    <source src={loaded.mediaUrl} type={loaded.mime} />
-                  </audio>
-                </div>
-              </div>
-            )}
-            {(loaded?.kind === 'pdf' || loaded?.kind === 'pptx') && (
-              // PDF 与 PPT 同一套分页预览外壳，参数一致；换类型时组件随之换掉
-              <PagedPreview
-                // 同上：服务器上的文档按文件重挂，不在遮罩撤掉时露出上一份
-                key={remote ? loaded.path : undefined}
-                src={loaded.mediaUrl}
-                path={loaded.path}
-                active={visible}
-                find={find}
-                viewState={viewStateOf(viewMemory, loaded.path)}
-                thumbnails={pageThumbnails}
-                onToggleThumbnails={() => setPageThumbnails((v) => !v)}
-                onPrev={goPrevImage}
-                onNext={goNextImage}
-                toolbar={{
-                  projectRoot: rootLogical,
-                  recentPaths,
-                  recentMenuOpen,
-                  onRecentMenuOpenChange: setRecentMenuOpen,
-                  fileStatus: statusByRel.get(relPathUnderRoot(rootLogical, loaded.path)),
-                  treeVisible,
-                  onShowTree: () => setTreeVisible(true),
-                  onToggleTree: () => setTreeVisible((v) => !v),
-                  onRevealInTree: revealInTree,
-                  onOpenRecent: openFromRecent
-                }}
-              />
-            )}
-            {loaded?.kind === 'xlsx' && (
-              <div className="flex h-full min-h-0 flex-col">
-                <FilesToolbar
-                  path={loaded.path}
-                  projectRoot={rootLogical}
-                  error={null}
-                  recentPaths={recentPaths}
-                  recentMenuOpen={recentMenuOpen}
-                  onRecentMenuOpenChange={setRecentMenuOpen}
-                  fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
-                  treeVisible={treeVisible}
-                  onShowTree={() => setTreeVisible(true)}
-                  onToggleTree={() => setTreeVisible((v) => !v)}
-                  onRevealInTree={revealInTree}
-                  onOpenRecent={openFromRecent}
-                />
-                <FilesSheetPreview
-                  key={loaded.path}
-                  source={{ kind: 'xlsx', src: loaded.mediaUrl, size: loaded.size }}
-                  path={loaded.path}
-                  active={visible}
-                  find={find}
-                  viewState={viewStateOf(viewMemory, loaded.path)}
-                />
-              </div>
-            )}
-            {loaded?.kind === 'sqlite' && (
-              <div className="flex h-full min-h-0 flex-col">
-                <FilesToolbar
-                  path={loaded.path}
-                  projectRoot={rootLogical}
-                  error={null}
-                  recentPaths={recentPaths}
-                  recentMenuOpen={recentMenuOpen}
-                  onRecentMenuOpenChange={setRecentMenuOpen}
-                  fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
-                  treeVisible={treeVisible}
-                  onShowTree={() => setTreeVisible(true)}
-                  onToggleTree={() => setTreeVisible((v) => !v)}
-                  onRevealInTree={revealInTree}
-                  onOpenRecent={openFromRecent}
-                />
-                {/* 打不开时的占位（FilesPreviewError）盖满这一格 */}
-                <div className="relative min-h-0 flex-1">
-                  <SqliteFileView key={loaded.path} rootPath={rootPath} filePath={loaded.path} />
-                </div>
-              </div>
-            )}
-            {loaded?.kind === 'other' && (
-              <div className="flex h-full min-h-0 flex-col">
-                <FilesToolbar
-                  path={loaded.path}
-                  projectRoot={rootLogical}
-                  error={null}
-                  recentPaths={recentPaths}
-                  recentMenuOpen={recentMenuOpen}
-                  onRecentMenuOpenChange={setRecentMenuOpen}
-                  fileStatus={statusByRel.get(relPathUnderRoot(rootLogical, loaded.path))}
-                  treeVisible={treeVisible}
-                  onShowTree={() => setTreeVisible(true)}
-                  onToggleTree={() => setTreeVisible((v) => !v)}
-                  onRevealInTree={revealInTree}
-                  onOpenRecent={openFromRecent}
-                />
-                {host.kind === 'server' ? (
-                  <ServerFilePlaceholder
-                    reason="unsupported"
-                    size={loaded.size}
-                    connected={connected}
-                    onOpenAnyway={null}
-                    onDownload={() => downloadFile(loaded.path)}
-                    onOpenInSshTerminal={() =>
-                      host.onOpenInSshTerminal(logicalParentPath(loaded.path))
-                    }
-                  />
-                ) : (
-                  <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-sm text-muted-foreground">
-                    <p>无法在此编辑此文件</p>
-                    <p className="text-xs">{formatSize(loaded.size)}</p>
-                    <Button
-                      variant="secondary"
-                      onClick={() => void window.api.openPath(loaded.path)}
-                    >
-                      在其他应用中打开
-                    </Button>
-                  </div>
-                )}
-              </div>
-            )}
-            {loaded?.kind === 'too-large' && host.kind === 'server' && (
-              <div className="flex h-full min-h-0 flex-col">
-                <FilesToolbar
-                  path={loaded.path}
-                  projectRoot={rootLogical}
-                  error={null}
-                  recentPaths={recentPaths}
-                  recentMenuOpen={recentMenuOpen}
-                  onRecentMenuOpenChange={setRecentMenuOpen}
-                  fileStatus={undefined}
-                  treeVisible={treeVisible}
-                  onShowTree={() => setTreeVisible(true)}
-                  onToggleTree={() => setTreeVisible((v) => !v)}
-                  onRevealInTree={revealInTree}
-                  onOpenRecent={openFromRecent}
-                />
-                <ServerFilePlaceholder
-                  reason="too-large"
-                  size={loaded.size}
-                  connected={connected}
-                  onOpenAnyway={
-                    loaded.canForce ? () => void openFile(loaded.path, { openLarge: true }) : null
-                  }
-                  onDownload={() => downloadFile(loaded.path)}
-                  onOpenInSshTerminal={() =>
-                    host.onOpenInSshTerminal(logicalParentPath(loaded.path))
-                  }
-                />
-              </div>
-            )}
-          </ResizablePanel>
-          {treeVisible && <ResizableHandle {...treePanel.handleProps} />}
-          {treeVisible && (
-            <TreePanel
-              {...treePanel.panelProps}
-              onDragOver={onTreeDragOver}
-              onDragLeave={onTreeDragLeave}
-              onDrop={onTreeDrop}
-            >
-              <TreePanelBar>
-                {remote ? (
-                  // 服务器：「前往路径」（绝对路径或 ~ 开头），回车即前往；没有文件索引，不做筛选
-                  <BarInput
-                    ref={filterInputRef}
-                    value={goQuery}
-                    onChange={changeGoQuery}
-                    onSubmit={() => void goToPath()}
-                    escapeFocusRef={treeScrollRef}
-                    disabled={!connected}
-                    title={goHint}
-                    placeholder={goHint}
-                  />
-                ) : (
-                  <BarInput
-                    ref={filterInputRef}
-                    value={filterQuery}
-                    onChange={updateFilterQuery}
-                    onClear={() => void exitFilter()}
-                    escapeFocusRef={treeScrollRef}
-                    leading={<Search className={BAR_INPUT_ICON} />}
-                    title={filterHint}
-                    placeholder={filterHint}
-                  />
-                )}
-                <div className="flex shrink-0 items-center gap-0.5">
-                  {host.kind === 'preview' && (
-                    <PreviewTypeFilterButton
-                      typeFilter={host.typeFilter}
-                      onTypeFilterChange={host.onTypeFilterChange}
-                    />
-                  )}
-                  <RefreshButton
-                    refreshing={refreshing > 0}
-                    title="刷新"
-                    disabled={!connected}
-                    onClick={() => void refreshFromDisk()}
-                  />
-                  {/* 服务器上不给「全部展开」：从 / 递归展开等于把整台服务器扫一遍 */}
-                  {!remote && (
-                    <button
-                      type="button"
-                      title="全部展开"
-                      className={TOOLBAR_BTN}
-                      onClick={() => void expandAllDirs()}
-                    >
-                      <ChevronsUpDown className="size-4" />
-                    </button>
-                  )}
-                  <button
-                    type="button"
-                    title="全部折叠"
-                    className={TOOLBAR_BTN}
-                    onClick={collapseAllDirs}
-                  >
-                    <ChevronsDownUp className="size-4" />
-                  </button>
-                  <button
-                    type="button"
-                    title="隐藏文件树"
-                    className={TOOLBAR_BTN}
-                    onClick={() => setTreeVisible(false)}
-                  >
-                    <Minus className="size-4" />
-                  </button>
-                </div>
-              </TreePanelBar>
-              {goError !== null && (
-                <div className="shrink-0 px-3 pt-1.5 text-xs text-[var(--status-failed)]">
-                  {goError}
-                </div>
-              )}
-              {/* 当前根文件夹行：告诉你树的根在哪（预览窗口上翻下钻后不迷路），右键即空白区那份根菜单——
-              文件铺满时也永远点得到。固定在列表之上不随滚动走；它是全树的根，图标顶格（不占层级缩进位）。 */}
-              <TreeRootRow
-                title={rootLogical}
-                data-drop-dir={rootLogical}
-                icon={<FolderOpen className={TREE_ICON} />}
-                name={rootLogical.slice(rootLogical.lastIndexOf('/') + 1) || rootLogical}
-                dropTarget={dropDir === rootLogical}
-                menuActive={treeMenu !== null && treeMenu.path === rootLogical}
-                onContextMenu={(e) => openTreeMenu({ path: rootLogical, isDirectory: true }, e)}
-                onDisconnect={remote ? () => void disconnect() : undefined}
-              />
-              <div
-                ref={treeScrollRef}
-                tabIndex={0}
-                // 焦点在树上时方向键归树，正文的切媒体、翻页让位（见 files-key-guards 的 filesTreeTarget）
-                data-files-tree=""
-                className={TREE_SCROLL}
-                onContextMenu={(e) => openTreeMenu({ path: rootLogical, isDirectory: true }, e)}
-                onKeyDown={onTreeKeyDown}
-              >
-                {filterLoading ? (
-                  <TreeHint loading>正在扫描…</TreeHint>
-                ) : filterEmpty ? (
-                  <TreeHint>无匹配文件</TreeHint>
-                ) : (
-                  <div
-                    className="relative w-full"
-                    style={{ height: rowVirtualizer.getTotalSize() }}
-                  >
-                    {rowVirtualizer.getVirtualItems().map((vi) => {
-                      const row = flatRows[vi.index]
-                      // 空白区（根）目标的菜单不点亮任何行；行集合本就不含根
-                      const menuActive = treeMenu !== null && treeMenu.path === row.path
-                      return (
-                        <div
-                          key={vi.key}
-                          className="absolute left-0 top-0 w-full"
-                          style={{ transform: `translateY(${vi.start}px)` }}
-                          data-drop-dir={row.notice ? undefined : uploadTargetDir(row)}
-                        >
-                          {row.notice ? (
-                            <TreeNoticeRow depth={row.depth} message={row.name} />
-                          ) : row.isDirectory ? (
-                            <TreeRow
-                              depth={row.depth}
-                              expanded={displayExpanded.has(row.path)}
-                              icon={<Folder className={TREE_ICON} />}
-                              name={row.name}
-                              mark={
-                                row.symlink && (
-                                  <SymlinkMark
-                                    symlink={row.symlink}
-                                    onJump={jumpToLinkTarget(row)}
-                                  />
-                                )
-                              }
-                              title={row.symlink && symlinkTitle(row.symlink)}
-                              selected={selection.paths.has(row.path)}
-                              menuActive={menuActive}
-                              dropTarget={dropDir === row.path}
-                              dimmed={!remote && cutPaths.has(row.path)}
-                              draggable={connected}
-                              onClick={(e) => clickRow(row, e)}
-                              onToggle={() => void toggleDir(row.path)}
-                              onContextMenu={(e) => openTreeMenu(row, e)}
-                              onDragStart={(e) => startRowDrag(row, e)}
-                            />
-                          ) : (
-                            <FileTreeFileRow
-                              name={row.name}
-                              depth={row.depth}
-                              symlink={row.symlink}
-                              onJumpToLinkTarget={jumpToLinkTarget(row)}
-                              selected={selection.paths.has(row.path)}
-                              menuActive={menuActive}
-                              dimmed={!remote && cutPaths.has(row.path)}
-                              draggable={connected}
-                              status={statusByRel.get(relPathUnderRoot(rootLogical, row.path))}
-                              onClick={(e) => clickRow(row, e)}
-                              onMenu={(e) => openTreeMenu(row, e)}
-                              onDragStart={(e) => startRowDrag(row, e)}
-                            />
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
-              </div>
-            </TreePanel>
-          )}
+  /**
+   * 一栏：Editor Tab 行（开关开着时）+ 正文（各类型自带工具栏）。在栏里按下鼠标即成为当前栏；键盘（方向键、缩放、翻页、
+   * 查找）只作用于当前栏。
+   */
+  const renderPane = (pane: EditorPane, find: FindSession): React.JSX.Element => {
+    const path = pane.active
+    const doc = path === null ? undefined : docs[path]
+    const loaded = doc?.loaded ?? null
+    const current = pane.id === layout.current
+    const active = visible && current
+    const view = paneViews[pane.id] ?? DEFAULT_PANE_VIEW
+    const viewState = path === null ? null : viewStateOf(viewMemory, paneScopeKey(pane.id, path))
+    // 打开失败的原因留在这一栏；本地文本保存出错也写在工具栏上（服务器上的写在保存栏里）
+    const error =
+      paneNotices[pane.id] ?? (!remote && loaded?.kind === 'text' ? doc!.saveError : null)
+    const toolbar: FilesPaneToolbar = {
+      projectRoot: rootLogical,
+      recentPaths,
+      recentMenuOpen: current && recentMenuOpen,
+      onRecentMenuOpenChange: setRecentMenuOpen,
+      fileStatus: path === null ? undefined : statusOfPath(path),
+      // 「显示文件树」只在最右一栏（紧挨着树原来的位置）
+      treeVisible: treeVisible || pane.id !== lastPaneId,
+      onShowTree: () => setTreeVisible(true),
+      onToggleTree: () => setTreeVisible((v) => !v),
+      onRevealInTree: revealInTree,
+      onOpenRecent: (logical) => openFromRecent(logical, pane.id)
+    }
+    const otherPane = layout.panes.find((p) => p.id !== pane.id)
+    const tabActions: EditorTabsActions = {
+      onActivate: (p) => void openFile(p, { pane: pane.id }),
+      onPin: (p) => pinTab(pane.id, p),
+      onClose: (p) => void closeTab(pane.id, p),
+      onCloseOthers: (p) => void transitionLayout((b) => closeOtherEditors(b, pane.id, p)),
+      onCloseToLeft: (p) => void transitionLayout((b) => closeEditorsToLeft(b, pane.id, p)),
+      onCloseToRight: (p) => void transitionLayout((b) => closeEditorsToRight(b, pane.id, p)),
+      onCloseAll: () => void transitionLayout((b) => closeAllEditors(b, pane.id)),
+      onSplit: split ? null : (p) => void splitTab(p),
+      onMoveToOther: otherPane === undefined ? null : (p) => void moveTab(pane.id, p, otherPane.id),
+      onRevealInTree: (p) => void revealInTree(p, false)
+    }
+    const imageRef = (handle: MediaPreviewHandle | null): void => {
+      if (handle === null) imageHandles.current.delete(pane.id)
+      else imageHandles.current.set(pane.id, handle)
+    }
+    const prefetchHere = current ? prefetch : NO_PREFETCH
 
-          {hunkPopup !== null && loaded?.kind === 'text' && (
-            <FilesGutterHunkPopover
-              popup={hunkPopup}
-              filePath={loaded.path}
-              onUpdate={setHunkPopup}
-              onClose={() => setHunkPopup(null)}
-            />
-          )}
-
-          <FilesContentMenu
-            menu={contentMenu}
-            onDownload={remote && connected ? downloadFile : undefined}
-            onClose={() => setContentMenu(null)}
+    let body: React.ReactNode
+    if (loaded === null) {
+      body = (
+        <div className="flex h-full min-h-0 flex-col">
+          {/* 打开失败（如没有权限）的原因留在这里；还在读的文件先只出工具栏 */}
+          <FilesToolbar {...toolbar} path={path} error={error} />
+          {path === null && <CenteredHint>在右侧选择文件</CenteredHint>}
+        </div>
+      )
+    } else if (loaded.kind === 'text') {
+      body = (
+        <FilesTextEditor
+          path={loaded.path}
+          content={loaded.content}
+          find={find}
+          viewState={viewState!}
+          docSync={docSync}
+          baseline={baselines[loaded.path] ?? null}
+          error={error}
+          saveBar={saveBarOf(doc!)}
+          toolbar={toolbar}
+          sourcePreview={view.sourcePreview}
+          onToggleSourcePreview={() => {
+            const next = !view.sourcePreview
+            // 本地切到预览前落盘，预览与磁盘一致（服务器上的预览看的是编辑器里的内容）；
+            // 编辑器卸载，gutter 弹窗一并关闭
+            if (next && !remote) void flushSave(loaded.path)
+            setHunkPopup(null)
+            setPaneView(pane.id, { sourcePreview: next })
+          }}
+          jump={editorJump !== null && editorJump.paneId === pane.id ? editorJump : null}
+          onJumpDone={() => setEditorJump(null)}
+          onHunkClick={openHunk}
+          onImagePrev={goPrevImage}
+          onImageNext={goNextImage}
+          active={active}
+          imagePrefetch={prefetchHere}
+          onChange={(value) => changeText(pane.id, loaded.path, value)}
+        />
+      )
+    } else if (loaded.kind === 'image') {
+      body = (
+        <div className="flex h-full min-h-0 flex-col">
+          <FilesToolbar
+            {...toolbar}
+            path={loaded.path}
+            error={error}
+            extra={
+              <MediaFitButtons
+                active={imageFits[pane.id] ?? null}
+                onFit={(axis) => imageHandles.current.get(pane.id)?.fit(axis)}
+              />
+            }
           />
-          <FilesTreeMenu
+          <FilesMediaPreview
+            // 服务器上的图是在进度遮罩后面换的：沿用旧图过渡会在遮罩撤掉时闪出上一张，按文件重挂
+            key={remote ? loaded.path : undefined}
+            ref={imageRef}
+            onFitChange={(fit) =>
+              setImageFits((prev) => (prev[pane.id] === fit ? prev : { ...prev, [pane.id]: fit }))
+            }
+            viewState={viewState!}
+            src={loaded.mediaUrl}
+            path={loaded.decode.path}
+            projectPath={loaded.decode.root}
+            width={loaded.width}
+            height={loaded.height}
+            tiled={loaded.tiled === true}
+            prefetch={prefetchHere}
+            active={active}
+            onPrev={goPrevImage}
+            onNext={goNextImage}
+          />
+        </div>
+      )
+    } else if (loaded.kind === 'video' || loaded.kind === 'audio') {
+      body = (
+        <div className="flex h-full min-h-0 flex-col">
+          <FilesToolbar {...toolbar} path={loaded.path} error={error} />
+          <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
+            {loaded.kind === 'video' ? (
+              <video
+                key={loaded.mediaUrl}
+                controls
+                preload="metadata"
+                className="max-h-full max-w-full"
+              >
+                <source src={loaded.mediaUrl} type={loaded.mime} />
+              </video>
+            ) : (
+              <audio key={loaded.mediaUrl} controls preload="metadata">
+                <source src={loaded.mediaUrl} type={loaded.mime} />
+              </audio>
+            )}
+          </div>
+        </div>
+      )
+    } else if (loaded.kind === 'pdf' || loaded.kind === 'pptx') {
+      // PDF 与 PPT 同一套分页预览外壳，参数一致；换类型时组件随之换掉
+      const PagedPreview = loaded.kind === 'pptx' ? FilesPptxPreview : FilesPdfPreview
+      body = (
+        <PagedPreview
+          // 同上：服务器上的文档按文件重挂，不在遮罩撤掉时露出上一份
+          key={remote ? loaded.path : undefined}
+          src={loaded.mediaUrl}
+          path={loaded.path}
+          active={active}
+          find={find}
+          viewState={viewState!}
+          thumbnails={view.pageThumbnails}
+          onToggleThumbnails={() => setPaneView(pane.id, { pageThumbnails: !view.pageThumbnails })}
+          onPrev={goPrevImage}
+          onNext={goNextImage}
+          toolbar={toolbar}
+        />
+      )
+    } else if (loaded.kind === 'xlsx') {
+      body = (
+        <div className="flex h-full min-h-0 flex-col">
+          <FilesToolbar {...toolbar} path={loaded.path} error={error} />
+          <FilesSheetPreview
+            key={loaded.path}
+            source={{ kind: 'xlsx', src: loaded.mediaUrl, size: loaded.size }}
+            path={loaded.path}
+            active={active}
+            find={find}
+            viewState={viewState!}
+          />
+        </div>
+      )
+    } else if (loaded.kind === 'sqlite') {
+      body = (
+        <div className="flex h-full min-h-0 flex-col">
+          <FilesToolbar {...toolbar} path={loaded.path} error={error} />
+          {/* 打不开时的占位（FilesPreviewError）盖满这一格 */}
+          <div className="relative min-h-0 flex-1">
+            <SqliteFileView key={loaded.path} rootPath={rootPath} filePath={loaded.path} />
+          </div>
+        </div>
+      )
+    } else if (loaded.kind === 'other') {
+      body = (
+        <div className="flex h-full min-h-0 flex-col">
+          <FilesToolbar {...toolbar} path={loaded.path} error={error} />
+          {host.kind === 'server' ? (
+            <ServerFilePlaceholder
+              reason="unsupported"
+              size={loaded.size}
+              connected={connected}
+              onOpenAnyway={null}
+              onDownload={() => downloadFile(loaded.path)}
+              onOpenInSshTerminal={() => host.onOpenInSshTerminal(logicalParentPath(loaded.path))}
+            />
+          ) : (
+            <div className="flex flex-1 flex-col items-center justify-center gap-3 px-6 text-sm text-muted-foreground">
+              <p>无法在此编辑此文件</p>
+              <p className="text-xs">{formatSize(loaded.size)}</p>
+              <Button variant="secondary" onClick={() => void window.api.openPath(loaded.path)}>
+                在其他应用中打开
+              </Button>
+            </div>
+          )}
+        </div>
+      )
+    } else if (host.kind === 'server') {
+      body = (
+        <div className="flex h-full min-h-0 flex-col">
+          <FilesToolbar {...toolbar} path={loaded.path} error={error} fileStatus={undefined} />
+          <ServerFilePlaceholder
+            reason="too-large"
+            size={loaded.size}
+            connected={connected}
+            onOpenAnyway={
+              loaded.canForce ? () => void reloadDoc(loaded.path, { openLarge: true }) : null
+            }
+            onDownload={() => downloadFile(loaded.path)}
+            onOpenInSshTerminal={() => host.onOpenInSshTerminal(logicalParentPath(loaded.path))}
+          />
+        </div>
+      )
+    }
+
+    return (
+      <div
+        className="flex h-full min-h-0 flex-col bg-deepest"
+        onPointerDownCapture={() => focusPane(pane.id)}
+      >
+        {tabsEnabled && (
+          <FilesEditorTabs
+            pane={pane}
+            current={current}
+            rootLogical={rootLogical}
             projectPath={rootPath}
             terminal={host.kind === 'project'}
             server={serverActions}
-            clipboard={clipboardActions}
-            {...(host.kind === 'preview'
-              ? {
-                  onSetRoot: host.onSetRoot,
-                  onAscend: host.onAscend,
-                  onAddProject: host.onAddProject,
-                  projectRegistered: host.projectRegistered
-                }
-              : {})}
-            projectRoot={rootLogical}
-            menu={treeMenu}
-            onGoToLinkTarget={(target, isDirectory) => void goToEntry(target, isDirectory)}
-            onClose={() => setTreeMenu(null)}
-            onRequest={setEntryDialog}
+            connected={connected}
+            statusOf={statusOfPath}
+            unsaved={tabUnsaved}
+            actions={tabActions}
           />
-          {entryDialog !== null && (
-            <FilesEntryDialog
-              key={`${entryDialog.kind}:${
-                'dir' in entryDialog
-                  ? entryDialog.dir
-                  : 'path' in entryDialog
-                    ? entryDialog.path
-                    : entryDialog.entries.map((e) => e.path).join('\n')
-              }`}
-              request={entryDialog}
-              onClose={() => setEntryDialog(null)}
-              onSubmit={(name) => submitEntryDialog(entryDialog, name)}
-            />
-          )}
-          {sameName !== null && (
-            <SameNameDialog
-              message={sameName.message}
-              batch={sameName.batch}
-              onAnswer={(action, applyToRest) => sameName.answer({ action, applyToRest })}
-            />
-          )}
-          {opError !== null && <ErrorDialog message={opError} onClose={() => setOpError(null)} />}
-
-          {conflict?.kind === 'changed' && !remote && (
-            <ConfirmDialog
-              title={`重载 “${loaded !== null ? baseName(loaded.path) : ''}”？`}
-              message="文件已在磁盘上更改，当前还有未保存的编辑。重载会换成磁盘上的版本，丢掉这些编辑。"
-              cancelLabel="保留编辑器内容"
-              buttons={[{ label: '重载', onClick: reloadFromConflict }]}
-              onCancel={keepEditorContent}
-            />
-          )}
-        </ResizablePanelGroup>
-      </FilesDownloadContext.Provider>
-    </FilesLocalContext.Provider>
-  )
-}
-
-function FilesTextEditor({
-  path,
-  content,
-  find,
-  viewState,
-  baseline,
-  projectRoot,
-  error,
-  saveBar,
-  recentPaths,
-  recentMenuOpen,
-  onRecentMenuOpenChange,
-  fileStatus,
-  treeVisible,
-  sourcePreview,
-  onToggleSourcePreview,
-  onShowTree,
-  onToggleTree,
-  onRevealInTree,
-  onOpenRecent,
-  jump,
-  onJumpDone,
-  onHunkClick,
-  onChange,
-  onImagePrev,
-  onImageNext,
-  active,
-  imagePrefetch
-}: {
-  path: string
-  content: string
-  /** 这个文件的查找会话：编辑与预览共用 */
-  find: FindSession
-  /** 这个文件的阅读位置：编辑与预览（Markdown / CSV）共用源码行，SVG 预览另记看图相机 */
-  viewState: FilesViewState
-  /** HEAD 基线文本；null = 不显示 gutter diff 条纹 */
-  baseline: string | null
-  projectRoot: string
-  error: string | null
-  /** 工具栏之下的保存栏（服务器上的文件手动保存才有） */
-  saveBar?: React.ReactNode
-  recentPaths: string[]
-  recentMenuOpen: boolean
-  onRecentMenuOpenChange: (open: boolean) => void
-  fileStatus: GitFileStatus | undefined
-  treeVisible: boolean
-  /** Markdown / SVG / CSV 两态：true = 预览正文；其它文件忽略 */
-  sourcePreview: boolean
-  onToggleSourcePreview: () => void
-  onShowTree: () => void
-  onToggleTree: () => void
-  onRevealInTree: (logical: string, isDirectory: boolean) => void | Promise<void>
-  onOpenRecent: (logical: string) => void | Promise<void>
-  /** 内容搜索跳转：编辑器就绪后选中命中区间并滚到行；应用后回调清除 */
-  jump: EditorJumpRequest | null
-  onJumpDone: () => void
-  /** 点击 gutter 标记行 → 打开 diff 弹窗 */
-  onHunkClick: (payload: GitGutterHunkClickPayload) => void
-  onChange: (value: string) => void
-  onImagePrev: () => void
-  onImageNext: () => void
-  /** Files Tab 可见：预览态（SVG 看图 / CSV 表格）的键盘只在可见时响应 */
-  active: boolean
-  imagePrefetch?: readonly string[]
-}): React.JSX.Element {
-  const canPreview = isPreviewableSourcePath(path)
-  const markdown = isMarkdownPath(path)
-  const svg = isSvgPath(path)
-  const csv = isCsvPath(path)
-  const theme = useApp((s) => s.theme)
-  /** SVG 预览态的看图相机：工具栏「适应」钮组驱动 */
-  const svgRef = useRef<MediaPreviewHandle>(null)
-  const [svgFit, setSvgFit] = useState<MediaFitMode | null>(null)
-  /** 编辑器：建好新的即换（跳转与查找栏据此重试）；预览态编辑器未挂载，可能还是卸掉的旧实例 */
-  const [view, setView] = useState<EditorView | null>(null)
-  // 工具栏下拉关掉后焦点回编辑器；预览态编辑器未挂载（view 可能是旧实例）则不动
-  const focusEditor = useCallback(() => {
-    if (view?.dom.isConnected) view.focus()
-  }, [view])
-
-  // 查找栏（Cmd+F）：这个文件的查找会话（FilesPane 按文件记），编辑与预览（Markdown / CSV）共用，切换不关、不清空；
-  // SVG 预览没有查找，查找栏先藏起，切回编辑原样出现
-  const findExtension = useEditorFind(view, find)
-
-  // 格式化（JSON / SQL，见 lib/files-format）：工具栏钮与 ⌥⌘L（焦点在编辑器时），格式化选中的部分或全文；
-  // SQL 认不出时弹「无法格式化」
-  const formatLanguage = filesFormatLanguage(path)
-  const [formatError, setFormatError] = useState<string | null>(null)
-  const formatShortcut = useMemo(
-    () =>
-      formatLanguage === null
-        ? []
-        : formatKeymap((editor) => setFormatError(formatFileInEditor(editor, formatLanguage))),
-    [formatLanguage]
-  )
-
-  // 跳转须等 CodeMirror 挂载（key=path 换文件重建）；建好新编辑器（view 换新）时重试。
-  // 预览态（Markdown / SVG / CSV）编辑器未挂载，view 可能仍是上个文件的旧实例：留待切回编辑再应用。
-  useEffect(() => {
-    if (!jump || jump.path !== path) return
-    if (!view || !view.dom.isConnected) return
-    if (jump.line !== undefined) {
-      const doc = view.state.doc
-      const line = doc.line(Math.min(Math.max(jump.line, 1), doc.lines))
-      const anchor = Math.min(line.from + (jump.col ?? 0), line.to)
-      const head = Math.min(line.from + (jump.endCol ?? jump.col ?? 0), line.to)
-      view.dispatch({
-        selection: { anchor, head },
-        effects: EditorView.scrollIntoView(anchor, { y: 'center' })
-      })
-    }
-    view.focus()
-    onJumpDone()
-  }, [jump, path, view, onJumpDone])
-  // 换 extensions 走的是 StateEffect.reconfigure，不重建 EditorState：文档 / 选区 / 滚动
-  // 位置与撤销栈都在，切主题不打断编辑。
-  const extensions = useMemo(
-    () => [
-      filesEditorTheme[theme],
-      filesHighlighting[theme],
-      filesEditorConfig,
-      filesGutters,
-      filesLinks,
-      languageExtensionForPath(path),
-      findExtension,
-      formatShortcut,
-      rememberEditorView(viewState),
-      ...(baseline === null ? [] : [gitDiffGutter(baseline, onHunkClick)])
-    ],
-    [theme, path, baseline, onHunkClick, findExtension, formatShortcut, viewState]
-  )
-  return (
-    <div className="flex h-full min-h-0 flex-col">
-      <FilesToolbar
-        path={path}
-        projectRoot={projectRoot}
-        error={error}
-        recentPaths={recentPaths}
-        recentMenuOpen={recentMenuOpen}
-        onRecentMenuOpenChange={onRecentMenuOpenChange}
-        fileStatus={fileStatus}
-        treeVisible={treeVisible}
-        sourcePreview={canPreview ? sourcePreview : null}
-        onToggleSourcePreview={onToggleSourcePreview}
-        extra={
-          svg && sourcePreview ? (
-            <MediaFitButtons active={svgFit} onFit={(axis) => svgRef.current?.fit(axis)} />
-          ) : formatLanguage !== null ? (
-            <button
-              type="button"
-              title={shortcutTitle('格式化', SHORTCUT.format)}
-              className={TOOLBAR_BTN}
-              onClick={() => {
-                if (view?.dom.isConnected) setFormatError(formatFileInEditor(view, formatLanguage))
-              }}
-            >
-              <WandSparkles className="size-4" />
-            </button>
-          ) : undefined
-        }
-        onShowTree={onShowTree}
-        onToggleTree={onToggleTree}
-        onRevealInTree={onRevealInTree}
-        onOpenRecent={onOpenRecent}
-        onFocusContent={focusEditor}
-      />
-      {saveBar}
-      {markdown && sourcePreview ? (
-        <FilesMarkdownPreview
-          // 按文件重挂：换文件从头开始，切回来按记着的位置恢复
-          key={path}
-          path={path}
-          content={content}
-          projectRoot={projectRoot}
-          active={active}
-          find={find}
-          viewState={viewState}
-        />
-      ) : svg && sourcePreview ? (
-        <FilesSvgPreview
-          ref={svgRef}
-          onFitChange={setSvgFit}
-          viewState={viewState}
-          path={path}
-          content={content}
-          prefetch={imagePrefetch}
-          active={active}
-          onPrev={onImagePrev}
-          onNext={onImageNext}
-        />
-      ) : csv && sourcePreview ? (
-        <FilesSheetPreview
-          key={path}
-          source={{ kind: 'csv', content }}
-          path={path}
-          active={active}
-          find={find}
-          viewState={viewState}
-        />
-      ) : (
-        <>
-          {find.open && <FilesFindWidget view={view} content={content} find={find} />}
-          <div className="files-codemirror min-h-0 flex-1 overflow-hidden bg-deepest">
-            <CodeMirror
-              key={path}
-              value={content}
-              height="100%"
-              theme="none"
-              extensions={extensions}
-              basicSetup={FILES_BASIC_SETUP}
-              onChange={onChange}
-              onCreateEditor={(created) => {
-                restoreEditorView(created, viewState)
-                setView(created)
-              }}
-              className="h-full [&_.cm-editor]:h-full [&_.cm-editor]:outline-none"
-            />
+        )}
+        {/* 预览出错的占位里的「下载」：服务器上打开的文件没有「在其他应用中打开」，给它一个出口；断开时不给 */}
+        <FilesDownloadContext.Provider
+          value={remote && connected && loaded !== null ? () => downloadFile(loaded.path) : null}
+        >
+          <div
+            className="relative min-h-0 flex-1"
+            onContextMenu={(e) => {
+              // 任何已打开的条目都有正文菜单；空态没有。看图 / SVG 预览态另给「复制图片」取图源
+              if (!loaded) return
+              e.preventDefault()
+              let imageSrc: (() => Promise<string>) | null = null
+              if (loaded.kind === 'image') {
+                // 复制屏上正显示的那张：超大位图与浏览器解不了、改由主进程出图的都是预览图（长边 4096），
+                // 整图塞剪贴板不现实；加载中 / 打不开时不给复制
+                const shown = imageHandles.current.get(pane.id)?.displayedSrc() ?? null
+                if (shown) imageSrc = () => Promise.resolve(shown)
+              } else if (loaded.kind === 'text' && isSvgPath(loaded.path) && view.sourcePreview) {
+                const src = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(loaded.content)}`
+                imageSrc = () => Promise.resolve(src)
+              }
+              setContentMenu({ x: e.clientX, y: e.clientY, path: loaded.path, imageSrc })
+            }}
+          >
+            {/* 不按文件重挂：盖上之后换打开别的文件也一直盖着，旧文件不会在两次打开之间露出来 */}
+            {opening !== null && opening.paneId === pane.id && serverId !== null && (
+              <ServerOpenProgress
+                path={opening.path}
+                progress={opening.progress}
+                onCancel={() => {
+                  userCanceledRef.current = opening.path
+                  void window.api.serverFilesCancelRead(serverId)
+                }}
+              />
+            )}
+            {body}
           </div>
-        </>
-      )}
-      {formatError !== null && (
-        <ErrorDialog
-          title="无法格式化"
-          message={formatError}
-          onClose={() => setFormatError(null)}
+        </FilesDownloadContext.Provider>
+      </div>
+    )
+  }
+
+  return (
+    <FilesLocalContext.Provider value={!remote}>
+      <ResizablePanelGroup {...treePanel.groupProps}>
+        <ResizablePanel className="relative bg-deepest">
+          {/* 编辑区：1–2 栏，每栏按自己的标识作键（分屏、另一栏收起时留下的那栏不重挂）；记住的比例只在分栏时挂到左栏上 */}
+          <EditorTabsDnd
+            layout={layout}
+            statusOf={statusOfPath}
+            unsaved={tabUnsaved}
+            onMove={moveTab}
+          >
+            <ResizablePanelGroup {...(split ? editorSplit.groupProps : {})}>
+              {layout.panes.flatMap((pane, i) => {
+                if (pane.active !== null) {
+                  // 这一栏第一次打开这个文件：阅读位置与查找取另一栏里那份
+                  const others = layout.panes.filter((p) => p !== pane).map((p) => p.id)
+                  seedPaneScope(findMemory, pane.id, pane.active, others, (v) => v)
+                  seedPaneScope(viewMemory, pane.id, pane.active, others, (v) => v.clone())
+                }
+                const panel = (
+                  <ResizablePanel
+                    key={pane.id}
+                    id={pane.id}
+                    {...(split && i === 0 ? editorSplit.panelProps : {})}
+                  >
+                    <PaneFindScope
+                      scope={pane.active === null ? null : paneScopeKey(pane.id, pane.active)}
+                      memory={findMemory}
+                    >
+                      {(find) => renderPane(pane, find)}
+                    </PaneFindScope>
+                  </ResizablePanel>
+                )
+                return i === 0
+                  ? [panel]
+                  : [<ResizableHandle key="split" {...editorSplit.handleProps} />, panel]
+              })}
+            </ResizablePanelGroup>
+          </EditorTabsDnd>
+        </ResizablePanel>
+        {treeVisible && <ResizableHandle {...treePanel.handleProps} />}
+        {treeVisible && (
+          <TreePanel
+            {...treePanel.panelProps}
+            onDragOver={onTreeDragOver}
+            onDragLeave={onTreeDragLeave}
+            onDrop={onTreeDrop}
+          >
+            <TreePanelBar>
+              {remote ? (
+                // 服务器：「前往路径」（绝对路径或 ~ 开头），回车即前往；没有文件索引，不做筛选
+                <BarInput
+                  ref={filterInputRef}
+                  value={goQuery}
+                  onChange={changeGoQuery}
+                  onSubmit={() => void goToPath()}
+                  escapeFocusRef={treeScrollRef}
+                  disabled={!connected}
+                  title={goHint}
+                  placeholder={goHint}
+                />
+              ) : (
+                <BarInput
+                  ref={filterInputRef}
+                  value={filterQuery}
+                  onChange={updateFilterQuery}
+                  onClear={() => void exitFilter()}
+                  escapeFocusRef={treeScrollRef}
+                  leading={<Search className={BAR_INPUT_ICON} />}
+                  title={filterHint}
+                  placeholder={filterHint}
+                />
+              )}
+              <div className="flex shrink-0 items-center gap-0.5">
+                {host.kind === 'preview' && (
+                  <PreviewTypeFilterButton
+                    typeFilter={host.typeFilter}
+                    onTypeFilterChange={host.onTypeFilterChange}
+                  />
+                )}
+                <RefreshButton
+                  refreshing={refreshing > 0}
+                  title="刷新"
+                  disabled={!connected}
+                  onClick={() => void refreshFromDisk()}
+                />
+                {/* 服务器上不给「全部展开」：从 / 递归展开等于把整台服务器扫一遍 */}
+                {!remote && (
+                  <button
+                    type="button"
+                    title="全部展开"
+                    className={TOOLBAR_BTN}
+                    onClick={() => void expandAllDirs()}
+                  >
+                    <ChevronsUpDown className="size-4" />
+                  </button>
+                )}
+                <button
+                  type="button"
+                  title="全部折叠"
+                  className={TOOLBAR_BTN}
+                  onClick={collapseAllDirs}
+                >
+                  <ChevronsDownUp className="size-4" />
+                </button>
+                <button
+                  type="button"
+                  title="隐藏文件树"
+                  className={TOOLBAR_BTN}
+                  onClick={() => setTreeVisible(false)}
+                >
+                  <Minus className="size-4" />
+                </button>
+              </div>
+            </TreePanelBar>
+            {goError !== null && (
+              <div className="shrink-0 px-3 pt-1.5 text-xs text-[var(--status-failed)]">
+                {goError}
+              </div>
+            )}
+            {/* 当前根文件夹行：告诉你树的根在哪（预览窗口上翻下钻后不迷路），右键即空白区那份根菜单——
+              文件铺满时也永远点得到。固定在列表之上不随滚动走；它是全树的根，图标顶格（不占层级缩进位）。 */}
+            <TreeRootRow
+              title={rootLogical}
+              data-drop-dir={rootLogical}
+              icon={<FolderOpen className={TREE_ICON} />}
+              name={rootLogical.slice(rootLogical.lastIndexOf('/') + 1) || rootLogical}
+              dropTarget={dropDir === rootLogical}
+              menuActive={treeMenu !== null && treeMenu.path === rootLogical}
+              onContextMenu={(e) => openTreeMenu({ path: rootLogical, isDirectory: true }, e)}
+              onDisconnect={remote ? () => void disconnect() : undefined}
+            />
+            <div
+              ref={treeScrollRef}
+              tabIndex={0}
+              // 焦点在树上时方向键归树，正文的切媒体、翻页让位（见 files-key-guards 的 filesTreeTarget）
+              data-files-tree=""
+              className={TREE_SCROLL}
+              onContextMenu={(e) => openTreeMenu({ path: rootLogical, isDirectory: true }, e)}
+              onKeyDown={onTreeKeyDown}
+            >
+              {filterLoading ? (
+                <TreeHint loading>正在扫描…</TreeHint>
+              ) : filterEmpty ? (
+                <TreeHint>无匹配文件</TreeHint>
+              ) : (
+                <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
+                  {rowVirtualizer.getVirtualItems().map((vi) => {
+                    const row = flatRows[vi.index]
+                    // 空白区（根）目标的菜单不点亮任何行；行集合本就不含根
+                    const menuActive = treeMenu !== null && treeMenu.path === row.path
+                    return (
+                      <div
+                        key={vi.key}
+                        className="absolute left-0 top-0 w-full"
+                        style={{ transform: `translateY(${vi.start}px)` }}
+                        data-drop-dir={row.notice ? undefined : uploadTargetDir(row)}
+                      >
+                        {row.notice ? (
+                          <TreeNoticeRow depth={row.depth} message={row.name} />
+                        ) : row.isDirectory ? (
+                          <TreeRow
+                            depth={row.depth}
+                            expanded={displayExpanded.has(row.path)}
+                            icon={<Folder className={TREE_ICON} />}
+                            name={row.name}
+                            mark={
+                              row.symlink && (
+                                <SymlinkMark symlink={row.symlink} onJump={jumpToLinkTarget(row)} />
+                              )
+                            }
+                            title={row.symlink && symlinkTitle(row.symlink)}
+                            selected={selection.paths.has(row.path)}
+                            menuActive={menuActive}
+                            dropTarget={dropDir === row.path}
+                            dimmed={!remote && cutPaths.has(row.path)}
+                            draggable={connected}
+                            onClick={(e) => clickRow(row, e)}
+                            onToggle={() => void toggleDir(row.path)}
+                            onContextMenu={(e) => openTreeMenu(row, e)}
+                            onDragStart={(e) => startRowDrag(row, e)}
+                          />
+                        ) : (
+                          <FileTreeFileRow
+                            name={row.name}
+                            depth={row.depth}
+                            symlink={row.symlink}
+                            onJumpToLinkTarget={jumpToLinkTarget(row)}
+                            selected={selection.paths.has(row.path)}
+                            menuActive={menuActive}
+                            dimmed={!remote && cutPaths.has(row.path)}
+                            draggable={connected}
+                            status={statusByRel.get(relPathUnderRoot(rootLogical, row.path))}
+                            onClick={(e) => clickRow(row, e)}
+                            onMenu={(e) => openTreeMenu(row, e)}
+                            onDragStart={(e) => startRowDrag(row, e)}
+                          />
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+          </TreePanel>
+        )}
+
+        {hunkPopup !== null && docs[hunkPopup.path]?.loaded.kind === 'text' && (
+          <FilesGutterHunkPopover
+            popup={hunkPopup.payload}
+            filePath={hunkPopup.path}
+            onUpdate={(payload) => setHunkPopup((prev) => prev && { ...prev, payload })}
+            onClose={() => setHunkPopup(null)}
+          />
+        )}
+
+        <FilesContentMenu
+          menu={contentMenu}
+          server={serverActions}
+          connected={connected}
+          onClose={() => setContentMenu(null)}
         />
-      )}
-    </div>
+        <FilesTreeMenu
+          projectPath={rootPath}
+          terminal={host.kind === 'project'}
+          server={serverActions}
+          clipboard={clipboardActions}
+          {...(host.kind === 'preview'
+            ? {
+                onSetRoot: host.onSetRoot,
+                onAscend: host.onAscend,
+                onAddProject: host.onAddProject,
+                projectRegistered: host.projectRegistered
+              }
+            : {})}
+          projectRoot={rootLogical}
+          menu={treeMenu}
+          onGoToLinkTarget={(target, isDirectory) => void goToEntry(target, isDirectory)}
+          onClose={() => setTreeMenu(null)}
+          onRequest={setEntryDialog}
+        />
+        {entryDialog !== null && (
+          <FilesEntryDialog
+            key={`${entryDialog.kind}:${
+              'dir' in entryDialog
+                ? entryDialog.dir
+                : 'path' in entryDialog
+                  ? entryDialog.path
+                  : entryDialog.entries.map((e) => e.path).join('\n')
+            }`}
+            request={entryDialog}
+            onClose={() => setEntryDialog(null)}
+            onSubmit={(name) => submitEntryDialog(entryDialog, name)}
+          />
+        )}
+        {sameName !== null && (
+          <SameNameDialog
+            message={sameName.message}
+            batch={sameName.batch}
+            onAnswer={(action, applyToRest) => sameName.answer({ action, applyToRest })}
+          />
+        )}
+        {opError !== null && <ErrorDialog message={opError} onClose={() => setOpError(null)} />}
+
+        {conflictPath !== null && (
+          <ConfirmDialog
+            title={`重载 “${baseName(conflictPath)}”？`}
+            message="文件已在磁盘上更改，当前还有未保存的编辑。重载会换成磁盘上的版本，丢掉这些编辑。"
+            cancelLabel="保留编辑器内容"
+            buttons={[{ label: '重载', onClick: () => reloadFromConflict(conflictPath) }]}
+            onCancel={() => keepEditorContent(conflictPath)}
+          />
+        )}
+      </ResizablePanelGroup>
+    </FilesLocalContext.Provider>
   )
 }
 

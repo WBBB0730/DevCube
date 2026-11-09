@@ -1,4 +1,4 @@
-import { useEffect, useEffectEvent, useLayoutEffect, useRef, useState } from 'react'
+import { useEffect, useEffectEvent, useRef, useState } from 'react'
 import {
   ChevronDown,
   ChevronUp,
@@ -31,8 +31,7 @@ import {
   closestCenter,
   useSensor,
   useSensors,
-  type DragEndEvent,
-  type Modifier
+  type DragEndEvent
 } from '@dnd-kit/core'
 import {
   SortableContext,
@@ -41,6 +40,17 @@ import {
   useSortable
 } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import {
+  TAB,
+  TAB_ACTIVE,
+  TAB_BAR,
+  TAB_BAR_FADE,
+  TAB_BAR_SCROLLER,
+  TAB_CLOSE,
+  restrictToHorizontalWithinList,
+  useActiveTabIntoView,
+  useWheelScrollsTabs
+} from '@renderer/components/ui/tab-strip'
 import type { SessionOutput, SessionStatus } from '@shared/types'
 import type { ThemeMode } from '@shared/theme'
 import {
@@ -388,33 +398,6 @@ const STATUS_DOT: Record<SessionStatus | 'idle', string> = {
   failed: 'var(--status-failed)'
 }
 
-// 单个 Tab 外壳样式：与左标题栏同高、无圆角、彼此紧贴；选中态用主色下描边（inset box-shadow，不占布局）。
-// 右内边距 8px：12px 的 × 图标在 16px 按钮内居中内缩 2px，8+2=10px 即图标到右边缘的距离。
-const TAB =
-  'flex h-full max-w-[220px] shrink-0 cursor-pointer select-none items-center gap-1.5 whitespace-nowrap pl-2.5 text-[14px] transition-colors hover:bg-[var(--bg-row-hover)]'
-const TAB_ACTIVE = { boxShadow: 'inset 0 -3px 0 0 var(--primary)' } as const
-
-// 关闭键（运行会话/终端 Tab 共用）：16px 按钮 + 12px 图标；常驻，背景仅 hover 显示（圆形 + 颜色过渡）。
-// ml-1 叠加 Tab 的 gap-1.5：文字到关闭键 10px（比文字到左侧图标的 6px 更宽）。
-const TAB_CLOSE =
-  'ml-1 flex size-4 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
-
-// 终端 Tab 组内拖拽：仅水平移动，且钳制在终端组容器内（containerNodeRect 即被拖项父容器）。
-const restrictToHorizontalWithinList: Modifier = ({
-  transform,
-  draggingNodeRect,
-  containerNodeRect
-}) => {
-  const t = { ...transform, y: 0 }
-  if (!draggingNodeRect || !containerNodeRect) return t
-  if (draggingNodeRect.left + t.x < containerNodeRect.left) {
-    t.x = containerNodeRect.left - draggingNodeRect.left
-  } else if (draggingNodeRect.right + t.x > containerNodeRect.right) {
-    t.x = containerNodeRect.right - draggingNodeRect.right
-  }
-  return t
-}
-
 function TabBar({
   entryKey,
   residentKeys,
@@ -444,40 +427,8 @@ function TabBar({
   const termStart = residentCount + (termTabsFirst ? 0 : runTabs.length)
   const tabBarRef = useRef<HTMLDivElement>(null)
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
-
-  useLayoutEffect(() => {
-    const scroller = tabBarRef.current
-    if (!scroller || activeKey === null) return
-    scroller
-      .querySelector(`[data-tab-key="${globalThis.CSS.escape(activeKey)}"]`)
-      ?.scrollIntoView({ block: 'nearest', inline: 'nearest' })
-  }, [entryKey, activeKey])
-
-  useEffect(() => {
-    const scroller = tabBarRef.current
-    if (!scroller) return
-
-    const handleWheel = (e: WheelEvent): void => {
-      if (scroller.scrollWidth <= scroller.clientWidth) return
-
-      // 鼠标纵向滚轮直接横移；触控板已有横向意图时保留其方向。
-      const delta = Math.abs(e.deltaX) > Math.abs(e.deltaY) ? e.deltaX : e.deltaY
-      if (delta === 0) return
-
-      const scale =
-        e.deltaMode === WheelEvent.DOM_DELTA_LINE
-          ? 16
-          : e.deltaMode === WheelEvent.DOM_DELTA_PAGE
-            ? scroller.clientWidth
-            : 1
-      const previous = scroller.scrollLeft
-      scroller.scrollLeft += delta * scale
-      if (scroller.scrollLeft !== previous) e.preventDefault()
-    }
-
-    scroller.addEventListener('wheel', handleWheel, { passive: false })
-    return () => scroller.removeEventListener('wheel', handleWheel)
-  }, [])
+  useActiveTabIntoView(tabBarRef, activeKey, entryKey)
+  useWheelScrollsTabs(tabBarRef)
 
   const handleDragEnd = (e: DragEndEvent): void => {
     const { active, over } = e
@@ -513,11 +464,10 @@ function TabBar({
   )
 
   return (
-    // 左右溢出渐变用通用滚动渐隐遮罩（main.css）；底边沿用留 1px 不盖
-    <div className="scroll-fade-x relative h-10 shrink-0 border-b border-[var(--separator)] bg-panel [--scroll-fade-color:var(--bg-panel)] [--scroll-fade-gutter:1px]">
+    <div className={cn(TAB_BAR, TAB_BAR_FADE)}>
       <div
         ref={tabBarRef}
-        className="tab-bar-scroll scroll-fade-scroller flex h-full flex-nowrap items-center overflow-x-auto overflow-y-hidden scroll-px-4"
+        className={TAB_BAR_SCROLLER}
         title={`切换 Tab (${shortcutLabel(SHORTCUT.prevTab)} / ${shortcutLabel(SHORTCUT.nextTab)}，或 ${shortcutLabel(SHORTCUT.cycleTabNext)})`}
       >
         {/* 常驻 Tab：Project 为 Git（⌘1，ADR-0005）、Files（⌘2）；Server 为状态（⌘1）、Files（⌘2）；

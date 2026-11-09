@@ -36,7 +36,8 @@ const SPECS: Record<PanelSizeKey, PanelSizeSpec> = {
   treePanel: SIDEBAR,
   gitDetailsHeight: { unit: 'px', defaultSize: 250, minSize: 100, maxSize: 600 },
   gitDetailsSplit: SPLIT,
-  contentSearchSplit: SPLIT
+  contentSearchSplit: SPLIT,
+  filesEditorSplit: SPLIT
 }
 
 function initialPanelSizes(): PanelSizes {

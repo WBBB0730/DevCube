@@ -1,4 +1,5 @@
 import { create } from 'zustand'
+import type { AppShortcut } from '@shared/app-shortcut'
 import { isAbsolutePath, normalizePath } from '@shared/files-path'
 import { filesTabKey } from '@shared/runnable'
 import { useApp } from '@renderer/store'
@@ -15,6 +16,16 @@ export interface PendingFilesOpen {
   at?: FilesOpenPosition
 }
 
+/** Editor Tab 的键盘命令（docs/prd/files-editor-tabs.md「键位」）：⌘W 关闭、⇧⌘[ / ⇧⌘] 切换、⌘\ 向右分屏 */
+export type FilesEditorCommand = 'close' | 'prev' | 'next' | 'split'
+
+/** Editor Tab 的应用快捷键 → 交给 Files 面板的命令（主窗口与预览窗口壳共用） */
+export const EDITOR_COMMAND_OF = {
+  prevEditorTab: 'prev',
+  nextEditorTab: 'next',
+  splitEditor: 'split'
+} as const satisfies Partial<Record<AppShortcut['id'], FilesEditorCommand>>
+
 interface FilesStore {
   /** 外部请求打开的路径（Git「打开文件」/ 内容搜索等）；FilesPane 消费后清除 */
   pendingOpenByProject: Record<string, PendingFilesOpen | null>
@@ -25,6 +36,8 @@ interface FilesStore {
   filterFocusNonceByKey: Record<string, number>
   /** +1 驱动 FilesPane 弹出「最近打开文件」下拉（⌘E / Ctrl+E）；键同上 */
   recentMenuNonceByKey: Record<string, number>
+  /** 交给 FilesPane 的 Editor Tab 命令（nonce 每次 +1，同一命令连按也算新的）；键同上 */
+  editorCommandByKey: Record<string, { command: FilesEditorCommand; nonce: number }>
   /** 打开项目内文件：聚焦 Files Tab，并排队打开路径（可带定位） */
   openInFiles: (projectPath: string, filePath: string, at?: FilesOpenPosition) => void
   consumePendingOpen: (projectPath: string) => PendingFilesOpen | null
@@ -36,12 +49,15 @@ interface FilesStore {
   openRecentMenu: (entryKey: string) => void
   /** 只递增下拉 nonce、不碰 Tab（Preview Window 用：根路径即键） */
   bumpRecentMenu: (rootPath: string) => void
+  /** 把 Editor Tab 命令交给条目（或预览窗口根路径）的 Files 面板；调用方已确认 Files Tab 在前台 */
+  sendEditorCommand: (key: string, command: FilesEditorCommand) => void
 }
 
 export const useFiles = create<FilesStore>((set, get) => ({
   pendingOpenByProject: {},
   filterFocusNonceByKey: {},
   recentMenuNonceByKey: {},
+  editorCommandByKey: {},
   openInFiles: (projectPath, filePath, at) => {
     const logical = normalizePath(
       isAbsolutePath(filePath) ? filePath : `${projectPath}/${filePath}`
@@ -81,6 +97,14 @@ export const useFiles = create<FilesStore>((set, get) => ({
       recentMenuNonceByKey: {
         ...s.recentMenuNonceByKey,
         [rootPath]: (s.recentMenuNonceByKey[rootPath] ?? 0) + 1
+      }
+    }))
+  },
+  sendEditorCommand: (key, command) => {
+    set((s) => ({
+      editorCommandByKey: {
+        ...s.editorCommandByKey,
+        [key]: { command, nonce: (s.editorCommandByKey[key]?.nonce ?? 0) + 1 }
       }
     }))
   }

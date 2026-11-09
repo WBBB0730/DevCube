@@ -1,5 +1,11 @@
 /** Files Tab 相关共享类型（术语见 CONTEXT.md）。 */
 import { childPathPrefix, normalizePath } from './files-path'
+import {
+  EMPTY_EDITOR_LAYOUT,
+  normalizeEditorLayout,
+  openEditor,
+  type EditorLayout
+} from './files-editor-tabs'
 
 /**
  * 符号链接的指向（docs/prd/symlinks.md）：target 为目标的真实路径（落在树的根下时换成树上的写法）；
@@ -127,9 +133,10 @@ export function compareFilesDirEntries(a: FilesDirEntry, b: FilesDirEntry): numb
   return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
 }
 
-/** 每项目 Files Tab UI 持久化（上次打开路径 + 树展开 + 最近打开）。 */
+/** 每个 Project / Server 的 Files Tab UI 持久化（打开的 Editor Tab + 树展开 + 最近打开）。 */
 export interface FilesUiState {
-  openPath: string | null
+  /** 打开的 Editor Tab 与分栏（docs/prd/files-editor-tabs.md「持久化」）；偏好关着时只有一个，即上次打开的文件 */
+  editors: EditorLayout
   /** 已展开目录的绝对逻辑路径 */
   expandedPaths: string[]
   /** 最近打开的文件（绝对逻辑路径，新→旧，最多 FILES_RECENT_MAX 条） */
@@ -139,9 +146,33 @@ export interface FilesUiState {
 export const FILES_RECENT_MAX = 10
 
 export const DEFAULT_FILES_UI: FilesUiState = {
-  openPath: null,
+  editors: EMPTY_EDITOR_LAYOUT,
   expandedPaths: [],
   recentPaths: []
+}
+
+function stringList(raw: unknown): string[] {
+  return Array.isArray(raw) ? raw.filter((p): p is string => typeof p === 'string') : []
+}
+
+/**
+ * 读回落盘的 Files UI：形状不对的回到默认；旧版只记了上次打开的路径（openPath），读成一个临时 Tab。
+ * 布局只按形状整理、不按上限截断——上限随偏好开关，由面板读入时定。
+ */
+export function normalizeFilesUi(stored: unknown): FilesUiState {
+  const raw = (stored ?? {}) as Record<string, unknown>
+  const unlimited = Number.POSITIVE_INFINITY
+  const editors =
+    raw.editors !== undefined
+      ? normalizeEditorLayout(raw.editors, unlimited)
+      : typeof raw.openPath === 'string'
+        ? openEditor(EMPTY_EDITOR_LAYOUT, raw.openPath, { limit: unlimited })
+        : EMPTY_EDITOR_LAYOUT
+  return {
+    editors,
+    expandedPaths: stringList(raw.expandedPaths),
+    recentPaths: stringList(raw.recentPaths)
+  }
 }
 
 /** 将 path 插到最近打开列表头部并去重截断。 */

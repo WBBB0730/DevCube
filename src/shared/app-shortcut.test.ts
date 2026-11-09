@@ -119,6 +119,41 @@ describe('matchAppShortcut', () => {
     })
   })
 
+  it('Editor Tab：macOS ⇧⌘[ / ⇧⌘]，Windows / Linux Ctrl+PageUp / Ctrl+PageDown', () => {
+    const bracket = (code: string, ctx: ShortcutContext): unknown =>
+      matchAppShortcut(key({ code, meta: true, shift: true }), ctx)
+    expect(bracket('BracketLeft', MAC)).toEqual({ id: 'prevEditorTab' })
+    expect(bracket('BracketRight', MAC)).toEqual({ id: 'nextEditorTab' })
+    expect(bracket('BracketLeft', MAC_TERM)).toEqual({ id: 'prevEditorTab' })
+    expect(
+      matchAppShortcut(key({ code: 'BracketLeft', control: true, shift: true }), WIN)
+    ).toBeNull()
+    expect(matchAppShortcut(key({ code: 'PageUp', control: true }), WIN)).toEqual({
+      id: 'prevEditorTab'
+    })
+    expect(matchAppShortcut(key({ code: 'PageDown', control: true }), WIN)).toEqual({
+      id: 'nextEditorTab'
+    })
+    expect(matchAppShortcut(key({ code: 'PageUp', control: true }), MAC)).toBeNull()
+  })
+
+  it('CmdOrCtrl+\\ 向右分屏', () => {
+    expect(matchAppShortcut(key({ code: 'Backslash', meta: true }), MAC)).toEqual({
+      id: 'splitEditor'
+    })
+    expect(matchAppShortcut(key({ code: 'Backslash', meta: true }), MAC_TERM)).toEqual({
+      id: 'splitEditor'
+    })
+    expect(matchAppShortcut(key({ code: 'Backslash', control: true }), WIN)).toEqual({
+      id: 'splitEditor'
+    })
+  })
+
+  it('焦点在终端：Win / Linux 的 Ctrl+PageUp / PageDown 与 Ctrl+\\ 让给终端', () => {
+    expect(matchAppShortcut(key({ code: 'PageUp', control: true }), WIN_TERM)).toBeNull()
+    expect(matchAppShortcut(key({ code: 'Backslash', control: true }), WIN_TERM)).toBeNull()
+  })
+
   it('忽略 keyUp', () => {
     expect(
       matchAppShortcut(key({ type: 'keyUp', code: 'ArrowLeft', meta: true, alt: true }), MAC)

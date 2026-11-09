@@ -1315,15 +1315,8 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   ipcMain.handle(IPC.filesGetUi, async (_e, projectPath: string) => {
     const ui = getFilesUi(projectPath)
     const sanitized = await sanitizeFilesUi(projectPath, ui)
-    if (
-      sanitized.openPath !== ui.openPath ||
-      sanitized.recentPaths.length !== ui.recentPaths.length ||
-      sanitized.recentPaths.some((p, i) => p !== ui.recentPaths[i])
-    ) {
-      setFilesUi(projectPath, {
-        openPath: sanitized.openPath,
-        recentPaths: sanitized.recentPaths
-      })
+    if (sanitized !== ui) {
+      setFilesUi(projectPath, { editors: sanitized.editors, recentPaths: sanitized.recentPaths })
     }
     return sanitized
   })

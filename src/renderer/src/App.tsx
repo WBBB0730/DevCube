@@ -22,7 +22,7 @@ import {
 import { useDataSourceUi } from '@renderer/data-source-store'
 import { countExecutedStatements } from '@renderer/lib/data-source-completion-usage'
 import { useRememberedPanel } from '@renderer/lib/remembered-panel'
-import { useFiles } from '@renderer/files-store'
+import { EDITOR_COMMAND_OF, useFiles } from '@renderer/files-store'
 import { orderedTabKeys, resolveTabs, useApp } from '@renderer/store'
 import { selectedRepoPathOf, useGit } from '@renderer/git-store'
 import { cloneTaskOf, connectTasks, useTasks } from '@renderer/task-store'
@@ -30,7 +30,7 @@ import type { AppShortcut } from '@shared/app-shortcut'
 import { wslDistroOf } from '@shared/wsl-path'
 import type { AppUpdateState } from '@shared/app-update-state'
 import { filterTreeEntries, sortTreeEntries } from '@shared/project-sort'
-import { isResidentTabKey } from '@shared/runnable'
+import { isFilesTabKey, isResidentTabKey } from '@shared/runnable'
 import {
   buildTreeEntries,
   dataSourceIdOfEntryKey,
@@ -139,10 +139,23 @@ function handleAppShortcut(shortcut: AppShortcut): void {
       return
     }
     case 'closeTab': {
-      // 有当前条目即吞掉（主进程已 preventDefault），避免落到系统 Cmd+W 关窗。
+      // 有当前条目即吞掉（主进程已 preventDefault），避免落到系统 Cmd+W 关窗。Files Tab 上关的是当前 Editor Tab，
+      // 其余常驻 Tab 无效
       if (!entry) return
       const { activeKey } = resolveTabs(st, entry)
-      if (activeKey !== null && !isResidentTabKey(activeKey)) void st.closeTab(activeKey)
+      if (activeKey === null) return
+      if (isFilesTabKey(activeKey)) useFiles.getState().sendEditorCommand(entry, 'close')
+      else if (!isResidentTabKey(activeKey)) void st.closeTab(activeKey)
+      return
+    }
+    case 'prevEditorTab':
+    case 'nextEditorTab':
+    case 'splitEditor': {
+      // 只在 Files Tab 在前台时作用于它的 Editor Tab
+      if (!filesEntry) return
+      const { activeKey } = resolveTabs(st, filesEntry)
+      if (activeKey === null || !isFilesTabKey(activeKey)) return
+      useFiles.getState().sendEditorCommand(filesEntry, EDITOR_COMMAND_OF[shortcut.id])
       return
     }
     case 'cycleTabNext':
@@ -329,7 +342,7 @@ function App(): React.JSX.Element {
         />
       )}
       {unsavedPrompt && (
-        <UnsavedChangesDialog name={unsavedPrompt.name} onChoose={unsavedPrompt.resolve} />
+        <UnsavedChangesDialog names={unsavedPrompt.names} onChoose={unsavedPrompt.resolve} />
       )}
       {confirmPrompt && (
         <ConfirmDialog

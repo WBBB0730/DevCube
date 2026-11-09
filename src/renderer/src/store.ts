@@ -84,10 +84,13 @@ export function syncThemeWithSystem(): () => void {
   return () => mq.removeEventListener('change', sync)
 }
 
-/** JS 侧读的应用偏好（自动获取开关、数据源表格每页行数、记住窗口和面板布局、快捷键收起的分组）。 */
+/**
+ * JS 侧读的应用偏好（自动获取开关、数据源表格每页行数、记住窗口和面板布局、快捷键收起的分组、
+ * 启用编辑器标签页）。
+ */
 type JsAppPrefs = Pick<
   AppPrefs,
-  'gitAutoFetch' | 'dataPageSize' | 'rememberLayout' | 'collapsedShortcutGroups'
+  'gitAutoFetch' | 'dataPageSize' | 'rememberLayout' | 'collapsedShortcutGroups' | 'filesEditorTabs'
 >
 
 function jsAppPrefsOf(prefs: AppPrefs): JsAppPrefs {
@@ -95,7 +98,8 @@ function jsAppPrefsOf(prefs: AppPrefs): JsAppPrefs {
     gitAutoFetch: prefs.gitAutoFetch,
     dataPageSize: prefs.dataPageSize,
     rememberLayout: prefs.rememberLayout,
-    collapsedShortcutGroups: prefs.collapsedShortcutGroups
+    collapsedShortcutGroups: prefs.collapsedShortcutGroups,
+    filesEditorTabs: prefs.filesEditorTabs
   }
 }
 
@@ -356,9 +360,9 @@ interface AppState {
    * 服务器上有未保存修改的文件：服务器 id → 文件名与保存动作（服务器上的文件手动保存，由其 Files 面板登记，
    * 见 docs/prd/server-files.md）。断开、编辑（连接信息变了才断开）或移除服务器前据此先问
    */
-  unsavedServerFiles: Record<string, UnsavedServerFile>
-  /** 等用户选「保存 / 不保存 / 取消」的未保存提示（同一时刻一个） */
-  unsavedPrompt: { name: string; resolve: (choice: UnsavedChoice) => void } | null
+  unsavedServerFiles: Record<string, UnsavedServerFiles>
+  /** 等用户选「保存 / 不保存 / 取消」的未保存提示（同一时刻一个；多个文件一次问完） */
+  unsavedPrompt: { names: string[]; resolve: (choice: UnsavedChoice) => void } | null
   /** 从菜单这类点完就关的地方发起的二次确认（弹在 App 根，见 askConfirm） */
   confirmPrompt: (ConfirmPrompt & { resolve: (confirmed: boolean) => void }) | null
   /** 等用户填的运行参数（命令型配置有参数时，运行前弹参数框；同一时刻一个） */
@@ -373,6 +377,8 @@ interface AppState {
   theme: ThemeMode
   /** 自动获取远程更新（落盘）：Git Tab 到前台与定时刷新是否 fetch */
   gitAutoFetch: boolean
+  /** 启用编辑器标签页（落盘，全局）：Files 面板的 Tab 上限由它定（docs/prd/files-editor-tabs.md） */
+  filesEditorTabs: boolean
   /** 数据源表格每页行数（落盘，所有 Data Source Tab 共用） */
   dataPageSize: number
   /** 记住窗口和面板布局（落盘）：开着时布局跨重启保留，由主进程负责记（ADR-0053） */
@@ -441,6 +447,8 @@ interface AppState {
   setTheme: (theme: ThemeMode) => Promise<void>
   /** 开关自动获取：本地即时生效并落盘 */
   setGitAutoFetch: (enabled: boolean) => Promise<void>
+  /** 开关「启用编辑器标签页」：本地即时生效并落盘，主进程推给全部窗口 */
+  setFilesEditorTabs: (enabled: boolean) => Promise<void>
   /** 改数据源表格每页行数：本地即时生效并落盘 */
   setDataPageSize: (size: number) => Promise<void>
   /** 开关「记住窗口和面板布局」：本地即时生效并落盘（关掉即清掉已存的布局） */
@@ -503,10 +511,10 @@ interface AppState {
   enqueueTransferConflict: (request: TransferConflictRequest) => void
   dismissTransferConflict: (id: string) => void
   answerTransferConflict: (response: TransferConflictResponse) => void
-  /** Files 面板登记 / 撤销某台服务器上未保存的文件（null = 已保存或已关闭） */
-  setUnsavedServerFile: (serverId: string, file: UnsavedServerFile | null) => void
-  /** 弹「保存 / 不保存 / 取消」，等用户选 */
-  askUnsaved: (name: string) => Promise<UnsavedChoice>
+  /** Files 面板登记 / 撤销某台服务器上未保存的文件（null = 都已保存或已关闭） */
+  setUnsavedServerFiles: (serverId: string, files: UnsavedServerFiles | null) => void
+  /** 弹「保存 / 不保存 / 取消」，等用户选（多个文件一次问完，「保存」即全部保存） */
+  askUnsaved: (names: string[]) => Promise<UnsavedChoice>
   /** 二次确认：弹确认框，确认为 true，取消为 false */
   askConfirm: (prompt: ConfirmPrompt) => Promise<boolean>
   /** 某台服务器上有未保存的文件就先问：保存（存成才继续）/ 不保存（继续）/ 取消（不继续）；返回是否继续 */
@@ -537,9 +545,9 @@ export interface RunParamsPrompt {
   resolve: (params: RunParams | null) => void
 }
 
-/** 服务器上一个有未保存修改的文件：名字用于提示，save 存成返回 true。 */
-export interface UnsavedServerFile {
-  name: string
+/** 一台服务器上有未保存修改的文件：名字用于提示，save 全部存成返回 true。 */
+export interface UnsavedServerFiles {
+  names: string[]
   save: () => Promise<boolean>
 }
 
@@ -957,6 +965,10 @@ export const useApp = create<AppState>((set, get) => ({
     set({ gitAutoFetch: enabled })
     await window.api.setAppPrefs({ gitAutoFetch: enabled })
   },
+  setFilesEditorTabs: async (enabled) => {
+    set({ filesEditorTabs: enabled })
+    await window.api.setAppPrefs({ filesEditorTabs: enabled })
+  },
   setDataPageSize: async (size) => {
     set({ dataPageSize: size })
     await window.api.setAppPrefs({ dataPageSize: size })
@@ -1143,22 +1155,24 @@ export const useApp = create<AppState>((set, get) => ({
     window.api.respondTransferConflict(response)
     get().dismissTransferConflict(response.id)
   },
-  setUnsavedServerFile: (serverId, file) => {
+  setUnsavedServerFiles: (serverId, files) => {
     const current = get().unsavedServerFiles
-    if (file === null && !(serverId in current)) return
+    if (files === null && !(serverId in current)) return
     const next = { ...current }
-    if (file === null) delete next[serverId]
-    else next[serverId] = file
+    if (files === null) delete next[serverId]
+    else next[serverId] = files
     set({ unsavedServerFiles: next })
-    window.api.reportUnsavedServerFiles(Object.keys(next).length)
+    window.api.reportUnsavedServerFiles(
+      Object.values(next).reduce((n, entry) => n + entry.names.length, 0)
+    )
   },
-  askUnsaved: (name) =>
+  askUnsaved: (names) =>
     new Promise((resolve) => {
       // 同一时刻只问一件事：还有没答的就当取消
       get().unsavedPrompt?.resolve('cancel')
       set({
         unsavedPrompt: {
-          name,
+          names,
           resolve: (choice) => {
             set({ unsavedPrompt: null })
             resolve(choice)
@@ -1181,10 +1195,10 @@ export const useApp = create<AppState>((set, get) => ({
       })
     }),
   resolveServerUnsaved: async (serverId) => {
-    const file = get().unsavedServerFiles[serverId]
-    if (!file) return true
-    const choice = await get().askUnsaved(file.name)
+    const files = get().unsavedServerFiles[serverId]
+    if (!files) return true
+    const choice = await get().askUnsaved(files.names)
     if (choice === 'cancel') return false
-    return choice === 'discard' || (await file.save())
+    return choice === 'discard' || (await files.save())
   }
 }))

@@ -41,8 +41,11 @@ _Avoid_: Git 面板, 图谱 Tab, 仓库视图
 **Repository（仓库）**：一个 git 仓库，是 **Git Tab** 一次显示的对象。一个 **Project** 的仓库有两种：项目自己所在的那个（项目可能只是它的一个子目录），和项目里的**嵌套仓库**（含子模块）。项目目录被上层仓库忽略时，那个上层仓库不算它的。
 _Avoid_: Repo（裸用）, 版本库, VCS 根, 子仓库
 
-**Files Tab（文件标签页）**：**Project** 或 **Server** 的文件浏览与编辑视图：展示根下的**全部**条目（不按 `.gitignore` 等忽略规则过滤），按文件类型在正文区编辑或内嵌预览（SQLite 文件内嵌 **Data Source Tab** 的视图，它不因此成为 **Data Source**），同一时刻**至多打开一个条目**。支持新建、重命名、删除、移动与复制（Server 的不复制），可多选。每个 Project 与 Server **恒有一个**，常驻、不可关闭，是非会话 Tab（与 **Git Tab** 同类）。Project 的随磁盘变化自动跟进、删除进回收站；Server 的从 `/` 起，能在本机与服务器之间上传下载，编辑后手动保存，不自动跟进服务器上的变化，删除即不可恢复。
-_Avoid_: Editor Tab, Code Tab, 文件面板, 编辑器 Tab, Workspace, 远程文件 Tab, SFTP 面板
+**Files Tab（文件标签页）**：**Project** 或 **Server** 的文件浏览与编辑视图：展示根下的**全部**条目（不按 `.gitignore` 等忽略规则过滤），按文件类型在正文区编辑或内嵌预览（SQLite 文件内嵌 **Data Source Tab** 的视图，它不因此成为 **Data Source**），正文区默认同一时刻**至多打开一个条目**，偏好开着时为若干 **Editor Tab**、可左右分两栏。支持新建、重命名、删除、移动与复制（Server 的不复制），可多选。每个 Project 与 Server **恒有一个**，常驻、不可关闭，是非会话 Tab（与 **Git Tab** 同类）。Project 的随磁盘变化自动跟进、删除进回收站；Server 的从 `/` 起，能在本机与服务器之间上传下载，编辑后手动保存，不自动跟进服务器上的变化，删除即不可恢复。
+_Avoid_: Code Tab, 文件面板, Workspace, 远程文件 Tab, SFTP 面板
+
+**Editor Tab（编辑器标签页）**：**Files Tab** 或 **Preview Window** 正文区里代表一个打开的文件的标签。正文区可左右分成两栏，每栏一排，其中至多一个是**临时**的（下一次打开会替换它，改过内容或双击即固定）。它不是项目 Tab 栏上的 Tab，关掉它不影响 Files Tab；偏好「启用编辑器标签页」关着时每个面板只有一个，且不显示。
+_Avoid_: 文件 Tab, 内层 Tab, 子 Tab, 预览 Tab（指临时的那个时）, Document Tab
 
 **Status Tab（状态标签页）**：服务器的运行状态视图——连上后定时显示该 **Server** 的 CPU、内存、网络、硬盘、进程与基本系统信息。每台服务器**恒有一个**，常驻、不可关闭，是非会话 Tab（与 **Git Tab** 同类），背后那条状态连接不是 **SSH Terminal**。只支持 Linux 服务器。
 _Avoid_: 仪表盘, Dashboard, 监控面板, 概览
@@ -103,6 +106,8 @@ _Avoid_: 后台任务, 作业, Job, Operation
 
 - **「参数」**：专指命令型 **Run Configuration** 里留待每次运行前填值的占位（写作 `${{名称}}`）：**Project**、**Server** 上的留在命令、工作目录或环境变量的值里，**Data Source** 上的留在内容里。它不是命令行参数，不是 shell 变量（`${名称}`），也不是 SQL 预编译语句的绑定参数（`?`、`$1`、`:名称`）。
 
+- **「文件 Tab」**：口头可能指项目 Tab 栏上常驻的「文件」，也可能指正文区里一个打开的文件；前者写 **Files Tab**，后者写 **Editor Tab**。VS Code 叫「预览」的那种会被替换的 Tab 在这里叫**临时** Editor Tab，「预览」专指 Markdown / SVG / CSV 的预览态与 **Preview Window**。
+
 - **「任务」裸用**：专指 **Task**。**Discovered Script**、**Run Configuration** 不叫任务（哪怕它们来自 npm 等工具里叫 task 的东西）；应用自己在后台做的事（自动获取、更新下载）也不是 Task。
 
 ### 关系
@@ -123,6 +128,7 @@ _Avoid_: 后台任务, 作业, Job, Operation
 - 一个 **Data Source Tab** 的控制台有 0..1 个 **Console Context**（SQLite 没有）；同一个 **Data Source** 的各个 Tab 各有各的，互不影响。**Run Session** 不用它。
 - 同一个库可以登记成多个 **Data Source**，同一台服务器也可以登记成多台 **Server**；它们各自独立，互不关联。
 - 一个 **Project** 恒有一个 **Git Tab**（在其 Tab 栏最前）与一个 **Files Tab**（紧随其后）。常驻 Tab 与会话 Tab 共用激活与循环规则。
+- 一个 **Files Tab** 或 **Preview Window** 的正文区有 1–2 栏，每栏 0..N 个 **Editor Tab**、至多一个临时；同一个文件可在两栏各有一个，共用同一份内容。偏好「启用编辑器标签页」关着时恰好 1 栏、至多 1 个 Editor Tab。
 - 从 **Git Tab**「打开文件」进入该项目的 **Files Tab** 并打开对应路径；Files Tab 另提供「在其他应用中打开」（系统默认应用）。
 - **Content Search** 作用于当前 **Project**、同一时刻至多打开一个；它不是 Tab（浮层），确认命中后经 **Files Tab** 打开并定位。
 - 工作台按条目记住激活 Tab，并全局记住当前条目与左树选中；合法记忆优先于默认激活。**默认激活 Tab**（无合法记忆 / 首次解析）：若有运行中的 **Run Session**，取 Tab 栏从左到右第一个运行中的；否则取 Tab 栏第一个（即第一个常驻 Tab）。**关闭**激活 Tab 仍回落左邻，其次右邻（不套用上述默认规则）。**Run Session** Tab 不随工作台落盘跨冷启动恢复。
@@ -132,7 +138,7 @@ _Avoid_: 后台任务, 作业, Job, Operation
 - 一次安装恰好属于一个 **Release Edition**；正式版只消费非 Pre-release 的 GitHub Release，Beta 只消费 Pre-release 的 GitHub Release，二者不互相升级。
 - 一个正式版本有 0..1 段 **Changelog**，同号 Beta 与它共用；应用内更新确认前展示「当前版本之后、到新版本为止」的各段（两端都按正式版号比），没写的版本不出现。
 - **External Open** 的系统入口（协议、右键菜单、CLI 名、文件打开方式）随 **Release Edition** 分线注册，双装互不抢注；目录唤起落到既有的「添加项目」语义上，不引入新的登记方式；文件唤起落到 **Preview Window**；压缩唤起只开压缩窗口，不登记、不打开任何条目。
-- 一个 **Preview Window** 对应一个文件（同一文件复开即聚焦），持有一个可上翻的根；也可从主窗口项目菜单「在新窗口中打开」以某个 **Project** 根开出（无初始文件）；它的根不必是 **Project**，但「添加为项目」可把当前根按 External Open 的目录语义登记 / 聚焦。**Files Tab** 与 Preview Window 共用同一套面板能力。
+- 一个 **Preview Window** 对应开它的那个文件（同一文件复开即聚焦；窗口里另开的 **Editor Tab** 不算），持有一个可上翻的根；也可从主窗口项目菜单「在新窗口中打开」以某个 **Project** 根开出（无初始文件）；它的根不必是 **Project**，但「添加为项目」可把当前根按 External Open 的目录语义登记 / 聚焦。**Files Tab** 与 Preview Window 共用同一套面板能力。
 - 一个提交在 GitHub 上有 0..N 项 **Check**；**Git Tab** 只在登录 GitHub 后、对远程指向 github.com 的仓库显示它们，没有 Check 的提交不显示任何标记。
 - 一个仓库恒有 1 个主 **Worktree**、0..N 个链接 **Worktree**；每个 Worktree 至多对应一个 **Project**（按目录登记），登记与否不影响它在 git 层面的存在。
 - 一个 **WSL Project** 恰属于一个发行版；同一发行版的 WSL Project 共用一条连接：其中任一个被用到即连上，都不在用满偏好时长即断开，没有「连接」按钮。没连上时它的 **Discovered Script** 保持上次连上时的结果（从未连上则没有），引用型配置不因此删除。
@@ -161,7 +167,9 @@ _Avoid_: 后台任务, 作业, Job, Operation
 > **开发者**：我在 Finder 里双击一张 png，DevCube 弹了个窗口出来，但左边项目列表里没多出「下载」。
 > **领域专家**：那是 **Preview Window**——DevCube 作为「打开方式」被带着一个文件拉起时开的独立窗口，里面就是 **Files Tab** 的那套面板，根落在文件所在文件夹，能上翻、能编辑、能按类型只看图。它不是 **Project**，关掉不留痕；真要收进面板，「添加为项目」走的就是 **External Open** 的目录语义。
 > **开发者**：我想改一下 `src/app.ts`，又不想离开这个面板去开 WebStorm。
-> **领域专家**：切到它的 **Files Tab**——和 **Git Tab** 一样常驻、不可关，排在 Git 后面。右边是项目根下的完整文件树，左边一次只开一个文件；从 Git 图谱里「打开文件」也会进这里。树上右键就能新建、重命名、删除（删除进回收站）；拖到别的文件夹就是移动，复制粘贴也和 Finder 互通。
+> **领域专家**：切到它的 **Files Tab**——和 **Git Tab** 一样常驻、不可关，排在 Git 后面。右边是项目根下的完整文件树，左边默认一次只开一个文件；从 Git 图谱里「打开文件」也会进这里。树上右键就能新建、重命名、删除（删除进回收站）；拖到别的文件夹就是移动，复制粘贴也和 Finder 互通。
+> **开发者**：我想左边改 `api.ts`，右边对照着看 `types.ts`。
+> **领域专家**：在设置里打开「启用编辑器标签页」，**Files Tab** 的正文区上面就多一排 **Editor Tab**，点「向右分屏」分成两栏。单击树里的文件开的是临时 Tab，再点别的会被替换；改过或双击才留下。⌘W 在这里关的是 Editor Tab，**Files Tab** 本身还是关不掉。
 > **开发者**：我同时装着 DevCube 和 DevCube Beta，应用内更新会不会把 Beta 升成正式版？
 > **领域专家**：不会。各自是不同的 **Release Edition**——正式版只跟正式 Release，Beta 只跟 Pre-release，数据目录也分开，更新不跨线。
 > **开发者**：那 Beta 更新时看到的 **Changelog** 是另写的一份吗？

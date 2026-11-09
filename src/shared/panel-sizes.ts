@@ -1,6 +1,6 @@
 /**
  * 记住尺寸的可拖面板（docs/prd/resizable-panels.md、ADR-0053）：键 → 尺寸，全局各一份（不按项目）。
- * 侧栏宽与 Git 详情高存像素；两处分栏存所在面板组的百分比（单位与限位见渲染端 lib/remembered-panel）。
+ * 侧栏宽与 Git 详情高存像素；各处分栏存所在面板组的百分比（单位与限位见渲染端 lib/remembered-panel）。
  * 没有某个键 = 没拖过，用默认尺寸。
  */
 export const PANEL_SIZE_KEYS = [
@@ -13,7 +13,9 @@ export const PANEL_SIZE_KEYS = [
   /** Git 详情左栏（摘要 / 提交表单）占比 */
   'gitDetailsSplit',
   /** 内容搜索预览区占比 */
-  'contentSearchSplit'
+  'contentSearchSplit',
+  /** Files 左右分栏时左栏占比（docs/prd/files-editor-tabs.md） */
+  'filesEditorSplit'
 ] as const
 
 export type PanelSizeKey = (typeof PANEL_SIZE_KEYS)[number]

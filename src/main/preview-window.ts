@@ -2,7 +2,7 @@ import { BrowserWindow } from 'electron'
 import { basename } from 'node:path'
 import { normalizePath } from '../shared/files-path'
 import { IPC } from '../shared/ipc'
-import { matchAppShortcut } from '../shared/app-shortcut'
+import { matchAppShortcut, type AppShortcut } from '../shared/app-shortcut'
 import { buildPreviewQuery, resolvePreviewRoot } from '../shared/preview-window'
 import { createAppWindow, resetWindowGeometry } from './app-window'
 import { grantFilesRoot, revokeFilesRoot } from './files-roots'
@@ -57,7 +57,20 @@ function attachWatcher(entry: PreviewEntry): void {
   })
 }
 
-/** 预览窗口只响应 Cmd/Ctrl+W（关窗）与筛选框聚焦；项目 / Tab 类快捷键在此无意义，放行给页面。 */
+/**
+ * 预览窗口只响应 Files 面板自己的键：筛选框聚焦、最近打开、Editor Tab 的关闭 / 切换 / 分屏，都交给页面——
+ * Cmd/Ctrl+W 由页面先关 Editor Tab，关掉最后一个（或本来就没有）才关窗（docs/prd/files-editor-tabs.md「键位」）。
+ * 项目 / Tab 类快捷键在此无意义，放行给页面。
+ */
+const PREVIEW_SHORTCUTS = new Set<AppShortcut['id']>([
+  'focusFilesFilter',
+  'recentFiles',
+  'closeTab',
+  'prevEditorTab',
+  'nextEditorTab',
+  'splitEditor'
+])
+
 function wirePreviewShortcuts(win: BrowserWindow): void {
   win.webContents.on('before-input-event', (event, input) => {
     const hit = matchAppShortcut(
@@ -73,14 +86,9 @@ function wirePreviewShortcuts(win: BrowserWindow): void {
       // 预览窗口没有终端
       { platform: process.platform, terminalFocused: false }
     )
-    if (!hit) return
-    if (hit.id === 'closeTab') {
-      event.preventDefault()
-      win.close()
-    } else if (hit.id === 'focusFilesFilter' || hit.id === 'recentFiles') {
-      event.preventDefault()
-      win.webContents.send(IPC.appShortcut, hit)
-    }
+    if (!hit || !PREVIEW_SHORTCUTS.has(hit.id)) return
+    event.preventDefault()
+    win.webContents.send(IPC.appShortcut, hit)
   })
 }
 

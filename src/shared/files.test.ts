@@ -3,6 +3,8 @@ import {
   buildFilesAssetUrl,
   buildFilesMediaUrl,
   buildFilesTileUrl,
+  DEFAULT_FILES_UI,
+  normalizeFilesUi,
   symlinkJumpTarget
 } from './files'
 
@@ -43,5 +45,33 @@ describe('symlinkJumpTarget', () => {
     expect(symlinkJumpTarget({ target: '/elsewhere', broken: false }, '/p')).toBeNull()
     expect(symlinkJumpTarget({ target: '/pp/x', broken: false }, '/p')).toBeNull()
     expect(symlinkJumpTarget({ target: '/p', broken: false }, '/p')).toBeNull()
+  })
+})
+
+describe('normalizeFilesUi', () => {
+  it('形状不对的回到默认，列表只留字符串', () => {
+    expect(normalizeFilesUi(undefined)).toEqual(DEFAULT_FILES_UI)
+    expect(normalizeFilesUi({ expandedPaths: ['/a', 1], recentPaths: 'x', editors: 3 })).toEqual({
+      ...DEFAULT_FILES_UI,
+      expandedPaths: ['/a']
+    })
+  })
+
+  it('旧版的上次打开路径读成一个临时 Tab', () => {
+    expect(normalizeFilesUi({ openPath: '/p/a.ts' }).editors).toEqual({
+      panes: [{ id: 'p1', tabs: [{ path: '/p/a.ts', pinned: false }], active: '/p/a.ts' }],
+      current: 'p1'
+    })
+  })
+
+  it('布局不按上限截断（上限由面板定）', () => {
+    const editors = {
+      panes: [
+        { id: 'p1', tabs: [{ path: '/a', pinned: true }], active: '/a' },
+        { id: 'p2', tabs: [{ path: '/b', pinned: true }], active: '/b' }
+      ],
+      current: 'p2'
+    }
+    expect(normalizeFilesUi({ editors }).editors).toEqual(editors)
   })
 })

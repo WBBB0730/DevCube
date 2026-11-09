@@ -74,7 +74,9 @@ const NAMED_KEYS: Record<string, { mac: string; other: string }> = {
   Escape: { mac: 'Esc', other: 'Esc' },
   Enter: { mac: 'Enter', other: 'Enter' },
   Backspace: { mac: '\u232B', other: 'Backspace' },
-  Delete: { mac: '\u2326', other: 'Delete' }
+  Delete: { mac: '\u2326', other: 'Delete' },
+  PageUp: { mac: 'PageUp', other: 'PageUp' },
+  PageDown: { mac: 'PageDown', other: 'PageDown' }
 }
 
 function formatKeyLabel(key: string, platform: string): string {
@@ -164,6 +166,8 @@ export const SHORTCUT = {
   format: { mod: true, alt: true, key: 'L' } satisfies ShortcutChord,
   cycleTabNext: { ctrl: true, key: 'Tab' } satisfies ShortcutChord,
   cycleTabPrev: { ctrl: true, shift: true, key: 'Tab' } satisfies ShortcutChord,
+  /** Files 向右分屏（docs/prd/files-editor-tabs.md）；上一个 / 下一个 Editor Tab 随平台不同，见 editorTabShortcuts */
+  splitEditor: { mod: true, key: '\\' } satisfies ShortcutChord,
   // 以下为各视图自持的键（不进 matchAppShortcut），设置的快捷键列表与按钮 title 都要用；只在列表里出现的就地写在列表里
   /** 查找栏里的下一个 / 上一个（Files、Git、终端、数据源的查找栏） */
   findNext: { key: 'Enter' } satisfies ShortcutChord,
@@ -178,6 +182,13 @@ export const SHORTCUT = {
 /** Files 文件树删除：macOS ⌘⌫（同 Finder），Windows / Linux Delete。 */
 export function deleteEntryShortcut(platform: string): ShortcutChord {
   return platform === 'darwin' ? { mod: true, key: 'Backspace' } : { key: 'Delete' }
+}
+
+/** Files 当前栏里上一个 / 下一个 Editor Tab：macOS ⇧⌘[ / ⇧⌘]，Windows / Linux Ctrl+PageUp / Ctrl+PageDown。 */
+export function editorTabShortcuts(platform: string): { prev: ShortcutChord; next: ShortcutChord } {
+  return platform === 'darwin'
+    ? { prev: { mod: true, shift: true, key: '[' }, next: { mod: true, shift: true, key: ']' } }
+    : { prev: { ctrl: true, key: 'PageUp' }, next: { ctrl: true, key: 'PageDown' } }
 }
 
 /** 直达当前项目第 `n` 个 Tab（1–9）。 */

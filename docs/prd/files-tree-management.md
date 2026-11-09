@@ -21,7 +21,7 @@ Files Tab 只能浏览和编辑既有文件：想加一个文件、改个名、�
 7. As a 开发者, I want 删除前有确认弹窗, so that 不会误删
 8. As a 开发者, I want 删除进系统回收站, so that 删错了还能找回来
 9. As a 开发者, I want 重命名当前打开的文件（或其上层目录）后编辑器不断开, so that 正文、面包屑与最近列表都指向新路径
-10. As a 开发者, I want 删除当前打开的文件后正文立即清空, so that 不会停留在幽灵内容上
+10. As a 开发者, I want 删除打开着的文件后它的 Editor Tab 立即关掉（没有别的打开文件时正文清空）, so that 不会停留在幽灵内容上
 11. As a 开发者, I want 重名或非法名称时弹窗内就地报错, so that 我能改完名字直接重试
 12. As a 开发者, I want 项目根不可重命名 / 删除, so that 不会从面板里把项目本身干掉
 13. As a 开发者, I want 操作后文件树立即刷新, so that 不用等 watcher 或手动折腾

@@ -4,23 +4,39 @@ import { AppTitleBar } from '@renderer/components/AppTitleBar'
 import { SettingsDialog } from '@renderer/components/SettingsDialog'
 import { FilesPane, type FilesPaneHost } from '@renderer/components/files/FilesPane'
 import { FILES_ALL_TYPES } from '@renderer/components/files/PreviewTreeControls'
-import { useFiles } from '@renderer/files-store'
+import { EDITOR_COMMAND_OF, useFiles } from '@renderer/files-store'
 import { useApp } from '@renderer/store'
 import type { AppUpdateState } from '@shared/app-update-state'
 import { childPathPrefix, normalizePath } from '@shared/files-path'
+import {
+  EMPTY_EDITOR_LAYOUT,
+  activeEditorPath,
+  dropEditorPaths,
+  openEditor,
+  type EditorLayout
+} from '@shared/files-editor-tabs'
 import type { FilesTypeCategory } from '@shared/files-type-filter'
 import { parentLogicalPath, type PreviewLaunch } from '@shared/preview-window'
 
 /**
  * Preview Window（预览窗口）的渲染层壳（docs/prd/file-preview-window.md）：
  * 顶栏 = 标题 + 「添加为项目 / 转到项目」+ 与主窗口完全一致的更新 / 设置钮与设置弹窗；正文就是 Files 面板本身（preview 宿主）。
- * 根由这里持有——「上一级」/「作为根目录」换根时面板按根重挂（key），初始文件沿用当前打开的文件
+ * 根由这里持有——「上一级」/「作为根目录」换根时面板按根重挂（key），打开的文件（Editor Tab 与分栏）带上留在新根里的那些
  * （主窗口「在新窗口中打开」项目时没有初始文件，正文空态）；
  * 类型筛选集合也在这里，跨换根保留。工作台 store 只读 bootstrap 树，不写回。
  */
 export function PreviewWindow({ launch }: { launch: PreviewLaunch }): React.JSX.Element {
   const [root, setRoot] = useState(launch.root)
-  const [openPath, setOpenPath] = useState<string | null>(launch.file)
+  /** 打开的文件（Editor Tab 与分栏）：面板回报；换根重挂时把留在新根里的那些带过去。起手即双击的那个文件 */
+  const [editors, setEditors] = useState<EditorLayout>(() =>
+    launch.file === null
+      ? EMPTY_EDITOR_LAYOUT
+      : openEditor(EMPTY_EDITOR_LAYOUT, launch.file, {
+          pin: true,
+          limit: Number.POSITIVE_INFINITY
+        })
+  )
+  const openPath = activeEditorPath(editors)
   const [typeFilter, setTypeFilter] = useState<ReadonlySet<FilesTypeCategory>>(FILES_ALL_TYPES)
   // 当前根是否已是登记项目：首屏取 bootstrap 树；「添加为项目」成功后本地记下
   const [registeredRoots, setRegisteredRoots] = useState<ReadonlySet<string>>(
@@ -41,12 +57,18 @@ export function PreviewWindow({ launch }: { launch: PreviewLaunch }): React.JSX.
     return off
   }, [])
 
-  // 主进程只转发 ⌥⌘F（筛选框聚焦）与 ⌘E（最近打开文件）；Cmd/Ctrl+W 在主进程直接关窗
+  // 主进程只转发 Files 面板自己的键：⌥⌘F（筛选框聚焦）、⌘E（最近打开文件）与 Editor Tab 的关闭 / 切换 / 分屏；
+  // Cmd/Ctrl+W 由面板先关 Editor Tab，关掉最后一个（或本来就没有）时经 closeWindow 关窗
   useEffect(
     () =>
       window.api.onAppShortcut((s) => {
-        if (s.id === 'focusFilesFilter') useFiles.getState().bumpFilesFilterFocus(root)
-        else if (s.id === 'recentFiles') useFiles.getState().bumpRecentMenu(root)
+        const files = useFiles.getState()
+        if (s.id === 'focusFilesFilter') files.bumpFilesFilterFocus(root)
+        else if (s.id === 'recentFiles') files.bumpRecentMenu(root)
+        else if (s.id === 'closeTab') files.sendEditorCommand(root, 'close')
+        else if (s.id === 'prevEditorTab' || s.id === 'nextEditorTab' || s.id === 'splitEditor') {
+          files.sendEditorCommand(root, EDITOR_COMMAND_OF[s.id])
+        }
       }),
     [root]
   )
@@ -69,17 +91,17 @@ export function PreviewWindow({ launch }: { launch: PreviewLaunch }): React.JSX.
   const host = useMemo<FilesPaneHost>(
     () => ({
       kind: 'preview',
-      initialFile:
-        openPath !== null && openPath.startsWith(childPathPrefix(root)) ? openPath : null,
+      initialLayout: dropEditorPaths(editors, (p) => !p.startsWith(childPathPrefix(root))),
       onAscend: parent === null ? null : () => changeRoot(parent),
       onSetRoot: changeRoot,
-      onOpenPathChange: setOpenPath,
+      onLayoutChange: setEditors,
       onAddProject: addProject,
       projectRegistered,
       typeFilter,
-      onTypeFilterChange: setTypeFilter
+      onTypeFilterChange: setTypeFilter,
+      onCloseWindow: () => window.close()
     }),
-    // initialFile 只在换根重挂时读取；打开文件变化不应触发面板重建
+    // initialLayout 只在换根重挂时读取；打开的文件变化不应触发面板重建
     // eslint-disable-next-line react-hooks/exhaustive-deps -- intentional
     [root, parent, typeFilter, projectRegistered]
   )
