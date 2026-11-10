@@ -27,8 +27,12 @@ export type AppMenuRole =
   | 'front'
   | 'close'
 
+/** 应用自定义的菜单动作：模板只写动作名，点击处理由 main 安装菜单时按名接上，模板保持纯数据。 */
+export type AppMenuAction = 'openMainWindow'
+
 export type AppMenuItem =
   | { role: AppMenuRole; label: string }
+  | { action: AppMenuAction; label: string }
   | { type: 'separator' }
   /** 子菜单本身的 role 只用 `window`：macOS 据此把它登记为 Window 菜单，系统才往里加移到显示器、平铺与窗口列表。 */
   | { role?: 'window'; label: string; submenu: AppMenuItem[] }
@@ -119,7 +123,13 @@ const VIEW_MENU: AppMenuItem = {
 }
 
 /**
- * 窗口菜单。macOS 用「前置全部窗口」，Win/Linux 用「关闭」（对齐 Electron 的 windowMenu）。
+ * 「打开主窗口」：主窗口关掉后只开着预览窗口时，点 Dock 不会重建主窗口，macOS 上靠它叫回
+ * （窗口菜单与 Dock 右键菜单各一份；Windows 有托盘同名项，Linux 再启动一次即可）。
+ */
+const OPEN_MAIN_WINDOW: AppMenuItem = { action: 'openMainWindow', label: '打开主窗口' }
+
+/**
+ * 窗口菜单。macOS 用「前置全部窗口」，Win/Linux 用「关闭」（对齐 Electron 的 windowMenu）；macOS 另有「打开主窗口」。
  * 整块 `windowMenu` 自带 `window` role，拆开自列时须在这一层补上，否则系统加的项全丢。
  */
 function windowMenu(isMac: boolean): AppMenuItem {
@@ -130,11 +140,19 @@ function windowMenu(isMac: boolean): AppMenuItem {
       { role: 'minimize', label: '最小化' },
       { role: 'zoom', label: '缩放' },
       ...(isMac
-        ? ([SEP, { role: 'front', label: '前置全部窗口' }] satisfies AppMenuItem[])
+        ? ([
+            SEP,
+            OPEN_MAIN_WINDOW,
+            SEP,
+            { role: 'front', label: '前置全部窗口' }
+          ] satisfies AppMenuItem[])
         : ([{ role: 'close', label: '关闭' }] satisfies AppMenuItem[]))
     ]
   }
 }
+
+/** macOS Dock 右键菜单（排在系统自带的窗口列表等项之上）。 */
+export const DOCK_MENU_TEMPLATE: AppMenuItem[] = [OPEN_MAIN_WINDOW]
 
 /**
  * 返回顶层菜单模板；`null` 表示 suppress 默认菜单（无应用菜单）。

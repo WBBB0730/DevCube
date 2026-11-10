@@ -1,7 +1,7 @@
 import { app, BrowserWindow } from 'electron'
 import { electronApp, optimizer } from '@electron-toolkit/utils'
 import { handleFilesMediaProtocol, registerFilesMediaScheme } from './files-media-protocol'
-import { installAppMenu } from './app-menu'
+import { installAppMenu, installDockMenu, type AppMenuActions } from './app-menu'
 import { installWebContentsGuard } from './web-contents-guard'
 import { wireAppShortcuts } from './app-shortcuts'
 import { initStore } from './store'
@@ -96,8 +96,10 @@ app.on('second-instance', (_event, argv, workingDirectory) => {
 
 // 必须在 app.ready 之前注册特权 scheme，否则渲染层无法用自定义协议播媒体。
 registerFilesMediaScheme()
+// 应用菜单与 Dock 菜单里自定义项的点击处理
+const appMenuActions: AppMenuActions = { openMainWindow: focusMainWindow }
 // 必须在 app.ready 之前安装/清除应用菜单，否则 Electron 会挂上含 DevTools 的默认菜单。
-installAppMenu()
+installAppMenu(appMenuActions)
 // 渲染层主框架除重载外禁止导航、开窗一律改走系统浏览器：须早于建窗，只对之后创建的 webContents 生效。
 installWebContentsGuard()
 
@@ -160,7 +162,7 @@ function openMainWindow(): BrowserWindow {
   return win
 }
 
-/** 外部唤起 / 第二实例 / 托盘：把主窗口带到前台（Windows 托盘隐藏态先 show），没有则重开。 */
+/** 外部唤起 / 第二实例 / macOS 菜单「打开主窗口」：把主窗口带到前台（Windows 托盘隐藏态先 show），没有则重开。 */
 function focusMainWindow(): void {
   const win = liveMainWindow()
   if (!win) {
@@ -238,6 +240,7 @@ app.whenReady().then(async () => {
   })
   for (const paths of compressions) void openCompressWindow(paths)
   installTray(openMainWindow)
+  installDockMenu(appMenuActions)
 
   // Dev 身份的「文件打开方式」实体：启动即同步（打包身份靠 Info.plist 声明，安装即在「打开方式」里），
   // 指纹不变则跳过；失败只记日志，不影响启动。
@@ -258,6 +261,7 @@ app.whenReady().then(async () => {
 
   app.on('activate', function () {
     // On macOS re-create a window when the dock icon is clicked and none are open.
+    // 开着预览窗口时不建主窗口（看文件不拉起工作台），叫回主窗口走窗口菜单 / Dock 右键菜单「打开主窗口」
     if (isAppQuitting()) return
     if (BrowserWindow.getAllWindows().length === 0) openMainWindow()
   })

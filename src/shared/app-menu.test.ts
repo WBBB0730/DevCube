@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { resolveAppMenuTemplate, type AppMenuItem } from './app-menu'
+import { DOCK_MENU_TEMPLATE, resolveAppMenuTemplate, type AppMenuItem } from './app-menu'
 
 const mac = (isDev: boolean): AppMenuItem[] | null =>
   resolveAppMenuTemplate({ isDev, platform: 'darwin', appName: 'DevCube' })
@@ -88,6 +88,19 @@ describe('resolveAppMenuTemplate', () => {
     expect(roles).not.toContain('toggleSmartQuotes')
     expect(roles).not.toContain('toggleSmartDashes')
     expect(roles).not.toContain('toggleTextReplacement')
+  })
+
+  it('macOS 窗口菜单与 Dock 菜单都有「打开主窗口」：只开着预览窗口时靠它叫回主窗口', () => {
+    const windowTop = (mac(false) ?? []).find((i) => 'submenu' in i && i.label === '窗口')
+    const openMain = { action: 'openMainWindow', label: '打开主窗口' }
+    expect(windowTop && 'submenu' in windowTop ? windowTop.submenu : []).toContainEqual(openMain)
+    expect(DOCK_MENU_TEMPLATE).toEqual([openMain])
+  })
+
+  it('Win/Linux 窗口菜单没有「打开主窗口」：Windows 走托盘，Linux 再启动一次', () => {
+    const windowTop = (win(true) ?? []).find((i) => 'submenu' in i && i.label === '窗口')
+    const items = windowTop && 'submenu' in windowTop ? windowTop.submenu : []
+    expect(items.some((i) => 'action' in i)).toBe(false)
   })
 
   it('窗口块本身带 window role：macOS 据此认作 Window 菜单，系统才往里加项', () => {

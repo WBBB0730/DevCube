@@ -10,4 +10,6 @@
 
 缩放还有第二道闸：`@electron-toolkit/utils` 的 `optimizer.watchWindowShortcuts` 默认（`zoom: false`）在 `before-input-event` 里把 CmdOrCtrl+- 与 CmdOrCtrl+Shift+= 直接 `preventDefault`，页面的 keydown 也收不到（CmdOrCtrl+= 不带 Shift 反而放过，症状是「能放大不能缩小」）。菜单里既然已无缩放角色，故传 `{ zoom: true }` 放行；它对 Cmd+R / 开发者工具的生产态拦截照旧。
 
-代价：菜单文案不再随系统语言切换（英文系统下也是中文），且 Electron 未来给这些块加项时我们不会自动跟进。单测锁住了各块的 role 顺序、窗口块的 `window` role、编辑块不含「替换」与中文文案。系统往菜单里加的项不归这里的 label 管，macOS 上靠只打包中文语言来固定为中文（ADR-0037）。
+macOS 的窗口块另有一项应用自定义的「打开主窗口」，Dock 右键菜单（`app.dock.setMenu`，须在 ready 之后装）也放同一项，与 Windows 托盘同名。主窗口关掉后只要还开着 Preview Window，点 Dock 触发的 `activate` 就不重建主窗口——看一个文件不该拉起整个工作台（`docs/prd/file-preview-window.md`），macOS 上叫回主窗口只能靠这一项；Windows 有托盘，Linux 再启动一次走第二实例。没有改成「点 Dock 时没有主窗口就开」：那样只开着预览窗口、从别的应用点 Dock 切回来时主窗口也会弹出来；也没有在预览窗口顶栏加按钮：Windows 已有托盘，按钮在那边是重复的，且与「转到项目」重叠。模板仍是纯数据：自定义项只写动作名，main 安装菜单时按名接上点击处理。
+
+代价：菜单文案不再随系统语言切换（英文系统下也是中文），且 Electron 未来给这些块加项时我们不会自动跟进。单测锁住了各块的 role 顺序、窗口块的 `window` role 与「打开主窗口」、Dock 菜单、编辑块不含「替换」与中文文案。系统往菜单里加的项不归这里的 label 管，macOS 上靠只打包中文语言来固定为中文（ADR-0037）。
