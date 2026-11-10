@@ -49,7 +49,7 @@ import {
 } from '@renderer/lib/files-paged-preview'
 import type { FindSession } from '@renderer/lib/use-find-session'
 import { MEDIA_SETTLE_MS } from './FilesMediaPreview'
-import { FilesPageControls, FilesThumbnailsToggle } from './FilesPagedControls'
+import { FilesPageControls, FilesSidebarToggle } from './FilesPagedControls'
 import { FilesPreviewError } from './FilesPreviewError'
 import { FilesPageThumbnails } from './FilesPageThumbnails'
 import { FilesToolbar, type FilesToolbarProps } from './FilesToolbar'
@@ -544,7 +544,7 @@ export function FilesPdfPreview({
         }
         pathExtra={
           pages > 0 ? (
-            <FilesThumbnailsToggle on={thumbnails} onToggle={onToggleThumbnails} />
+            <FilesSidebarToggle title="缩略图" on={thumbnails} onClick={onToggleThumbnails} />
           ) : undefined
         }
         {...toolbar}

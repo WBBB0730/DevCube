@@ -1,5 +1,5 @@
-// Files Tab 分页文档预览（PDF / PPT）共用的界面件：工具栏的页码与四档、缩略图开关（打不开时的占位见 FilesPreviewError）。
-// 键盘 / 抓手 / 滚轮缩放在 lib/files-paged-preview，缩略图侧栏在 FilesPageThumbnails。
+// Files Tab 分页文档预览（PDF / PPT）共用的界面件：工具栏的页码与四档、左侧栏开关（Markdown 预览的目录也用；
+// 打不开时的占位见 FilesPreviewError）。键盘 / 抓手 / 滚轮缩放在 lib/files-paged-preview，侧栏在 FilesPageThumbnails。
 import { PanelLeft } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
 import type { MediaFitMode } from '@renderer/lib/files-media-zoom'
@@ -42,26 +42,24 @@ export function FilesPageControls({
 }
 
 /**
- * 缩略图侧栏开关：领在面包屑之前（侧栏在正文左侧，钮也靠左，位置不随路径长短漂移）；
- * 开着时点亮，激活态同四档钮 / 查找栏方形开关。
+ * 左侧栏开关（PDF / PPT「缩略图」、Markdown「目录」，共用一个开关状态；Markdown 目录的钮同时是抽屉的 Trigger）：
+ * 领在面包屑之前（侧栏在正文左侧，钮也靠左，位置不随路径长短漂移）；开着时点亮，激活态同四档钮 / 查找栏方形开关。
  */
-export function FilesThumbnailsToggle({
+export function FilesSidebarToggle({
   on,
-  onToggle
-}: {
-  on: boolean
-  onToggle: () => void
-}): React.JSX.Element {
+  className,
+  ...props
+}: { on: boolean } & React.ComponentProps<'button'>): React.JSX.Element {
   return (
     <button
       type="button"
-      title="缩略图"
       className={cn(
         TOOLBAR_BTN,
         on &&
-          'bg-[var(--selection-row)] text-foreground hover:bg-[var(--selection-row)] hover:text-foreground'
+          'bg-[var(--selection-row)] text-foreground hover:bg-[var(--selection-row)] hover:text-foreground data-[popup-open]:bg-[var(--selection-row)] data-[popup-open]:text-foreground',
+        className
       )}
-      onClick={onToggle}
+      {...props}
     >
       <PanelLeft className="size-4" />
     </button>

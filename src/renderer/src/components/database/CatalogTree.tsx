@@ -137,7 +137,7 @@ const NONE_SHOWN_ROW: CatalogRow = {
 
 /** 根行的「N / M 个库」钮：同「断开连接」高 24px、12px 字；muted，hover 压钮的 hover 底、字转正文色 */
 const SHOWN_TRIGGER =
-  'flex h-6 shrink-0 items-center gap-0.5 rounded px-1.5 text-[12px] text-muted-foreground outline-none transition-colors hover:bg-[var(--bg-button-hover)] hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring'
+  'flex h-6 shrink-0 items-center gap-0.5 rounded px-1.5 text-[12px] text-muted-foreground outline-none transition-colors hover:bg-[var(--bg-button-hover)] hover:text-foreground data-[popup-open]:bg-[var(--bg-button-hover)] data-[popup-open]:text-foreground focus-visible:ring-2 focus-visible:ring-ring'
 
 /** 只留显示的库里的展开（见 catalogPathShown）；都留着时原样交回。 */
 function onlyShown(

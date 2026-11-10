@@ -269,9 +269,12 @@ interface FilesDoc {
   saving: boolean
 }
 
-/** 按栏的视图开关（会话内保持，不持久化）：Markdown / SVG / CSV 编辑 ↔ 预览（默认预览）、PDF / PPT 缩略图（默认开） */
-type PaneView = { sourcePreview: boolean; pageThumbnails: boolean }
-const DEFAULT_PANE_VIEW: PaneView = { sourcePreview: true, pageThumbnails: true }
+/**
+ * 按栏的视图开关（会话内保持，不持久化）：Markdown / SVG / CSV 编辑 ↔ 预览（默认预览）、
+ * 预览正文左侧栏（PDF / PPT 缩略图与 Markdown 目录共用，默认开）
+ */
+type PaneView = { sourcePreview: boolean; previewSidebar: boolean }
+const DEFAULT_PANE_VIEW: PaneView = { sourcePreview: true, previewSidebar: true }
 
 const NO_PREFETCH: readonly string[] = []
 
@@ -2717,6 +2720,7 @@ export function FilesPane({
       else imageHandles.current.set(pane.id, handle)
     }
     const prefetchHere = current ? prefetch : NO_PREFETCH
+    const toggleSidebar = (): void => setPaneView(pane.id, { previewSidebar: !view.previewSidebar })
 
     let body: React.ReactNode
     if (loaded === null) {
@@ -2748,6 +2752,8 @@ export function FilesPane({
             setHunkPopup(null)
             setPaneView(pane.id, { sourcePreview: next })
           }}
+          toc={view.previewSidebar}
+          onToggleToc={toggleSidebar}
           jump={editorJump !== null && editorJump.paneId === pane.id ? editorJump : null}
           onJumpDone={() => setEditorJump(null)}
           onHunkClick={openHunk}
@@ -2827,8 +2833,8 @@ export function FilesPane({
           active={active}
           find={find}
           viewState={viewState!}
-          thumbnails={view.pageThumbnails}
-          onToggleThumbnails={() => setPaneView(pane.id, { pageThumbnails: !view.pageThumbnails })}
+          thumbnails={view.previewSidebar}
+          onToggleThumbnails={toggleSidebar}
           onPrev={goPrevImage}
           onNext={goNextImage}
           toolbar={toolbar}

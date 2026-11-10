@@ -43,7 +43,8 @@ export function PreviewTypeFilterButton({
         title="按类型筛选"
         className={cn(
           TOOLBAR_BTN,
-          active && 'text-[color:var(--fg-primary)] hover:text-[color:var(--fg-primary)]'
+          active &&
+            'text-[color:var(--fg-primary)] hover:text-[color:var(--fg-primary)] data-[popup-open]:text-[color:var(--fg-primary)]'
         )}
       >
         <ListFilter className="size-4" />

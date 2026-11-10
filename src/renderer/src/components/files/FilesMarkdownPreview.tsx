@@ -7,6 +7,8 @@
 // 高亮同 PPT 走 CSS Custom Highlight、不改页面。
 // 阅读位置与编辑器共用「视口顶边所在的源码行」：块元素标着源码起始行（rehypeSourceLines），以块为对应点分段换算，
 // 所以两态切换停在同一处内容；按文件重挂，换文件从头开始（docs/prd/files-tab.md「阅读位置」）。
+// 目录（FilesMarkdownToc）列出源码里写下的标题，点击跳转与当前标题都走同一套源码行换算；滚动区放得下时可停靠在正文左侧的
+// 留白里；侧边没显示时（收着或放不下）悬停工具栏的目录钮浮出抽屉（摆法报给 FilesTextEditor）。
 import {
   useCallback,
   useContext,
@@ -30,7 +32,12 @@ import {
   MARKDOWN_REMARK_REHYPE_OPTIONS,
   markdownCodeText,
   markdownFindSpans,
-  type MarkdownFindIndexBlock
+  markdownTocCurrent,
+  markdownTocDockWidth,
+  markdownTocLevels,
+  NO_TOC,
+  type MarkdownFindIndexBlock,
+  type MarkdownTocState
 } from '@renderer/lib/files-markdown'
 import { usePagedPreviewKeys } from '@renderer/lib/files-paged-preview'
 import {
@@ -45,6 +52,7 @@ import { useFindCursor } from '@renderer/lib/use-find-cursor'
 import type { FindSession } from '@renderer/lib/use-find-session'
 import { CopyButton } from '@renderer/components/ui/copy-button'
 import { FilesLocalContext } from './files-local-context'
+import { FilesMarkdownToc, FilesMarkdownTocDrawer, type MarkdownTocItem } from './FilesMarkdownToc'
 import { FindBar } from './FindBar'
 
 function hasScheme(url: string): boolean {
@@ -93,6 +101,20 @@ function collectFindBlocks(body: HTMLElement): { nodes: Text[]; pre: boolean }[]
 
 const NO_MATCH = { total: 0, current: -1 }
 
+/** 源码里写下的标题都带源码行；GFM 脚注区生成的读屏标题没有，不进目录 */
+const TOC_HEADINGS = ['h1', 'h2', 'h3', 'h4', 'h5', 'h6'].map((t) => `${t}[data-line]`).join(',')
+
+/** 目录：正文里的标题按文档序，显示文字折叠空白；没有文字的（如只有一张图）不列 */
+function collectToc(body: HTMLElement): MarkdownTocItem[] {
+  const headings = Array.from(body.querySelectorAll<HTMLElement>(TOC_HEADINGS), (el) => ({
+    line: Number(el.dataset.line),
+    depth: Number(el.localName[1]),
+    text: (el.textContent ?? '').replace(/\s+/g, ' ').trim()
+  })).filter((h) => h.text !== '')
+  const levels = markdownTocLevels(headings.map((h) => h.depth))
+  return headings.map(({ line, text }, i) => ({ line, level: levels[i], text }))
+}
+
 // 代码块的复制钮：盖在右上角、不占布局（同工作树下拉的行尾钮），悬停代码块时渐显；带代码块底色，横向滚动的长行从它底下过不透出来
 const CODE_COPY_BTN =
   'absolute right-1.5 top-1.5 flex size-6 items-center justify-center rounded bg-panel text-muted-foreground transition hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)]'
@@ -140,7 +162,10 @@ export function FilesMarkdownPreview({
   projectRoot,
   active,
   find,
-  viewState
+  viewState,
+  toc,
+  onTocChange,
+  onTocDrawerHover
 }: {
   path: string
   content: string
@@ -151,6 +176,12 @@ export function FilesMarkdownPreview({
   find: FindSession
   /** 这个文件的阅读位置：与编辑态共用源码行 */
   viewState: FilesViewState
+  /** 侧边的目录开着（与 PDF / PPT 缩略图共用一个开关，归 FilesPane）；放不下侧边时不显示 */
+  toc: boolean
+  /** 目录的摆法变了即报（工具栏的目录钮据此出现、点了响不响应）；卸载时报 NO_TOC */
+  onTocChange: (state: MarkdownTocState) => void
+  /** 鼠标进出抽屉（与进出目录钮一起算悬停，归 FilesTextEditor） */
+  onTocDrawerHover: (event: 'enter' | 'leave') => void
 }): React.JSX.Element {
   const local = useContext(FilesLocalContext)
   const rootRef = useRef<HTMLDivElement>(null)
@@ -258,20 +289,85 @@ export function FilesMarkdownPreview({
     if (container && line !== undefined) container.scrollTop = posAtLine(linePoints(), line)
   }, [body, linePoints, viewState])
 
+  // —— 目录 ——
+  const [tocItems, setTocItems] = useState<MarkdownTocItem[]>([])
+  const tocLines = useMemo(() => tocItems.map((item) => item.line), [tocItems])
+  /** 当前标题的下标；-1 = 视口顶边还在第一个标题之前 */
+  const [tocCurrent, setTocCurrent] = useState(-1)
+  /** 点目录跳转后，滚动位置没再变就一直点亮点的那一项：文末几节滚不到视口顶边，按位置算会点亮前面的 */
+  const tocPinRef = useRef<{ index: number; scrollTop: number } | null>(null)
+
+  // 正文（重新）渲染后重列标题（同查找索引，读渲染出的页面：原始 HTML 写的标题也算）
+  useLayoutEffect(() => {
+    tocPinRef.current = null
+    setTocItems(bodyRef.current ? collectToc(bodyRef.current) : [])
+  }, [body])
+
+  /** 停靠的目录宽，随滚动区宽度定；null = 放不下侧边 */
+  const [tocDock, setTocDock] = useState<number | null>(null)
+  useLayoutEffect(() => {
+    const container = containerRef.current
+    if (!container) return
+    const measure = (): void => {
+      // Tab 切走（display:none）时宽为 0：不算，留着切走前的摆法
+      if (container.clientWidth > 0) setTocDock(markdownTocDockWidth(container.clientWidth))
+    }
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(container)
+    return () => ro.disconnect()
+  }, [])
+
+  const tocAvailable = tocItems.length > 0
+  const tocDockable = tocDock !== null
+  useLayoutEffect(
+    () => onTocChange({ available: tocAvailable, dockable: tocDockable }),
+    [tocAvailable, tocDockable, onTocChange]
+  )
+  useLayoutEffect(() => () => onTocChange(NO_TOC), [onTocChange])
+
+  /** 按视口顶边所在的源码行重算当前标题 */
+  const updateTocCurrent = useCallback((): void => {
+    const container = containerRef.current
+    if (!container) return
+    const pin = tocPinRef.current
+    if (pin?.scrollTop === container.scrollTop) return
+    tocPinRef.current = null
+    // 跳到标题时滚动位置会取整，差不到一像素的算已到顶
+    setTocCurrent(markdownTocCurrent(tocLines, lineAtPos(linePoints(), container.scrollTop + 1)))
+  }, [tocLines, linePoints])
+  useLayoutEffect(() => updateTocCurrent(), [updateTocCurrent])
+
   // 页面尺寸一变（图片加载撑高、拖窗口换行）块的位置跟着变；视口上方撑高时，眼前的内容由浏览器的滚动锚定保持不动
   useEffect(() => {
     const bodyEl = bodyRef.current
     if (!bodyEl) return
     const ro = new ResizeObserver(() => {
       pointsRef.current = null
+      updateTocCurrent()
     })
     ro.observe(bodyEl)
     return () => ro.disconnect()
-  }, [])
+  }, [updateTocCurrent])
 
-  const rememberLine = (): void => {
+  /** 点目录：标题滚到视口顶边并点亮，焦点还给正文（同点缩略图跳页） */
+  const selectHeading = (index: number): void => {
     const container = containerRef.current
-    if (container) viewState.set('line', lineAtPos(linePoints(), container.scrollTop))
+    if (!container) return
+    container.scrollTop = posAtLine(linePoints(), tocLines[index])
+    tocPinRef.current = { index, scrollTop: container.scrollTop }
+    setTocCurrent(index)
+    container.focus({ preventScroll: true })
+  }
+
+  /** 停靠的目录宽；没有停靠的目录时为 null（正文照常居中） */
+  const dockWidth = toc && tocAvailable ? tocDock : null
+
+  const onScroll = (): void => {
+    const container = containerRef.current
+    if (!container) return
+    viewState.set('line', lineAtPos(linePoints(), container.scrollTop))
+    updateTocCurrent()
   }
 
   const finder = useMemo(
@@ -347,20 +443,36 @@ export function FilesMarkdownPreview({
           onClose={closeFind}
         />
       )}
-      {/* 可聚焦：点进正文后 Cmd+F / Esc 归本预览，PageUp / PageDown 原生滚动 */}
+      {/* 可聚焦：点进正文后 Cmd+F / Esc 归本预览，PageUp / PageDown 原生滚动。
+          停靠的目录宽交给版心让位（main.css「Markdown 预览的版心与目录」） */}
       <div
         ref={containerRef}
         tabIndex={-1}
-        className="min-h-0 flex-1 select-text overflow-y-auto bg-deepest outline-none"
-        onScroll={rememberLine}
+        className="files-md-scroll min-h-0 flex-1 select-text overflow-y-auto bg-deepest outline-none"
+        style={
+          dockWidth === null
+            ? undefined
+            : ({ '--files-md-toc-w': `${dockWidth}px` } as React.CSSProperties)
+        }
+        onScroll={onScroll}
       >
-        <div
-          ref={bodyRef}
-          className="files-md-preview prose prose-sm mx-auto max-w-[760px] px-8 py-6"
-        >
+        {dockWidth !== null && (
+          <FilesMarkdownToc items={tocItems} current={tocCurrent} onSelect={selectHeading} />
+        )}
+        <div ref={bodyRef} className="files-md-preview prose prose-sm px-8 py-6">
           {body}
         </div>
       </div>
+      {/* 抽屉里的目录：侧边没显示时悬停目录钮浮出（开合归 FilesTextEditor） */}
+      {tocAvailable && (
+        <FilesMarkdownTocDrawer
+          body={containerRef}
+          onHover={onTocDrawerHover}
+          items={tocItems}
+          current={tocCurrent}
+          onSelect={selectHeading}
+        />
+      )}
     </div>
   )
 }

@@ -20,6 +20,13 @@ import { rememberEditorView, restoreEditorView } from '@renderer/lib/cm6-view-st
 import { formatKeymap } from '@renderer/lib/cm6-format'
 import { isForwardedUpdate, type EditorDocSync } from '@renderer/lib/cm6-doc-sync'
 import { filesFormatLanguage, formatFileInEditor } from '@renderer/lib/files-format'
+import {
+  markdownTocHoverNext,
+  markdownTocView,
+  NO_TOC,
+  type MarkdownTocHover,
+  type MarkdownTocState
+} from '@renderer/lib/files-markdown'
 import { useEditorFind } from '@renderer/lib/use-editor-find'
 import type { FindSession } from '@renderer/lib/use-find-session'
 import type { FilesViewState } from '@renderer/lib/files-view-state'
@@ -28,12 +35,17 @@ import type { MediaFitMode } from '@renderer/lib/files-media-zoom'
 import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import { useApp } from '@renderer/store'
 import { ErrorDialog } from '@renderer/components/ui/form-dialog'
+import { Popover, PopoverTrigger } from '@renderer/components/ui/popover'
 import { TOOLBAR_BTN } from '@renderer/components/ui/toolbar'
 import { FilesFindWidget } from './FilesFindWidget'
 import { FilesMarkdownPreview } from './FilesMarkdownPreview'
 import { FilesSvgPreview, MediaFitButtons, type MediaPreviewHandle } from './FilesMediaPreview'
+import { FilesSidebarToggle } from './FilesPagedControls'
 import { FilesSheetPreview } from './FilesSheetPreview'
 import { FilesToolbar, type FilesToolbarProps } from './FilesToolbar'
+
+/** 鼠标离开目录钮或抽屉后多久才算离开：两者之间隔着 4px，从钮移到抽屉上不收 */
+const TOC_LEAVE_DELAY = 100
 
 /** 每栏各正文共用的那部分工具栏参数（路径、出错与正文专属控件由各正文自己给） */
 export type FilesPaneToolbar = Omit<
@@ -68,6 +80,8 @@ export function FilesTextEditor({
   toolbar,
   sourcePreview,
   onToggleSourcePreview,
+  toc,
+  onToggleToc,
   jump,
   onJumpDone,
   onHunkClick,
@@ -94,6 +108,9 @@ export function FilesTextEditor({
   /** Markdown / SVG / CSV 两态：true = 预览正文；其它文件忽略 */
   sourcePreview: boolean
   onToggleSourcePreview: () => void
+  /** Markdown 预览侧边的目录开着（与 PDF / PPT 缩略图共用一个开关，会话内保持，归 FilesPane）；放不下时不显示 */
+  toc: boolean
+  onToggleToc: () => void
   /** 内容搜索跳转：编辑器就绪后选中命中区间并滚到行；应用后回调清除 */
   jump: EditorJumpRequest | null
   onJumpDone: () => void
@@ -115,6 +132,37 @@ export function FilesTextEditor({
   /** SVG 预览态的看图相机：工具栏「适应」钮组驱动 */
   const svgRef = useRef<MediaPreviewHandle>(null)
   const [svgFit, setSvgFit] = useState<MediaFitMode | null>(null)
+  /** Markdown 预览的目录摆法：有标题才在面包屑前出目录钮；放不放得下侧边决定侧边显示与否、点钮响不响应 */
+  const [tocState, setTocState] = useState<MarkdownTocState>(NO_TOC)
+  /**
+   * 目录钮的悬停（侧边的目录开不开只看 `toc`，怎么显示见 markdownTocView；悬停怎么变见 markdownTocHoverNext）。
+   * 摆法一变即回到空闲
+   */
+  const [tocHover, setTocHover] = useState<MarkdownTocHover>('idle')
+  const tocLeaveTimer = useRef<number | undefined>(undefined)
+  useEffect(() => () => window.clearTimeout(tocLeaveTimer.current), [])
+  const changeTocState = useCallback((state: MarkdownTocState) => {
+    setTocState(state)
+    setTocHover('idle')
+  }, [])
+  const tocView = markdownTocView(toc, tocState.dockable, tocHover === 'peek')
+  const tocDocked = tocView === 'docked'
+  /** 目录钮与抽屉的悬停、点钮：离开要等跨过两者之间的间隙才算，期间再进来即作罢 */
+  const onTocHover = (event: 'enter' | 'leave' | 'click' | 'key'): void => {
+    window.clearTimeout(tocLeaveTimer.current)
+    if (event === 'leave') {
+      tocLeaveTimer.current = window.setTimeout(
+        () => setTocHover((hover) => markdownTocHoverNext(hover, 'leave', tocDocked)),
+        TOC_LEAVE_DELAY
+      )
+    } else setTocHover((hover) => markdownTocHoverNext(hover, event, tocDocked))
+  }
+  /** 点目录钮：开关侧边的目录（放不下侧边时不响应）；键盘按的 detail 为 0 */
+  const toggleToc = (e: React.MouseEvent): void => {
+    if (!tocState.dockable) return
+    onToggleToc()
+    onTocHover(e.detail > 0 ? 'click' : 'key')
+  }
   /** 编辑器：建好新的即换（跳转与查找栏据此重试）；预览态编辑器未挂载，可能还是卸掉的旧实例 */
   const [view, setView] = useState<EditorView | null>(null)
   // 工具栏下拉关掉后焦点回编辑器；预览态编辑器未挂载（view 可能是旧实例）则不动
@@ -180,94 +228,118 @@ export function FilesTextEditor({
     [theme, path, baseline, hunkClick, findExtension, formatShortcut, viewState, sync]
   )
   return (
-    <div className="flex h-full min-h-0 flex-col">
-      <FilesToolbar
-        {...toolbar}
-        path={path}
-        error={error}
-        sourcePreview={canPreview ? sourcePreview : null}
-        onToggleSourcePreview={onToggleSourcePreview}
-        extra={
-          svg && sourcePreview ? (
-            <MediaFitButtons active={svgFit} onFit={(axis) => svgRef.current?.fit(axis)} />
-          ) : formatLanguage !== null ? (
-            <button
-              type="button"
-              title={shortcutTitle('格式化', SHORTCUT.format)}
-              className={TOOLBAR_BTN}
-              onClick={() => {
-                if (view?.dom.isConnected) setFormatError(formatFileInEditor(view, formatLanguage))
-              }}
-            >
-              <WandSparkles className="size-4" />
-            </button>
-          ) : undefined
-        }
-        onFocusContent={focusEditor}
-      />
-      {saveBar}
-      {markdown && sourcePreview ? (
-        <FilesMarkdownPreview
-          // 按文件重挂：换文件从头开始，切回来按记着的位置恢复
-          key={path}
+    // Markdown 目录的抽屉：Trigger 是工具栏的目录钮，Popup 在预览里（FilesMarkdownTocDrawer）；Popup 浮在页面最上层，
+    // Files Tab 不可见时不显示。悬停与点钮都自己处理，弹层只管点外面与 Esc：收起浮出的，打开与点钮的请求取消
+    <Popover
+      open={tocView === 'drawer' && active}
+      onOpenChange={(open, details) => {
+        if (open || details.reason === 'trigger-press') details.cancel()
+        else setTocHover((hover) => (hover === 'peek' ? 'idle' : hover))
+      }}
+    >
+      <div className="flex h-full min-h-0 flex-col">
+        <FilesToolbar
+          {...toolbar}
           path={path}
-          content={content}
-          projectRoot={toolbar.projectRoot}
-          active={active}
-          find={find}
-          viewState={viewState}
+          error={error}
+          sourcePreview={canPreview ? sourcePreview : null}
+          onToggleSourcePreview={onToggleSourcePreview}
+          pathExtra={
+            markdown && sourcePreview && tocState.available ? (
+              // 点亮 = 侧边的目录显示着（放不下侧边时不点亮）；抽屉浮出期间钮保持悬停态（工具栏钮样式自带）
+              <PopoverTrigger
+                onPointerEnter={() => onTocHover('enter')}
+                onPointerLeave={() => onTocHover('leave')}
+                render={<FilesSidebarToggle title="目录" on={tocDocked} onClick={toggleToc} />}
+              />
+            ) : undefined
+          }
+          extra={
+            svg && sourcePreview ? (
+              <MediaFitButtons active={svgFit} onFit={(axis) => svgRef.current?.fit(axis)} />
+            ) : formatLanguage !== null ? (
+              <button
+                type="button"
+                title={shortcutTitle('格式化', SHORTCUT.format)}
+                className={TOOLBAR_BTN}
+                onClick={() => {
+                  if (view?.dom.isConnected)
+                    setFormatError(formatFileInEditor(view, formatLanguage))
+                }}
+              >
+                <WandSparkles className="size-4" />
+              </button>
+            ) : undefined
+          }
+          onFocusContent={focusEditor}
         />
-      ) : svg && sourcePreview ? (
-        <FilesSvgPreview
-          ref={svgRef}
-          onFitChange={setSvgFit}
-          viewState={viewState}
-          path={path}
-          content={content}
-          prefetch={imagePrefetch}
-          active={active}
-          onPrev={onImagePrev}
-          onNext={onImageNext}
-        />
-      ) : csv && sourcePreview ? (
-        <FilesSheetPreview
-          key={path}
-          source={{ kind: 'csv', content }}
-          path={path}
-          active={active}
-          find={find}
-          viewState={viewState}
-        />
-      ) : (
-        <>
-          {find.open && <FilesFindWidget view={view} content={content} find={find} />}
-          <div className="files-codemirror min-h-0 flex-1 overflow-hidden bg-deepest">
-            <CodeMirror
-              key={path}
-              value={content}
-              height="100%"
-              theme="none"
-              extensions={extensions}
-              basicSetup={FILES_BASIC_SETUP}
-              onChange={(value, update) => {
-                if (!isForwardedUpdate(update)) onChange(value)
-              }}
-              onCreateEditor={(created) => {
-                restoreEditorView(created, viewState)
-                setView(created)
-              }}
-              className="h-full [&_.cm-editor]:h-full [&_.cm-editor]:outline-none"
-            />
-          </div>
-        </>
-      )}
-      {formatError !== null && (
-        <ErrorDialog
-          title="无法格式化"
-          message={formatError}
-          onClose={() => setFormatError(null)}
-        />
-      )}
-    </div>
+        {saveBar}
+        {markdown && sourcePreview ? (
+          <FilesMarkdownPreview
+            // 按文件重挂：换文件从头开始，切回来按记着的位置恢复
+            key={path}
+            path={path}
+            content={content}
+            projectRoot={toolbar.projectRoot}
+            active={active}
+            find={find}
+            viewState={viewState}
+            toc={toc}
+            onTocChange={changeTocState}
+            onTocDrawerHover={onTocHover}
+          />
+        ) : svg && sourcePreview ? (
+          <FilesSvgPreview
+            ref={svgRef}
+            onFitChange={setSvgFit}
+            viewState={viewState}
+            path={path}
+            content={content}
+            prefetch={imagePrefetch}
+            active={active}
+            onPrev={onImagePrev}
+            onNext={onImageNext}
+          />
+        ) : csv && sourcePreview ? (
+          <FilesSheetPreview
+            key={path}
+            source={{ kind: 'csv', content }}
+            path={path}
+            active={active}
+            find={find}
+            viewState={viewState}
+          />
+        ) : (
+          <>
+            {find.open && <FilesFindWidget view={view} content={content} find={find} />}
+            <div className="files-codemirror min-h-0 flex-1 overflow-hidden bg-deepest">
+              <CodeMirror
+                key={path}
+                value={content}
+                height="100%"
+                theme="none"
+                extensions={extensions}
+                basicSetup={FILES_BASIC_SETUP}
+                onChange={(value, update) => {
+                  if (!isForwardedUpdate(update)) onChange(value)
+                }}
+                onCreateEditor={(created) => {
+                  restoreEditorView(created, viewState)
+                  setView(created)
+                }}
+                className="h-full [&_.cm-editor]:h-full [&_.cm-editor]:outline-none"
+              />
+            </div>
+          </>
+        )}
+        {formatError !== null && (
+          <ErrorDialog
+            title="无法格式化"
+            message={formatError}
+            onClose={() => setFormatError(null)}
+          />
+        )}
+      </div>
+    </Popover>
   )
 }

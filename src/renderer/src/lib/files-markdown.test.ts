@@ -10,6 +10,11 @@ import {
   MARKDOWN_REMARK_REHYPE_OPTIONS,
   markdownCodeText,
   markdownFindSpans,
+  markdownTocCurrent,
+  markdownTocDockWidth,
+  markdownTocHoverNext,
+  markdownTocLevels,
+  markdownTocView,
   type MarkdownFindBlock,
   type MarkdownFindSpan
 } from './files-markdown'
@@ -85,6 +90,13 @@ describe('预览渲染链', () => {
         '<p data-line="2">一段 <strong>粗体</strong> 与 <code>代码</code></p>\n' +
         '<ul data-line="4">\n<li data-line="4">甲</li>\n<li data-line="5">乙</li>\n</ul>'
     )
+  })
+
+  it('源码里的标题（含原始 HTML 写的）标行，GFM 脚注区生成的读屏标题不标（目录据此只列写下的标题）', () => {
+    const html = render('## 正文[^1]\n\n<h3>HTML 标题</h3>\n\n[^1]: 注')
+    expect(html).toContain('<h2 data-line="0">')
+    expect(html).toContain('<h3 data-line="2">HTML 标题</h3>')
+    expect(html).toMatch(/<h2 class="sr-only" id="user-content-footnote-label">/)
   })
 
   it('代码块标在 pre 上，表格逐行标', () => {
@@ -194,5 +206,76 @@ describe('isInlineTag', () => {
     ['section', false]
   ])('%s → %s', (tag, inline) => {
     expect(isInlineTag(tag)).toBe(inline)
+  })
+})
+
+describe('markdownTocLevels', () => {
+  it.each([
+    ['逐级', [1, 2, 3], [0, 1, 2]],
+    ['同级', [2, 2, 2], [0, 0, 0]],
+    ['不从一级开始', [2, 3, 2], [0, 1, 0]],
+    ['跳级只深一层，与之后的同级标题同层', [2, 4, 3], [0, 1, 1]],
+    ['回到更高的级别', [1, 2, 3, 1, 3], [0, 1, 2, 0, 1]],
+    ['开头的标题比后面的低', [3, 1, 2], [0, 0, 1]],
+    ['没有标题', [], []]
+  ])('%s', (_, depths, levels) => {
+    expect(markdownTocLevels(depths)).toEqual(levels)
+  })
+})
+
+describe('markdownTocDockWidth', () => {
+  it.each([
+    ['宽裕时目录最宽', 1200, 240],
+    ['正文到最窄前目录不收窄', 720, 240],
+    ['正文到最窄后目录收窄', 700, 220],
+    ['目录与正文都到最窄', 640, 160],
+    ['放不下侧边', 639, null]
+  ])('%s', (_, width, dock) => {
+    expect(markdownTocDockWidth(width)).toBe(dock)
+  })
+})
+
+describe('markdownTocView', () => {
+  it.each([
+    ['开着、放得下：显示在侧边', true, true, false, 'docked'],
+    ['侧边显示着时悬停不另浮出', true, true, true, 'docked'],
+    ['开着、放不下：不显示（宽缩到窄只剩悬停）', true, false, false, null],
+    ['开着、放不下时悬停：浮出抽屉', true, false, true, 'drawer'],
+    ['收着、悬停：浮出抽屉', false, true, true, 'drawer'],
+    ['收着、没悬停：不显示', false, true, false, null]
+  ] as const)('%s', (_, open, dockable, peek, view) => {
+    expect(markdownTocView(open, dockable, peek)).toBe(view)
+  })
+})
+
+describe('markdownTocHoverNext', () => {
+  it.each([
+    ['侧边没显示：进来即浮出', 'idle', 'enter', false, 'peek'],
+    ['浮出时从钮移到抽屉上：仍浮出', 'peek', 'enter', false, 'peek'],
+    ['离开钮与抽屉：收起（在抽屉里点过标题也一样）', 'peek', 'leave', false, 'idle'],
+    ['用鼠标点钮：锁住', 'peek', 'click', true, 'locked'],
+    ['锁住时悬停不浮出', 'locked', 'enter', false, 'locked'],
+    ['锁住后离开：解锁', 'locked', 'leave', false, 'idle'],
+    ['键盘按钮：不锁', 'peek', 'key', false, 'idle'],
+    ['侧边显示着：悬停不另浮出', 'idle', 'enter', true, 'idle']
+  ] as const)('%s', (_, hover, event, docked, next) => {
+    expect(markdownTocHoverNext(hover, event, docked)).toBe(next)
+  })
+})
+
+describe('markdownTocCurrent', () => {
+  const lines = [2, 10, 30]
+  it.each([
+    ['视口顶边在第一个标题之前', 0, -1],
+    ['正好在标题行', 2, 0],
+    ['在两个标题之间', 9.5, 0],
+    ['过了下一个标题', 10, 1],
+    ['最后一节', 100, 2]
+  ])('%s', (_, topLine, current) => {
+    expect(markdownTocCurrent(lines, topLine)).toBe(current)
+  })
+
+  it('没有标题', () => {
+    expect(markdownTocCurrent([], 5)).toBe(-1)
   })
 })

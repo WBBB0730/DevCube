@@ -1,17 +1,18 @@
 // 工具栏图标钮（Files / Git / 数据源等各处顶栏、树顶栏共用）：钮样式（28px 与 24px 小钮、显示当前值的下拉钮）、钮组内竖线
 // 分隔、进行中图标与「刷新」钮。
-// 钮组一律 `gap-0.5`；禁用态统一置灰到 50% 且不响应指针（写在钮样式里，给 `disabled` 即生效）。
+// 钮组一律 `gap-0.5`；禁用态统一置灰到 50% 且不响应指针（写在钮样式里，给 `disabled` 即生效）；
+// 钮打开的弹层 / 菜单开着期间保持 hover 态（Base UI 给打开的 Trigger 标 data-popup-open，也写在钮样式里）。
 import { LoaderCircle, RotateCw, type LucideIcon } from 'lucide-react'
 import { useSpinUntilRest } from '@renderer/lib/use-spin-until-rest'
 import { cn } from '@renderer/lib/utils'
 
 /** 图标钮：size-7 圆角 hover 加亮（各处顶栏、Console Tab 栏末尾的「+」），装 size-4 图标 */
 export const TOOLBAR_BTN =
-  'flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)] disabled:pointer-events-none disabled:opacity-50'
+  'flex size-7 shrink-0 items-center justify-center rounded-lg text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)] data-[popup-open]:bg-[var(--bg-button-hover)] data-[popup-open]:text-[color:var(--fg-icon)] disabled:pointer-events-none disabled:opacity-50'
 
 /** 小图标钮：24px、`rounded`（查找栏的上 / 下一个与关闭、分页器的常用值菜单钮等窄处用）；禁用态同 TOOLBAR_BTN */
 export const TOOLBAR_BTN_SM =
-  'flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)] disabled:pointer-events-none disabled:opacity-50'
+  'flex size-6 shrink-0 items-center justify-center rounded text-muted-foreground transition-colors hover:bg-[var(--bg-button-hover)] hover:text-[color:var(--fg-icon)] data-[popup-open]:bg-[var(--bg-button-hover)] data-[popup-open]:text-[color:var(--fg-icon)] disabled:pointer-events-none disabled:opacity-50'
 
 /**
  * 显示当前值的下拉钮（SQL 控制台的「库」「模式」、键列表的库编号、Git 顶栏的分支筛选共用）：同工具栏图标钮高 28px、
@@ -19,7 +20,7 @@ export const TOOLBAR_BTN_SM =
  * 内放可选的图标、文字（配 `min-w-0 truncate`）与末尾 muted 的 ChevronDown（size-3.5）。禁用态同 TOOLBAR_BTN
  */
 export const TOOLBAR_SELECT =
-  'flex h-7 min-w-0 items-center gap-1 rounded border border-[color:var(--border-input)] bg-[var(--bg-elevated)] px-2 text-[13px] text-foreground outline-none transition hover:bg-[var(--bg-row-hover)] focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50'
+  'flex h-7 min-w-0 items-center gap-1 rounded border border-[color:var(--border-input)] bg-[var(--bg-elevated)] px-2 text-[13px] text-foreground outline-none transition hover:bg-[var(--bg-row-hover)] data-[popup-open]:bg-[var(--bg-row-hover)] focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50'
 
 /** 钮组内分隔：1×12px `--border-input` 竖线（配 `role="separator"`） */
 export const TOOLBAR_SEPARATOR = 'mx-0.5 h-3 w-px shrink-0 bg-[var(--border-input)]'

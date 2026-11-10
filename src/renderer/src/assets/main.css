@@ -589,6 +589,34 @@
 .files-md-preview td:has(> table) {
   padding-block: 0;
 }
+/* Markdown 预览的版心与目录（参照飞书文档）：正文居中、最宽 760px。停靠的目录不占位，放在滚动区里吸顶的零高层上，
+   盖在正文左侧的留白里；留白不够宽时正文右让、变窄。目录宽（--files-md-toc-w，没有停靠的目录时不设）由脚本按滚动区宽度给
+  （lib/files-markdown 的 markdownTocDockWidth），放不下时不显示侧边。滚动区是查询容器，cqh 即其高 */
+.files-md-scroll {
+  container-type: size;
+}
+.files-md-preview {
+  margin-inline: max(var(--files-md-toc-w, 0px), (100% - 760px) / 2) auto;
+  max-width: min(760px, 100% - var(--files-md-toc-w, 0px));
+}
+.files-md-toc {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  height: 0;
+  user-select: none;
+}
+/* 上留白同正文（py-6），首行与正文首行齐平；滚轮在目录滚到头后照常滚正文 */
+.files-md-toc-list {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: var(--files-md-toc-w);
+  max-height: 100cqh;
+  overflow-y: auto;
+  padding: 24px 8px 24px 20px;
+  scroll-padding-block: 24px;
+}
 
 /* Files Tab · CodeMirror：压过 @codemirror/view baseTheme 的 line-height: 1.4。 */
 /* Files Tab PDF 预览（PDF.js viewer 组件，样式表在顶部以级联层引入）：页面保持白底，去掉库自带的

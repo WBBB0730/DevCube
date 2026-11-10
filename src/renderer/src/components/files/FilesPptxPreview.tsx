@@ -59,7 +59,7 @@ import {
 import { useFindCursor } from '@renderer/lib/use-find-cursor'
 import type { FilesViewState } from '@renderer/lib/files-view-state'
 import type { FindSession } from '@renderer/lib/use-find-session'
-import { FilesPageControls, FilesThumbnailsToggle } from './FilesPagedControls'
+import { FilesPageControls, FilesSidebarToggle } from './FilesPagedControls'
 import { FilesPreviewError } from './FilesPreviewError'
 import { FilesPageThumbnails } from './FilesPageThumbnails'
 import { FilesToolbar, type FilesToolbarProps } from './FilesToolbar'
@@ -598,7 +598,7 @@ export function FilesPptxPreview({
         }
         pathExtra={
           pages > 0 ? (
-            <FilesThumbnailsToggle on={thumbnails} onToggle={onToggleThumbnails} />
+            <FilesSidebarToggle title="缩略图" on={thumbnails} onClick={onToggleThumbnails} />
           ) : undefined
         }
         {...toolbar}
