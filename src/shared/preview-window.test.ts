@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   buildPreviewQuery,
+  deepestRootContaining,
   parentLogicalPath,
   parsePreviewLaunch,
   resolvePreviewRoot
@@ -16,6 +17,24 @@ describe('parentLogicalPath', () => {
     expect(parentLogicalPath('C:/')).toBeNull()
     expect(parentLogicalPath('//wsl.localhost/Ubuntu/home')).toBe('//wsl.localhost/Ubuntu')
     expect(parentLogicalPath('//wsl.localhost/Ubuntu')).toBeNull()
+  })
+})
+
+describe('deepestRootContaining', () => {
+  it('含子文件夹里的文件，多个包含时取最深的', () => {
+    const roots = ['/A', '/A/B']
+    expect(deepestRootContaining('/A/B/C/a.txt', roots)).toBe('/A/B')
+    expect(deepestRootContaining('/A/b.txt', roots)).toBe('/A')
+  })
+
+  it('都不包含时为 null；同名前缀的兄弟目录不算包含', () => {
+    expect(deepestRootContaining('/A/b.txt', ['/A/B'])).toBeNull()
+    expect(deepestRootContaining('/AB/c.txt', ['/A'])).toBeNull()
+  })
+
+  it('文件系统根包含一切', () => {
+    expect(deepestRootContaining('/A/b.txt', ['/'])).toBe('/')
+    expect(deepestRootContaining('C:/x/y.png', ['C:/'])).toBe('C:/')
   })
 })
 

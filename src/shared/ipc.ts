@@ -153,6 +153,9 @@ export const IPC = {
   previewAddProject: 'preview:add-project',
   /** 主窗口项目菜单「在新窗口中打开」：以已登记项目根开一个 Preview Window */
   previewOpenRoot: 'preview:open-root',
+  /** Preview Window 页面订阅好之后告知主进程，取回加载期间到的文件；之后落在本窗口树里的文件经 previewOpenFile 推送 */
+  previewReady: 'preview:ready',
+  previewOpenFile: 'preview:open-file',
   /** 系统集成（设置「系统集成」栏） */
   integrationGet: 'integration:get',
   integrationApply: 'integration:apply',

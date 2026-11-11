@@ -1,21 +1,26 @@
 import { BrowserWindow, screen } from 'electron'
 import { join } from 'path'
 import { is } from '@electron-toolkit/utils'
+import pLimit from 'p-limit'
 import icon from '../../resources/icon.png?asset'
 import iconWin from '../../resources/icon-win.png?asset'
 import {
   centerInArea,
-  type ResolvedWindowPlacement,
+  type WindowPlacement,
   type WindowPlacementDefaults
 } from '../shared/window-placement'
 import { WINDOW_CHROME } from '../shared/theme'
 import { getAppPrefs } from './store'
 
 /** 窗口的最大化 / 全屏状态（见 windowState） */
-export type WindowState = Pick<ResolvedWindowPlacement, 'isMaximized' | 'isFullScreen'>
+export type WindowState = Pick<WindowPlacement, 'isMaximized' | 'isFullScreen'>
 
-/** 窗口壳为每个窗口记的：最大化 / 全屏状态（随窗口事件更新）与建窗时的默认尺寸 */
-type AppWindowRecord = { state: WindowState; defaults: WindowPlacementDefaults }
+/** 建窗几何：不带坐标时由 Electron 居中（压缩窗口这类不记几何的窗口） */
+export type AppWindowPlacement = Omit<WindowPlacement, 'x' | 'y'> &
+  Partial<Pick<WindowPlacement, 'x' | 'y'>>
+
+/** 窗口壳为每个窗口记的：是否全屏（按切换完成的事件记，见 windowState）与建窗时的默认尺寸 */
+type AppWindowRecord = { isFullScreen: boolean; defaults: WindowPlacementDefaults }
 
 const records = new WeakMap<BrowserWindow, AppWindowRecord>()
 
@@ -26,28 +31,64 @@ function recordOf(win: BrowserWindow): AppWindowRecord {
 }
 
 /**
- * 窗口的最大化 / 全屏状态：建窗时记下要套的，之后随窗口事件更新。不现读 isMaximized() / isFullScreen()：
- * macOS 的全屏切换是异步的，官方文档要求以 enter-full-screen / leave-full-screen 事件为准（多选文件一起打开会
- * 连开几个预览窗口，后开的要照前一个开，那时前一个的切换还没完成）。
+ * 窗口此刻的最大化 / 全屏状态。最大化现读 isMaximized()：它没有异步问题，不必指望 maximize / unmaximize 事件
+ * 覆盖 macOS 上每一种铺满途径（缩放、填充、第三方窗口管理工具）。
+ * 全屏：事件记的与现读的任一为真即算全屏，即从开始进入到退出完成都算。macOS 的全屏切换是异步的（官方文档），
+ * 实测进入时窗口变成全屏大小与 isFullScreen() 变真同时发生，enter-full-screen 晚约 0.7 秒；退出时窗口恢复原尺寸与
+ * isFullScreen() 变假同时发生，leave-full-screen 晚约 0.6 秒。只认事件，进入途中的全屏矩形会被当成普通状态；
+ * 只认现读，建窗时套全屏、切换还没开始的那段会被当成没全屏（连开的预览窗口要照它开）。
  */
 export function windowState(win: BrowserWindow): WindowState {
-  return { ...recordOf(win).state }
+  return {
+    isMaximized: win.isMaximized(),
+    isFullScreen: recordOf(win).isFullScreen || win.isFullScreen()
+  }
+}
+
+/** 应用发起的全屏切换逐个执行；inFlight 为正在执行的那次（见 switchFullScreen） */
+const fullScreenQueue = pLimit(1)
+let inFlight: { win: BrowserWindow; finish: () => void } | null = null
+
+/**
+ * 应用发起的全屏切换（建窗时进全屏、恢复默认布局时退出全屏）排队执行，返回在这次切换完成（或窗口关掉）时兑现。
+ * macOS 同一时间只执行一个窗口的全屏切换，切换途中别的窗口发起的直接被丢弃（实测多个窗口同时进全屏只有第一个成功），
+ * 所以等前一次完成再发下一次。任一窗口的 enter-full-screen / leave-full-screen 都算前一次完成：撞上用户在别的窗口
+ * 发起的切换而被丢弃时，等的就是那一次；被丢弃的窗口按实际状态记，不留着没兑现的全屏意图。其余平台当场完成。
+ */
+function switchFullScreen(win: BrowserWindow, flag: boolean): Promise<void> {
+  if (process.platform !== 'darwin') {
+    win.setFullScreen(flag)
+    return Promise.resolve()
+  }
+  return fullScreenQueue(async () => {
+    if (win.isDestroyed() || win.isFullScreen() === flag) return
+    await new Promise<void>((resolve) => {
+      inFlight = { win, finish: resolve }
+      win.setFullScreen(flag)
+    })
+    inFlight = null
+    if (!win.isDestroyed()) recordOf(win).isFullScreen = win.isFullScreen()
+  })
 }
 
 function trackWindow(
   win: BrowserWindow,
-  initial: WindowState,
+  isFullScreen: boolean,
   defaults: WindowPlacementDefaults
 ): void {
-  const state: WindowState = {
-    isMaximized: initial.isMaximized,
-    isFullScreen: initial.isFullScreen
-  }
-  records.set(win, { state, defaults })
-  win.on('maximize', () => (state.isMaximized = true))
-  win.on('unmaximize', () => (state.isMaximized = false))
-  win.on('enter-full-screen', () => (state.isFullScreen = true))
-  win.on('leave-full-screen', () => (state.isFullScreen = false))
+  const record: AppWindowRecord = { isFullScreen, defaults }
+  records.set(win, record)
+  win.on('enter-full-screen', () => {
+    record.isFullScreen = true
+    inFlight?.finish()
+  })
+  win.on('leave-full-screen', () => {
+    record.isFullScreen = false
+    inFlight?.finish()
+  })
+  win.on('closed', () => {
+    if (inFlight?.win === win) inFlight.finish()
+  })
 }
 
 /**
@@ -55,21 +96,17 @@ function trackWindow(
  * offset：多个同类窗口依次错开，不叠在一处。
  */
 export function resetWindowGeometry(win: BrowserWindow, offset = 0): void {
-  const { state, defaults } = recordOf(win)
+  const { defaults } = recordOf(win)
   const place = (): void => {
     if (win.isDestroyed()) return
-    if (state.isMaximized) win.unmaximize()
+    if (win.isMaximized()) win.unmaximize()
     const area = screen.getDisplayMatching(win.getBounds()).workArea
     win.setBounds(centerInArea(defaults, area, offset))
   }
-  if (state.isFullScreen) {
-    // macOS 的全屏切换是异步的（官方文档）：等退出完成再摆，否则会被恢复成进全屏前的样子；其余平台当场完成
-    if (process.platform === 'darwin') {
-      win.once('leave-full-screen', place)
-      win.setFullScreen(false)
-      return
-    }
-    win.setFullScreen(false)
+  if (windowState(win).isFullScreen) {
+    // 等退出完成再摆：macOS 的全屏切换是异步的（官方文档），提前摆会被恢复成进全屏前的样子
+    void switchFullScreen(win, false).then(place)
+    return
   }
   place()
 }
@@ -86,7 +123,7 @@ export function resetWindowGeometry(win: BrowserWindow, offset = 0): void {
  * showNow：建好即显示、不等页面画好（压缩窗口要立即接管键盘，见 compress.ts）。
  */
 export function createAppWindow(opts: {
-  placement: ResolvedWindowPlacement
+  placement: AppWindowPlacement
   defaults: WindowPlacementDefaults
   query?: Record<string, string>
   fixedSize?: boolean
@@ -127,12 +164,12 @@ export function createAppWindow(opts: {
     }
   })
 
-  trackWindow(win, placement, defaults)
+  trackWindow(win, placement.isFullScreen, defaults)
   if (placement.isMaximized) win.maximize()
-  // maximize 只显示不聚焦，show 把它带到前台；全屏对着已显示的窗口切（同 VS Code：先显示，再切全屏）
+  // maximize 只显示不聚焦，show 把它带到前台；全屏对着已显示的窗口切（同 VS Code：先显示，再切全屏），排在别的窗口的切换之后
   if (opts.showNow === true || placement.isMaximized || placement.isFullScreen) win.show()
   else win.once('ready-to-show', () => win.show())
-  if (placement.isFullScreen) win.setFullScreen(true)
+  if (placement.isFullScreen) void switchFullScreen(win, true)
 
   // HMR for renderer base on electron-vite cli.
   // Load the remote URL for development or the local html file for production.
@@ -145,6 +182,13 @@ export function createAppWindow(opts: {
     void win.loadFile(join(__dirname, '../renderer/index.html'), { query })
   }
   return win
+}
+
+/** 把窗口带到前台：最小化的先还原，隐藏的（如 Windows 关到托盘）先显示。 */
+export function bringToFront(win: BrowserWindow): void {
+  if (win.isMinimized()) win.restore()
+  win.show()
+  win.focus()
 }
 
 /** 推给全部窗口（主窗口与各 Preview Window）。 */

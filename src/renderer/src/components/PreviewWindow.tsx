@@ -57,6 +57,22 @@ export function PreviewWindow({ launch }: { launch: PreviewLaunch }): React.JSX.
     return off
   }, [])
 
+  // 系统再带来的、落在本窗口树里的文件（主进程按根路由）：固定打开进当前栏，同起手的那个
+  useEffect(
+    () =>
+      window.api.onPreviewOpenFile((file) =>
+        useFiles.getState().queueOpen(root, { path: file, pin: true })
+      ),
+    [root]
+  )
+  // 订阅之后再告知主进程就绪（effect 按声明顺序执行）：页面加载期间到的文件由主进程排着，这里一并取回
+  useEffect(() => {
+    void window.api.previewReady().then((files) => {
+      for (const file of files)
+        useFiles.getState().queueOpen(launch.root, { path: file, pin: true })
+    })
+  }, [launch.root])
+
   // 主进程只转发 Files 面板自己的键：⌥⌘F（筛选框聚焦）、⌘E（最近打开文件）与 Editor Tab 的关闭 / 切换 / 分屏；
   // Cmd/Ctrl+W 由面板先关 Editor Tab，关掉最后一个（或本来就没有）时经 closeWindow 关窗
   useEffect(

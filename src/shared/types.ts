@@ -854,6 +854,10 @@ export interface RunAPI extends GitAPI, GitHubAPI {
   previewAddProject(root: string): Promise<{ registered: boolean }>
   /** 主窗口项目菜单「在新窗口中打开」：以该已登记项目根开一个 Preview Window（未登记则忽略） */
   previewOpenRoot(projectPath: string): Promise<void>
+  /** 页面已订阅 onPreviewOpenFile：返回加载期间系统带来、落在本窗口树里的文件（规范化逻辑路径），之后改为推送 */
+  previewReady(): Promise<string[]>
+  /** 系统带来的文件落在本窗口的树里：在本窗口打开（规范化逻辑路径） */
+  onPreviewOpenFile(cb: (file: string) => void): () => void
 
   // —— 系统集成（设置「系统集成」栏；External Open 入口） ——
   getSystemIntegration(): Promise<SystemIntegrationState>

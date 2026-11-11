@@ -74,7 +74,7 @@ _Avoid_: 工作区（指工作树时）, 副本, 多检出, Linked checkout
 **External Open（外部唤起）**：DevCube 被系统或外部工具带着路径拉起 / 聚焦的入口统称（命令行、deep link、系统右键菜单、「打开方式」、其他应用的 Open in 都汇于此），分两种动作。**打开**：目录走「添加项目」语义，未登记则登记为 **Project**，已登记则仅聚焦选中；文件则开一个 **Preview Window**。**压缩**：带一组路径开一个压缩窗口，不聚焦主窗口。
 _Avoid_: 协议唤起, 命令行打开, Deep link（指整个入口时）
 
-**Preview Window（预览窗口）**：DevCube 作为系统「打开方式」被带着一个**文件**拉起时开的独立窗口——就是一个根泛化了的 **Files Tab** 面板，根默认是文件所在文件夹（落在已登记 **Project** 内则取项目根）、可逐级上翻；一文件一窗、可多开、不是 Project、不是 Tab、不落盘；没有 Git Tab / Terminal / Run Session / Content Search，可「添加为项目」。
+**Preview Window（预览窗口）**：DevCube 作为系统「打开方式」被带着一个**文件**拉起时开的窗口——就是一个根泛化了的 **Files Tab** 面板，根默认是文件所在文件夹（落在已登记 **Project** 内则取项目根）、可逐级上翻；按根认（文件落在某个窗口的树里就在那个窗口打开）、可多开、不是 Project、不是 Tab、不落盘；没有 Git Tab / Terminal / Run Session / Content Search，可「添加为项目」。
 _Avoid_: 看图窗口, 独立窗口, Viewer, 预览器
 
 **Release Edition（发行身份）**：正式版或 Beta 二者之一，决定一次安装的系统身份（与另一身份可并行、数据隔离、显示名可辨），并由 semver 派生——无 prerelease 为正式版，仅 `-beta` / `-beta.N` 为 Beta。应用内更新只跟随**同一发行身份**的 GitHub Release，不跨线。
@@ -138,7 +138,7 @@ _Avoid_: 后台任务, 作业, Job, Operation
 - 一次安装恰好属于一个 **Release Edition**；正式版只消费非 Pre-release 的 GitHub Release，Beta 只消费 Pre-release 的 GitHub Release，二者不互相升级。
 - 一个正式版本有 0..1 段 **Changelog**，同号 Beta 与它共用；应用内更新确认前展示「当前版本之后、到新版本为止」的各段（两端都按正式版号比），没写的版本不出现。
 - **External Open** 的系统入口（协议、右键菜单、CLI 名、文件打开方式）随 **Release Edition** 分线注册，双装互不抢注；目录唤起落到既有的「添加项目」语义上，不引入新的登记方式；文件唤起落到 **Preview Window**；压缩唤起只开压缩窗口，不登记、不打开任何条目。
-- 一个 **Preview Window** 对应开它的那个文件（同一文件复开即聚焦；窗口里另开的 **Editor Tab** 不算），持有一个可上翻的根；也可从主窗口项目菜单「在新窗口中打开」以某个 **Project** 根开出（无初始文件）；它的根不必是 **Project**，但「添加为项目」可把当前根按 External Open 的目录语义登记 / 聚焦。**Files Tab** 与 Preview Window 共用同一套面板能力。
+- 一个 **Preview Window** 持有一个可上翻的根，系统带来的、落在这个根之内的文件都在它里面以 **Editor Tab** 打开；也可从主窗口项目菜单「在新窗口中打开」以某个 **Project** 根开出（无初始文件）；它的根不必是 **Project**，但「添加为项目」可把当前根按 External Open 的目录语义登记 / 聚焦。**Files Tab** 与 Preview Window 共用同一套面板能力。
 - 一个提交在 GitHub 上有 0..N 项 **Check**；**Git Tab** 只在登录 GitHub 后、对远程指向 github.com 的仓库显示它们，没有 Check 的提交不显示任何标记。
 - 一个仓库恒有 1 个主 **Worktree**、0..N 个链接 **Worktree**；每个 Worktree 至多对应一个 **Project**（按目录登记），登记与否不影响它在 git 层面的存在。
 - 一个 **WSL Project** 恰属于一个发行版；同一发行版的 WSL Project 共用一条连接：其中任一个被用到即连上，都不在用满偏好时长即断开，没有「连接」按钮。没连上时它的 **Discovered Script** 保持上次连上时的结果（从未连上则没有），引用型配置不因此删除。

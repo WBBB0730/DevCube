@@ -14,6 +14,8 @@ export interface FilesOpenPosition {
 export interface PendingFilesOpen {
   path: string
   at?: FilesOpenPosition
+  /** 打开即固定（系统带来的文件，同预览窗口起手的那个） */
+  pin?: boolean
 }
 
 /** Editor Tab 的键盘命令（docs/prd/files-editor-tabs.md「键位」）：⌘W 关闭、⇧⌘[ / ⇧⌘] 切换、⌘\ 向右分屏 */
@@ -27,8 +29,8 @@ export const EDITOR_COMMAND_OF = {
 } as const satisfies Partial<Record<AppShortcut['id'], FilesEditorCommand>>
 
 interface FilesStore {
-  /** 外部请求打开的路径（Git「打开文件」/ 内容搜索等）；FilesPane 消费后清除 */
-  pendingOpenByProject: Record<string, PendingFilesOpen | null>
+  /** 外部请求打开的路径（Git「打开文件」/ 内容搜索 / 系统带进预览窗口的文件），按到达顺序排队；FilesPane 依次消费 */
+  pendingOpenByProject: Record<string, readonly PendingFilesOpen[]>
   /**
    * +1 驱动 FilesPane 聚焦文件树顶的输入框（⌥⌘F / Ctrl+Alt+F；项目为筛选，服务器为「前往路径」）。
    * 键为条目键（项目路径或 `server:<id>`），预览窗口为其根路径
@@ -40,7 +42,10 @@ interface FilesStore {
   editorCommandByKey: Record<string, { command: FilesEditorCommand; nonce: number }>
   /** 打开项目内文件：聚焦 Files Tab，并排队打开路径（可带定位） */
   openInFiles: (projectPath: string, filePath: string, at?: FilesOpenPosition) => void
-  consumePendingOpen: (projectPath: string) => PendingFilesOpen | null
+  /** 只排队打开、不碰 Tab（Preview Window 用：根路径即键） */
+  queueOpen: (key: string, open: PendingFilesOpen) => void
+  /** 取走排着的全部打开请求（按到达顺序） */
+  consumePendingOpens: (key: string) => readonly PendingFilesOpen[]
   /** 切到条目的 Files Tab 并聚焦树顶输入框（树若隐藏则先展开） */
   focusFilesFilter: (entryKey: string) => void
   /** 只递增聚焦 nonce、不碰 Tab（Preview Window 用：根路径即键） */
@@ -62,17 +67,21 @@ export const useFiles = create<FilesStore>((set, get) => ({
     const logical = normalizePath(
       isAbsolutePath(filePath) ? filePath : `${projectPath}/${filePath}`
     )
-    set((s) => ({
-      pendingOpenByProject: { ...s.pendingOpenByProject, [projectPath]: { path: logical, at } }
-    }))
+    get().queueOpen(projectPath, { path: logical, at })
     useApp.getState().activateTab(projectPath, filesTabKey(projectPath))
   },
-  consumePendingOpen: (projectPath) => {
-    const pending = get().pendingOpenByProject[projectPath] ?? null
-    if (pending) {
-      set((s) => ({
-        pendingOpenByProject: { ...s.pendingOpenByProject, [projectPath]: null }
-      }))
+  queueOpen: (key, open) => {
+    set((s) => ({
+      pendingOpenByProject: {
+        ...s.pendingOpenByProject,
+        [key]: [...(s.pendingOpenByProject[key] ?? []), open]
+      }
+    }))
+  },
+  consumePendingOpens: (key) => {
+    const pending = get().pendingOpenByProject[key] ?? []
+    if (pending.length > 0) {
+      set((s) => ({ pendingOpenByProject: { ...s.pendingOpenByProject, [key]: [] } }))
     }
     return pending
   },

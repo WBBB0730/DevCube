@@ -1,15 +1,13 @@
 import { app, BrowserWindow, Menu, Tray, nativeImage } from 'electron'
 import { resolveReleaseEdition } from '../shared/release-edition'
 import iconWin from '../../resources/icon-win.png?asset'
+import { bringToFront } from './app-window'
 
 let tray: Tray | null = null
 
 /** `ensureMain` 返回既有主窗口或新建（预览窗口不算主窗口，不能拿 getAllWindows 首个充数）。 */
 function showMainWindow(ensureMain: () => BrowserWindow): void {
-  const win = ensureMain()
-  if (win.isMinimized()) win.restore()
-  win.show()
-  win.focus()
+  bringToFront(ensureMain())
 }
 
 /** 仅 Windows：系统托盘。macOS / Linux 不创建。 */

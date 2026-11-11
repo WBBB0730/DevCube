@@ -22,11 +22,7 @@ import { closeAllProjectWatchers } from './project-watchers'
 import { resolveReleaseEdition } from '../shared/release-edition'
 import { confirmCloseIfUnsaved, confirmQuitIfNeeded } from './quit-confirm'
 import { canInstallUpdateOnQuit, installDownloadedUpdate } from './app-updater'
-import {
-  loadLayoutMemory,
-  rememberWindowPlacement,
-  resolveRememberedWindowPlacement
-} from './layout-memory'
+import { createRememberedWindow, flushWindowPlacements, loadLayoutMemory } from './layout-memory'
 import { registerBootstrapIpc } from './renderer-bootstrap'
 import { disposeTray, installTray } from './tray'
 import { configureUserData } from './user-data'
@@ -46,12 +42,8 @@ import { addProjectByPath } from './projects'
 import { getAppPrefs, getWorkspaceUi, setWorkspaceUi } from './store'
 import { closeAllWsl } from './wsl'
 import { applyTheme } from './theme'
-import { createAppWindow } from './app-window'
-import {
-  closeAllPreviewWatchers,
-  openPreviewWindow,
-  rememberPreviewWindowPlacement
-} from './preview-window'
+import { closeAllPreviewWatchers, openPreviewWindow } from './preview-window'
+import { bringToFront } from './app-window'
 import { disposeAllCompressJobs, openCompressWindow, setCompressIdleHandler } from './compress'
 import { devElectronAppPath, ensureDevOpenerApp } from './dev-opener-app'
 import { syncSystemIntegration } from './system-integration'
@@ -84,7 +76,7 @@ app.on('open-url', (event, url) => {
 app.on('second-instance', (_event, argv, workingDirectory) => {
   const args = argv.slice(argvTailStart(app.isPackaged))
   const targets = extractOpenTargets(args, { scheme: deepLinkScheme, cwd: workingDirectory })
-  // 只带文件或压缩请求时不动主窗口（双击文件只多开一个预览窗口，压缩只开压缩窗口）；
+  // 只带文件或压缩请求时不动主窗口（双击文件只落进预览窗口，压缩只开压缩窗口）；
   // 带目录或空唤起才把主窗口带到前台
   if (targets.length > 0 && targets.every((t) => t.kind !== 'dir')) {
     for (const t of targets) dispatchExternalOpen(t)
@@ -121,15 +113,13 @@ function liveMainWindow(): BrowserWindow | null {
 }
 
 function createWindow(): BrowserWindow {
-  const placement = resolveRememberedWindowPlacement(WINDOW_DEFAULTS, 'main')
-  const win = createAppWindow({ placement, defaults: WINDOW_DEFAULTS })
+  // 几何由布局记忆跟着窗口实时记（ADR-0053）：macOS 点 Dock 重开时恢复；「记住窗口和面板布局」开着时同时落盘，重启后恢复。
+  const win = createRememberedWindow('main', { defaults: WINDOW_DEFAULTS })
 
-  // 关窗前记下几何（macOS 点 Dock 重开时恢复；「记住窗口和面板布局」开着时同时落盘，重启后恢复）。
   // Windows：点关闭隐藏到托盘，真正退出走托盘「退出」/ before-quit。
   // 其余平台关窗即销毁渲染端：服务器上还有未保存的文件时先确认（退出时已由退出确认问过）。
   let closeConfirmed = false
   win.on('close', (event) => {
-    rememberWindowPlacement(win, 'main')
     if (isAppQuitting()) return
     if (process.platform === 'win32') {
       event.preventDefault()
@@ -169,9 +159,7 @@ function focusMainWindow(): void {
     if (app.isReady() && !isAppQuitting()) openMainWindow()
     return
   }
-  if (win.isMinimized()) win.restore()
-  win.show()
-  win.focus()
+  bringToFront(win)
 }
 
 /** 运行中的 External Open：目录 → 登记 / 聚焦项目（主窗口不在则建）；文件 → 预览窗口；压缩 → 压缩窗口。 */
@@ -207,7 +195,7 @@ app.whenReady().then(async () => {
   registerIpcHandlers(openMainWindow)
 
   // 冷启动 External Open（启动参数 / 就绪前已到的 open-file / open-url）：目录在开窗前登记并预置
-  // 当前项目（渲染端从 bootstrap 快照直接带出选中，无需事后推送）；文件各开一个预览窗口；压缩各开一个压缩窗口。
+  // 当前项目（渲染端从 bootstrap 快照直接带出选中，无需事后推送）；文件按根落进预览窗口（同一文件夹的进同一窗）；压缩各开一个压缩窗口。
   // 只带文件或压缩请求时不建主窗口——看一张图、压一个包不必拉起整个工作台。
   const argvTargets = extractOpenTargets(process.argv.slice(argvTailStart(app.isPackaged)), {
     scheme: deepLinkScheme,
@@ -275,10 +263,8 @@ let quitPhase: QuitPhase = 'running'
 
 async function runQuitCleanup(): Promise<void> {
   markAppQuitting()
-  // 退出用 app.exit 直接销毁窗口、不走关窗事件：还开着的窗口在这里记下几何
-  const main = liveMainWindow()
-  if (main) rememberWindowPlacement(main, 'main')
-  rememberPreviewWindowPlacement()
+  // 退出用 app.exit 直接销毁窗口、不走关窗事件：还没来得及记的窗口几何在这里记下
+  flushWindowPlacements()
   disposeTray()
   killAllSessions()
   closeAllWsl()

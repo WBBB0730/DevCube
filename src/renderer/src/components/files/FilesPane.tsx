@@ -17,6 +17,7 @@ import {
   Minus,
   Search
 } from 'lucide-react'
+import pLimit from 'p-limit'
 import {
   FILES_TEXT_MAX_BYTES,
   pushRecentPath,
@@ -150,7 +151,7 @@ import {
 import { ipcErrorMessage } from '@renderer/lib/ipc-error'
 import { typeToInput } from '@renderer/lib/type-to-input'
 import { useTreeVirtualReveal } from '@renderer/lib/use-tree-virtual-reveal'
-import { useFiles, type FilesEditorCommand } from '@renderer/files-store'
+import { useFiles, type FilesEditorCommand, type PendingFilesOpen } from '@renderer/files-store'
 import { useApp } from '@renderer/store'
 import { BAR_INPUT_ICON, BarInput } from '@renderer/components/ui/bar-input'
 import { Button } from '@renderer/components/ui/button'
@@ -1577,14 +1578,15 @@ export function FilesPane({
     if (ready) onLayoutChange?.(layout)
   }, [ready, layout, onLayoutChange])
 
-  // Git / 内容搜索等外部 pending open（ready 之后才消费）：开进当前栏
+  // Git / 内容搜索 / 系统带进预览窗口的文件等外部 pending open（ready 之后才消费）：按到达顺序逐个开进当前栏。
+  // 逐个等完再开下一个：同时打开时后一个会作废前一个还没读完的（openFile 只认最新一次）
   const pending = useFiles((s) => s.pendingOpenByProject[storeKey])
+  const [pendingQueue] = useState(() => pLimit(1))
   useEffect(() => {
-    if (!ready || !pending) return
-    const req = useFiles.getState().consumePendingOpen(storeKey)
-    if (!req) return
+    if (!ready || !pending?.length) return
+    const reqs = useFiles.getState().consumePendingOpens(storeKey)
     // 不在 cleanup 里取消：consume 会立刻把 pending 置空并重跑 effect，取消会误杀本次打开。
-    void (async () => {
+    const openPending = async (req: PendingFilesOpen): Promise<void> => {
       const logical = normalizePath(req.path)
       // 要打开的是文件夹（如 Git 里指向文件夹的符号链接）：同「前往路径」，在树里展开并定位（同 JetBrains 的导航）
       if ((await backend.stat(logical).catch(() => null))?.isDirectory) {
@@ -1592,15 +1594,26 @@ export function FilesPane({
         return
       }
       await expandToFile(logical)
-      await openFile(logical)
+      await openFile(logical, { pin: req.pin })
       if (req.at) {
         // 定位落在编辑器上：Markdown / SVG 若停在预览态先切回编辑
         const paneId = layoutRef.current.current
         setPaneView(paneId, { sourcePreview: false })
         setEditorJump({ paneId, path: logical, ...req.at, nonce: ++editorJumpNonce.current })
       }
-    })()
-  }, [ready, pending, storeKey, backend, goToEntry, expandToFile, openFile, setPaneView])
+    }
+    for (const req of reqs) void pendingQueue(() => openPending(req))
+  }, [
+    ready,
+    pending,
+    storeKey,
+    backend,
+    goToEntry,
+    expandToFile,
+    openFile,
+    setPaneView,
+    pendingQueue
+  ])
 
   // ⌥⌘F：切到本 Tab 后聚焦文件树筛选，树隐藏时先展开。可见即接下请求：渲染期比对处理过的 nonce（React「渲染中调整
   // state」模式，非 effect）；聚焦要等树挂上，在 effect 里做

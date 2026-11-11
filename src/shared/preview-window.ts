@@ -22,19 +22,28 @@ export function parentLogicalPath(logical: string): string | null {
   return parent === p ? null : parent
 }
 
-/**
- * 初始根：文件落在某个已登记 Project 根之内取最深匹配的项目根，否则取文件所在文件夹。
- */
-export function resolvePreviewRoot(fileLogical: string, projectPaths: readonly string[]): string {
+/** roots 里包含该文件的最深的那个（规范化逻辑路径）；都不包含时为 null。 */
+export function deepestRootContaining(
+  fileLogical: string,
+  roots: readonly string[]
+): string | null {
   const file = normalizePath(fileLogical)
   let best: string | null = null
-  for (const raw of projectPaths) {
+  for (const raw of roots) {
     const root = normalizePath(raw)
     if (file.startsWith(childPathPrefix(root)) && (best === null || root.length > best.length)) {
       best = root
     }
   }
-  return best ?? parentLogicalPath(file) ?? file
+  return best
+}
+
+/**
+ * 初始根：文件落在某个已登记 Project 根之内取最深匹配的项目根，否则取文件所在文件夹。
+ */
+export function resolvePreviewRoot(fileLogical: string, projectPaths: readonly string[]): string {
+  const file = normalizePath(fileLogical)
+  return deepestRootContaining(file, projectPaths) ?? parentLogicalPath(file) ?? file
 }
 
 export function buildPreviewQuery(launch: PreviewLaunch): Record<string, string> {

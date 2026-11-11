@@ -1,4 +1,5 @@
 import { app, ipcMain, BrowserWindow, clipboard, nativeImage, shell } from 'electron'
+import { debounce } from 'es-toolkit'
 import { homedir } from 'node:os'
 import { join, posix } from 'node:path'
 import { IPC } from '../shared/ipc'
@@ -322,7 +323,8 @@ import { forgetWslDiscovery, refreshWslDiscovery } from './wsl-discovery'
 import {
   openPreviewWindowForRoot,
   resetPreviewWindowsGeometry,
-  setPreviewWindowRoot
+  setPreviewWindowRoot,
+  takePreviewQueuedFiles
 } from './preview-window'
 import {
   cancelCompress,
@@ -335,7 +337,7 @@ import { normalizeCompressOptions } from '../shared/compress'
 import { pendingCutPaths, putFilesOnClipboard, takeClipboardFiles } from './clipboard-file'
 import appIcon from '../../resources/icon.png?asset'
 import { setTerminalFocused } from './app-shortcuts'
-import { broadcast, resetWindowGeometry } from './app-window'
+import { bringToFront, broadcast, resetWindowGeometry } from './app-window'
 
 let mainWindow: BrowserWindow | null = null
 /** 没有主窗口时（只开着预览窗口 / macOS 全关）由 index 提供建窗；工作台已预置当前项目 */
@@ -437,9 +439,7 @@ export function openProjectFromExternal(path: string): { registered: boolean } {
   refreshWatchers()
   const win = liveMainWindow()
   if (win) {
-    if (win.isMinimized()) win.restore()
-    win.show()
-    win.focus()
+    bringToFront(win)
     win.webContents.send(IPC.projectExternalOpen, focusPath)
   } else if (mainWindowFactory) {
     setWorkspaceUi({ ...getWorkspaceUi(), currentEntryKey: focusPath, selectedKey: null })
@@ -477,14 +477,6 @@ async function refreshProjectWatchers(): Promise<void> {
     if (setProjectWorktreeOf(p.projectPath, mainPath)) worktreeOfChanged = true
   }
   if (worktreeOfChanged) emitTree()
-}
-
-function debounce(fn: () => void, ms: number): () => void {
-  let timer: ReturnType<typeof setTimeout> | null = null
-  return () => {
-    if (timer) clearTimeout(timer)
-    timer = setTimeout(fn, ms)
-  }
 }
 
 // 清单 / lockfile 事件可能连发，防抖后先对账再重建树推送。
@@ -1196,6 +1188,10 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   ipcMain.handle(IPC.previewAddProject, (_e, root: unknown) => {
     if (typeof root !== 'string') return { registered: false }
     return openProjectFromExternal(root)
+  })
+  ipcMain.handle(IPC.previewReady, (e) => {
+    const win = BrowserWindow.fromWebContents(e.sender)
+    return win ? takePreviewQueuedFiles(win) : []
   })
   ipcMain.handle(IPC.previewOpenRoot, (_e, projectPath: unknown) => {
     if (typeof projectPath !== 'string') return
