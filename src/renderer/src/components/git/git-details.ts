@@ -5,6 +5,7 @@
 
 import type { FileDiffMetadata } from '@pierre/diffs'
 import { findUrls } from '@renderer/lib/text-urls'
+import { compareFileNames } from '@shared/files'
 import {
   GIT_INDEX,
   UNCOMMITTED,
@@ -103,11 +104,11 @@ export type FileTreeRow =
   | { kind: 'folder'; name: string; folderPath: string; depth: number; open: boolean }
   | { kind: 'file'; name: string; index: number; depth: number }
 
-/** 排序（§7.3）：文件夹在前、文件在后，同类按名称 localeCompare。 */
+/** 排序（§7.3）：文件夹在前、文件在后，同类按名称 compareFileNames（同 Files 树）。 */
 function sortedChildren(folder: FileTreeFolder): FileTreeNode[] {
   return Object.values(folder.contents).sort((a, b) => {
     if (a.type !== b.type) return a.type === 'folder' ? -1 : 1
-    return a.name.localeCompare(b.name)
+    return compareFileNames(a.name, b.name)
   })
 }
 

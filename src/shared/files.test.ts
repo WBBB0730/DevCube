@@ -3,7 +3,9 @@ import {
   buildFilesAssetUrl,
   buildFilesMediaUrl,
   buildFilesTileUrl,
+  compareFilesDirEntries,
   DEFAULT_FILES_UI,
+  type FilesDirEntry,
   normalizeFilesUi,
   symlinkJumpTarget
 } from './files'
@@ -45,6 +47,21 @@ describe('symlinkJumpTarget', () => {
     expect(symlinkJumpTarget({ target: '/elsewhere', broken: false }, '/p')).toBeNull()
     expect(symlinkJumpTarget({ target: '/pp/x', broken: false }, '/p')).toBeNull()
     expect(symlinkJumpTarget({ target: '/p', broken: false }, '/p')).toBeNull()
+  })
+})
+
+describe('compareFilesDirEntries', () => {
+  const entry = (name: string, isDirectory = false): FilesDirEntry => ({
+    name,
+    path: `/p/${name}`,
+    isDirectory
+  })
+
+  it('目录在前；同类名称自然排序、不分大小写', () => {
+    const names = [entry('v10.md'), entry('v5.md'), entry('B.md'), entry('a.md'), entry('z', true)]
+      .sort(compareFilesDirEntries)
+      .map((e) => e.name)
+    expect(names).toEqual(['z', 'a.md', 'B.md', 'v5.md', 'v10.md'])
   })
 })
 

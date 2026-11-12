@@ -127,10 +127,16 @@ export function filesEntryNameError(name: string): string | null {
   return name === '' || name === '.' || name === '..' || /[/\\]/.test(name) ? '名称无效' : null
 }
 
-/** 树内同级排序：目录在前，名称大小写不敏感升序（listDir 与过滤树共用）。 */
+/** 文件名比较器：模块级复用，避免每次比较都 new。 */
+const FILE_NAME_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' })
+
+/** 文件名升序：自然排序（数字按大小，v5 在 v10 前）、不分大小写（Files 树与 Git 文件树共用）。 */
+export const compareFileNames = FILE_NAME_COLLATOR.compare
+
+/** 树内同级排序：目录在前，名称按 compareFileNames（listDir 与过滤树共用）。 */
 export function compareFilesDirEntries(a: FilesDirEntry, b: FilesDirEntry): number {
   if (a.isDirectory !== b.isDirectory) return a.isDirectory ? -1 : 1
-  return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
+  return compareFileNames(a.name, b.name)
 }
 
 /** 每个 Project / Server 的 Files Tab UI 持久化（打开的 Editor Tab + 树展开 + 最近打开）。 */

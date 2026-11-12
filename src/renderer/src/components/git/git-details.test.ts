@@ -170,6 +170,14 @@ describe('buildFileTree + flattenFileTree', () => {
     ])
   })
 
+  it('同类名称自然排序、不分大小写（同 Files 树）', () => {
+    const rows = flattenFileTree(
+      buildFileTree([fc('v10.ts'), fc('v5.ts'), fc('B.ts'), fc('a.ts')]),
+      new Set()
+    )
+    expect(rows.map((r) => r.name)).toEqual(['a.ts', 'B.ts', 'v5.ts', 'v10.ts'])
+  })
+
   it('单链文件夹压缩为「a / b / c」且开合对象是链上最深文件夹', () => {
     const rows = flattenFileTree(buildFileTree([fc('src/main/deep/x.ts')]), new Set())
     expect(rows[0]).toEqual({
