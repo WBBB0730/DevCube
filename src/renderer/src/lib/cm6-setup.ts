@@ -588,6 +588,117 @@ export const filesTextMateTheme: Record<ThemeMode, TextMateTheme> = {
   light: textMateTheme(LIGHT_SCHEME, false)
 }
 
+/**
+ * 同一方案的 TextMate 文法：编辑器外以 TextMate 文法着色的组件用（Git diff 面板），与 buildLanguageSupport
+ * 逐项对齐——同样的扩展名、同样的近似（Svelte 按 HTML、GDScript 按 Python 等），改那边时同步这里。键为
+ * Shiki 文法名，keys 为映射到它的扩展名（不带点）或整个文件名；只打包这里列出的文法（ADR-0062）。
+ * LiveScript、SML、XQuery 没有 TextMate 文法，按纯文本显示。
+ */
+export const filesTextMateLanguages = {
+  // —— 编辑器用官方 Lezer 包的语言 ——
+  typescript: { load: () => import('@shikijs/langs/typescript'), keys: ['ts', 'mts', 'cts'] },
+  tsx: { load: () => import('@shikijs/langs/tsx'), keys: ['tsx'] },
+  javascript: { load: () => import('@shikijs/langs/javascript'), keys: ['js', 'mjs', 'cjs'] },
+  jsx: { load: () => import('@shikijs/langs/jsx'), keys: ['jsx'] },
+  json: { load: () => import('@shikijs/langs/json'), keys: ['json', 'jsonc', 'asmdef'] },
+  css: { load: () => import('@shikijs/langs/css'), keys: ['css'] },
+  scss: { load: () => import('@shikijs/langs/scss'), keys: ['scss'] },
+  sass: { load: () => import('@shikijs/langs/sass'), keys: ['sass'] },
+  less: { load: () => import('@shikijs/langs/less'), keys: ['less'] },
+  html: { load: () => import('@shikijs/langs/html'), keys: ['html', 'htm', 'svelte', 'ejs'] },
+  xml: {
+    load: () => import('@shikijs/langs/xml'),
+    keys: ['xml', 'svg', 'plist', 'xaml', 'xsl', 'xsd', 'csproj']
+  },
+  markdown: { load: () => import('@shikijs/langs/markdown'), keys: ['md', 'markdown'] },
+  yaml: {
+    load: () => import('@shikijs/langs/yaml'),
+    keys: ['yml', 'yaml', 'meta', 'unity', 'prefab', 'asset']
+  },
+  python: { load: () => import('@shikijs/langs/python'), keys: ['py', 'gd'] },
+  go: { load: () => import('@shikijs/langs/go'), keys: ['go'] },
+  rust: { load: () => import('@shikijs/langs/rust'), keys: ['rs'] },
+  java: { load: () => import('@shikijs/langs/java'), keys: ['java'] },
+  cpp: {
+    load: () => import('@shikijs/langs/cpp'),
+    keys: ['c', 'h', 'cc', 'cpp', 'cxx', 'hh', 'hpp']
+  },
+  php: { load: () => import('@shikijs/langs/php'), keys: ['php'] },
+  sql: { load: () => import('@shikijs/langs/sql'), keys: ['sql'] },
+  vue: { load: () => import('@shikijs/langs/vue'), keys: ['vue'] },
+  // —— 编辑器用 legacy-modes 的长尾语言 ——
+  csharp: { load: () => import('@shikijs/langs/csharp'), keys: ['cs'] },
+  kotlin: { load: () => import('@shikijs/langs/kotlin'), keys: ['kt', 'kts'] },
+  swift: { load: () => import('@shikijs/langs/swift'), keys: ['swift'] },
+  'objective-c': { load: () => import('@shikijs/langs/objective-c'), keys: ['m'] },
+  'objective-cpp': { load: () => import('@shikijs/langs/objective-cpp'), keys: ['mm'] },
+  dart: { load: () => import('@shikijs/langs/dart'), keys: ['dart'] },
+  scala: { load: () => import('@shikijs/langs/scala'), keys: ['scala'] },
+  groovy: { load: () => import('@shikijs/langs/groovy'), keys: ['groovy', 'gradle'] },
+  shellscript: { load: () => import('@shikijs/langs/shellscript'), keys: ['sh', 'bash', 'zsh'] },
+  ruby: { load: () => import('@shikijs/langs/ruby'), keys: ['rb'] },
+  lua: { load: () => import('@shikijs/langs/lua'), keys: ['lua'] },
+  toml: { load: () => import('@shikijs/langs/toml'), keys: ['toml'] },
+  r: { load: () => import('@shikijs/langs/r'), keys: ['r'] },
+  perl: { load: () => import('@shikijs/langs/perl'), keys: ['pl', 'pm'] },
+  powershell: { load: () => import('@shikijs/langs/powershell'), keys: ['ps1', 'psm1'] },
+  ini: {
+    load: () => import('@shikijs/langs/ini'),
+    keys: [
+      'properties',
+      'ini',
+      'env',
+      'conf',
+      'cfg',
+      'gitignore',
+      'gitattributes',
+      'dockerignore',
+      'npmrc',
+      'editorconfig'
+    ]
+  },
+  diff: { load: () => import('@shikijs/langs/diff'), keys: ['diff', 'patch'] },
+  glsl: { load: () => import('@shikijs/langs/glsl'), keys: ['glsl', 'hlsl', 'shader', 'cginc'] },
+  clojure: { load: () => import('@shikijs/langs/clojure'), keys: ['clj', 'cljs', 'cljc', 'edn'] },
+  cmake: { load: () => import('@shikijs/langs/cmake'), keys: ['cmake', 'CMakeLists.txt'] },
+  cobol: { load: () => import('@shikijs/langs/cobol'), keys: ['cob', 'cbl'] },
+  coffee: { load: () => import('@shikijs/langs/coffee'), keys: ['coffee'] },
+  'common-lisp': { load: () => import('@shikijs/langs/common-lisp'), keys: ['lisp', 'cl', 'el'] },
+  crystal: { load: () => import('@shikijs/langs/crystal'), keys: ['cr'] },
+  d: { load: () => import('@shikijs/langs/d'), keys: ['d'] },
+  elm: { load: () => import('@shikijs/langs/elm'), keys: ['elm'] },
+  erlang: { load: () => import('@shikijs/langs/erlang'), keys: ['erl', 'hrl'] },
+  'fortran-free-form': {
+    load: () => import('@shikijs/langs/fortran-free-form'),
+    keys: ['f', 'for', 'f90', 'f95', 'f03']
+  },
+  asm: { load: () => import('@shikijs/langs/asm'), keys: ['s'] },
+  gherkin: { load: () => import('@shikijs/langs/gherkin'), keys: ['feature'] },
+  haskell: { load: () => import('@shikijs/langs/haskell'), keys: ['hs'] },
+  haxe: { load: () => import('@shikijs/langs/haxe'), keys: ['hx'] },
+  http: { load: () => import('@shikijs/langs/http'), keys: ['http'] },
+  jinja: { load: () => import('@shikijs/langs/jinja'), keys: ['j2', 'jinja', 'jinja2'] },
+  julia: { load: () => import('@shikijs/langs/julia'), keys: ['jl'] },
+  ocaml: { load: () => import('@shikijs/langs/ocaml'), keys: ['ml', 'mli'] },
+  fsharp: { load: () => import('@shikijs/langs/fsharp'), keys: ['fs', 'fsx', 'fsi'] },
+  nginx: { load: () => import('@shikijs/langs/nginx'), keys: ['nginx.conf'] },
+  pascal: { load: () => import('@shikijs/langs/pascal'), keys: ['pas'] },
+  proto: { load: () => import('@shikijs/langs/proto'), keys: ['proto'] },
+  pug: { load: () => import('@shikijs/langs/pug'), keys: ['pug', 'jade'] },
+  puppet: { load: () => import('@shikijs/langs/puppet'), keys: ['pp'] },
+  sas: { load: () => import('@shikijs/langs/sas'), keys: ['sas'] },
+  scheme: { load: () => import('@shikijs/langs/scheme'), keys: ['scm', 'ss'] },
+  smalltalk: { load: () => import('@shikijs/langs/smalltalk'), keys: ['st'] },
+  latex: { load: () => import('@shikijs/langs/latex'), keys: ['tex', 'sty'] },
+  stylus: { load: () => import('@shikijs/langs/stylus'), keys: ['styl'] },
+  tcl: { load: () => import('@shikijs/langs/tcl'), keys: ['tcl'] },
+  turtle: { load: () => import('@shikijs/langs/turtle'), keys: ['ttl'] },
+  vb: { load: () => import('@shikijs/langs/vb'), keys: ['vb', 'vbs'] },
+  verilog: { load: () => import('@shikijs/langs/verilog'), keys: ['v', 'sv', 'svh'] },
+  vhdl: { load: () => import('@shikijs/langs/vhdl'), keys: ['vhd', 'vhdl'] },
+  docker: { load: () => import('@shikijs/langs/docker'), keys: ['Dockerfile'] }
+}
+
 /** 行号色（LINE_NUMBERS_COLOR，同编辑器行号栏）：编辑器外的代码视图用（Git diff 面板）。 */
 export const filesLineNumberColor: Record<ThemeMode, string> = {
   dark: DARK_SCHEME.lineNumber,

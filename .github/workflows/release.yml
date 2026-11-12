@@ -8,6 +8,10 @@ on:
 permissions:
   contents: read
 
+# 界面层构建（electron-vite build）吃内存，macOS runner 内存小，Node 默认堆上限只有约 2 GB，曾因此内存溢出；调高上限留出余量
+env:
+  NODE_OPTIONS: --max-old-space-size=4096
+
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false

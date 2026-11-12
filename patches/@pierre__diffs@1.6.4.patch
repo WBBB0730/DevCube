@@ -267,3 +267,116 @@ index ee5c91c5ab44742994d900a81dbd8e9c508efb49..3354304ef9fc4fb4a38f4ecba797ea3a
  		if (fitPerfectly || this.scrollAnimation != null) this.render();
  	};
  	flushManagers(updatedItems) {
+diff --git a/dist/highlighter/backends/shiki.js b/dist/highlighter/backends/shiki.js
+index caabba5e17d18d4d5618a58b56c6ecd3756765f8..d0b7b062a6e096db755dfa8669c7af1364491785 100644
+--- a/dist/highlighter/backends/shiki.js
++++ b/dist/highlighter/backends/shiki.js
+@@ -12,7 +12,7 @@ var ShikiHighlighter = class ShikiHighlighter extends DiffsHighlighter {
+ 	loadedThemes = /* @__PURE__ */ new Map();
+ 	attachedLanguages = /* @__PURE__ */ new Set(["text", "ansi"]);
+ 	static async create(name) {
+-		const engine = name === "shiki-wasm" ? (await import("shiki/engine/oniguruma")).createOnigurumaEngine(import("shiki/wasm")) : (await import("shiki/engine/javascript")).createJavaScriptRegexEngine();
++		const engine = (await import("shiki/engine/javascript")).createJavaScriptRegexEngine();
+ 		const raw = await createHighlighterCore({
+ 			themes: [],
+ 			langs: [],
+diff --git a/dist/highlighter/languages/resolveLanguage.js b/dist/highlighter/languages/resolveLanguage.js
+index 6e01e852212f93a6c005fbafbac14b42038fb863..3e1332f33e6ae5625e43d5224cc79715fa705a20 100644
+--- a/dist/highlighter/languages/resolveLanguage.js
++++ b/dist/highlighter/languages/resolveLanguage.js
+@@ -6,12 +6,8 @@ async function resolveLanguage(lang) {
+ 	const pending = ResolvingLanguages.get(lang);
+ 	if (pending != null) return pending;
+ 	const resolver = (async () => {
+-		let loader = RegisteredCustomLanguages.get(lang);
+-		if (loader == null) {
+-			const { bundledLanguages } = await import("shiki/langs");
+-			if (Object.prototype.hasOwnProperty.call(bundledLanguages, lang)) loader = bundledLanguages[lang];
+-		}
+-		if (loader == null) throw new Error(`resolveLanguage: "${lang}" not found in bundled or custom languages`);
++		const loader = RegisteredCustomLanguages.get(lang);
++		if (loader == null) throw new Error(`resolveLanguage: "${lang}" not found in custom languages`);
+ 		const { default: data } = await loader();
+ 		const resolvedLang = {
+ 			name: lang,
+diff --git a/dist/highlighter/shared_highlighter.js b/dist/highlighter/shared_highlighter.js
+index 4386eba7dccc590f5193c9cb0b9af36c777b21a0..019ced78659af6d70dce2964b6903e882158bc00 100644
+--- a/dist/highlighter/shared_highlighter.js
++++ b/dist/highlighter/shared_highlighter.js
+@@ -12,10 +12,7 @@ async function createHighlighter(type) {
+ 	const resolvedType = resolveHighlighterType(type);
+ 	acquireHighlighterType(resolvedType);
+ 	try {
+-		if (resolvedType === "highlights") {
+-			const { HighlightsHighlighter } = await import("./backends/highlights.js");
+-			return new HighlightsHighlighter();
+-		}
++		if (resolvedType !== "shiki-js") throw new Error(`createHighlighter: "${resolvedType}" backend is not bundled`);
+ 		const { ShikiHighlighter } = await import("./backends/shiki.js");
+ 		return await ShikiHighlighter.create(resolvedType);
+ 	} finally {
+diff --git a/dist/highlighter/themes/themeResolver.js b/dist/highlighter/themes/themeResolver.js
+index 3dfd135f54771d85c04807b474884938c105bca6..a7b5856ef2ade0513f47ff9f03191be2fd95b16a 100644
+--- a/dist/highlighter/themes/themeResolver.js
++++ b/dist/highlighter/themes/themeResolver.js
+@@ -4,8 +4,6 @@ import { createThemeResolver } from "@pierre/theming";
+ //#region src/highlighter/themes/themeResolver.ts
+ const customThemes = /* @__PURE__ */ new Map();
+ const resolvers = /* @__PURE__ */ new Map();
+-const loadHighlightsThemeCatalog = createCachedLoader(() => import("@pierre/highlights/themes/loader"));
+-const loadPierreThemeCatalog = createCachedLoader(() => import("@pierre/theming/themes"));
+ const loadShikiCore = createCachedLoader(() => import("shiki/core"));
+ const ZED_COLOR_ALIASES = [
+ 	["editor.lineHighlightBackground", "editor.active_line.background"],
+@@ -89,26 +87,12 @@ function createDiffsThemeResolver(backend) {
+ 					if ("style" in theme || "themes" in theme) return createHighlightsTheme(name, theme);
+ 					throw new Error(`Theme "${name}" is a TextMate theme; register a Zed theme with registerCustomTheme(name, loader, 'zed') for Highlights.`);
+ 				}
+-				const catalog = loadHighlightsThemeCatalog();
+-				const { themes } = catalog instanceof Promise ? await catalog : catalog;
+-				const bundledLoader = themes[name];
+-				if (bundledLoader != null) return createHighlightsTheme(name, (await bundledLoader()).default);
+ 				if (custom?.textmate != null) throw new Error(`Theme "${name}" is only registered for TextMate; use registerCustomTheme(name, loader, 'zed') for Highlights.`);
+ 			} else {
+ 				const loader = custom?.textmate ?? custom?.diffs;
+-				let loaded;
+-				if (loader != null) {
+-					const result = await loader();
+-					loaded = "default" in result ? result.default : result;
+-				} else {
+-					const catalog = loadPierreThemeCatalog();
+-					const { themes } = catalog instanceof Promise ? await catalog : catalog;
+-					const descriptor = themes.getTheme(name);
+-					if (descriptor == null && custom?.zed != null) throw new Error(`Theme "${name}" is only registered for Zed; use registerCustomTheme(name, loader, 'textmate') for Shiki.`);
+-					if (descriptor == null) throw new Error(`No valid theme loader registered for "${name}"`);
+-					const result = await descriptor.load();
+-					loaded = "default" in result ? result.default : result;
+-				}
++				if (loader == null) throw new Error(`No valid theme loader registered for "${name}"`);
++				const result = await loader();
++				const loaded = "default" in result ? result.default : result;
+ 				if ("style" in loaded || "themes" in loaded) throw new Error(`Theme "${name}" is a Zed theme; use preferredHighlighter: 'highlights' or register a TextMate theme for Shiki.`);
+ 				const core = loadShikiCore();
+ 				const { normalizeTheme, createCssVariablesTheme } = core instanceof Promise ? await core : core;
+diff --git a/dist/utils/getFiletypeFromFileName.js b/dist/utils/getFiletypeFromFileName.js
+index c9b75f36a54d1b7270fe7785093a87a2372744b8..8ccddb7627f0167ead5280fbca89e9d14eacb1a6 100644
+--- a/dist/utils/getFiletypeFromFileName.js
++++ b/dist/utils/getFiletypeFromFileName.js
+@@ -368,15 +368,10 @@ function getFiletypeFromFileName(fileName) {
+ }
+ function matchFiletypeFromName(fileName) {
+ 	if (CUSTOM_EXTENSION_TO_FILE_FORMAT.has(fileName)) return CUSTOM_EXTENSION_TO_FILE_FORMAT.get(fileName) ?? "text";
+-	if (Object.hasOwn(EXTENSION_TO_FILE_FORMAT, fileName)) return EXTENSION_TO_FILE_FORMAT[fileName] ?? null;
+ 	const compoundMatch = fileName.match(/\.([^/\\]+\.[^/\\]+)$/);
+-	if (compoundMatch != null) {
+-		if (CUSTOM_EXTENSION_TO_FILE_FORMAT.has(compoundMatch[1])) return CUSTOM_EXTENSION_TO_FILE_FORMAT.get(compoundMatch[1]) ?? "text";
+-		if (Object.hasOwn(EXTENSION_TO_FILE_FORMAT, compoundMatch[1])) return EXTENSION_TO_FILE_FORMAT[compoundMatch[1]] ?? "text";
+-	}
++	if (compoundMatch != null && CUSTOM_EXTENSION_TO_FILE_FORMAT.has(compoundMatch[1])) return CUSTOM_EXTENSION_TO_FILE_FORMAT.get(compoundMatch[1]) ?? "text";
+ 	const simpleMatch = fileName.match(/\.([^.]+)$/)?.[1] ?? "";
+-	if (CUSTOM_EXTENSION_TO_FILE_FORMAT.has(simpleMatch)) return CUSTOM_EXTENSION_TO_FILE_FORMAT.get(simpleMatch) ?? "text";
+-	return Object.hasOwn(EXTENSION_TO_FILE_FORMAT, simpleMatch) ? EXTENSION_TO_FILE_FORMAT[simpleMatch] ?? "text" : null;
++	return CUSTOM_EXTENSION_TO_FILE_FORMAT.get(simpleMatch) ?? null;
+ }
+ function replaceCustomExtensions(version, map) {
+ 	if (version <= customExtensionsVersion) return false;

@@ -103,6 +103,7 @@
     "@lezer/highlight": "^1.2.3",
     "@napi-rs/canvas": "^1.0.2",
     "@pierre/diffs": "^1.6.4",
+    "@shikijs/langs": "^4.6.0",
     "@tailwindcss/typography": "^0.5.20",
     "@tailwindcss/vite": "^4.3.2",
     "@tanstack/react-table": "^9.2.4",

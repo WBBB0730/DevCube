@@ -19,6 +19,7 @@ import {
 } from 'lucide-react'
 import {
   parsePatchFiles,
+  registerCustomLanguage,
   registerCustomTheme,
   type CodeView as CodeViewInstance,
   type CodeViewDiffItem
@@ -35,7 +36,11 @@ import {
 import { SHORTCUT } from '@shared/shortcut-label'
 import { gitState, openInProjectFiles, repoFilePath, useGit } from '@renderer/git-store'
 import { useApp } from '@renderer/store'
-import { filesLineNumberColor, filesTextMateTheme } from '@renderer/lib/cm6-setup'
+import {
+  filesLineNumberColor,
+  filesTextMateLanguages,
+  filesTextMateTheme
+} from '@renderer/lib/cm6-setup'
 import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
 import { CenteredHint, LoadingHint } from '@renderer/components/ui/centered-hint'
@@ -73,6 +78,10 @@ const DIFF_UNSAFE_CSS =
 const DIFF_THEMES = { dark: filesTextMateTheme.dark.name, light: filesTextMateTheme.light.name }
 for (const theme of Object.values(filesTextMateTheme)) {
   registerCustomTheme(theme.name, () => Promise.resolve(theme))
+}
+// 语法着色的文法同编辑器语言（cm6-setup），连同扩展名映射一并注册；库内置的全量文法已经补丁去掉，未注册的按纯文本
+for (const [lang, { load, keys }] of Object.entries(filesTextMateLanguages)) {
+  registerCustomLanguage(lang, load, keys)
 }
 
 /**
