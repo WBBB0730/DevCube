@@ -1,3 +1,7 @@
+---
+status: superseded by ADR-0062
+---
+
 # Diff 面板改用 @git-diff-view/react 渲染
 
 自研 diff 渲染缺语法高亮与词级 diff；而 diff 渲染本就不在 vscode-git-graph 的移植面内（参考实现直接委托 VS Code 原生 diff editor），故按纯工程权衡改用 `@git-diff-view/react` 整块渲染——语法高亮、词级 diff、统一/左右对比内置，且以 git 原始 unified diff 文本为一等输入（注意：库**无**虚拟滚动，大文件为全量渲染——已接受此代价，不做渲染端截断）。IPC 因此透传原始 diff 文本（`DiffFileData.raw`，整段含 header 作为 `hunks` 数组的单元素——经 node 实测这是库要求的格式），主进程只做命令选择与二进制判定，不自己解析 hunks。渲染端按官方 git mode 用法构造 `DiffFile` 实例（`initRaw()`）交给 `diffFile` prop。

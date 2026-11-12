@@ -17,3 +17,4 @@ patchedDependencies:
   '@extend-ai/react-xlsx@0.16.5': patches/@extend-ai__react-xlsx@0.16.5.patch
   '@base-ui-components/react@1.0.0-rc.0': patches/@base-ui-components__react@1.0.0-rc.0.patch
   '@codemirror/lang-sql@6.10.0': patches/@codemirror__lang-sql@6.10.0.patch
+  '@pierre/diffs@1.6.4': patches/@pierre__diffs@1.6.4.patch

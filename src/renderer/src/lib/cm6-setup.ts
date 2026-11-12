@@ -431,6 +431,114 @@ function highlightSpecs(ICLS: EditorScheme): TagStyle[] {
   ]
 }
 
+/** TextMate 主题（Shiki 等以 TextMate 文法着色的组件吃这个格式）。 */
+export interface TextMateTheme {
+  name: string
+  type: 'dark' | 'light'
+  colors: Record<string, string>
+  tokenColors: { scope: string[]; settings: { foreground?: string; fontStyle?: string } }[]
+}
+
+/**
+ * 同一方案的 TextMate 主题：编辑器外以 TextMate 文法着色的组件用（Git diff 面板，@pierre/diffs + Shiki），
+ * 与上面 highlightSpecs 逐类对齐、颜色同源，改那边时同步这里。两套分词规则不同（Lezer tag ↔ TextMate
+ * scope），个别记号归类会有出入：如 TextMate 分不出函数调用与方法调用，调用一律取方法色。
+ */
+function textMateTheme(ICLS: EditorScheme, dark: boolean): TextMateTheme {
+  const rule = (
+    scope: string[],
+    foreground?: string,
+    fontStyle?: string
+  ): TextMateTheme['tokenColors'][number] => ({ scope, settings: { foreground, fontStyle } })
+  return {
+    name: dark ? 'files-editor-dark' : 'files-editor-light',
+    type: dark ? 'dark' : 'light',
+    colors: { 'editor.background': ICLS.bg, 'editor.foreground': ICLS.fg },
+    tokenColors: [
+      rule(
+        [
+          'keyword',
+          'storage.type',
+          'storage.modifier',
+          'constant.language',
+          'variable.language',
+          'keyword.operator.new',
+          'keyword.operator.expression',
+          'keyword.operator.word'
+        ],
+        ICLS.keyword
+      ),
+      // DEFAULT_OPERATION_SIGN 与各类括号、分隔符：正文色
+      rule(
+        ['keyword.operator', 'punctuation', 'meta.brace', 'storage.type.function.arrow'],
+        ICLS.fg
+      ),
+
+      rule(['comment', 'punctuation.definition.comment'], ICLS.comment),
+      rule(['comment.block.documentation'], ICLS.docComment, 'italic'),
+      rule(['storage.type.class.jsdoc'], ICLS.docTag, 'underline'),
+
+      rule(['string', 'punctuation.definition.string'], ICLS.string),
+      rule(['constant.character.escape'], ICLS.stringEscape),
+      rule(['string.regexp'], ICLS.regexp),
+
+      rule(['constant.numeric', 'keyword.other.unit'], ICLS.number),
+
+      rule(['variable'], ICLS.fg),
+      rule(
+        [
+          'variable.other.property',
+          'variable.other.object.property',
+          'support.variable.property',
+          'meta.object-literal.key',
+          'support.type.property-name',
+          'punctuation.support.type.property-name',
+          'entity.other.attribute-name',
+          'entity.name.tag.yaml'
+        ],
+        ICLS.constant
+      ),
+
+      rule(['entity.name.function', 'entity.name.label'], ICLS.functionDecl),
+      rule(['meta.function-call entity.name.function', 'support.function'], ICLS.method),
+
+      rule(['entity.name.type', 'support.type', 'support.type.primitive'], ICLS.typeParam),
+      rule(
+        [
+          'entity.name.type.class',
+          'entity.name.class',
+          'entity.other.inherited-class',
+          'entity.name.type.module',
+          'entity.name.namespace'
+        ],
+        ICLS.fg
+      ),
+
+      rule(['entity.name.tag'], ICLS.htmlTagName),
+
+      rule(
+        [
+          'punctuation.decorator',
+          'entity.name.function.decorator',
+          'storage.type.annotation',
+          'punctuation.definition.annotation',
+          'meta.preprocessor'
+        ],
+        ICLS.metadata
+      ),
+      rule(['markup.underline.link', 'string.other.link'], ICLS.link),
+      rule(['variable.parameter.url'], ICLS.cssUrl),
+      rule(['markup.heading', 'entity.name.section'], ICLS.constant, 'bold'),
+      rule(['markup.italic'], undefined, 'italic'),
+      rule(['markup.bold'], undefined, 'bold'),
+      rule(['markup.strikethrough'], undefined, 'strikethrough'),
+      rule(['invalid'], ICLS.badChar),
+
+      rule(['constant.other.color'], ICLS.functionDecl)
+    ]
+  }
+}
+
 /** 语法高亮扩展（编辑器内用；themeType 让两套样式随编辑器明暗自动择一）。 */
 function buildHighlighting(ICLS: EditorScheme, dark: boolean): Extension {
   return syntaxHighlighting(
@@ -472,6 +580,18 @@ export const filesHighlightStyle: Record<ThemeMode, HighlightStyle> = {
 export const filesKeywordColor: Record<ThemeMode, string> = {
   dark: DARK_SCHEME.keyword,
   light: LIGHT_SCHEME.keyword
+}
+
+/** 编辑器方案的 TextMate 主题（见 textMateTheme），按主题取用。 */
+export const filesTextMateTheme: Record<ThemeMode, TextMateTheme> = {
+  dark: textMateTheme(DARK_SCHEME, true),
+  light: textMateTheme(LIGHT_SCHEME, false)
+}
+
+/** 行号色（LINE_NUMBERS_COLOR，同编辑器行号栏）：编辑器外的代码视图用（Git diff 面板）。 */
+export const filesLineNumberColor: Record<ThemeMode, string> = {
+  dark: DARK_SCHEME.lineNumber,
+  light: LIGHT_SCHEME.lineNumber
 }
 
 /** tab 宽 + 自绘选区层（整行高 / 换行格 / 圆角，见 cm6-selection-layer）。 */

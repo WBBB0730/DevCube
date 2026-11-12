@@ -2,7 +2,6 @@
 @import 'tw-animate-css';
 @plugin '@tailwindcss/typography';
 @import '@fontsource-variable/inter';
-@import '@git-diff-view/react/styles/diff-view.css';
 /* PDF.js viewer 样式放进级联层：未分层的应用样式天然压过分层样式，.files-pdf 覆盖不必再与库比特异性 */
 @import 'pdfjs-dist/legacy/web/pdf_viewer.css' layer(pdfjs);
 
@@ -495,49 +494,34 @@
   }
 }
 
-/* —— Git diff 面板（@git-diff-view/react）——
-   库以「.diff-tailwindcss-wrapper[data-theme] .diff-style-root」定义主题变量，此处用
-   同一选择器按源序后置覆盖（库样式经顶部 @import 先入级联），取值全部引用上方的
-   应用 token（--diff-* / --bg-* / --fg-*），不引入第二套色源。
-   两个 data-theme 都要写：取值本身已随主题翻，但漏掉哪个，库自带的那套（浅色是 GitHub 配色）
-   就会全量接管；而降级成不带属性的选择器又压不过库的特异性。 */
-.diff-tailwindcss-wrapper[data-theme='dark'] .diff-style-root,
-.diff-tailwindcss-wrapper[data-theme='light'] .diff-style-root {
-  --diff-border--: var(--separator);
-  --diff-add-content--: var(--diff-add-bg);
-  --diff-del-content--: var(--diff-del-bg);
-  --diff-add-content-highlight--: var(--diff-add-word-bg);
-  --diff-del-content-highlight--: var(--diff-del-word-bg);
-  --diff-add-lineNumber--: var(--diff-add-bg);
-  --diff-del-lineNumber--: var(--diff-del-bg);
-  --diff-plain-content--: var(--bg-deepest);
-  --diff-plain-lineNumber--: var(--bg-deepest);
-  --diff-plain-lineNumber-color--: var(--fg-muted);
-  --diff-expand-content--: var(--bg-panel);
-  --diff-expand-lineNumber--: var(--bg-panel);
-  --diff-expand-lineNumber-color--: var(--fg-muted);
-  --diff-hunk-content--: var(--diff-hunk-header-bg);
-  --diff-hunk-lineNumber--: var(--diff-hunk-header-bg);
-  --diff-hunk-content-color--: var(--fg-muted);
-  --diff-empty-content--: var(--diff-empty-bg);
-  /* 库两套主题分别写死 color: white / black，压回应用正文色 */
-  color: var(--fg-primary);
-}
-
-/* hunk 行（@@ …）紧凑化：无全文时库不渲染展开按钮，但按钮位仍有 28px 高的空占位、
-   内容带 1.5em 左缩进；压平占位、内容顶格，观感对齐普通代码行。 */
-.diff-tailwindcss-wrapper .diff-line-hunk-action > div {
-  min-height: 0;
-}
-.diff-tailwindcss-wrapper .diff-line-hunk-content > div {
-  padding-left: 0;
-}
-
-/* 等宽字体对齐应用规范（JetBrains Mono，@theme 的 --font-mono）：库在滚动容器元素上
-   内联硬编码了 fontFamily（Menlo），必须 !important 才能压过行内样式 */
-.diff-tailwindcss-wrapper,
-.diff-tailwindcss-wrapper .diff-table-scroll-container {
-  font-family: var(--font-mono) !important;
+/* —— Git diff 面板正文（@pierre/diffs 的 CodeView，ADR-0062）——
+   库渲染在 shadow DOM 里，样式只经宿主上的 CSS 变量传入（自定义属性可穿透 shadow 边界）。
+   观感对齐 Files 编辑器：字排同 .files-codemirror（JetBrains Mono 13px / 字重 500 / 行高 13 × 1.7 取整 22px，
+   须与 GitDiffView 的 DIFF_LINE_HEIGHT 一致 / 关连字）；改动条同编辑器行号旁的改动条纹（--git-line-*）；
+   diff 底色引用应用 token，改动行的行号格同行底、行号色不随改动变（同 WebStorm）。代码配色与行号色来自
+   编辑器方案（JS 常量，见 GitDiffView）。横向滚动条在正文下方（pierre 补丁），是普通元素上的原生滚动条，
+   沿用全局细滚动条样式。 */
+.git-diff-body {
+  font-weight: 500;
+  --diffs-font-family: var(--font-mono);
+  --diffs-font-size: 13px;
+  --diffs-line-height: 22px;
+  --diffs-font-features: 'liga' 0, 'calt' 0;
+  --diffs-addition-color-override: var(--git-line-added);
+  --diffs-deletion-color-override: var(--git-line-deleted);
+  --diffs-modified-color-override: var(--git-line-modified);
+  --diffs-bg-context-override: var(--bg-deepest);
+  --diffs-bg-context-gutter-override: var(--bg-deepest);
+  --diffs-bg-addition-override: var(--diff-add-bg);
+  --diffs-bg-deletion-override: var(--diff-del-bg);
+  --diffs-bg-addition-number-override: var(--diff-add-bg);
+  --diffs-bg-deletion-number-override: var(--diff-del-bg);
+  --diffs-bg-addition-emphasis-override: var(--diff-add-word-bg);
+  --diffs-bg-deletion-emphasis-override: var(--diff-del-word-bg);
+  --diffs-fg-number-addition-override: var(--diffs-fg-number-override);
+  --diffs-fg-number-deletion-override: var(--diffs-fg-number-override);
+  --diffs-bg-separator-override: var(--diff-hunk-header-bg);
+  --diffs-bg-buffer-override: var(--diff-empty-bg);
 }
 
 /* Files Tab · Markdown 预览：prose（@tailwindcss/typography）色板对齐工作区 token。 */
@@ -684,22 +668,4 @@
   font-feature-settings:
     'liga' 0,
     'calt' 0;
-}
-
-/* —— Diff 面板滚动结构：横向滚动条常驻面板底部 ——
-   库的滚动容器默认与整表同高（横向条藏在表尾，滚到底才可见）；把高度链传导进容器、
-   纵向滚动收进容器内后，横竖滚动条都固定在面板边缘（实测仅此写法有效：外层固定高度 /
-   DiffView 的 style prop 均无效，见 ADR-0007）。split 两栏的纵横滚动由库内置
-   syncScroll（scrollTop + scrollLeft 双向）自动同步，无需自写。 */
-.diff-tailwindcss-wrapper,
-.diff-tailwindcss-wrapper .diff-style-root,
-.diff-tailwindcss-wrapper .diff-view-wrapper,
-.diff-tailwindcss-wrapper .split-diff-view,
-.diff-tailwindcss-wrapper .unified-diff-view {
-  height: 100%;
-}
-.diff-tailwindcss-wrapper .diff-table-scroll-container {
-  max-height: 100%;
-  /* 库以工具类写死 overflow-y: hidden，需 !important 压过 */
-  overflow-y: auto !important;
 }

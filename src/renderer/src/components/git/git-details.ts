@@ -3,6 +3,7 @@
 // 与 React 无关；组件文件受 react-refresh only-export-components 限制不宜导出纯函数，
 // 故独立成模块供 GitCommitDetails / GitDiffView 消费并单测（写法对齐 git-format.ts）。
 
+import type { FileDiffMetadata } from '@pierre/diffs'
 import { findUrls } from '@renderer/lib/text-urls'
 import {
   GIT_INDEX,
@@ -481,28 +482,63 @@ export function diffNavIndex(
   )
 }
 
-/**
- * 单文件 diff 原文按 `diff --git` 拆成段：文件与符号链接互换时 git 输出两段（删掉旧类型、新增新类型，ADR-0059），
- * diff 库一个原文只认一段，要以多段列表交给它；只有一段时原样一段。
- */
-export function diffSections(raw: string): string[] {
-  return raw.split(/^(?=diff --git )/m).filter((section) => section !== '')
+/** 改动块首行：所在段（diff 库解析出的文件段下标）+ 行号与所在侧。 */
+export interface ChangeBlockStart {
+  section: number
+  lineNumber: number
+  side: 'deletions' | 'additions'
 }
 
-/** 行「是否改动行」序列 → 各改动块首行下标（连续改动行合为一块，同 WebStorm 的 change）。 */
-export function changeBlockStarts(isDiffRow: readonly boolean[]): number[] {
-  const starts: number[] = []
-  for (let i = 0; i < isDiffRow.length; i++) {
-    if (isDiffRow[i] && (i === 0 || !isDiffRow[i - 1])) starts.push(i)
-  }
+/**
+ * 各改动块的首行（连续改动行合为一块，同 WebStorm 的 change；即 diff 库的 change 内容段）。有删除行时取删除侧首行
+ * ——统一视图里删除行排在新增行前；否则取新增侧首行。按段、行序排列。段：文件与符号链接互换时 git 输出两段
+ * （删掉旧类型、新增新类型，ADR-0059），diff 库解析成两个文件段。
+ */
+export function changeBlockStarts(sections: readonly FileDiffMetadata[]): ChangeBlockStart[] {
+  const starts: ChangeBlockStart[] = []
+  sections.forEach((fileDiff, section) => {
+    for (const hunk of fileDiff.hunks) {
+      for (const content of hunk.hunkContent) {
+        if (content.type !== 'change') continue
+        starts.push(
+          content.deletions > 0
+            ? {
+                section,
+                lineNumber: hunk.deletionStart + content.deletionLineIndex - hunk.deletionLineIndex,
+                side: 'deletions'
+              }
+            : {
+                section,
+                lineNumber: hunk.additionStart + content.additionLineIndex - hunk.additionLineIndex,
+                side: 'additions'
+              }
+        )
+      }
+    }
+  })
   return starts
 }
 
-/** 视口锚位置对应的当前改动块下标：最后一个 top 不超过锚（+2px 容差）的块；全在锚下方为 -1。 */
-export function currentBlockIndex(tops: readonly number[], anchorY: number): number {
+/**
+ * 视口锚位置对应的当前改动块下标：最后一个 top 不超过锚（+2px 容差）的块；全在锚下方为 -1。块按 top 升序，
+ * 二分查找，只取 O(log n) 个块的位置（每个位置都要现算，大 diff 的块有数百个）。
+ */
+export function currentBlockIndex(
+  count: number,
+  topOf: (index: number) => number,
+  anchorY: number
+): number {
   let idx = -1
-  for (let i = 0; i < tops.length; i++) {
-    if (tops[i] <= anchorY + 2) idx = i
+  let lo = 0
+  let hi = count - 1
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1
+    if (topOf(mid) <= anchorY + 2) {
+      idx = mid
+      lo = mid + 1
+    } else {
+      hi = mid - 1
+    }
   }
   return idx
 }

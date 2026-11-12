@@ -1,6 +1,7 @@
 // git-details 纯函数测试：文件树构建/压缩/排序、diff 可点性、diff 端点解析、
 // 正文分词（URL 自动链接）、diff 盖板收口（details-diff 规格）。
 import { describe, expect, it } from 'vitest'
+import { parsePatchFiles, type FileDiffMetadata } from '@pierre/diffs'
 import { GIT_INDEX, UNCOMMITTED, type GitFileChange } from '@shared/git'
 import {
   buildFileTree,
@@ -9,7 +10,6 @@ import {
   changeBlockStarts,
   diffNavIndex,
   diffNavSequence,
-  diffSections,
   fileRowTitle,
   filesInSelection,
   flattenFileTree,
@@ -655,39 +655,56 @@ describe('diffNavSequence / diffNavIndex', () => {
 })
 
 describe('changeBlockStarts / currentBlockIndex', () => {
-  it('连续改动行合为一块，取各块首行下标', () => {
-    expect(changeBlockStarts([])).toEqual([])
-    expect(changeBlockStarts([true, true, false, true])).toEqual([0, 3])
-    expect(changeBlockStarts([false, true, true, false, false, true])).toEqual([1, 5])
+  const sections = (raw: string): FileDiffMetadata[] =>
+    parsePatchFiles(raw).flatMap((patch) => patch.files)
+
+  it('连续改动行合为一块：有删除取删除侧首行，纯新增取新增侧首行（行号按 hunk 起点换算）', () => {
+    const raw =
+      'diff --git a/x b/x\nindex 1..2 100644\n--- a/x\n+++ b/x\n' +
+      '@@ -10,5 +10,6 @@\n a\n-b\n+B\n c\n d\n+e\n f\n' +
+      '@@ -30,2 +31,1 @@\n x\n-y\n'
+    expect(changeBlockStarts(sections(raw))).toEqual([
+      { section: 0, lineNumber: 11, side: 'deletions' },
+      { section: 0, lineNumber: 14, side: 'additions' },
+      { section: 0, lineNumber: 31, side: 'deletions' }
+    ])
   })
 
-  it('当前块 = 最后一个 top 不超过锚（+2px 容差）的块；全在锚下方为 -1', () => {
-    const tops = [100, 300, 500]
-    expect(currentBlockIndex(tops, 0)).toBe(-1)
-    expect(currentBlockIndex(tops, 98)).toBe(0) // 容差内视为已到首块
-    expect(currentBlockIndex(tops, 100)).toBe(0)
-    expect(currentBlockIndex(tops, 299)).toBe(1)
-    expect(currentBlockIndex(tops, 700)).toBe(2)
-    expect(currentBlockIndex([], 100)).toBe(-1)
-  })
-})
-
-describe('diffSections', () => {
-  it('一段原文原样一段', () => {
-    const raw = 'diff --git a/x b/x\nindex 1..2 100644\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-a\n+b\n'
-    expect(diffSections(raw)).toEqual([raw])
-  })
-
-  it('类型变化的两段（删掉旧类型、新增新类型）拆开', () => {
+  it('类型变化的两段（删掉旧类型、新增新类型）各自成段', () => {
     const removed =
       'diff --git a/x b/x\ndeleted file mode 100644\n--- a/x\n+++ /dev/null\n@@ -1 +0,0 @@\n-hello\n'
     const added =
       'diff --git a/x b/x\nnew file mode 120000\n--- /dev/null\n+++ b/x\n@@ -0,0 +1 @@\n+target\n\\ No newline at end of file\n'
-    expect(diffSections(removed + added)).toEqual([removed, added])
+    expect(changeBlockStarts(sections(removed + added))).toEqual([
+      { section: 0, lineNumber: 1, side: 'deletions' },
+      { section: 1, lineNumber: 1, side: 'additions' }
+    ])
   })
 
-  it('正文里不在行首的 diff --git 不算分段', () => {
-    const raw = 'diff --git a/x b/x\n@@ -1 +1 @@\n-say diff --git\n+ok\n'
-    expect(diffSections(raw)).toEqual([raw])
+  it('无 hunk（纯重命名）没有改动块', () => {
+    const raw = 'diff --git a/x b/y\nsimilarity index 100%\nrename from x\nrename to y\n'
+    expect(changeBlockStarts(sections(raw))).toEqual([])
+  })
+
+  it('当前块 = 最后一个 top 不超过锚（+2px 容差）的块；全在锚下方为 -1', () => {
+    const tops = [100, 300, 500]
+    const at = (anchor: number): number => currentBlockIndex(tops.length, (i) => tops[i], anchor)
+    expect(at(0)).toBe(-1)
+    expect(at(98)).toBe(0) // 容差内视为已到首块
+    expect(at(100)).toBe(0)
+    expect(at(299)).toBe(1)
+    expect(at(700)).toBe(2)
+    expect(currentBlockIndex(0, () => 0, 100)).toBe(-1)
+  })
+
+  it('只取对数级个数的块位置（大 diff 每个位置都要现算）', () => {
+    const tops = Array.from({ length: 512 }, (_, i) => i * 100)
+    let calls = 0
+    const topOf = (i: number): number => {
+      calls++
+      return tops[i]
+    }
+    expect(currentBlockIndex(tops.length, topOf, 25_050)).toBe(250)
+    expect(calls).toBeLessThanOrEqual(10)
   })
 })

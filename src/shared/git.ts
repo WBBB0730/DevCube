@@ -498,6 +498,8 @@ export interface GitViewPrefs {
   pushTagSkipRemoteCheck: boolean
   /** diff 面板视图模式：false = 统一（unified），true = 左右对比（side-by-side）；跨会话记忆 */
   diffSplitView: boolean
+  /** diff 面板长行自动换行（两种视图共用）：false = 不换行、横向滚动；跨会话记忆 */
+  diffWrapLines: boolean
 }
 
 /** BooleanOverride 为 'default' 时的应用级默认值与其它全局常量。 */
@@ -534,7 +536,8 @@ export const DEFAULT_GIT_VIEW_PREFS: GitViewPrefs = {
   findOpenCommitDetailsView: false,
   alwaysAcceptCheckoutCommit: false,
   pushTagSkipRemoteCheck: false,
-  diffSplitView: true
+  diffSplitView: true,
+  diffWrapLines: false
 }
 
 /** 解一个三态开关的有效值。 */

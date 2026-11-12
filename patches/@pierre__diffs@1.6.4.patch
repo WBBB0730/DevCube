@@ -1,0 +1,269 @@
+diff --git a/dist/components/CodeView.d.ts b/dist/components/CodeView.d.ts
+index 234ec4baa4a9364088917b24a64a6377d16583f8..754f0374e41ded32b1cb2dbbdc2a9a4e49423f1d 100644
+--- a/dist/components/CodeView.d.ts
++++ b/dist/components/CodeView.d.ts
+@@ -1,4 +1,4 @@
+-import { CodeViewDiffItem, CodeViewFileItem, CodeViewItem, CodeViewLayout, CodeViewScrollTarget, HunkSeparators, SelectedLineRange, SmoothScrollSettings, VirtualFileMetrics, VirtualWindowSpecs } from "../types.js";
++import { CodeViewDiffItem, CodeViewFileItem, CodeViewItem, CodeViewLayout, CodeViewScrollTarget, HunkSeparators, SelectedLineRange, SelectionSide, SmoothScrollSettings, VirtualFileMetrics, VirtualWindowSpecs } from "../types.js";
+ import { EditCompletionDecision, EditorChangeEvent, EditorType, FileDiffEditCompleteEvent, FileEditCompleteEvent } from "../editor/types.js";
+ import { SelectionWriteOptions } from "../managers/InteractionManager.js";
+ import { WorkerPoolManager } from "../worker/WorkerPoolManager.js";
+@@ -300,13 +300,27 @@ declare class CodeView<LAnnotation = undefined, Caret = undefined> {
+   getContainerElement(): HTMLElement | undefined;
+   getHeaderElement(): HTMLElement | undefined;
+   getFooterElement(): HTMLElement | undefined;
++  /**
++   * 补丁（DevCube）：把代码列的横向滚动条放进滚动区之外的这个元素（统一视图一条、左右对比两条，与代码列
++   * 双向同步），库自带的那条隐藏；传 undefined 解除。
++   */
++  attachHorizontalScrollbar(element: HTMLElement | undefined): void;
+   getRenderedItems(): CodeViewRenderedItem<LAnnotation, Caret>[];
+   setSlotCoordinator(coordinator?: CodeViewCoordinator<LAnnotation, Caret>): boolean;
+   getSlotSnapshot(coordinator: CodeViewCoordinator<LAnnotation, Caret>): CodeViewSlotSnapshot<LAnnotation, Caret> | undefined;
+   private buildSlotSnapshot;
+   subscribeToScroll(listener: CodeViewScrollListener<LAnnotation, Caret>): () => void;
++  /**
++   * 补丁（DevCube）：订阅每轮渲染的收尾（滚动位置、视口尺寸与各行位置都在一轮渲染里落定）；返回退订函数。
++   */
++  subscribeToRender(listener: (viewer: CodeView<LAnnotation, Caret>) => void): () => void;
+   getLocalTopForInstance(instance: CodeViewVirtualizedInstanceKey): number;
+   getTopForItem(id: string): number | undefined;
++  /**
++   * 补丁（DevCube）：条目内某行的 top（滚动内容坐标），与 scrollTo 的 line 目标同一算法，条目不必已渲染；
++   * 条目或行不存在时为 undefined。
++   */
++  getTopForLine(id: string, lineNumber: number, side?: SelectionSide): number | undefined;
+   private createItem;
+   private applySelectedLines;
+   private syncSelection;
+diff --git a/dist/components/CodeView.js b/dist/components/CodeView.js
+index ee5c91c5ab44742994d900a81dbd8e9c508efb49..3354304ef9fc4fb4a38f4ecba797ea3a644ec18e 100644
+--- a/dist/components/CodeView.js
++++ b/dist/components/CodeView.js
+@@ -159,6 +159,8 @@ var CodeView = class CodeView {
+ 	slotCoordinator;
+ 	slotSnapshot;
+ 	scrollListeners = /* @__PURE__ */ new Set();
++	/** 补丁（DevCube）：渲染收尾的订阅者（见 subscribeToRender）。 */
++	renderListeners = /* @__PURE__ */ new Set();
+ 	scrollHeight = 0;
+ 	containerHeight = -1;
+ 	scrollTop = 0;
+@@ -397,20 +399,6 @@ var CodeView = class CodeView {
+ 		this.root.addEventListener("keydown", this.clearPendingScroll, { passive: true });
+ 		this.resizeObserver.observe(this.root);
+ 		this.render(true);
+-		window.__INSTANCE = this;
+-		window.__TOGGLE = () => {
+-			if (CodeView.__STOP) {
+-				CodeView.__STOP = false;
+-				this.scrollTo({
+-					type: "position",
+-					position: CodeView.__lastScrollPosition,
+-					behavior: "instant"
+-				});
+-			} else {
+-				CodeView.__lastScrollPosition = this.getScrollTop();
+-				CodeView.__STOP = true;
+-			}
+-		};
+ 	}
+ 	reset() {
+ 		dequeueRender(this.computeRenderRangeAndEmit);
+@@ -489,6 +477,7 @@ var CodeView = class CodeView {
+ 		this.root?.removeEventListener("pointerdown", this.clearPendingScroll);
+ 		this.root?.removeEventListener("keydown", this.clearPendingScroll);
+ 		this.root?.style.removeProperty("overflow-anchor");
++		this.attachHorizontalScrollbar(void 0);
+ 		this.container?.remove();
+ 		this.stickyOffset.remove();
+ 		this.stickyContainer.remove();
+@@ -859,6 +848,144 @@ var CodeView = class CodeView {
+ 	getFooterElement() {
+ 		return this.footer.element;
+ 	}
++	/**
++	* 补丁（DevCube）：把代码列的横向滚动条移到滚动区之外。代码列各自横向滚动、高度随内容，库自带的
++	* 横向滚动条长在内容底部：内容短时悬在中间，内容长时在视口之外。传入一个放在滚动区下方的元素后，
++	* 在里面为每个代码列（统一视图一列、左右对比两列）各放一条原生横向滚动条，横向位置与宽度对齐该列、
++	* 滚动范围取该列的 scrollWidth，与代码列双向同步（多个条目时作用于全部已渲染的条目）；库自带的那条隐藏。
++	* 不换行（overflow: scroll）且有横向溢出时才显示，否则该元素高度为 0。传 undefined 解除。
++	*/
++	attachHorizontalScrollbar(element) {
++		const previous = this.horizontalScrollbar;
++		if (previous != null) {
++			if (previous.element === element) return;
++			for (const track of previous.tracks) track.element.remove();
++			previous.element.style.removeProperty("position");
++			previous.element.style.removeProperty("overflow");
++			previous.element.style.removeProperty("height");
++			this.root?.removeEventListener("wheel", this.handleHorizontalWheel);
++			this.root?.style.removeProperty("--diffs-scrollbar-gutter-override");
++			this.horizontalScrollbar = void 0;
++		}
++		if (element == null) return;
++		element.style.position = "relative";
++		// 各条按代码列的位置与 clientWidth（取整）摆放，可能比容器宽出零点几像素：裁掉，免得撑出外层的滚动条
++		element.style.overflow = "hidden";
++		this.root?.style.setProperty("--diffs-scrollbar-gutter-override", "0px");
++		this.root?.addEventListener("wheel", this.handleHorizontalWheel, { passive: true });
++		this.horizontalScrollbar = { element, tracks: [] };
++		this.syncHorizontalScrollbar();
++	}
++	/**
++	* 补丁（DevCube）：已渲染条目的代码列。各列按当前模式留住或清掉可滚宽度（见 keepCodeColumnWidth）；不换行时
++	* 按列分组返回（统一视图一组、左右对比删除 / 新增两组），换行时为空。
++	*/
++	getRenderedCodeColumns() {
++		const groups = [];
++		const { diffStyle = "split", overflow = "scroll" } = this.options;
++		for (const item of this.getRenderedItems()) {
++			if (item.type !== "diff") continue;
++			const columns = diffStyle === "split" ? [item.instance.codeDeletions, item.instance.codeAdditions] : [item.instance.codeUnified];
++			columns.forEach((column, index) => {
++				if (column == null) return;
++				this.keepCodeColumnWidth(column, `${item.version}|${diffStyle}|${overflow}`);
++				if (overflow === "scroll") (groups[index] ??= []).push(column);
++			});
++		}
++		return groups;
++	}
++	/**
++	* 补丁（DevCube）：代码列的可滚宽度只增不减（同 VS Code / CodeMirror）。只渲染视口附近的行时，内容列宽度
++	* 随已渲染的行变，经过长行后又缩回去、滚动范围来回跳。记下出现过的最宽内容（只在真有横向溢出时取：列的
++	* scrollWidth 减去行号栏）留住它。代码列元素由库复用，换内容（条目 version）、换视图或切换换行时清掉重记；
++	* 换行模式不留（折行按视口宽排）。代码列有两种布局：有分段标题时是网格、内容列为子网格（子网格自身的
++	* min-width 撑不开所在的列），宽度写进库的列模板变量 --diffs-code-grid；否则是 flex，写内容列的 min-width。
++	*/
++	keepCodeColumnWidth(column, stamp) {
++		const content = column.querySelector(":scope > [data-content]");
++		this.codeColumnWidths ??= new WeakMap();
++		let record = this.codeColumnWidths.get(column);
++		if (record?.stamp !== stamp) {
++			content?.style.removeProperty("min-width");
++			column.style.removeProperty("--diffs-code-grid");
++			record = { stamp, width: 0 };
++			this.codeColumnWidths.set(column, record);
++		}
++		if ((this.options.overflow ?? "scroll") !== "scroll" || content == null || column.scrollWidth <= column.clientWidth) return;
++		const gutterWidth = column.querySelector(":scope > [data-gutter]")?.offsetWidth ?? 0;
++		const width = column.scrollWidth - gutterWidth;
++		if (width <= record.width) return;
++		record.width = width;
++		content.style.minWidth = `${width}px`;
++		column.style.setProperty("--diffs-code-grid", `var(--diffs-grid-number-column-width) minmax(${width}px, 1fr)`);
++	}
++	/** 补丁（DevCube）：按当前渲染结果重建 / 更新各条横向滚动条（位置、宽度、滚动范围、滚动位置）。 */
++	syncHorizontalScrollbar() {
++		const bar = this.horizontalScrollbar;
++		if (bar == null) return;
++		const groups = this.getRenderedCodeColumns();
++		while (bar.tracks.length > groups.length) bar.tracks.pop().element.remove();
++		while (bar.tracks.length < groups.length) bar.tracks.push(this.createHorizontalScrollbarTrack());
++		const barLeft = bar.element.getBoundingClientRect().left;
++		let height = 0;
++		groups.forEach((columns, index) => {
++			const track = bar.tracks[index];
++			track.columns = columns;
++			for (const column of columns) {
++				if (bar.listened?.has(column)) continue;
++				(bar.listened ??= new WeakSet()).add(column);
++				column.addEventListener("scroll", () => this.handleCodeColumnScroll(column), { passive: true });
++			}
++			const first = columns[0];
++			const scrollWidth = Math.max(...columns.map((column) => column.scrollWidth));
++			const overflows = scrollWidth > first.clientWidth;
++			track.element.style.display = overflows ? "" : "none";
++			if (!overflows) return;
++			const rect = first.getBoundingClientRect();
++			track.element.style.left = `${rect.left - barLeft + first.clientLeft}px`;
++			track.element.style.width = `${first.clientWidth}px`;
++			track.spacer.style.width = `${scrollWidth}px`;
++			if (Math.abs(track.element.scrollLeft - first.scrollLeft) >= 1) track.element.scrollLeft = first.scrollLeft;
++			// 高度只留原生滚动条的粗细：占位元素须有 1px 高才撑得出滚动范围，多出的这 1px 裁掉
++			const thickness = track.element.offsetHeight - track.element.clientHeight;
++			track.element.style.height = `${thickness}px`;
++			height = Math.max(height, thickness);
++		});
++		bar.element.style.height = `${height}px`;
++	}
++	/** 补丁（DevCube）：一条横向滚动条：自身只有原生横向滚动条，里面的占位元素撑出滚动范围。 */
++	createHorizontalScrollbarTrack() {
++		const element = document.createElement("div");
++		element.style.cssText = "position:absolute;bottom:0;overflow-x:scroll;overflow-y:hidden";
++		const spacer = document.createElement("div");
++		spacer.style.height = "1px";
++		element.appendChild(spacer);
++		const track = { element, spacer, columns: [] };
++		element.addEventListener("scroll", () => {
++			for (const column of track.columns) if (Math.abs(column.scrollLeft - element.scrollLeft) >= 1) column.scrollLeft = element.scrollLeft;
++		}, { passive: true });
++		this.horizontalScrollbar.element.appendChild(element);
++		return track;
++	}
++	/**
++	* 补丁（DevCube）：横向滚轮（触控板左右滑、Shift+滚轮）落在代码列以外（内容下方的空白、条目之间）时，
++	* 代码列收不到、滚动区自身又没有横向内容：转给各条横向滚动条，由它们带动代码列。落在代码列上的照常由
++	* 代码列自己滚。
++	*/
++	handleHorizontalWheel = (event) => {
++		const tracks = this.horizontalScrollbar?.tracks;
++		if (tracks == null || tracks.length === 0) return;
++		const deltaX = event.deltaX !== 0 ? event.deltaX : event.shiftKey ? event.deltaY : 0;
++		if (deltaX === 0) return;
++		const path = event.composedPath();
++		if (tracks.some((track) => track.columns.some((column) => path.includes(column)))) return;
++		for (const track of tracks) track.element.scrollLeft += deltaX;
++	};
++	/** 补丁（DevCube）：代码列被横向滚动（触控板、Shift+滚轮、左右对比的另一列同步）时，对应的滚动条跟上。 */
++	handleCodeColumnScroll(column) {
++		const track = this.horizontalScrollbar?.tracks.find((candidate) => candidate.columns.includes(column));
++		if (track != null && Math.abs(track.element.scrollLeft - column.scrollLeft) >= 1) track.element.scrollLeft = column.scrollLeft;
++	}
+ 	getRenderedItems() {
+ 		const { firstIndex, lastIndex } = this.renderState;
+ 		if (firstIndex === -1 || lastIndex === -1 || lastIndex < firstIndex) return [];
+@@ -911,6 +1038,16 @@ var CodeView = class CodeView {
+ 			this.scrollListeners.delete(listener);
+ 		};
+ 	}
++	/**
++	* 补丁（DevCube）：订阅每轮渲染的收尾。滚动位置、视口尺寸与各行位置（换选项、换条目、行高实测）都在一轮
++	* 渲染里落定，依赖它们的派生状态在这里重算；返回退订函数。
++	*/
++	subscribeToRender(listener) {
++		this.renderListeners.add(listener);
++		return () => {
++			this.renderListeners.delete(listener);
++		};
++	}
+ 	getLocalTopForInstance(instance) {
+ 		const item = this.instanceToItem.get(instance);
+ 		if (item == null) throw new Error("CodeView.getLocalTopForInstance: unknown virtualized instance");
+@@ -921,6 +1058,17 @@ var CodeView = class CodeView {
+ 		if (item == null) return;
+ 		return item.top + this.getItemTopOffset();
+ 	}
++	/**
++	* 补丁（DevCube）：条目内某行的 top（滚动内容坐标），与 scrollTo 的 line 目标同一算法，按库的布局模型算，
++	* 条目不必已渲染；条目或行不存在时为 undefined。
++	*/
++	getTopForLine(id, lineNumber, side) {
++		const item = this.idToItem.get(id);
++		if (item == null) return;
++		const position = this.getLineScrollPosition(item, { lineNumber, side });
++		if (position == null) return;
++		return item.top + this.getItemTopOffset() + position.top;
++	}
+ 	createItem(input, index, top) {
+ 		const { itemMetricsCache: itemMetrics } = this;
+ 		if (input.type === "diff") {
+@@ -1714,6 +1862,8 @@ var CodeView = class CodeView {
+ 		this.updateStickyPositioning();
+ 		this.validateStickyContainerHeight();
+ 		this.fixContainerFocus();
++		this.syncHorizontalScrollbar();
++		for (const listener of this.renderListeners) listener(this);
+ 		if (fitPerfectly || this.scrollAnimation != null) this.render();
+ 	};
+ 	flushManagers(updatedItems) {
