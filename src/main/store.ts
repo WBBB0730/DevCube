@@ -63,6 +63,7 @@ export async function initStore(): Promise<void> {
       dataSourceCompletionUsage: {},
       configs: [],
       runParams: {},
+      runsToRerun: [],
       gitSettings: {},
       gitUi: {},
       gitViewPrefs: DEFAULT_GIT_VIEW_PREFS,
@@ -322,6 +323,15 @@ export function setRunParams(configId: string, params: RunParams): void {
 /** 配置被删掉（删除配置、移除它所在的条目）时删掉它记住的参数值。 */
 export function deleteRunParams(configIds: string[]): void {
   deleteEntries('runParams', configIds)
+}
+
+/** 点「立即更新」退出时运行中的配置 id；没有为空。 */
+export function getRunsToRerun(): string[] {
+  return store.get('runsToRerun')
+}
+
+export function setRunsToRerun(configIds: string[]): void {
+  store.set('runsToRerun', configIds)
 }
 
 // —— Git 设置（每项目）与视图偏好 ——

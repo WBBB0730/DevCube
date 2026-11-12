@@ -34,6 +34,8 @@ import { IPC } from '../shared/ipc'
 import { resolveReleaseEdition } from '../shared/release-edition'
 import { addSpeedSample, remainingSecondsOf, speedOf, type SpeedSample } from '../shared/task'
 import { broadcast } from './app-window'
+import { runningConfigIds } from './runner'
+import { getRunsToRerun, setRunsToRerun } from './store'
 
 const STARTUP_JITTER_MAX_MS = 30_000
 const CHECK_INTERVAL_MS = 4 * 60 * 60 * 1000
@@ -362,7 +364,7 @@ export async function checkAppUpdates(opts?: { force?: boolean }): Promise<AppUp
 }
 
 /**
- * 顶栏 / 关于：按形态打开 Release，或走 `app.quit()` 让 before-quit 清理后安装。
+ * 顶栏 / 关于：按形态打开 Release，或经 quitForUpdate 退出、清理后安装。
  * 不可在此处直接 `quitAndInstall`：会被 before-quit 的 preventDefault 吞掉（表现为按钮无反应）。
  */
 export function performUpdateButtonAction(): { startedInstall: boolean } {
@@ -375,8 +377,24 @@ export function performUpdateButtonAction(): { startedInstall: boolean } {
   }
 
   if (phase !== 'ready') return { startedInstall: false }
-  app.quit()
+  quitForUpdate()
   return { startedInstall: true }
+}
+
+/**
+ * 「重启并更新」：记下运行中的配置（新版本启动后问一次要不要重新运行），再走 `app.quit()` 让 before-quit 清理；有待装
+ * 更新时清理后安装，开发版绿色预览钮没有更新可装，就只是退出。调用方须已先过退出确认（取消时什么都不记）。
+ */
+export function quitForUpdate(): void {
+  setRunsToRerun(runningConfigIds())
+  app.quit()
+}
+
+/** 上次点「立即更新」退出时运行中的配置 id；取一次即清空，新版本启动后只问一次。 */
+export function takeRunsToRerun(): string[] {
+  const ids = getRunsToRerun()
+  if (ids.length > 0) setRunsToRerun([])
+  return ids
 }
 
 /** 开发版顶栏绿色按钮：读工作区 CHANGELOG.md 做本地预览，不联网（docs/prd/changelog.md）。 */

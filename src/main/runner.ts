@@ -885,6 +885,18 @@ export function getQuitGuardSessions(): QuitGuardSession[] {
   ]
 }
 
+/** 运行中的 Run Session 所属的配置 id（本机与服务器上的；数据源上的配置不经这里，见 data-source-runs）。 */
+export function runningConfigIds(): string[] {
+  const running = new Set(
+    [...sessions.values()]
+      .filter((s) => s.kind === 'run' && s.status === 'running')
+      .map((s) => s.key)
+  )
+  return getConfigs()
+    .filter((c) => running.has(configKey(c)))
+    .map((c) => c.id)
+}
+
 /**
  * 彻底销毁一个会话：在跑则先杀进程树，从 Map 移除，并通知渲染端清除其状态。
  * 用于配置被删除 / 对账移除 / 项目移除 —— 区别于用户「停止」（后者保留历史以便回看）。

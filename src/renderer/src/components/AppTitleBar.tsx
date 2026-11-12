@@ -1,6 +1,5 @@
 import { useState } from 'react'
 import { CircleArrowUp, Settings } from 'lucide-react'
-import { GITHUB_REPO_URL } from '@shared/app-update'
 import type { AppUpdateState, DevUpdatePreview } from '@shared/app-update-state'
 import { UpdateDialog } from '@renderer/components/UpdateDialog'
 import { TaskButton } from '@renderer/components/tasks/TaskButton'
@@ -162,11 +161,11 @@ export function AppTitleBar({
       {devPreview && (
         <UpdateDialog
           {...devPreview}
-          action="openRelease"
+          action="quitAndInstall"
           onConfirm={() => {
             setDevPreview(null)
-            // 预览的版本尚未发布，没有自己的 Release 页，去列表页
-            void window.api.openExternal(`${GITHUB_REPO_URL}/releases`)
+            // 走真实的退出流程（退出确认、记下运行中的配置、清理），只是没有更新可装：退出后要手动再起开发版
+            void window.api.performDevUpdateAction()
           }}
           onCancel={() => setDevPreview(null)}
         />

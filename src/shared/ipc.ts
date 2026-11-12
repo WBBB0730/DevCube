@@ -294,7 +294,9 @@ export const IPC = {
   appUpdateGet: 'app-update:get',
   appUpdateCheck: 'app-update:check',
   appUpdatePerform: 'app-update:perform',
+  appUpdateTakeRunsToRerun: 'app-update:take-runs-to-rerun',
   appUpdateState: 'app-update:state',
-  /** 仅未包装开发：顶栏绿色按钮读工作区 CHANGELOG.md 做本地预览 */
-  appUpdateDevPreview: 'app-update:dev-preview'
+  /** 仅未包装开发：顶栏绿色按钮读工作区 CHANGELOG.md 做本地预览；确认走真实的退出流程，只是没有更新可装 */
+  appUpdateDevPreview: 'app-update:dev-preview',
+  appUpdateDevPerform: 'app-update:dev-perform'
 } as const

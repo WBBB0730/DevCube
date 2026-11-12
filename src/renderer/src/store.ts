@@ -22,6 +22,7 @@ import type {
   DataSourceNode
 } from '@shared/data-source'
 import { runConfigParamNames, type RunParams } from '@shared/run-params'
+import { rerunPrompt, runsToRerun } from '@shared/app-update-rerun'
 import { serverConnectionChanged, type ServerInput, type ServerNode } from '@shared/server'
 import type { SshPromptRequest, SshPromptResponse } from '@shared/ssh-connect'
 import type { TransferConflictRequest, TransferConflictResponse } from '@shared/server-files'
@@ -761,6 +762,29 @@ async function askRunParams(
   return params
 }
 
+/**
+ * 点「立即更新」重启前在运行的配置（Project 与 Server 上的）：问一次要不要重新运行。参数用上次填的值、不再弹参数框；
+ * 不动选中与激活，记着的激活 Tab 随会话出现自然生效。运行序号照常 +1（同 run）。
+ */
+async function offerRunsToRerun(set: SetApp, get: () => AppState): Promise<void> {
+  const { tree, servers, askConfirm } = get()
+  const groups = runsToRerun(await window.api.takeRunsToRerun(), tree, servers)
+  const runs = groups.flatMap((g) => g.runs)
+  if (runs.length === 0) return
+  if (!(await askConfirm({ ...rerunPrompt(groups), confirmLabel: '重新运行' }))) return
+  set((state) => ({
+    runNonce: {
+      ...state.runNonce,
+      ...Object.fromEntries(runs.map(({ key }) => [key, (state.runNonce[key] ?? 0) + 1]))
+    }
+  }))
+  await Promise.all(
+    runs.map(async ({ id }) =>
+      window.api.run({ type: 'config', id, params: await window.api.getRunParams(id) })
+    )
+  )
+}
+
 export const useApp = create<AppState>((set, get) => ({
   ...initialWorkspaceSlice(),
   theme: initialTheme(),
@@ -839,7 +863,8 @@ export const useApp = create<AppState>((set, get) => ({
     }
     return window.api.closeSession(key)
   },
-  // 首屏已由 preload bootstrap 灌入；此处只做打开对账（touch / 懒 spawn）。HMR 时再拉一遍快照。
+  // 首屏已由 preload bootstrap 灌入；此处只做打开对账（touch / 懒 spawn），并问更新前在运行的配置要不要重跑。
+  // HMR 时再拉一遍快照。
   init: async () => {
     if (import.meta.env.DEV) {
       const [
@@ -884,6 +909,7 @@ export const useApp = create<AppState>((set, get) => ({
       )
     }
     persistWorkspace(get)
+    void offerRunsToRerun(set, get)
   },
   // 添加成功或命中已有项目：选中并滚入视口；取消 / 无效路径则只刷新树。
   addProject: async () => {

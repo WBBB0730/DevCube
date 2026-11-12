@@ -327,6 +327,8 @@ export interface PersistedState {
   configs: RunConfig[]
   /** 命令型配置上次运行时填的参数值（键 = 配置 id；删除配置、移除所在条目时删掉） */
   runParams: Record<string, RunParams>
+  /** 点「立即更新」退出时运行中的配置 id（新版本启动后问一次要不要重新运行，取走即清空） */
+  runsToRerun: string[]
   /**
    * 每仓库 git 设置（键 = GitRepo.path：项目自己的仓库为项目绝对路径，嵌套仓库为它的根目录；
    * 存的是覆写快照，读取时与默认值合并）
@@ -982,7 +984,14 @@ export interface RunAPI extends GitAPI, GitHubAPI {
   checkAppUpdates(force?: boolean): Promise<AppUpdateState>
   /** 顶栏更新按钮：安装或打开 Release */
   performAppUpdateAction(): Promise<{ startedInstall: boolean }>
+  /** 上次点「立即更新」退出时运行中的配置 id；取一次即清空 */
+  takeRunsToRerun(): Promise<string[]>
   onAppUpdateState(cb: (state: AppUpdateState) => void): () => void
   /** 仅未包装开发（顶栏绿色按钮）：读工作区 CHANGELOG.md 生成更新弹窗的本地预览 */
   getDevChangelogPreview(): Promise<DevUpdatePreview>
+  /**
+   * 仅未包装开发（顶栏绿色按钮）：预览弹窗的「重启并更新」，走与真实更新同一套退出确认、记下运行中的配置与退出清理，
+   * 只是没有更新可装（退出后不重开）
+   */
+  performDevUpdateAction(): Promise<void>
 }

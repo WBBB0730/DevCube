@@ -304,7 +304,9 @@ import {
   getAppUpdateState,
   getDevChangelogPreview,
   performUpdateButtonAction,
-  startAppUpdater
+  quitForUpdate,
+  startAppUpdater,
+  takeRunsToRerun
 } from './app-updater'
 import { confirmQuitIfNeeded } from './quit-confirm'
 import { markQuitAllowed } from './app-shutdown'
@@ -350,6 +352,13 @@ function grantedSysPaths(paths: readonly string[]): string[] {
 
 function liveMainWindow(): BrowserWindow | null {
   return mainWindow && !mainWindow.isDestroyed() ? mainWindow : null
+}
+
+/** 「重启并更新」前的退出确认（运行会话、文件传输等）：通过即放行这次退出，before-quit 不再问。 */
+async function confirmQuitForUpdate(): Promise<boolean> {
+  const ok = await confirmQuitIfNeeded(mainWindow)
+  if (ok) markQuitAllowed()
+  return ok
 }
 
 /** Git 动作结果 → 它那个 Task 的终局（提交不在远程这类追问不算失败）。 */
@@ -1427,13 +1436,18 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   ipcMain.handle(IPC.appUpdatePerform, async () => {
     const state = getAppUpdateState()
     if (!state.showButton) return { startedInstall: false }
-    if (state.buttonAction === 'quitAndInstall') {
-      const ok = await confirmQuitIfNeeded(mainWindow)
-      if (!ok) return { startedInstall: false }
-      markQuitAllowed()
+    if (state.buttonAction === 'quitAndInstall' && !(await confirmQuitForUpdate())) {
+      return { startedInstall: false }
     }
     return performUpdateButtonAction()
   })
-  // 本地预览只在未包装开发里有意义（打包产物不带 CHANGELOG.md），打包后不注册
-  if (!app.isPackaged) ipcMain.handle(IPC.appUpdateDevPreview, () => getDevChangelogPreview())
+  ipcMain.handle(IPC.appUpdateTakeRunsToRerun, () => takeRunsToRerun())
+  // 绿色预览钮只在未包装开发里有（本地预览要读工作区的 CHANGELOG.md，打包产物不带），打包后不注册
+  if (!app.isPackaged) {
+    ipcMain.handle(IPC.appUpdateDevPreview, () => getDevChangelogPreview())
+    // 预览弹窗的「重启并更新」：与真实更新同一套退出确认、记下运行中的配置与退出清理，只是没有更新可装
+    ipcMain.handle(IPC.appUpdateDevPerform, async () => {
+      if (await confirmQuitForUpdate()) quitForUpdate()
+    })
+  }
 }

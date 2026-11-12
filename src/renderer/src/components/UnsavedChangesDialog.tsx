@@ -21,7 +21,7 @@ export function UnsavedChangesDialog({
       message={
         single
           ? '修改还没有保存到服务器，不保存就会丢失。'
-          : `修改还没有保存到服务器，不保存就会丢失。\n\n${names.join('\n')}`
+          : `修改还没有保存到服务器，不保存就会丢失。\n${names.join('\n')}`
       }
       buttons={[{ label: single ? '保存' : '全部保存', onClick: () => onChoose('save') }]}
       onCancel={() => onChoose('cancel')}
