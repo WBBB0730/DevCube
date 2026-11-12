@@ -10,13 +10,22 @@ import (
 	"time"
 )
 
-// 起一个自成进程组、带后台子进程的命令，登记到 r 里。
+// 起一个自成进程组、带后台子进程的命令，等子进程都起来后登记到 r 里。
 func startGroup(t *testing.T, r *runs, id string) *exec.Cmd {
 	t.Helper()
-	cmd := exec.Command("sh", "-c", "sleep 30 & sleep 30")
+	// 子进程都起来后才输出 ok，之后 shell 只剩 wait、不再起进程；不等就发信号，会赶在子进程起来之前
+	cmd := exec.Command("sh", "-c", "sleep 30 & sleep 30 & printf ok; wait")
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	out, err := cmd.StdoutPipe()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := cmd.Start(); err != nil {
 		t.Fatal(err)
+	}
+	buf := make([]byte, 2)
+	if _, err := out.Read(buf); err != nil || string(buf) != "ok" {
+		t.Fatalf("%q %v", buf, err)
 	}
 	if err := os.WriteFile(filepath.Join(r.dir, id), []byte(strconv.Itoa(cmd.Process.Pid)), 0o600); err != nil {
 		t.Fatal(err)
@@ -46,10 +55,15 @@ func TestRunsKillEndsWholeGroup(t *testing.T) {
 		t.Fatal(err)
 	}
 	waitExit(t, cmd)
-	// 后台子进程也随组结束
-	if err := syscall.Kill(-cmd.Process.Pid, 0); err == nil {
-		t.Fatal("组里还有进程")
+	// 后台子进程也随组结束；它们和 shell 各自退出，限时等组里的进程都退出
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if err := syscall.Kill(-cmd.Process.Pid, 0); err != nil {
+			return
+		}
+		time.Sleep(20 * time.Millisecond)
 	}
+	t.Fatal("组里还有进程")
 }
 
 func TestRunsRejectsUnknownAndUnsafe(t *testing.T) {
