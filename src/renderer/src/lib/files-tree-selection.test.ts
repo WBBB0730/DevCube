@@ -8,6 +8,7 @@ import {
   selectOnly,
   selectPaths,
   selectRange,
+  selectionAfterRemoval,
   toggleSelected,
   treeArrowAction,
   type TreeArrowAction,
@@ -84,6 +85,35 @@ describe('remapSelection', () => {
   it('选中、焦点与锚点跟着改路径', () => {
     const s = remapSelection(selectOnly('/p/a/x'), (p) => p.replace('/p/a', '/p/z'))
     expect(s).toEqual({ paths: new Set(['/p/z/x']), focus: '/p/z/x', anchor: '/p/z/x' })
+  })
+})
+
+describe('selectionAfterRemoval（同 Zed）', () => {
+  const rows = ['/p/a', '/p/a/x', '/p/a/y', '/p/a/z', '/p/b', '/p/b/w', '/p/c.txt']
+  const after = (removed: string[]): string | null =>
+    selectionAfterRemoval(rows, removed, logicalParentPath)
+
+  it('落到同一文件夹里的下一项，没有就上一项，不跨出文件夹', () => {
+    expect(after(['/p/a/x'])).toBe('/p/a/y')
+    expect(after(['/p/a/z'])).toBe('/p/a/y')
+    expect(after(['/p/a'])).toBe('/p/b')
+    expect(after(['/p/c.txt'])).toBe('/p/b')
+  })
+
+  it('多项以树上最靠后的为准，一起删掉的跳过', () => {
+    expect(after(['/p/a/y', '/p/a/x'])).toBe('/p/a/z')
+    expect(after(['/p/a/x', '/p/a/z'])).toBe('/p/a/y')
+  })
+
+  it('文件夹里不剩别的就落到这个文件夹；文件夹是根时为 null', () => {
+    expect(after(['/p/b/w'])).toBe('/p/b')
+    expect(after(['/p/a/x', '/p/a/y', '/p/a/z'])).toBe('/p/a')
+    expect(selectionAfterRemoval(['/p/a'], ['/p/a'], logicalParentPath)).toBeNull()
+  })
+
+  it('删掉的文件夹里一并选中的条目不算，看不见的条目也不算', () => {
+    expect(after(['/p/a', '/p/a/z'])).toBe('/p/b')
+    expect(after(['/p/hidden'])).toBeNull()
   })
 })
 

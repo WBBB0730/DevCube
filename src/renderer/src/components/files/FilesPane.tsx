@@ -120,6 +120,7 @@ import {
   selectOnly,
   selectPaths,
   selectRange,
+  selectionAfterRemoval,
   toggleSelected,
   treeArrowAction,
   type TreeKeyRow,
@@ -2118,11 +2119,13 @@ export function FilesPane({
 
   /**
    * 条目没了（删除）：打开着的文件在其中即放掉并关掉它们的 Tab（先放掉，免得挂起的自动保存写回来），查找与阅读位置、
-   * 最近打开一并丢掉
+   * 最近打开一并丢掉。删掉了树上的焦点行时，选中按删除前看得见的行落到邻居（同 Zed，见 selectionAfterRemoval）；
+   * 当前栏正显示的也删了就打开它（是文件夹只选中），同方向键移到那一行。没删到焦点行的选中不动
    */
   const applyRemovals = useCallback(
     (paths: readonly string[]): void => {
       const gone = (p: string): boolean => paths.some((r) => p === r || p.startsWith(r + '/'))
+      const shown = activeEditorPath(layoutRef.current)
       const kept = Object.entries(docsRef.current).filter(([p]) => !gone(p))
       if (kept.length !== Object.keys(docsRef.current).length) {
         replaceDocs(Object.fromEntries(kept))
@@ -2139,8 +2142,16 @@ export function FilesPane({
       })
       dropScopedKeys(findMemory, gone)
       dropScopedKeys(viewMemory, gone)
+      // 落点在放掉旧文件之后再打开，免得换文件时把刚删的写回去
+      const focus = selectionRef.current.focus
+      if (focus === null || !gone(focus)) return
+      const next = selectionAfterRemoval(navPaths, paths, logicalParentPath)
+      setSelection(next === null ? EMPTY_SELECTION : selectOnly(next))
+      if (next !== null && shown !== null && gone(shown) && !keyRowByPath.get(next)?.isDirectory) {
+        void openFile(next)
+      }
     },
-    [replaceDocs, commitLayout, setUi, findMemory, viewMemory]
+    [replaceDocs, commitLayout, setUi, findMemory, viewMemory, navPaths, keyRowByPath, openFile]
   )
 
   /**
@@ -3218,7 +3229,11 @@ export function FilesPane({
           menu={treeMenu}
           onGoToLinkTarget={(target, isDirectory) => void goToEntry(target, isDirectory)}
           onClose={() => setTreeMenu(null)}
-          onRequest={setEntryDialog}
+          onRequest={(req) => {
+            // 菜单项随菜单卸掉，弹窗记下它当打开前的焦点就无处可还；先把焦点交回树，关掉后回到树（同在树上按键打开的）
+            treeScrollRef.current?.focus({ preventScroll: true })
+            setEntryDialog(req)
+          }}
         />
         {entryDialog !== null && (
           <FilesEntryDialog

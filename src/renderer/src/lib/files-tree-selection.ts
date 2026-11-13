@@ -91,6 +91,28 @@ export function selectedInOrder(selection: TreeSelection, rows: readonly string[
   return rows.filter((p) => selection.paths.has(p))
 }
 
+/**
+ * 删除之后选中落到哪一行（同 Zed 项目面板的 find_next_selection_after_deletion）：以删掉的条目里树上最靠后的
+ * 那个为准，取同一文件夹里它的下一项，没有就取上一项（一起删掉的都跳过），文件夹里不剩别的就落到这个文件夹；
+ * 这个文件夹是根（不在行里）时为 null。rows 为删除前看得见的行。
+ */
+export function selectionAfterRemoval(
+  rows: readonly string[],
+  removed: readonly string[],
+  parentOf: (path: string) => string
+): string | null {
+  const under = (p: string, base: string): boolean => p === base || p.startsWith(base + '/')
+  const gone = (p: string): boolean => removed.some((r) => under(p, r))
+  // 删掉的文件夹里一并选中的条目不算：落点只看最外层删掉的那些
+  const tops = new Set(removed.filter((r) => !removed.some((o) => o !== r && under(r, o))))
+  const last = rows.findLast((p) => tops.has(p))
+  if (last === undefined) return null
+  const parent = parentOf(last)
+  const siblings = rows.filter((p) => p === last || (parentOf(p) === parent && !gone(p)))
+  const at = siblings.indexOf(last)
+  return siblings[at + 1] ?? siblings[at - 1] ?? (rows.includes(parent) ? parent : null)
+}
+
 /** 树里一行的情况（方向键要看） */
 export interface TreeKeyRow {
   path: string
