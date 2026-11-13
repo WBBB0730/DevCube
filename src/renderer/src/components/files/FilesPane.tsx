@@ -101,6 +101,7 @@ import { adjacentMediaPath, isMediaPreviewPath, isSvgPath } from '@shared/files-
 import { FilesGutterHunkPopover } from './FilesGutterHunkPopover'
 import type { MediaFitMode } from '@renderer/lib/files-media-zoom'
 import { FilesMediaPreview, MediaFitButtons, type MediaPreviewHandle } from './FilesMediaPreview'
+import { FilesAvPreview } from './FilesAvPreview'
 import { FilesEntryDialog } from './FilesEntryDialog'
 import { removalRequest, type FilesEntryDialogRequest } from './files-entry-request'
 import {
@@ -499,6 +500,8 @@ export function FilesPane({
   const [ready, setReady] = useState(false)
   /** 看图：当前栏上一张/下一张普通位图的 dc-media URL，供提前解码；超大位图改为提前生成预览与金字塔。 */
   const [prefetch, setPrefetch] = useState<string[]>([])
+  /** 当前栏相邻的音视频预先读好的打开结果：openFile 直接换上，不再读 */
+  const prefetchedAvRef = useRef(new Map<string, FilesDoc>())
   /** 忽略过期的 openFile / git status / 全部展开 / 过滤扫盘 响应。 */
   const openSeqRef = useRef(0)
   /** 按需读取进行中的文件；用户在进度上点了「取消」的那个（见 loadShown） */
@@ -953,7 +956,7 @@ export function FilesPane({
    * 否则替换临时 Tab 或新开一个；pin 时同时固定（就地重读见 reloadDoc）。
    * 要离开的文件先安顿（本地自动保存，服务器上被关掉的未保存修改先问——不让人等完下载再被问）；没打开过的先读完再换布局：
    * 服务器上的文件先下载，期间那一栏盖上进度，「取消」即一切照旧；读不出来就去掉这个 Tab，原因留在那一栏的工具栏上。
-   * 已打开的文件不重读，免得冲掉未保存的修改；意外断开期间不打开。
+   * 已打开的文件不重读，免得冲掉未保存的修改；预取好的相邻音视频也直接换上；意外断开期间不打开。
    */
   const openFile = useCallback(
     async (filePath: string, opts?: { pane?: string; pin?: boolean }): Promise<void> => {
@@ -966,6 +969,10 @@ export function FilesPane({
       const make = (base: EditorLayout): EditorLayout =>
         openEditor(base, filePath, { pane: paneId, pin: opts?.pin, limit })
       const seq = ++openSeqRef.current
+      const prefetched = prefetchedAvRef.current.get(filePath)
+      if (prefetched !== undefined && docsRef.current[filePath] === undefined) {
+        replaceDocs({ ...docsRef.current, [filePath]: prefetched })
+      }
       if (docsRef.current[filePath] !== undefined) {
         setSelection(selectOnly(filePath))
         if ((await transitionLayout(make)) === null) {
@@ -1292,11 +1299,10 @@ export function FilesPane({
   const goPrevImage = useCallback(() => void goAdjacentMedia(-1), [goAdjacentMedia])
   const goNextImage = useCallback(() => void goAdjacentMedia(1), [goAdjacentMedia])
 
-  // 当前栏的音视频正文与服务器上的大媒体占位（没有自己的键盘处理）：四个方向键切上一个 / 下一个媒体
-  // （同看图；守卫同看图——不抢输入框与弹层）。焦点落在播放器上时也拦下，播放器自己的键盘进度 / 音量让位给切换，进度条仍可拖。
-  const avOpen = currentLoaded?.kind === 'audio' || currentLoaded?.kind === 'video'
+  // 当前栏是服务器上的大媒体占位（没有自己的键盘处理）：四个方向键切上一个 / 下一个媒体
+  // （同看图；守卫同看图——不抢输入框与弹层）
   const arrowKeysHere =
-    avOpen || (currentLoaded?.kind === 'too-large' && isMediaPreviewPath(currentLoaded.path))
+    currentLoaded?.kind === 'too-large' && isMediaPreviewPath(currentLoaded.path)
   useEffect(() => {
     if (!visible || !arrowKeysHere) return
     const onKey = (e: KeyboardEvent): void => {
@@ -1311,7 +1317,8 @@ export function FilesPane({
     return () => window.removeEventListener('keydown', onKey, true)
   }, [visible, arrowKeysHere, goAdjacentMedia])
 
-  // 当前栏在看图（位图或 SVG 预览态）时预取相邻的图
+  // 当前栏在看图（位图或 SVG 预览态）或播音视频时预取相邻的媒体：图提前解码，音视频留下打开结果。
+  // 方向键切过去、删完落到它时即刻换上，不留读文件的空档（空档里按的空格会落到还显示着的上一个文件上）
   const viewingImagePath =
     currentLoaded?.kind === 'image'
       ? currentLoaded.path
@@ -1320,19 +1327,24 @@ export function FilesPane({
           (paneViews[currentPane.id] ?? DEFAULT_PANE_VIEW).sourcePreview
         ? currentLoaded.path
         : null
+  const prefetchFrom =
+    viewingImagePath ??
+    (currentLoaded?.kind === 'audio' || currentLoaded?.kind === 'video' ? currentLoaded.path : null)
 
-  // 服务器上的图要先下载，不预取相邻的。进出预取时都清空：渲染期比对上一次是否在预取（React「渲染中调整 state」模式，
+  // 服务器上的要先下载，不预取相邻的。进出预取时都清空：渲染期比对上一次是否在预取（React「渲染中调整 state」模式，
   // 非 effect）；不预取期间旧预取晚到写进来的列表没人用，下次进入预取时在这里清掉
-  const prefetching = !!viewingImagePath && !remote
+  const prefetching = !!prefetchFrom && !remote
   const [seenPrefetching, setSeenPrefetching] = useState(prefetching)
   if (prefetching !== seenPrefetching) {
     setSeenPrefetching(prefetching)
     setPrefetch([])
   }
   useEffect(() => {
-    if (!viewingImagePath || remote) return
+    // 只留当前这个文件的邻居
+    prefetchedAvRef.current = new Map()
+    if (!prefetchFrom || remote) return
     let cancelled = false
-    const current = viewingImagePath
+    const current = prefetchFrom
     void (async () => {
       const urls: string[] = []
       for (const d of [-1, 1] as const) {
@@ -1341,6 +1353,10 @@ export function FilesPane({
         try {
           const result = await window.api.filesRead(rootPath, p)
           if (cancelled) return
+          if (result.kind === 'audio' || result.kind === 'video') {
+            prefetchedAvRef.current.set(p, docFrom(result))
+            continue
+          }
           if (result.kind !== 'image') continue
           if (result.tiled) {
             // 超大位图：让主进程先把预览图与金字塔备好（命中缓存即返）
@@ -1358,7 +1374,7 @@ export function FilesPane({
     return () => {
       cancelled = true
     }
-  }, [viewingImagePath, remote, flatRows, rootPath])
+  }, [prefetchFrom, remote, flatRows, rootPath])
 
   /** 在右侧文件树展开并滚到目标（不打开/切换正文）。 */
   const revealInTree = useCallback(
@@ -2827,22 +2843,15 @@ export function FilesPane({
       body = (
         <div className="flex h-full min-h-0 flex-col">
           <FilesToolbar {...toolbar} path={loaded.path} error={error} />
-          <div className="flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">
-            {loaded.kind === 'video' ? (
-              <video
-                key={loaded.mediaUrl}
-                controls
-                preload="metadata"
-                className="max-h-full max-w-full"
-              >
-                <source src={loaded.mediaUrl} type={loaded.mime} />
-              </video>
-            ) : (
-              <audio key={loaded.mediaUrl} controls preload="metadata">
-                <source src={loaded.mediaUrl} type={loaded.mime} />
-              </audio>
-            )}
-          </div>
+          <FilesAvPreview
+            key={loaded.mediaUrl}
+            kind={loaded.kind}
+            src={loaded.mediaUrl}
+            mime={loaded.mime}
+            active={active}
+            onPrev={goPrevImage}
+            onNext={goNextImage}
+          />
         </div>
       )
     } else if (loaded.kind === 'pdf' || loaded.kind === 'pptx') {

@@ -111,13 +111,19 @@ export const APP_SHORTCUT_GROUPS: AppShortcutListGroup[] = [
       },
       { label: '向右分屏', keys: chords(SHORTCUT.splitEditor), pref: 'filesEditorTabs' },
       { label: '保存服务器上的文件', keys: chords(SHORTCUT.save) },
-      { label: '上一个 / 下一个媒体文件', keys: chords(LEFT, RIGHT) },
+      { label: '上一个 / 下一个媒体文件（看图、PDF、PPT）', keys: chords(LEFT, RIGHT) },
+      { label: '上一个 / 下一个媒体文件（音视频）', keys: chords(UP, DOWN) },
       { label: 'PDF / PPT 上一页 / 下一页', keys: chords(UP, DOWN) },
       {
         label: '适应窗口 / 放大 / 缩小',
         keys: chords(SHORTCUT.fitWindow, { mod: true, key: '+' }, { mod: true, key: '-' })
       },
-      { label: '拖动画面（PDF、PPT）', keys: () => '按住空格拖动' }
+      { label: '拖动画面（PDF、PPT）', keys: () => '按住空格拖动' },
+      { label: '播放 / 暂停', keys: chords({ key: 'Space' }) },
+      { label: '快退 / 快进 5 秒', keys: chords(LEFT, RIGHT) },
+      { label: '2 倍速播放', keys: (platform) => `按住 ${formatShortcutLabel(RIGHT, platform)}` },
+      { label: '全屏 / 退出全屏（视频）', keys: chords({ key: 'F' }) },
+      { label: '静音 / 取消静音', keys: chords({ key: 'M' }) }
     ]
   },
   {
