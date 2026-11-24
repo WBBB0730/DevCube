@@ -119,11 +119,19 @@ export const APP_SHORTCUT_GROUPS: AppShortcutListGroup[] = [
         keys: chords(SHORTCUT.fitWindow, { mod: true, key: '+' }, { mod: true, key: '-' })
       },
       { label: '拖动画面（PDF、PPT）', keys: () => '按住空格拖动' },
-      { label: '播放 / 暂停', keys: chords({ key: 'Space' }) },
-      { label: '快退 / 快进 5 秒', keys: chords(LEFT, RIGHT) },
-      { label: '2 倍速播放', keys: (platform) => `按住 ${formatShortcutLabel(RIGHT, platform)}` },
-      { label: '全屏 / 退出全屏（视频）', keys: chords({ key: 'F' }) },
-      { label: '静音 / 取消静音', keys: chords({ key: 'M' }) }
+      { label: '播放 / 暂停', keys: chords(SHORTCUT.avPlayPause) },
+      { label: '快退 / 快进 5 秒（视频暂停时退 / 进一帧）', keys: chords(LEFT, RIGHT) },
+      {
+        label: '2 倍速播放（播放中）',
+        keys: (platform) => `按住 ${formatShortcutLabel(RIGHT, platform)}`
+      },
+      {
+        label: '连续退 / 进帧（视频暂停时）',
+        keys: (platform) =>
+          `按住 ${formatShortcutLabel(LEFT, platform)} / ${formatShortcutLabel(RIGHT, platform)}`
+      },
+      { label: '全屏 / 退出全屏（视频）', keys: chords(SHORTCUT.avFullscreen) },
+      { label: '静音 / 取消静音', keys: chords(SHORTCUT.avMute) }
     ]
   },
   {

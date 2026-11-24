@@ -12,10 +12,12 @@ export function overlayOpen(): boolean {
   )
 }
 
-/** 事件目标是可输入控件 */
+/** 事件目标是可输入控件；滑杆不算（拖完音量焦点留在滑杆上，播放键照常归播放器） */
 export function editableTarget(el: EventTarget | null): boolean {
   if (!(el instanceof HTMLElement)) return false
-  return el.closest('input, textarea, select, [contenteditable="true"]') !== null
+  return (
+    el.closest('input:not([type="range"]), textarea, select, [contenteditable="true"]') !== null
+  )
 }
 
 /**

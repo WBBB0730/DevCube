@@ -176,7 +176,11 @@ export const SHORTCUT = {
   diffNextBlock: { key: 'F7' } satisfies ShortcutChord,
   diffPrevBlock: { shift: true, key: 'F7' } satisfies ShortcutChord,
   diffPrevFile: { alt: true, key: 'ArrowLeft' } satisfies ShortcutChord,
-  diffNextFile: { alt: true, key: 'ArrowRight' } satisfies ShortcutChord
+  diffNextFile: { alt: true, key: 'ArrowRight' } satisfies ShortcutChord,
+  /** Files 音视频：播放 / 暂停、静音 / 取消静音、全屏 / 退出全屏（仅视频） */
+  avPlayPause: { key: 'Space' } satisfies ShortcutChord,
+  avMute: { key: 'M' } satisfies ShortcutChord,
+  avFullscreen: { key: 'F' } satisfies ShortcutChord
 } as const
 
 /** Files 文件树删除：macOS ⌘⌫（同 Finder），Windows / Linux Delete。 */

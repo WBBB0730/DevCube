@@ -12,7 +12,8 @@ function DropdownMenuContent({
   side = 'bottom',
   align = 'end',
   sideOffset = 4,
-  finalFocus
+  finalFocus,
+  container
 }: {
   className?: string
   children?: React.ReactNode
@@ -21,9 +22,11 @@ function DropdownMenuContent({
   sideOffset?: number
   /** 关闭后焦点去向（缺省还给触发钮），见 Base UI `Menu.Popup` */
   finalFocus?: Menu.Popup.Props['finalFocus']
+  /** 弹层挂载处（缺省 body）；全屏中的元素里弹出时要挂在全屏元素内，否则看不见 */
+  container?: Menu.Portal.Props['container']
 }): React.JSX.Element {
   return (
-    <Menu.Portal>
+    <Menu.Portal container={container}>
       {/* 盖过左树 sticky（z≤40）；仅靠 Positioner 的 z-50 盖不住 InternalBackdrop 之下的吸顶行 */}
       <Menu.Backdrop className="fixed inset-0 z-50" />
       <Menu.Positioner className="z-50" side={side} align={align} sideOffset={sideOffset}>

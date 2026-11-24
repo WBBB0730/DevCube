@@ -51,6 +51,10 @@ import { syncSystemIntegration } from './system-integration'
 // 必须早于 app.ready、Store 初始化和 Chromium Session 创建，隔离 Stable / Beta / Dev。
 configureUserData(app)
 
+// 界面一律中文：Chromium 自己的文案（画中画小窗等）跟应用语言走，各平台与开发版都钉成简体中文（ADR-0037）。
+// 必须早于 app.ready。
+app.commandLine.appendSwitch('lang', 'zh-CN')
+
 // 单实例（锁随 userData 分线，Stable / Beta / Dev 互不拦）：第二实例把 argv
 // 转发给主实例（second-instance 事件）后立即退出，承接外部唤起路径。
 if (!app.requestSingleInstanceLock()) app.exit(0)
