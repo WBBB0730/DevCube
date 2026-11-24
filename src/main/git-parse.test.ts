@@ -15,6 +15,7 @@ import {
   parseStatusFilesZ,
   parseTagDetails,
   parseFileDiff,
+  parseLfsPointerSize,
   parseWorktreeList,
   markCurrentWorktree
 } from './git-parse'
@@ -539,6 +540,22 @@ describe('parseFileDiff', () => {
     })
     expect(diff.binary).toBe(true)
     expect(diff.raw).toBe('')
+  })
+})
+
+describe('parseLfsPointerSize', () => {
+  it('LFS 指针取它记的真实大小', () => {
+    const pointer = Buffer.from(
+      'version https://git-lfs.github.com/spec/v1\n' +
+        'oid sha256:4d7a214614ab2935c943f9e0ff69d22eadbb8f32b1258daaa5e2ca24d17e2393\n' +
+        'size 7298012\n'
+    )
+    expect(parseLfsPointerSize(pointer)).toBe(7298012)
+  })
+
+  it('不是 LFS 指针返回 null', () => {
+    expect(parseLfsPointerSize(Buffer.from('size 12\n'))).toBeNull()
+    expect(parseLfsPointerSize(Buffer.from([0x89, 0x50, 0x4e, 0x47]))).toBeNull()
   })
 })
 

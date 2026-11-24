@@ -279,8 +279,8 @@ const api: RunAPI = {
     ipcRenderer.invoke(IPC.gitDetails, repoPath, request),
   gitFileDiff: (repoPath, request: GitDiffRequest) =>
     ipcRenderer.invoke(IPC.gitFileDiff, repoPath, request),
-  gitFileImage: (repoPath, request: GitDiffRequest) =>
-    ipcRenderer.invoke(IPC.gitFileImage, repoPath, request),
+  gitFileBinary: (repoPath, request: GitDiffRequest) =>
+    ipcRenderer.invoke(IPC.gitFileBinary, repoPath, request),
   gitTagDetails: (repoPath, tagName) => ipcRenderer.invoke(IPC.gitTagDetails, repoPath, tagName),
   gitRepoConfig: (repoPath) => ipcRenderer.invoke(IPC.gitRepoConfig, repoPath),
   gitAction: (repoPath, action: GitAction, opts?: { silent?: boolean }) =>

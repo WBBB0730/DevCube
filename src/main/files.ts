@@ -4,7 +4,6 @@ import { promises as fs } from 'original-fs'
 import path from 'node:path'
 import { detectAv } from '@file-type/av'
 import { fileTypeFromFile } from 'file-type'
-import { imageSize } from 'image-size'
 import { imageSizeFromFile } from 'image-size/fromFile'
 import {
   classifyFilesOpenKind,
@@ -53,23 +52,15 @@ import {
   statTarget,
   symlinkEntry
 } from './files-symlink'
+import { imageDimensionsOf, orientedSize, type ImageDimensions } from './image-dimensions'
 import { noteListedDir } from './linked-dir-watch'
 import { toSysPath } from './sys-path'
 import { wslDistroOf } from '../shared/wsl-path'
 
 const IMAGE_SIZE_PROBE_BYTES = 65536
 
-/** EXIF 方向 5–8 是转 90°，显示宽高与文件头相反（Chromium `<img>` 默认按 EXIF 转正）。 */
-function orientedSize(dim: { width: number; height: number; orientation?: number }): {
-  width: number
-  height: number
-} {
-  const swap = dim.orientation !== undefined && dim.orientation >= 5 && dim.orientation <= 8
-  return swap ? { width: dim.height, height: dim.width } : { width: dim.width, height: dim.height }
-}
-
 /** 只读文件头拿宽高，避免打开时整图解码。失败则渲染层由 `<img>` 加载后再取。 */
-async function probeImageSize(sys: string): Promise<{ width: number; height: number } | undefined> {
+async function probeImageSize(sys: string): Promise<ImageDimensions | undefined> {
   try {
     const dim = await imageSizeFromFile(sys)
     if (dim.width && dim.height) return orientedSize(dim)
@@ -79,8 +70,7 @@ async function probeImageSize(sys: string): Promise<{ width: number; height: num
       try {
         const buf = Buffer.alloc(IMAGE_SIZE_PROBE_BYTES)
         const { bytesRead } = await fh.read(buf, 0, IMAGE_SIZE_PROBE_BYTES, 0)
-        const dim = imageSize(buf.subarray(0, bytesRead))
-        if (dim.width && dim.height) return orientedSize(dim)
+        return imageDimensionsOf(buf.subarray(0, bytesRead))
       } finally {
         await fh.close()
       }

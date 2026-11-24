@@ -16,6 +16,7 @@ import {
   readCheckedOutBlob,
   resolveRepoRoot
 } from './git-exec'
+import { imageDimensionsOf } from './image-dimensions'
 import {
   assembleCommits,
   countStatusEntriesZ,
@@ -25,6 +26,7 @@ import {
   GIT_FORMAT_LOG,
   GIT_FORMAT_STASH,
   GIT_FORMAT_TAG_DETAILS,
+  LFS_POINTER_MAX_BYTES,
   parseBranches,
   parseConfigListZ,
   parseDetails,
@@ -36,6 +38,7 @@ import {
   parseStatusFilesZ,
   parseTagDetails,
   parseFileDiff,
+  parseLfsPointerSize,
   parseWorktreeList,
   markCurrentWorktree
 } from './git-parse'
@@ -43,11 +46,12 @@ import type { GitRefData, GitStash } from './git-parse'
 import { WorkingTreeReads } from './git-working-tree'
 import { GIT_INDEX, UNCOMMITTED, imageMimeOf } from '../shared/git'
 import type {
+  GitBinaryResult,
+  GitBinarySide,
   GitDetailsRequest,
   GitDetailsResult,
   GitDiffRequest,
   GitDiffResult,
-  GitImageResult,
   GitEffectiveSettings,
   GitFileChange,
   GitLoadOptions,
@@ -939,68 +943,90 @@ async function isDirSymlink(path: string): Promise<boolean> {
   }
 }
 
-// —— getFileImage：二进制图片的新旧内容（diff 面板预览） ——
+// —— getFileBinary：二进制文件的新旧两侧（diff 面板显示体积，图片另给预览） ——
 
-/** 图片预览单侧大小上限：超过视为不可预览（该侧为 null），防超大图撑爆 IPC 与内存。 */
+/** 图片预览单侧大小上限：超过只给体积、不给预览，防超大图撑爆 IPC 与内存。 */
 const IMAGE_PREVIEW_MAX_BYTES = 20 * 1024 * 1024
 
-/**
- * 读一侧图片内容，取检出后的样子：UNCOMMITTED 读工作区文件；GIT_INDEX 取暂存区快照、其余取
- * `<ref>:<path>`，都经 readCheckedOutBlob（LFS 图片取真实内容）。对象不存在（新增无旧侧 /
- * 删除无新侧）、超限、读取失败（含 LFS 下载失败）或内容不是图片（如未装 git-lfs 时读到的
- * LFS 指针）返回 null（侧级容错，不产错误）。
- */
-async function readImageSide(root: string, ref: string, path: string): Promise<Buffer | null> {
-  const content = await readImageBytes(root, ref, path)
-  if (content === null) return null
-  const type = await fileTypeFromBuffer(content)
-  return type?.mime.startsWith('image/') ? content : null
+/** 一侧的 git 对象：暂存区取快照 `:0:<path>`，其余 `<ref>:<path>`。 */
+function blobSpec(ref: string, path: string): string {
+  return ref === GIT_INDEX ? `:0:${path}` : `${ref}:${path}`
 }
 
-/** 一侧的字节，不判内容（见 readImageSide）。 */
-async function readImageBytes(root: string, ref: string, path: string): Promise<Buffer | null> {
+/**
+ * 一侧的字节数，按检出后的样子计：UNCOMMITTED 取工作区文件大小；其余取 git 对象大小，
+ * 对象是 LFS 指针时取它记的真实大小（不必下载内容）。对象不存在或读取失败返回 null。
+ */
+async function readSideSize(root: string, ref: string, path: string): Promise<number | null> {
   if (ref === UNCOMMITTED) {
     try {
-      const absPath = join(root, path)
-      const info = await stat(absPath)
-      if (!info.isFile() || info.size > IMAGE_PREVIEW_MAX_BYTES) return null
-      return await readFile(absPath)
+      const info = await stat(join(root, path))
+      return info.isFile() ? info.size : null
     } catch {
       return null
     }
   }
-  const spec = ref === GIT_INDEX ? `:0:${path}` : `${ref}:${path}`
-  const result = await readCheckedOutBlob(root, spec)
-  if (result.code !== 0 || result.stdout.length > IMAGE_PREVIEW_MAX_BYTES) return null
-  return result.stdout
+  const spec = blobSpec(ref, path)
+  const result = await execGit(root, ['cat-file', '-s', spec])
+  if (result.code !== 0) return null
+  const size = Number(result.stdout.toString('utf8').trim())
+  if (size >= LFS_POINTER_MAX_BYTES) return size
+  const blob = await execGit(root, ['cat-file', 'blob', spec])
+  return (blob.code === 0 ? parseLfsPointerSize(blob.stdout) : null) ?? size
+}
+
+/** 一侧的内容，取检出后的样子：工作区读文件，其余经 readCheckedOutBlob（LFS 文件取真实内容）。 */
+async function readSideContent(root: string, ref: string, path: string): Promise<Buffer | null> {
+  if (ref === UNCOMMITTED) {
+    try {
+      return await readFile(join(root, path))
+    } catch {
+      return null
+    }
+  }
+  const result = await readCheckedOutBlob(root, blobSpec(ref, path))
+  return result.code === 0 ? result.stdout : null
 }
 
 /**
- * 图片文件的新旧预览数据（data URL）：旧端 = from（「提交自身变更」场景取 hash^，与
- * buildFileDiffArgs 的旧侧语义一致），新端 = to；两侧独立容错，A/U 无旧侧、D 无新侧
- * 自然为 null。MIME 按各侧路径扩展名分别解析（覆盖重命名换扩展名的场景）。
+ * 读一侧：对象不存在（新增无旧侧 / 删除无新侧）或读取失败返回 null（侧级容错，不产错误）。
+ * 路径是可预览的图片（mime 非 null）且不超限时再读内容给预览；读取失败（含 LFS 下载失败）或
+ * 内容不是图片（如未装 git-lfs 时读到的 LFS 指针）时 image 为 null。
  */
-export async function getFileImage(
+async function readBinarySide(
+  root: string,
+  ref: string,
+  path: string,
+  mime: string | null
+): Promise<GitBinarySide | null> {
+  const size = await readSideSize(root, ref, path)
+  if (size === null) return null
+  if (mime === null || size > IMAGE_PREVIEW_MAX_BYTES) return { size, image: null }
+  const content = await readSideContent(root, ref, path)
+  if (content === null) return { size, image: null }
+  const type = await fileTypeFromBuffer(content)
+  if (!type?.mime.startsWith('image/')) return { size, image: null }
+  const dataUrl = `data:${mime};base64,${content.toString('base64')}`
+  return { size, image: { dataUrl, ...imageDimensionsOf(content) } }
+}
+
+/**
+ * 二进制文件的新旧两侧：旧端 = from（「提交自身变更」场景取 hash^，与 buildFileDiffArgs 的
+ * 旧侧语义一致），新端 = to；两侧独立容错，A/U 无旧侧、D 无新侧自然为 null。图片 MIME 按
+ * 各侧路径扩展名分别解析（覆盖重命名换扩展名的场景）。
+ */
+export async function getFileBinary(
   projectPath: string,
   request: GitDiffRequest
-): Promise<GitImageResult> {
+): Promise<GitBinaryResult> {
   const root = await resolveRepoRoot(projectPath)
-  if (root === null) return { oldDataUrl: null, newDataUrl: null, error: NOT_A_REPO }
-  const oldMime = imageMimeOf(request.oldFilePath)
-  const newMime = imageMimeOf(request.newFilePath)
-  if (oldMime === null && newMime === null) {
-    return { oldDataUrl: null, newDataUrl: null, error: '不是可预览的图片文件' }
-  }
+  if (root === null) return { oldSide: null, newSide: null, error: NOT_A_REPO }
   const oldRef = request.fromHash === request.toHash ? `${request.fromHash}^` : request.fromHash
-  const [oldBuf, newBuf] = await Promise.all([
-    oldMime !== null ? readImageSide(root, oldRef, request.oldFilePath) : Promise.resolve(null),
-    newMime !== null
-      ? readImageSide(root, request.toHash, request.newFilePath)
-      : Promise.resolve(null)
+  const [oldSide, newSide] = await Promise.all([
+    readBinarySide(root, oldRef, request.oldFilePath, imageMimeOf(request.oldFilePath)),
+    readBinarySide(root, request.toHash, request.newFilePath, imageMimeOf(request.newFilePath))
   ])
-  const toUrl = (buf: Buffer | null, mime: string | null): string | null =>
-    buf === null || mime === null ? null : `data:${mime};base64,${buf.toString('base64')}`
-  return { oldDataUrl: toUrl(oldBuf, oldMime), newDataUrl: toUrl(newBuf, newMime), error: null }
+  return { oldSide, newSide, error: null }
 }
 
 // —— getTagDetails：annotated tag 的消息 ——

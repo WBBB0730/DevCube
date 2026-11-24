@@ -29,10 +29,12 @@ import {
   GIT_INDEX,
   UNCOMMITTED,
   imageMimeOf,
+  type GitBinaryResult,
+  type GitBinarySide,
   type GitFileChange,
-  type GitFileStatus,
-  type GitImageResult
+  type GitFileStatus
 } from '@shared/git'
+import { formatBytes } from '@shared/server-status'
 import { SHORTCUT } from '@shared/shortcut-label'
 import { gitState, openInProjectFiles, repoFilePath, useGit } from '@renderer/git-store'
 import { useApp } from '@renderer/store'
@@ -450,7 +452,7 @@ export function GitDiffView({ repoPath }: { repoPath: string }): React.JSX.Eleme
         // 未跟踪的文件夹符号链接：git 对比不了（ADR-0059），给一句说明
         <CenteredHint>这是一个指向目录的未跟踪符号链接，没有差异可查看</CenteredHint>
       ) : data !== null && data.binary ? (
-        // key=文件身份：换文件即重建组件（images 状态自然归零），不在 effect 里手动重置
+        // key=文件身份：换文件即重建组件（两侧数据自然归零），不在 effect 里手动重置
         <BinaryBody
           key={fileKey}
           repoPath={repoPath}
@@ -488,7 +490,8 @@ export function GitDiffView({ repoPath }: { repoPath: string }): React.JSX.Eleme
 
 /**
  * 二进制文件（含 LFS 文件）正文：图片给新旧预览（object-contain + 边距，M 双栏对照 / A·U·D 单栏），
- * 其余二进制保持一句说明。图片数据经 gitFileImage 按需取（data URL），换文件时丢弃过期响应。
+ * 每栏标签后跟像素宽高与体积；其余二进制一句说明加两侧体积。两侧数据经 gitFileBinary 按需取
+ * （图片为 data URL），换文件时丢弃过期响应。
  */
 function BinaryBody({
   repoPath,
@@ -502,12 +505,11 @@ function BinaryBody({
   toHash: string
 }): React.JSX.Element {
   const isImage = imageMimeOf(file.newFilePath) !== null || imageMimeOf(file.oldFilePath) !== null
-  const [images, setImages] = useState<GitImageResult | null>(null)
+  const [binary, setBinary] = useState<GitBinaryResult | null>(null)
   useEffect(() => {
-    if (!isImage) return
     let stale = false
     void window.api
-      .gitFileImage(repoPath, {
+      .gitFileBinary(repoPath, {
         fromHash,
         toHash,
         oldFilePath: file.oldFilePath,
@@ -515,30 +517,56 @@ function BinaryBody({
         type: file.type
       })
       .then((result) => {
-        if (!stale) setImages(result)
+        if (!stale) setBinary(result)
       })
     return () => {
       stale = true
     }
-  }, [repoPath, file, fromHash, toHash, isImage])
+  }, [repoPath, file, fromHash, toHash])
 
-  if (!isImage) return <CenteredHint>二进制文件不支持对比</CenteredHint>
-  if (images === null) return <LoadingHint delay={0} />
-  // 两侧都读不到（超限、LFS 图片下载失败等）；用词同 Files 的图片预览失败
-  if (images.oldDataUrl === null && images.newDataUrl === null) {
-    return <CenteredHint error>无法预览此图片</CenteredHint>
-  }
+  if (binary === null) return <LoadingHint />
   const sides = [
-    { label: '旧', url: images.oldDataUrl },
-    { label: '新', url: images.newDataUrl }
-  ].filter((side): side is { label: string; url: string } => side.url !== null)
+    { label: '旧', side: binary.oldSide },
+    { label: '新', side: binary.newSide }
+  ].filter((entry): entry is { label: string; side: GitBinarySide } => entry.side !== null)
+  if (!isImage) {
+    return (
+      <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-sm text-muted-foreground">
+        <p>二进制文件不支持对比</p>
+        {sides.length > 0 && (
+          <p className="text-xs tabular-nums">
+            {sides.map(({ side }) => formatBytes(side.size)).join(' → ')}
+          </p>
+        )}
+      </div>
+    )
+  }
+  // 两侧都读不到（读取失败等）；用词同 Files 的图片预览失败
+  if (sides.length === 0) return <CenteredHint error>无法预览此图片</CenteredHint>
   return (
     <div className="flex min-h-0 flex-1 gap-4 p-6">
-      {sides.map((side) => (
-        <div key={side.label} className="flex min-w-0 flex-1 flex-col items-center gap-2">
-          <span className="shrink-0 text-[12px] text-muted-foreground">{side.label}</span>
+      {sides.map(({ label, side }) => (
+        <div key={label} className="flex min-w-0 flex-1 flex-col items-center gap-2">
+          <div className="flex shrink-0 gap-4 text-[12px] text-muted-foreground tabular-nums">
+            <span>{label}</span>
+            {side.image?.width !== undefined && side.image.height !== undefined && (
+              <span>
+                {side.image.width} × {side.image.height}
+              </span>
+            )}
+            <span>{formatBytes(side.size)}</span>
+          </div>
           <div className="flex min-h-0 w-full flex-1 items-center justify-center rounded-lg bg-panel p-4">
-            <img src={side.url} alt={side.label} className="max-h-full max-w-full object-contain" />
+            {side.image === null ? (
+              // 超限、LFS 图片下载失败、内容不是图片等
+              <CenteredHint error>无法预览此图片</CenteredHint>
+            ) : (
+              <img
+                src={side.image.dataUrl}
+                alt={label}
+                className="max-h-full max-w-full object-contain"
+              />
+            )}
           </div>
         </div>
       ))}

@@ -379,7 +379,7 @@ export interface GitDiffResult {
   error: string | null
 }
 
-// —— 二进制图片预览（diff 面板对图片文件的新旧预览） ——
+// —— 二进制文件的新旧两侧（diff 面板显示体积，图片另给预览） ——
 
 /** 浏览器可直接渲染的图片扩展名 → MIME（svg 为文本 diff、不在此列）。 */
 const IMAGE_MIME: Record<string, string> = {
@@ -400,10 +400,25 @@ export function imageMimeOf(path: string): string | null {
   return IMAGE_MIME[path.slice(dot + 1).toLowerCase()] ?? null
 }
 
-export interface GitImageResult {
-  /** 旧 / 新两侧图片的 data URL；该侧不存在（新增无旧、删除无新）或读取失败为 null */
-  oldDataUrl: string | null
-  newDataUrl: string | null
+/** 二进制文件一侧：按检出后的样子计（LFS 文件取真实内容）。 */
+export interface GitBinarySide {
+  /** 字节数 */
+  size: number
+  /** 图片预览：不是可预览的图片、超限或读取失败为 null */
+  image: GitBinaryImage | null
+}
+
+export interface GitBinaryImage {
+  dataUrl: string
+  /** 显示宽高（已按 EXIF 方向转正）；文件头读不出时缺省 */
+  width?: number
+  height?: number
+}
+
+export interface GitBinaryResult {
+  /** 旧 / 新两侧；该侧不存在（新增无旧、删除无新）或读取失败为 null */
+  oldSide: GitBinarySide | null
+  newSide: GitBinarySide | null
   error: string | null
 }
 
@@ -769,8 +784,8 @@ export interface GitAPI {
   gitDetails(repoPath: string, request: GitDetailsRequest): Promise<GitDetailsResult>
   /** 单文件 diff（原始 unified diff 文本 + 二进制判定，内置 diff 面板数据源） */
   gitFileDiff(repoPath: string, request: GitDiffRequest): Promise<GitDiffResult>
-  /** 二进制图片文件的新旧内容（diff 面板预览）；端点语义同 gitFileDiff */
-  gitFileImage(repoPath: string, request: GitDiffRequest): Promise<GitImageResult>
+  /** 二进制文件的新旧两侧（diff 面板显示体积，图片另给预览）；端点语义同 gitFileDiff */
+  gitFileBinary(repoPath: string, request: GitDiffRequest): Promise<GitBinaryResult>
   /** annotated tag 的详情（tagger / 消息） */
   gitTagDetails(repoPath: string, tagName: string): Promise<GitTagDetailsResult>
   /** 仓库 git 配置（remotes / user / pushDefault），仓库设置面板用 */

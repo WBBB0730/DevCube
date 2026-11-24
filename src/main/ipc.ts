@@ -263,7 +263,7 @@ import { isAppQuitting } from './app-shutdown'
 import {
   getDetails,
   getFileDiff,
-  getFileImage,
+  getFileBinary,
   getRepoConfig,
   getTagDetails,
   loadRepo
@@ -1356,8 +1356,8 @@ export function registerIpcHandlers(createMainWindow: () => BrowserWindow): void
   ipcMain.handle(IPC.gitFileDiff, (_e, repoPath: string, request: GitDiffRequest) =>
     getFileDiff(repoPath, request)
   )
-  ipcMain.handle(IPC.gitFileImage, (_e, repoPath: string, request: GitDiffRequest) =>
-    getFileImage(repoPath, request)
+  ipcMain.handle(IPC.gitFileBinary, (_e, repoPath: string, request: GitDiffRequest) =>
+    getFileBinary(repoPath, request)
   )
   ipcMain.handle(IPC.gitTagDetails, (_e, repoPath: string, tagName: string) =>
     getTagDetails(repoPath, tagName)

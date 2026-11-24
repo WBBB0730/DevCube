@@ -681,6 +681,20 @@ export function parseFileDiff(
   return { ...file, binary, raw: binary ? '' : stdout }
 }
 
+/** git-lfs 规范：指针文件小于 1024 字节，首行固定为 spec 版本行。 */
+export const LFS_POINTER_MAX_BYTES = 1024
+const LFS_POINTER_VERSION_LINE = 'version https://git-lfs.github.com/spec/v1\n'
+const LFS_POINTER_SIZE_REGEX = /^size (\d+)$/m
+
+/** LFS 指针里记的真实内容大小；内容不是 LFS 指针返回 null。 */
+export function parseLfsPointerSize(content: Buffer): number | null {
+  if (content.length >= LFS_POINTER_MAX_BYTES) return null
+  const text = content.toString('utf8')
+  if (!text.startsWith(LFS_POINTER_VERSION_LINE)) return null
+  const match = LFS_POINTER_SIZE_REGEX.exec(text)
+  return match === null ? null : Number(match[1])
+}
+
 // —— §9.5 config --list -z ——
 
 /**
