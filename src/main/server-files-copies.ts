@@ -4,14 +4,14 @@
 
 import { childPathPrefix } from '../shared/files-path'
 import type { FilesOpenKind } from '../shared/files-kind'
-import { sameServerFileVersion, type ServerFileVersion } from '../shared/server-files'
+import { sameFileVersion, type FileVersion } from '../shared/files'
 
 export interface ServerFileCopy<T> {
   serverId: string
   /** 服务器上的路径 */
   path: string
   /** 下载时服务器上的版本 */
-  version: ServerFileVersion
+  version: FileVersion
   /** 按内容判出的类型：复用时不必再读开头嗅探 */
   kind: FilesOpenKind
   /** 计入上限的字节数 */
@@ -37,11 +37,11 @@ export class ServerFileCopies<T> {
   ) {}
 
   /** 版本对得上的那份，并记为最近使用；对不上的已经过期，随即作废。 */
-  take(serverId: string, path: string, version: ServerFileVersion): ServerFileCopy<T> | null {
+  take(serverId: string, path: string, version: FileVersion): ServerFileCopy<T> | null {
     const key = copyKey(serverId, path)
     const copy = this.copies.get(key)
     if (!copy) return null
-    if (!sameServerFileVersion(copy.version, version)) {
+    if (!sameFileVersion(copy.version, version)) {
       this.remove(key, copy)
       return null
     }

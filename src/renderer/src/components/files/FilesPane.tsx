@@ -21,6 +21,8 @@ import pLimit from 'p-limit'
 import {
   FILES_TEXT_MAX_BYTES,
   pushRecentPath,
+  sameFileVersion,
+  type FileVersion,
   type FilesDirEntry,
   type FilesEntryRef,
   symlinkJumpTarget,
@@ -71,14 +73,16 @@ import {
   moveDropAllowed,
   topLevelPaths
 } from '@shared/files-tree-ops'
-import { mergeReloadedDirs, resolveOpenTextDiskSync } from '@shared/files-watch'
+import {
+  mergeReloadedDirs,
+  resolveOpenPreviewDiskSync,
+  resolveOpenTextDiskSync
+} from '@shared/files-watch'
 import {
   createConflictPolicy,
   resolveRemoteInput,
-  sameServerFileVersion,
   uploadTargetDir,
   type ConflictAnswer,
-  type ServerFileVersion,
   type ServerFilesReadProgress
 } from '@shared/server-files'
 import { deleteEntryShortcut, SHORTCUT } from '@shared/shortcut-label'
@@ -222,41 +226,13 @@ const SERVER_TREE_DRAG = 'application/x-devcube-server-paths'
 /** 文件树的行在定位里认的键：路径；提示行不能被定位 */
 const filesRowKey = (row: FilesTreeRow): string | undefined => (row.notice ? undefined : row.path)
 
-/** 一个打开的文件在正文里的样子（按打开分流的类型） */
-type FilesLoaded = (
-  | {
-      kind: 'text'
-      path: string
-      content: string
-      /** 载入 / 上次保存时文件的修改时间与大小：判断文件是否被别处改过 */
-      mtimeMs: number
-      size: number
-      dirty: boolean
-    }
-  | {
-      kind: 'image'
-      path: string
-      mediaUrl: string
-      mime: string
-      width?: number
-      height?: number
-      tiled?: boolean
-      /** 经主进程出图用的本机文件（服务器上的图即下载的缓存） */
-      decode: { root: string; path: string }
-    }
-  | { kind: 'audio'; path: string; mediaUrl: string; mime: string }
-  | { kind: 'video'; path: string; mediaUrl: string; mime: string }
-  | { kind: 'pdf'; path: string; mediaUrl: string }
-  | { kind: 'pptx'; path: string; mediaUrl: string }
-  | { kind: 'xlsx'; path: string; mediaUrl: string; size: number }
-  | { kind: 'sqlite'; path: string }
-  | { kind: 'other'; path: string; size: number }
-  /** 服务器上较大的文件：占位，canForce 时可「仍然打开」 */
-  | { kind: 'too-large'; path: string; size: number; canForce: boolean }
-) & {
-  /** 服务器上的非文本文件载入时的版本（见 FilesOpenResult） */
-  version?: ServerFileVersion
-}
+/**
+ * 一个打开的文件在正文里的样子（按打开分流的类型）。文本的修改时间与大小为载入 / 上次保存时的，
+ * 非文本的 version 为载入时的：都用来判断文件是否被别处改过。
+ */
+type FilesLoaded =
+  | (Extract<FilesOpenResult, { kind: 'text' }> & { dirty: boolean })
+  | Exclude<FilesOpenResult, { kind: 'text' | 'canceled' }>
 
 /** 未保存的编辑与别处的改动撞上 */
 type FilesConflict =
@@ -315,6 +291,12 @@ function arrowContentOf(loaded: FilesLoaded | null, sourcePreview: boolean): Fil
 
 function isDirtyDoc(doc: FilesDoc | undefined): boolean {
   return doc?.loaded.kind === 'text' && doc.loaded.dirty
+}
+
+/** 打开的文件的版本（见 FilesLoaded）；SQLite 没有：正文是嵌入的数据源视图，自己读库 */
+function fileVersionOf(loaded: Exclude<FilesOpenResult, { kind: 'canceled' }>): FileVersion | null {
+  if (loaded.kind === 'text') return loaded
+  return loaded.kind === 'sqlite' ? null : loaded.version
 }
 
 /**
@@ -1911,8 +1893,8 @@ export function FilesPane({
           return
         }
         // 文本比对载入 / 上次保存时的版本，其余比对载入时的；预览与占位变了就重新打开
-        const base = still.loaded.kind === 'text' ? still.loaded : still.loaded.version
-        if (base === undefined || sameServerFileVersion(st, base)) return
+        const base = fileVersionOf(still.loaded)
+        if (base === null || sameFileVersion(st, base)) return
         if (still.loaded.kind !== 'text' || st.size > FILES_TEXT_MAX_BYTES) {
           if (dirty) {
             updateDoc(path, (doc) => ({
@@ -1971,7 +1953,10 @@ export function FilesPane({
         clearDoc()
         return
       }
-      if (fresh.kind !== still.loaded.kind) await reloadDoc(path)
+      const decision = resolveOpenPreviewDiskSync(still.loaded, fresh)
+      if (decision === 'reopen') await reloadDoc(path)
+      // 直接换上刚读到的，不再读一遍，也不打断正在进行的打开
+      else if (decision === 'replace') updateDoc(path, () => docFrom(fresh))
     },
     [serverId, remote, backend, commitLayout, dropRecent, updateDoc, reloadDoc]
   )

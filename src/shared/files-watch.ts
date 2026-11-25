@@ -1,4 +1,9 @@
-import type { FilesDirEntry, FilesReadResult } from './files'
+import {
+  sameFileVersion,
+  type FileVersion,
+  type FilesDirEntry,
+  type FilesReadResult
+} from './files'
 
 /** 两份目录列举是否观察等价（顺序敏感：listDir 已排序）。 */
 export function sameDirEntries(a: FilesDirEntry[], b: FilesDirEntry[]): boolean {
@@ -64,4 +69,19 @@ export function resolveOpenTextDiskSync(
   const version = { mtimeMs: fresh.mtimeMs, size: fresh.size }
   if (loaded.dirty) return { action: 'conflict', disk: fresh.content, ...version }
   return { action: 'reload', content: fresh.content, ...version }
+}
+
+export type OpenPreviewDiskSync = 'noop' | 'replace' | 'reopen'
+
+/**
+ * 当前打开的非文本文件（预览与占位）相对一次磁盘读结果该怎么同步：类型变了重新打开；修改时间与大小有一项变了
+ * 换上新读到的（预览地址带着版本，内容随之重新载入）。SQLite 没有版本、不比对：正文是嵌入的数据源视图，自己读库。
+ */
+export function resolveOpenPreviewDiskSync(
+  loaded: { kind: string; version?: FileVersion },
+  fresh: { kind: string; version?: FileVersion }
+): OpenPreviewDiskSync {
+  if (fresh.kind !== loaded.kind) return 'reopen'
+  if (loaded.version === undefined || fresh.version === undefined) return 'noop'
+  return sameFileVersion(loaded.version, fresh.version) ? 'noop' : 'replace'
 }

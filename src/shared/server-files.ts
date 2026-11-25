@@ -1,7 +1,12 @@
 // 服务器文件管理（Server 的 Files Tab，docs/prd/server-files.md）的共享类型与纯函数。
 // 连接经内置实现的 SFTP 通道（ADR-0041）；服务器上的路径一律按 POSIX 处理。
 import type { FilesOpenKind } from './files-kind'
-import { FILES_TEXT_MAX_BYTES, FILES_XLSX_PREVIEW_MAX_BYTES, type FilesReadResult } from './files'
+import {
+  FILES_TEXT_MAX_BYTES,
+  FILES_XLSX_PREVIEW_MAX_BYTES,
+  type FileVersion,
+  type FilesReadResult
+} from './files'
 import { logicalParentPath } from './files-path'
 
 /** 文件连接的状态：点「连接」才建立，连上后带回家目录（树首次打开时展开到这里）。 */
@@ -51,19 +56,6 @@ export function serverOpenPlan(kind: FilesOpenKind, size: number, force: boolean
 }
 
 /**
- * 服务器上文件的版本：修改时间（SFTP 只精确到秒）与大小。复用副本、保存前查冲突、刷新时判断有没有变，
- * 都按这两项；同一秒内改动且大小不变的认不出来（没有内容指纹可取）。
- */
-export interface ServerFileVersion {
-  mtimeMs: number
-  size: number
-}
-
-export function sameServerFileVersion(a: ServerFileVersion, b: ServerFileVersion): boolean {
-  return a.mtimeMs === b.mtimeMs && a.size === b.size
-}
-
-/**
  * 打开服务器上的文件的结果。preview 是下载到本机缓存后的预览：result 与本地打开同形，
  * 但其中的路径是缓存文件（cacheRoot 之内），path 才是服务器上的路径。
  */
@@ -75,7 +67,7 @@ export type ServerFilesReadResult =
       | { kind: 'preview'; path: string; cacheRoot: string; result: FilesReadResult }
     ) & {
       /** 载入时服务器上的版本：刷新时比对，变了重新打开（文本自带修改时间与大小） */
-      version: ServerFileVersion
+      version: FileVersion
     })
   /** 被新的打开或「取消」打断 */
   | { kind: 'canceled' }

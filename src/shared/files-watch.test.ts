@@ -1,6 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { mergeReloadedDirs, resolveOpenTextDiskSync, sameDirEntries } from './files-watch'
-import type { FilesDirEntry } from './files'
+import {
+  mergeReloadedDirs,
+  resolveOpenPreviewDiskSync,
+  resolveOpenTextDiskSync,
+  sameDirEntries
+} from './files-watch'
+import type { FileVersion, FilesDirEntry } from './files'
 
 function entry(name: string, path: string, isDirectory = false): FilesDirEntry {
   return { name, path, isDirectory }
@@ -103,8 +108,26 @@ describe('resolveOpenTextDiskSync', () => {
         kind: 'image',
         path: '/p/a.ts',
         mediaUrl: 'dc-media://',
-        mime: 'image/png'
+        mime: 'image/png',
+        version: { mtimeMs: 1, size: 1 }
       })
     ).toEqual({ action: 'reopen' })
+  })
+})
+
+describe('resolveOpenPreviewDiskSync', () => {
+  const pdf = (mtimeMs: number, size: number): { kind: string; version: FileVersion } => ({
+    kind: 'pdf',
+    version: { mtimeMs, size }
+  })
+
+  it.each([
+    ['修改时间与大小都没变 → noop', pdf(1, 10), pdf(1, 10), 'noop'],
+    ['修改时间变了 → replace', pdf(1, 10), pdf(2, 10), 'replace'],
+    ['大小变了 → replace', pdf(1, 10), pdf(1, 11), 'replace'],
+    ['类型变了 → reopen', pdf(1, 10), { kind: 'text' }, 'reopen'],
+    ['SQLite 没有版本 → noop', { kind: 'sqlite' }, { kind: 'sqlite' }, 'noop']
+  ] as const)('%s', (_, loaded, fresh, expected) => {
+    expect(resolveOpenPreviewDiskSync(loaded, fresh)).toBe(expected)
   })
 })

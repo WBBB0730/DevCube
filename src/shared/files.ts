@@ -42,6 +42,19 @@ export interface FilesStat {
   mtimeMs: number
 }
 
+/**
+ * 文件的版本：修改时间与大小。复用副本、保存前查冲突、刷新时判断有没有变，本机与服务器都按这两项；
+ * 服务器上的修改时间（SFTP）只精确到秒，同一秒内改动且大小不变的认不出来（没有内容指纹可取）。
+ */
+export interface FileVersion {
+  mtimeMs: number
+  size: number
+}
+
+export function sameFileVersion(a: FileVersion, b: FileVersion): boolean {
+  return a.mtimeMs === b.mtimeMs && a.size === b.size
+}
+
 /** 树上的一个条目：路径、是不是文件夹、是不是符号链接（删除、下载等可一次处理多个） */
 export type FilesEntryRef = Pick<FilesDirEntry, 'path' | 'isDirectory' | 'symlink'>
 
@@ -60,35 +73,49 @@ export const FILES_XLSX_PREVIEW_MAX_BYTES = 10 * 1024 * 1024
 export type FilesReadResult =
   /** mtimeMs 与 size 一起判断文件是否被别处改过 */
   | { kind: 'text'; path: string; content: string; mtimeMs: number; size: number }
-  | {
-      kind: 'image'
-      path: string
-      mediaUrl: string
-      mime: string
-      width?: number
-      height?: number
-      /** 超大位图：走瓦片金字塔（`needsImageTiles`），渲染层先取预览图再叠瓦片 */
-      tiled?: boolean
-    }
-  | { kind: 'audio'; path: string; mediaUrl: string; mime: string }
-  | { kind: 'video'; path: string; mediaUrl: string; mime: string }
-  | { kind: 'pdf'; path: string; mediaUrl: string }
-  | { kind: 'pptx'; path: string; mediaUrl: string }
-  /** `size` 供渲染层判断是否超过预览上限（表格在页面线程解析，太大会卡住界面） */
-  | { kind: 'xlsx'; path: string; mediaUrl: string; size: number }
-  /** SQLite 数据库文件：正文区嵌入 Data Source Tab 的视图（本机的 Files 面板才有） */
+  /** SQLite 数据库文件：正文区嵌入 Data Source Tab 的视图（本机的 Files 面板才有），视图自己读库 */
   | { kind: 'sqlite'; path: string }
-  | { kind: 'other'; path: string; size: number }
+  | ((
+      | {
+          kind: 'image'
+          path: string
+          mediaUrl: string
+          mime: string
+          width?: number
+          height?: number
+          /** 超大位图：走瓦片金字塔（`needsImageTiles`），渲染层先取预览图再叠瓦片 */
+          tiled?: boolean
+        }
+      | { kind: 'audio'; path: string; mediaUrl: string; mime: string }
+      | { kind: 'video'; path: string; mediaUrl: string; mime: string }
+      | { kind: 'pdf'; path: string; mediaUrl: string }
+      | { kind: 'pptx'; path: string; mediaUrl: string }
+      /** `size` 供渲染层判断是否超过预览上限（表格在页面线程解析，太大会卡住界面） */
+      | { kind: 'xlsx'; path: string; mediaUrl: string; size: number }
+      | { kind: 'other'; path: string; size: number }
+    ) & {
+      /** 读到时的版本：刷新时比对，变了重新打开（预览地址也带着它，内容变了地址跟着变） */
+      version: FileVersion
+    })
 
 /** Files Tab 媒体预览自定义协议（主进程 stream，渲染层 `<img>` / `<audio>` / `<video>` / 瓦片 / PDF / PPT / Excel）。 */
 export const FILES_MEDIA_SCHEME = 'dc-media'
 
-/** 构建仅限本应用渲染层使用的媒体 URL（项目根、文件路径、MIME）；主进程协议只放行登记项目内路径。 */
-export function buildFilesMediaUrl(projectPath: string, filePath: string, mime: string): string {
+/**
+ * 构建仅限本应用渲染层使用的媒体 URL（项目根、文件路径、MIME）；主进程协议只放行登记项目内路径。
+ * 带上版本（`v`，协议不读）时，文件改过地址即不同，预览随之重新载入。
+ */
+export function buildFilesMediaUrl(
+  projectPath: string,
+  filePath: string,
+  mime: string,
+  version?: FileVersion
+): string {
   const u = new URL(`${FILES_MEDIA_SCHEME}://local/`)
   u.searchParams.set('p', normalizePath(projectPath))
   u.searchParams.set('f', normalizePath(filePath))
   u.searchParams.set('m', mime)
+  if (version) u.searchParams.set('v', `${version.mtimeMs}-${version.size}`)
   return u.toString()
 }
 

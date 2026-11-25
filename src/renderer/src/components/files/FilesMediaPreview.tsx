@@ -149,10 +149,9 @@ export function MediaFitButtons({
   )
 }
 
-/** key：超大位图用路径、其余用 src，用来匹配已就绪的金字塔。 */
-/** `from` = 解析出它的那个 `src` 入参；`src` = 实际上屏的 URL（超大位图与回退时是主进程出的预览图） */
+/** `from` = 解析出它的那个 `src` 入参（也用来匹配已就绪的金字塔）；`src` = 实际上屏的 URL（超大位图与回退时是主进程出的预览图） */
 /** `view` = 这张图所在文件的阅读位置（随图一起换上，旧图还在屏上时不会记到新文件上） */
-type Shown = { key: string; from: string; src: string; w: number; h: number; view: FilesViewState }
+type Shown = { from: string; src: string; w: number; h: number; view: FilesViewState }
 
 const NO_PREFETCH: readonly string[] = []
 
@@ -222,7 +221,10 @@ export function FilesMediaPreview({
   const [fallbackSrc, setFallbackSrc] = useState<string | null>(null)
   /** 占位上「重试」：+1 重跑加载 */
   const [attempt, setAttempt] = useState(0)
-  /** 已就绪的金字塔按路径记：新图换上之前旧图的瓦片层不拆，两张超大图之间切换不会先退回预览图 */
+  /**
+   * 已就绪的金字塔按图的地址记（地址带着文件版本，文件改过即另起一份）：新图换上之前旧图的瓦片层不拆，
+   * 两张超大图之间切换不会先退回预览图
+   */
   const [pyramids, setPyramids] = useState<Record<string, FilesImagePyramid>>({})
   const [panning, setPanning] = useState(false)
   const viewportRef = useRef<HTMLDivElement>(null)
@@ -250,7 +252,7 @@ export function FilesMediaPreview({
   const viaMain = projectPath !== null && (tiled || fallbackSrc === src)
   const tiledPath = viaMain ? path : null
   const tiledProject = viaMain ? projectPath : null
-  const activePyramid = shown ? (pyramids[shown.key] ?? null) : null
+  const activePyramid = shown ? (pyramids[shown.from] ?? null) : null
 
   /** 相机 → DOM：move 只动 transform；settle 把倍率烙进尺寸让浏览器重新栅格化。 */
   const applyCamera = (cam: MediaCamera, mode: 'move' | 'settle'): void => {
@@ -398,7 +400,7 @@ export function FilesMediaPreview({
         h = im.naturalHeight > 0 ? im.naturalHeight : FALLBACK_SIZE.h
       }
       shownImageRef.current = im
-      setShown({ key: tiledPath ?? src, from: src, src: displaySrc, w, h, view: viewState })
+      setShown({ from: src, src: displaySrc, w, h, view: viewState })
       setStatus('ready')
     })()
     return () => {
@@ -412,11 +414,10 @@ export function FilesMediaPreview({
   useEffect(() => {
     if (tiledProject === null || tiledPath === null) return
     let dead = false
-    const path = tiledPath
     window.api
-      .filesImagePyramid(tiledProject, path)
+      .filesImagePyramid(tiledProject, tiledPath)
       .then((pyramid) => {
-        if (!dead) setPyramids((prev) => ({ ...prev, [path]: pyramid }))
+        if (!dead) setPyramids((prev) => ({ ...prev, [src]: pyramid }))
       })
       .catch(() => {
         /* 生成失败：停留在预览图 */
@@ -424,7 +425,7 @@ export function FilesMediaPreview({
     return () => {
       dead = true
     }
-  }, [tiledProject, tiledPath])
+  }, [src, tiledProject, tiledPath])
 
   // 换图：看过的（像素尺寸没变）回到上次的档、倍率与平移，所处的档按当前视口重算（同视口尺寸一变时的规则）；
   // 没看过的装得下视口的落 1:1，装不下的落「适应窗口」——两者相机同形（zoom=1），只是档位不同

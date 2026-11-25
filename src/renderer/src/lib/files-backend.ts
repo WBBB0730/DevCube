@@ -2,30 +2,29 @@
 // 服务器走 server-files:*（SFTP，ADR-0041）。面板只认这一组操作，宿主差异不渗进读写流程。
 import {
   DEFAULT_FILES_UI,
+  type FileVersion,
   type FilesDirEntry,
   type FilesReadResult,
   type FilesStat,
   type FilesTransferResult,
   type FilesUiState
 } from '@shared/files'
-import type { ServerFileVersion, ServerFilesWriteResult } from '@shared/server-files'
+import type { ServerFilesWriteResult } from '@shared/server-files'
 
 type ImageRead = Extract<FilesReadResult, { kind: 'image' }>
 
-/** 面板打开一个条目的结果。 */
+/**
+ * 面板打开一个条目的结果。非文本的 version 为载入时的版本（服务器上的为服务器上的，不是下载的缓存的）：
+ * 刷新时比对，变了重新打开。
+ */
 export type FilesOpenResult =
-  | ((
-      | Exclude<FilesReadResult, { kind: 'image' }>
-      | (ImageRead & {
-          /** 经主进程出图（超大位图 / 浏览器解不了）用的本机文件：本机即其自身，服务器上的即下载的缓存 */
-          decode: { root: string; path: string }
-        })
-      /** 服务器上的文件较大：先占位，canForce 时可「仍然打开」 */
-      | { kind: 'too-large'; path: string; size: number; canForce: boolean }
-    ) & {
-      /** 服务器上的非文本文件载入时的版本：刷新时比对，变了重新打开（文本自带修改时间与大小） */
-      version?: ServerFileVersion
+  | Exclude<FilesReadResult, { kind: 'image' }>
+  | (ImageRead & {
+      /** 经主进程出图（超大位图 / 浏览器解不了）用的本机文件：本机即其自身，服务器上的即下载的缓存 */
+      decode: { root: string; path: string }
     })
+  /** 服务器上的文件较大：先占位，canForce 时可「仍然打开」 */
+  | { kind: 'too-large'; path: string; size: number; canForce: boolean; version: FileVersion }
   /** 被新的打开或「取消」打断 */
   | { kind: 'canceled' }
 

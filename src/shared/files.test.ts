@@ -17,6 +17,16 @@ describe('dc-media URL', () => {
     expect(u.searchParams.get('p')).toBe('/p')
     expect(u.searchParams.get('f')).toBe('/p/a b.png')
     expect(u.searchParams.get('m')).toBe('image/png')
+    expect(u.searchParams.has('v')).toBe(false)
+  })
+
+  it('带版本：文件改过（修改时间或大小变了）地址即不同', () => {
+    const at = (mtimeMs: number, size: number): string =>
+      buildFilesMediaUrl('/p', '/p/a.png', 'image/png', { mtimeMs, size })
+    expect(new URL(at(1, 2)).searchParams.get('v')).toBe('1-2')
+    expect(at(1, 2)).toBe(at(1, 2))
+    expect(at(1, 2)).not.toBe(at(3, 2))
+    expect(at(1, 2)).not.toBe(at(1, 3))
   })
 
   it('瓦片缓存：t 为键，f 相对键目录', () => {

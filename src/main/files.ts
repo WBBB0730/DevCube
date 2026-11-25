@@ -188,13 +188,14 @@ export async function readFileEntry(
   const sys = toSysPath(logical)
   const st = await statTarget(sys)
   if (st.isDirectory()) throw new Error('不能打开目录')
+  const version = { mtimeMs: st.mtimeMs, size: st.size }
   const name = path.basename(sys)
   const byName = classifyFilesOpenKind(name)
 
   if (byName === 'text') {
     const buf = await fs.readFile(sys)
     if (buf.length > FILES_TEXT_MAX_BYTES) {
-      return { kind: 'other', path: logical, size: buf.length }
+      return { kind: 'other', path: logical, size: buf.length, version }
     }
     return {
       kind: 'text',
@@ -218,7 +219,8 @@ export async function readFileEntry(
       kind,
       path: logical,
       mime: mediaMime,
-      mediaUrl: buildFilesMediaUrl(root, logical, mediaMime)
+      mediaUrl: buildFilesMediaUrl(root, logical, mediaMime, version),
+      version
     }
   }
 
@@ -228,13 +230,19 @@ export async function readFileEntry(
     return {
       kind: 'pdf',
       path: logical,
-      mediaUrl: buildFilesMediaUrl(root, logical, 'application/pdf')
+      mediaUrl: buildFilesMediaUrl(root, logical, 'application/pdf', version),
+      version
     }
   }
 
   // PPT / Excel 只由内容 MIME 分流而来（不单凭扩展名认），这里 mime 恒在
   if (kind === 'pptx' && mime) {
-    return { kind: 'pptx', path: logical, mediaUrl: buildFilesMediaUrl(root, logical, mime) }
+    return {
+      kind: 'pptx',
+      path: logical,
+      mediaUrl: buildFilesMediaUrl(root, logical, mime, version),
+      version
+    }
   }
   if (kind === 'xlsx' && mime) {
     // 老 .xls 探测出来是通用的 CFB 容器，协议头换成它的专名
@@ -242,8 +250,9 @@ export async function readFileEntry(
     return {
       kind: 'xlsx',
       path: logical,
-      mediaUrl: buildFilesMediaUrl(root, logical, xlsxMime),
-      size: st.size
+      mediaUrl: buildFilesMediaUrl(root, logical, xlsxMime, version),
+      size: st.size,
+      version
     }
   }
 
@@ -255,7 +264,8 @@ export async function readFileEntry(
       kind: 'image',
       path: logical,
       mime: imageType,
-      mediaUrl: buildFilesMediaUrl(root, logical, imageType),
+      mediaUrl: buildFilesMediaUrl(root, logical, imageType, version),
+      version,
       ...(dim
         ? { width: dim.width, height: dim.height, tiled: needsImageTiles(dim.width, dim.height) }
         : {})
@@ -264,7 +274,7 @@ export async function readFileEntry(
 
   // other：已确认二进制 MIME 则不再整文件读入，只报 size；否则嗅探是否文本
   if (mime) {
-    return { kind: 'other', path: logical, size: st.size }
+    return { kind: 'other', path: logical, size: st.size, version }
   }
 
   const buf = await fs.readFile(sys)
@@ -277,7 +287,7 @@ export async function readFileEntry(
       size: buf.length
     }
   }
-  return { kind: 'other', path: logical, size: buf.length }
+  return { kind: 'other', path: logical, size: buf.length, version }
 }
 
 /** 超大位图首屏预览图（路径限定在项目根内）。 */

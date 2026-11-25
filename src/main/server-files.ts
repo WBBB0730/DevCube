@@ -15,6 +15,8 @@ import {
   FILES_TEXT_MAX_BYTES,
   compareFilesDirEntries,
   filesEntryNameError,
+  sameFileVersion,
+  type FileVersion,
   type FilesDirEntry,
   type FilesEntryRef,
   type FilesStat,
@@ -32,10 +34,8 @@ import { isIdeIgnoredEntryName } from '../shared/files-tree-filter'
 import { isSelfOrInside, moveDropAllowed } from '../shared/files-tree-ops'
 import {
   createConflictPolicy,
-  sameServerFileVersion,
   serverOpenPlan,
   sftpOpenFailureMessage,
-  type ServerFileVersion,
   type ServerFilesReadProgress,
   type ServerFilesReadResult,
   type ServerFilesState,
@@ -86,7 +86,7 @@ interface FilesConnection {
   /** 进行中的打开：同一时刻一个，新的打开取消旧的 */
   read: AbortController | null
   /** 上一次打开时判断出的类型（按版本）：同一版本再打开（如占位上点「仍然打开」）不必再读开头 */
-  lastKind: { path: string; version: ServerFileVersion; kind: FilesOpenKind } | null
+  lastKind: { path: string; version: FileVersion; kind: FilesOpenKind } | null
   /** 传输队列（含失败的）：一次跑一个 */
   transfers: TransferTask[]
   transfersTimer: NodeJS.Timeout | null
@@ -304,7 +304,7 @@ async function connected(
 // —— 浏览与读写 ——
 
 const mtimeMsOf = (attrs: SftpAttrs): number => (attrs.mtime ?? 0) * 1000
-const versionOf = (attrs: SftpAttrs): ServerFileVersion => ({
+const versionOf = (attrs: SftpAttrs): FileVersion => ({
   mtimeMs: mtimeMsOf(attrs),
   size: attrs.size ?? 0
 })
@@ -504,10 +504,10 @@ async function detectKind(
 async function unchangedSince(
   client: SftpClient,
   remotePath: string,
-  version: ServerFileVersion
+  version: FileVersion
 ): Promise<boolean> {
   const after = await statOrNull(client, remotePath).catch(() => null)
-  return after !== null && sameServerFileVersion(versionOf(after), version)
+  return after !== null && sameFileVersion(versionOf(after), version)
 }
 
 /** 文本读进内存，并留作副本；开始即报 0%（渲染端据此盖上进度）。 */
@@ -515,7 +515,7 @@ async function downloadText(
   serverId: string,
   client: SftpClient,
   remotePath: string,
-  version: ServerFileVersion,
+  version: FileVersion,
   onProgress: (doneBytes: number) => void,
   signal: AbortSignal
 ): Promise<Uint8Array> {
@@ -537,7 +537,7 @@ async function downloadCopy(
   client: SftpClient,
   remotePath: string,
   kind: FilesOpenKind,
-  version: ServerFileVersion,
+  version: FileVersion,
   onProgress: (doneBytes: number) => void,
   signal: AbortSignal
 ): Promise<ServerFileCopy<{ dir: string; file: string }>> {
@@ -582,7 +582,7 @@ export async function readServerFile(
     const file = fileCopies.take(serverId, remotePath, version)
     const last = conn.lastKind
     const known =
-      last !== null && last.path === remotePath && sameServerFileVersion(last.version, version)
+      last !== null && last.path === remotePath && sameFileVersion(last.version, version)
         ? last.kind
         : null
     const kind =
@@ -646,11 +646,11 @@ export async function writeServerFile(
   serverId: string,
   remotePath: string,
   content: string,
-  base: ServerFileVersion
+  base: FileVersion
 ): Promise<ServerFilesWriteResult> {
   const { client } = await connected(serverId)
   const current = await statOrNull(client, remotePath)
-  if (current && !sameServerFileVersion(versionOf(current), base)) {
+  if (current && !sameFileVersion(versionOf(current), base)) {
     const size = current.size ?? 0
     const disk =
       size <= FILES_TEXT_MAX_BYTES
