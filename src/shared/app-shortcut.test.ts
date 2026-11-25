@@ -154,6 +154,21 @@ describe('matchAppShortcut', () => {
     expect(matchAppShortcut(key({ code: 'Backslash', control: true }), WIN_TERM)).toBeNull()
   })
 
+  it('CmdOrCtrl+Shift+E Files 焦点轮转，不与 CmdOrCtrl+E 混', () => {
+    const shiftE = (mods: Partial<ShortcutInput>, ctx: ShortcutContext): unknown =>
+      matchAppShortcut(key({ code: 'KeyE', key: 'E', shift: true, ...mods }), ctx)
+    expect(shiftE({ meta: true }, MAC)).toEqual({ id: 'cycleFilesFocus' })
+    expect(shiftE({ control: true }, WIN)).toEqual({ id: 'cycleFilesFocus' })
+    expect(shiftE({ meta: true }, MAC_TERM)).toEqual({ id: 'cycleFilesFocus' })
+    // 焦点在终端时 Ctrl+Shift+E 留给终端里的程序；⌃ 不冒充 ⌘，带 ⌥ 的不算
+    expect(shiftE({ control: true }, WIN_TERM)).toBeNull()
+    expect(shiftE({ control: true }, MAC)).toBeNull()
+    expect(shiftE({ meta: true, alt: true }, MAC)).toBeNull()
+    expect(matchAppShortcut(key({ code: 'KeyE', key: 'e', meta: true }), MAC)).toEqual({
+      id: 'recentFiles'
+    })
+  })
+
   it('忽略 keyUp', () => {
     expect(
       matchAppShortcut(key({ type: 'keyUp', code: 'ArrowLeft', meta: true, alt: true }), MAC)

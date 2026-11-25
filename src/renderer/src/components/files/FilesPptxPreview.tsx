@@ -59,6 +59,7 @@ import {
 import { useFindCursor } from '@renderer/lib/use-find-cursor'
 import type { FilesViewState } from '@renderer/lib/files-view-state'
 import type { FindSession } from '@renderer/lib/use-find-session'
+import { CONTENT_ATTR, useContentFocus } from '@renderer/lib/content-focus'
 import { FilesPageControls, FilesSidebarToggle } from './FilesPagedControls'
 import { FilesPreviewError } from './FilesPreviewError'
 import { FilesPageThumbnails } from './FilesPageThumbnails'
@@ -191,7 +192,7 @@ export function FilesPptxPreview({
   find: FindSession
   /** 这个文件的阅读位置（FilesPane 按文件记） */
   viewState: FilesViewState
-  /** ←/→ 切上一个 / 下一个媒体文件（↑/↓ 归翻页）；由 FilesPane 按树内可见序给 */
+  /** 进了正文后在第一页按 ↑ / 最后一页按 ↓：换到文件树里的上一个 / 下一个文件，由 FilesPane 给 */
   onPrev?: () => void
   onNext?: () => void
   /** 缩略图侧栏可见性（会话内保持，归 FilesPane，与 PDF 共用） */
@@ -213,7 +214,7 @@ export function FilesPptxPreview({
   const [view, setView] = useState<PptxSize>({ width: 0, height: 0 })
   const [scrollTop, setScrollTop] = useState(0)
   const [page, setPage] = useState(1)
-  const { open: findOpen, openFind, closeFind: closeSession } = find
+  const { open: findOpen, openFind, closeFind } = find
   const { query: findQuery, caseSensitive, wholeWord } = find.bar
   /** 最近一次请求的倍率与待落的滚动位置：连续滚轮在一帧里多次换倍率时以它们为基准，而不是还没提交的 DOM */
   const scaleRef = useRef(1)
@@ -276,7 +277,6 @@ export function FilesPptxPreview({
         if (container) {
           container.scrollTop = 0
           container.scrollLeft = 0
-          container.focus({ preventScroll: true })
         }
         setLoaded({ src, doc: next })
         setScale(initial)
@@ -489,12 +489,12 @@ export function FilesPptxPreview({
   })
   const currentMatch = current >= 0 ? matches[current] : null
 
-  const closeFind = useCallback(() => {
-    closeSession()
-    containerRef.current?.focus({ preventScroll: true })
-  }, [closeSession])
-
   const fitWindow = useCallback(() => fit('window'), [fit])
+
+  // 进入正文（Enter、⇧⌘E 等，见 content-focus）即聚焦滚动容器；打开文件本身不进正文
+  const focusContent = useCallback(() => containerRef.current?.focus({ preventScroll: true }), [])
+  const getScroller = useCallback(() => containerRef.current, [])
+  useContentFocus(focusContent)
 
   usePagedPreviewKeys({
     active,
@@ -504,6 +504,7 @@ export function FilesPptxPreview({
     closeFind,
     resetZoom: fitWindow,
     stepZoom,
+    getScroller,
     getPage,
     goToPage,
     onPrevFile: onPrev,
@@ -561,7 +562,7 @@ export function FilesPptxPreview({
     }
   }, [findOpen, matches, current, picked, mountedFirst, mountedLast])
 
-  /** 点缩略图跳页后把焦点还给正文，PageUp / PageDown 与 ←/→ 继续滚正文（同关查找栏） */
+  /** 点缩略图跳页即进正文（同点进正文）：方向键与 PageUp / PageDown 由正文处理 */
   const selectThumbnail = (n: number): void => {
     goToPage(n)
     containerRef.current?.focus({ preventScroll: true })
@@ -635,6 +636,7 @@ export function FilesPptxPreview({
           <div
             ref={containerRef}
             tabIndex={0}
+            {...CONTENT_ATTR}
             className={cn(
               'absolute inset-0 cursor-grab overflow-auto outline-none',
               spaceHeld && 'pan-mode select-none'

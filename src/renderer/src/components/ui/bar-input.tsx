@@ -1,11 +1,25 @@
 // 栏里的低调输入框（Files 树顶的筛选 /「前往路径」等）：透明底、聚焦时才压 `--bg-row-hover` 底，前面可放图标。
 // 两种模式：即时模式（边输边生效，如筛选）有内容时末尾出「清空」；提交模式（给 onSubmit，回车才生效，如前往路径）
 // 有内容时末尾依次出「提交」与「清空」。末尾钮按下时都不抢输入框的焦点——点「提交」同回车，「清空」后可接着输入。
-// Esc 离开输入框：先同「清空」一样清空（已生效的筛选随之取消），再把焦点交给下面的树 / 列表（同 typeToInput 反过来），
-// 它这一刻不在就只失焦；Esc 拦下，不再冒泡给外层。
+// Esc 离开输入框：先同「清空」一样清空（已生效的筛选随之取消），再把焦点交给下面的树 / 列表，它这一刻不在就只失焦；
+// Esc 拦下，不再冒泡给外层。反过来，焦点在树 / 列表上时按 Esc 清空框里的内容（clearBarInputOnEscape）。
 // 外框、末尾钮与 Esc 离开另与栏里的单行编辑器共用（表数据顶栏的 WHERE / ORDER BY，见 database/BarCodeInput）。
 import { CornerDownLeft, X } from 'lucide-react'
 import { cn } from '@renderer/lib/utils'
+
+/**
+ * 框下面的树 / 列表上按 Esc：框里有内容（不只是空白）时清空，焦点留在原处（给树 / 列表的键盘处理调；按键来自输入框
+ * 本身时不管）。onClear 同 BarInput 的：要自己把值清空，再做连带的事。
+ */
+export function clearBarInputOnEscape(
+  e: { key: string; target: EventTarget | null; preventDefault: () => void },
+  query: string,
+  onClear: () => void
+): void {
+  if (e.key !== 'Escape' || query.trim() === '' || e.target instanceof HTMLInputElement) return
+  e.preventDefault()
+  onClear()
+}
 
 /** 前置图标样式（如筛选的 Search）：14px、`--fg-disabled` */
 export const BAR_INPUT_ICON = 'size-3.5 shrink-0 text-[color:var(--fg-disabled)]'

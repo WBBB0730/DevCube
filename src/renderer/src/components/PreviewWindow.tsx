@@ -73,7 +73,8 @@ export function PreviewWindow({ launch }: { launch: PreviewLaunch }): React.JSX.
     })
   }, [launch.root])
 
-  // 主进程只转发 Files 面板自己的键：⌥⌘F（筛选框聚焦）、⌘E（最近打开文件）与 Editor Tab 的关闭 / 切换 / 分屏；
+  // 主进程只转发 Files 面板自己的键：⌥⌘F（筛选框聚焦）、⌘E（最近打开文件）、Editor Tab 的关闭 / 切换 / 分屏与
+  // ⇧⌘E（焦点轮转）；
   // Cmd/Ctrl+W 由面板先关 Editor Tab，关掉最后一个（或本来就没有）时经 closeWindow 关窗
   useEffect(
     () =>
@@ -82,7 +83,12 @@ export function PreviewWindow({ launch }: { launch: PreviewLaunch }): React.JSX.
         if (s.id === 'focusFilesFilter') files.bumpFilesFilterFocus(root)
         else if (s.id === 'recentFiles') files.bumpRecentMenu(root)
         else if (s.id === 'closeTab') files.sendEditorCommand(root, 'close')
-        else if (s.id === 'prevEditorTab' || s.id === 'nextEditorTab' || s.id === 'splitEditor') {
+        else if (
+          s.id === 'prevEditorTab' ||
+          s.id === 'nextEditorTab' ||
+          s.id === 'splitEditor' ||
+          s.id === 'cycleFilesFocus'
+        ) {
           files.sendEditorCommand(root, EDITOR_COMMAND_OF[s.id])
         }
       }),

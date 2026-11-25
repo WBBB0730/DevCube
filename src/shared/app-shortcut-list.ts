@@ -72,6 +72,7 @@ export const APP_SHORTCUT_GROUPS: AppShortcutListGroup[] = [
       { label: '查找', keys: chords(SHORTCUT.find) },
       { label: '查找下一个 / 上一个', keys: chords(SHORTCUT.findNext, SHORTCUT.findPrev) },
       { label: '最近打开的文件或数据源对象', keys: chords(SHORTCUT.recentFiles) },
+      { label: '聚焦当前面板的筛选或前往路径', keys: chords(SHORTCUT.filesFilter) },
       { label: '格式化（JSON、SQL）', keys: chords(SHORTCUT.format) }
     ]
   },
@@ -98,8 +99,8 @@ export const APP_SHORTCUT_GROUPS: AppShortcutListGroup[] = [
     id: 'files',
     title: '文件',
     rows: [
-      { label: '聚焦文件筛选或前往路径', keys: chords(SHORTCUT.filesFilter) },
       { label: '搜索文件内容', keys: chords(SHORTCUT.contentSearch) },
+      { label: '进入 / 离开正文（分栏时在两栏之间轮转）', keys: chords(SHORTCUT.cycleFilesFocus) },
       { label: '关闭当前文件', keys: chords(SHORTCUT.closeTab) },
       {
         label: '上一个 / 下一个编辑器标签页',
@@ -111,9 +112,9 @@ export const APP_SHORTCUT_GROUPS: AppShortcutListGroup[] = [
       },
       { label: '向右分屏', keys: chords(SHORTCUT.splitEditor), pref: 'filesEditorTabs' },
       { label: '保存服务器上的文件', keys: chords(SHORTCUT.save) },
-      { label: '上一个 / 下一个媒体文件（看图、PDF、PPT）', keys: chords(LEFT, RIGHT) },
-      { label: '上一个 / 下一个媒体文件（音视频）', keys: chords(UP, DOWN) },
-      { label: 'PDF / PPT 上一页 / 下一页', keys: chords(UP, DOWN) },
+      { label: '上一个 / 下一个文件', keys: chords(UP, DOWN) },
+      { label: '上一个 / 下一个媒体文件（看图）', keys: chords(LEFT, RIGHT) },
+      { label: 'PDF / PPT 上一页 / 下一页', keys: chords(LEFT, RIGHT) },
       {
         label: '适应窗口 / 放大 / 缩小',
         keys: chords(SHORTCUT.fitWindow, { mod: true, key: '+' }, { mod: true, key: '-' })
@@ -138,13 +139,12 @@ export const APP_SHORTCUT_GROUPS: AppShortcutListGroup[] = [
     id: 'filesTree',
     title: '文件树',
     rows: [
-      { label: '上一行 / 下一行', keys: chords(UP, DOWN) },
       {
         label: '向上 / 向下扩大选择',
         keys: chords({ shift: true, key: 'ArrowUp' }, { shift: true, key: 'ArrowDown' })
       },
-      { label: '收起 / 展开', keys: chords(LEFT, RIGHT) },
-      { label: '进入文件', keys: chords({ key: 'Enter' }) },
+      { label: '收起 / 展开文件夹', keys: chords(LEFT, RIGHT) },
+      { label: '进入正文', keys: chords({ key: 'Enter' }) },
       { label: '重命名', keys: chords({ key: 'F2' }) },
       { label: '删除', keys: chordsBy((platform) => [deleteEntryShortcut(platform)]) }
     ]

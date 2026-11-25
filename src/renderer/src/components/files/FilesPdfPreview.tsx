@@ -9,7 +9,7 @@
 // 空白处双击在「适应宽度 / 适应高度」两档间切换（文字上双击仍是选词）；容器尺寸一变，预设档按新尺寸重算。
 // 正文左侧缩略图侧栏（FilesPdfThumbnails）：点格跳页、翻页跟随点亮；面包屑前一颗开关钮（开着点亮），状态归 FilesPane 会话内保持；
 // 小图的排队 / 缓存归 PdfThumbnailRenderer，随文档建、随文档销毁，侧栏开合不丢缓存。
-// ↑/↓ 始终上一页 / 下一页（不看档位，正文与侧栏内都如此，同看图的方向键切图）。
+// ← / → 上一页 / 下一页，平时与进了正文都接；进了正文后 ↑ / ↓ 也翻页、到头再按换文件（docs/prd/files-tab.md「按键归属」）。
 // 外链由库标 target=_blank，交主进程开窗守卫转系统浏览器（web-contents-guard）；内链（目录跳转）库自处理。
 // 库样式表在 main.css 顶部以级联层引入（.files-pdf 覆盖也在那里）。
 // 键盘、抓手、滚轮缩放、页码与四档、缩略图侧栏是与 PPT 预览共用的外壳（lib/files-paged-preview、FilesPagedControls、FilesPageThumbnails）。
@@ -48,6 +48,7 @@ import {
   usePreviewPan
 } from '@renderer/lib/files-paged-preview'
 import type { FindSession } from '@renderer/lib/use-find-session'
+import { CONTENT_ATTR, useContentFocus } from '@renderer/lib/content-focus'
 import { MEDIA_SETTLE_MS } from './FilesMediaPreview'
 import { FilesPageControls, FilesSidebarToggle } from './FilesPagedControls'
 import { FilesPreviewError } from './FilesPreviewError'
@@ -198,7 +199,7 @@ export function FilesPdfPreview({
   find: FindSession
   /** 这个文件的阅读位置（FilesPane 按文件记） */
   viewState: FilesViewState
-  /** ←/→ 切上一个 / 下一个媒体文件（↑/↓ 归翻页）；由 FilesPane 按树内可见序给 */
+  /** 进了正文后在第一页按 ↑ / 最后一页按 ↓：换到文件树里的上一个 / 下一个文件，由 FilesPane 给 */
   onPrev?: () => void
   onNext?: () => void
   /** 缩略图侧栏可见性（会话内保持，归 FilesPane） */
@@ -339,7 +340,6 @@ export function FilesPdfPreview({
         thumbs = new PdfThumbnailRenderer(doc, bus, viewer.onePageRendered)
         setDocInfo({ src, doc, thumbs })
         setPage(1)
-        containerRef.current?.focus({ preventScroll: true })
       } catch (e) {
         if (!dead) setLoadError({ src, message: e instanceof Error ? e.message : String(e) })
       }
@@ -359,7 +359,6 @@ export function FilesPdfPreview({
   const closeFind = useCallback(() => {
     closeSession()
     busRef.current?.dispatch('findbarclose', { source: null })
-    containerRef.current?.focus({ preventScroll: true })
   }, [closeSession])
 
   const dispatchFind = useCallback(
@@ -455,6 +454,11 @@ export function FilesPdfPreview({
 
   const fitWindow = useCallback(() => fit('window'), [fit])
 
+  // 进入正文（Enter、⇧⌘E 等，见 content-focus）即聚焦滚动容器；打开文件本身不进正文
+  const focusContent = useCallback(() => containerRef.current?.focus({ preventScroll: true }), [])
+  const getScroller = useCallback(() => containerRef.current, [])
+  useContentFocus(focusContent)
+
   usePagedPreviewKeys({
     active,
     rootRef,
@@ -463,6 +467,7 @@ export function FilesPdfPreview({
     closeFind,
     resetZoom: fitWindow,
     stepZoom,
+    getScroller,
     getPage,
     goToPage,
     onPrevFile: onPrev,
@@ -511,7 +516,7 @@ export function FilesPdfPreview({
   }, [])
   useCtrlWheelZoom(wrapRef, onWheelZoom)
 
-  /** 点缩略图跳页后把焦点还给正文，方向键与 PageUp / PageDown 继续由正文处理（同关查找栏） */
+  /** 点缩略图跳页即进正文（同点进正文）：方向键与 PageUp / PageDown 由正文处理 */
   const selectThumbnail = (n: number): void => {
     goToPage(n)
     containerRef.current?.focus({ preventScroll: true })
@@ -570,6 +575,7 @@ export function FilesPdfPreview({
           <div
             ref={containerRef}
             tabIndex={0}
+            {...CONTENT_ATTR}
             className={cn(
               'absolute inset-0 cursor-grab overflow-auto outline-none',
               spaceHeld && 'pan-mode select-none'

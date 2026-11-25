@@ -57,11 +57,6 @@ export function FilesFindWidget({
     if (gotoFindMatch(view, matches, dir)) setCurrent(currentFindIndex(view.state, matches))
   }
 
-  const close = (): void => {
-    find.closeFind()
-    view?.focus()
-  }
-
   const invalidRegex = regexp && query !== '' && !searchQuery.valid
   const totalLabel = matches.length >= FIND_MATCH_LIMIT ? '999+' : String(matches.length)
   const countLabel =
@@ -74,7 +69,7 @@ export function FilesFindWidget({
       invalidMessage={invalidRegex ? '无效的正则表达式' : null}
       canNavigate={matches.length > 0}
       onNavigate={navigate}
-      onClose={close}
+      onClose={find.closeFind}
     />
   )
 }

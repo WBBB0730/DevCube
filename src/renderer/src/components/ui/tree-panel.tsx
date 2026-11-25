@@ -2,11 +2,14 @@
 // 树顶栏（h-10：筛选 / 前往输入 + 钮组）、当前根行（固定在列表之上不随滚动走）与列表的滚动区样式。行与整树状态见 ./tree。
 import { Button } from '@renderer/components/ui/button'
 import { ResizablePanel } from '@renderer/components/ui/resizable'
-import { TREE_DROP_TARGET } from '@renderer/components/ui/tree'
+import { TREE_DROP_TARGET, TREE_FOCUS_GROUP } from '@renderer/components/ui/tree'
 import { cn } from '@renderer/lib/utils'
 
-/** 树列表的滚动区（在根行之下）：可聚焦（焦点在树上打字转进树顶输入），不画焦点框 */
-export const TREE_SCROLL = 'min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5 pt-1 outline-none'
+/**
+ * 树列表的滚动区（在根行之下）：可聚焦（树顶输入框按 Esc 把焦点交给它），不画焦点框；焦点在它里面时选中行是蓝的
+ * （见 ./tree 的 TREE_ROW_SELECTED）
+ */
+export const TREE_SCROLL = `${TREE_FOCUS_GROUP} min-h-0 flex-1 overflow-y-auto px-1.5 pb-1.5 pt-1 outline-none`
 
 /**
  * 面板外框：panel 底的可拖面板，放在面板组里、前面隔一条分隔线（ADR-0053）。宽度三处共用一份：面板组的主人用

@@ -27,6 +27,8 @@ import {
   type MarkdownTocHover,
   type MarkdownTocState
 } from '@renderer/lib/files-markdown'
+import { CONTENT_ATTR, useContentFocus } from '@renderer/lib/content-focus'
+import { usePagedPreviewKeys } from '@renderer/lib/files-paged-preview'
 import { useEditorFind } from '@renderer/lib/use-editor-find'
 import type { FindSession } from '@renderer/lib/use-find-session'
 import type { FilesViewState } from '@renderer/lib/files-view-state'
@@ -59,10 +61,10 @@ export type FilesPaneToolbar = Omit<
   | 'onFocusContent'
 >
 
-/** 编辑器跳转请求（FilesPane → FilesTextEditor）：内容搜索带行与选中区间；不带行只聚焦（最近打开选取后）。 */
+/** 编辑器跳转请求（FilesPane → FilesTextEditor，内容搜索选中命中）：行与选中区间，并把焦点交给编辑器。 */
 export interface EditorJumpRequest {
   path: string
-  line?: number
+  line: number
   col?: number
   endCol?: number
   nonce: number
@@ -111,7 +113,7 @@ export function FilesTextEditor({
   /** Markdown 预览侧边的目录开着（与 PDF / PPT 缩略图共用一个开关，会话内保持，归 FilesPane）；放不下时不显示 */
   toc: boolean
   onToggleToc: () => void
-  /** 内容搜索跳转：编辑器就绪后选中命中区间并滚到行；应用后回调清除 */
+  /** 内容搜索跳转：编辑器就绪后选中命中区间、滚到行并聚焦；应用后回调清除 */
   jump: EditorJumpRequest | null
   onJumpDone: () => void
   /** 点击 gutter 标记行 → 打开这个文件这一处的 diff 弹窗 */
@@ -120,7 +122,7 @@ export function FilesTextEditor({
   onChange: (value: string) => void
   onImagePrev: () => void
   onImageNext: () => void
-  /** Files Tab 可见：预览态（SVG 看图 / CSV 表格）的键盘只在可见时响应 */
+  /** Files Tab 可见且这一栏是当前栏时才响应键盘 */
   active: boolean
   imagePrefetch?: readonly string[]
 }): React.JSX.Element {
@@ -173,6 +175,27 @@ export function FilesTextEditor({
   // 查找栏（Cmd+F）：这一栏这个文件的查找会话（FilesPane 按栏与文件记），编辑与预览（Markdown / CSV）共用，
   // 切换不关、不清空；SVG 预览没有查找，查找栏先藏起，切回编辑原样出现
   const findExtension = useEditorFind(view, find)
+  /** 编辑态（预览态的键盘与进入正文归各预览自己） */
+  const editing = !(canPreview && sourcePreview)
+  // 焦点不在编辑器里时 ⌘F 也开查找、翻页滚动的键也滚它（两边一样，同各预览）；查找预填编辑器里选中的文字
+  const rootRef = useRef<HTMLDivElement>(null)
+  const { openFind, closeFind } = find
+  const openEditorFind = useCallback(() => {
+    if (!view?.dom.isConnected) return openFind('')
+    const { from, to } = view.state.selection.main
+    openFind(view.state.sliceDoc(from, to))
+  }, [view, openFind])
+  const getScroller = useCallback(() => (view?.dom.isConnected ? view.scrollDOM : null), [view])
+  usePagedPreviewKeys({
+    active: active && editing,
+    rootRef,
+    findOpen: find.open,
+    openFind: openEditorFind,
+    closeFind,
+    getScroller
+  })
+  // 进入正文（Enter、⇧⌘E 等，见 content-focus）即聚焦编辑器，直接可键入；编辑器建好才进得去
+  useContentFocus(editing && view !== null ? focusEditor : null)
 
   // 格式化（JSON / SQL，见 lib/files-format）：工具栏钮与 ⌥⌘L（焦点在编辑器时），格式化选中的部分或全文；
   // SQL 认不出时弹「无法格式化」
@@ -191,16 +214,14 @@ export function FilesTextEditor({
   useEffect(() => {
     if (!jump || jump.path !== path) return
     if (!view || !view.dom.isConnected) return
-    if (jump.line !== undefined) {
-      const doc = view.state.doc
-      const line = doc.line(Math.min(Math.max(jump.line, 1), doc.lines))
-      const anchor = Math.min(line.from + (jump.col ?? 0), line.to)
-      const head = Math.min(line.from + (jump.endCol ?? jump.col ?? 0), line.to)
-      view.dispatch({
-        selection: { anchor, head },
-        effects: EditorView.scrollIntoView(anchor, { y: 'center' })
-      })
-    }
+    const doc = view.state.doc
+    const line = doc.line(Math.min(Math.max(jump.line, 1), doc.lines))
+    const anchor = Math.min(line.from + (jump.col ?? 0), line.to)
+    const head = Math.min(line.from + (jump.endCol ?? jump.col ?? 0), line.to)
+    view.dispatch({
+      selection: { anchor, head },
+      effects: EditorView.scrollIntoView(anchor, { y: 'center' })
+    })
     view.focus()
     onJumpDone()
   }, [jump, path, view, onJumpDone])
@@ -237,7 +258,7 @@ export function FilesTextEditor({
         else setTocHover((hover) => (hover === 'peek' ? 'idle' : hover))
       }}
     >
-      <div className="flex h-full min-h-0 flex-col">
+      <div ref={rootRef} className="flex h-full min-h-0 flex-col">
         <FilesToolbar
           {...toolbar}
           path={path}
@@ -312,7 +333,10 @@ export function FilesTextEditor({
         ) : (
           <>
             {find.open && <FilesFindWidget view={view} content={content} find={find} />}
-            <div className="files-codemirror min-h-0 flex-1 overflow-hidden bg-deepest">
+            <div
+              {...CONTENT_ATTR}
+              className="files-codemirror min-h-0 flex-1 overflow-hidden bg-deepest"
+            >
               <CodeMirror
                 key={path}
                 value={content}

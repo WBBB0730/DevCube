@@ -6,11 +6,12 @@
 // 切走即取消过期的加载与解码。浏览器解不了的图改由主进程出图（同超大位图），仍失败显示可重试的占位。
 // SVG 走 data URL（CSP 已放行 data:），不当 inline XML，脚本不执行。
 // Cmd/Ctrl+滚轮按光标缩放（触控板捏合是 Chromium 合成的 ctrl+wheel）；滚轮或按住拖拽平移；
-// 方向键按树里可见顺序切上一张 / 下一张（跨目录）；工具栏四档（1:1 / 适应高度 / 适应宽度 / 适应窗口）、双击在两条轴间切、
+// ← / → 按树里可见顺序切上一个 / 下一个媒体（跨目录）；工具栏四档（1:1 / 适应高度 / 适应宽度 / 适应窗口）、双击在两条轴间切、
 // Cmd/Ctrl+0 回适应窗口、Cmd/Ctrl +/- 逐档缩放（这三个键已从应用菜单的视图块摘掉，见 ADR-0019）；
 // 打开没看过的图时装得下的落 1:1、装不下的落适应窗口；看过的（像素尺寸没变）回到上次的档、倍率与平移（docs/prd/files-tab.md「阅读位置」）。
 import {
   useCallback,
+  useContext,
   useEffect,
   useImperativeHandle,
   useLayoutEffect,
@@ -19,7 +20,7 @@ import {
   useState
 } from 'react'
 import { GalleryHorizontal, GalleryVertical, Scan } from 'lucide-react'
-import { editableTarget, filesTreeTarget, overlayOpen } from '@renderer/lib/files-key-guards'
+import { arrowOwnerOf, FilesTreeRowContext, filesKeyScope } from '@renderer/lib/files-key-guards'
 import { cn } from '@renderer/lib/utils'
 import { isPrimaryModifierEvent, shortcutTitle } from '@renderer/lib/shortcut-label'
 import type { FilesImagePyramid } from '@shared/files-image-tiles'
@@ -202,7 +203,7 @@ export function FilesMediaPreview({
   tiled?: boolean
   /** 相邻图的 `<img>` URL，提前解码好，切图零等待 */
   prefetch?: readonly string[]
-  /** Files Tab 可见且无挡操作的弹层时才响应方向键 */
+  /** Files Tab 可见且这一栏是当前栏时才响应键盘 */
   active?: boolean
   onPrev?: () => void
   onNext?: () => void
@@ -550,27 +551,20 @@ export function FilesMediaPreview({
     prefetchedRef.current = next
   }, [prefetch, src])
 
+  // ← / → 换上一个 / 下一个媒体（↑ / ↓ 归文件树换文件；归属见 files-key-route）
+  const treeRowIsDirectory = useContext(FilesTreeRowContext)
   useEffect(() => {
     if (!active || (!onPrev && !onNext)) return
     const onKey = (e: KeyboardEvent): void => {
-      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
-      if (
-        e.key !== 'ArrowLeft' &&
-        e.key !== 'ArrowRight' &&
-        e.key !== 'ArrowUp' &&
-        e.key !== 'ArrowDown'
-      ) {
-        return
-      }
-      if (editableTarget(e.target) || filesTreeTarget(e.target) || overlayOpen()) return
-      if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') onPrev?.()
-      else onNext?.()
+      if (arrowOwnerOf(e, 'image', treeRowIsDirectory()) !== 'content') return
       e.preventDefault()
       e.stopPropagation()
+      if (e.key === 'ArrowLeft') onPrev?.()
+      else onNext?.()
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [active, onPrev, onNext])
+  }, [active, onPrev, onNext, treeRowIsDirectory])
 
   /** 键盘缩放：按视口中心走，离开所有档位（同滚轮缩放）。 */
   const stepZoom = useCallback(
@@ -596,7 +590,7 @@ export function FilesMediaPreview({
     [setFitMode]
   )
 
-  // Cmd/Ctrl+0 回适应窗口、Cmd/Ctrl +/- 逐档缩放。这三个键已从应用菜单的视图块里摘掉
+  // Cmd/Ctrl+0 回适应窗口、Cmd/Ctrl +/- 逐档缩放：不看焦点，弹层开着时让位。这三个键已从应用菜单的视图块里摘掉
   //（Electron 的 viewMenu 自带整页缩放，菜单加速键优先级更高，留着就压住这里）。
   useEffect(() => {
     if (!active) return
@@ -607,7 +601,7 @@ export function FilesMediaPreview({
       const zoomOut = e.code === 'Minus' || e.code === 'NumpadSubtract'
       const reset = e.code === 'Digit0' && !e.shiftKey
       if (!zoomIn && !zoomOut && !reset) return
-      if (editableTarget(e.target) || overlayOpen()) return
+      if (filesKeyScope(e.target) === 'blocked') return
       e.preventDefault()
       e.stopPropagation()
       if (reset) fit('window')

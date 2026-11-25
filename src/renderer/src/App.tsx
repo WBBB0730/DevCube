@@ -19,7 +19,7 @@ import {
   ResizablePanel,
   ResizablePanelGroup
 } from '@renderer/components/ui/resizable'
-import { useDataSourceUi } from '@renderer/data-source-store'
+import { activeDataSourceTabKey, useDataSourceUi } from '@renderer/data-source-store'
 import { countExecutedStatements } from '@renderer/lib/data-source-completion-usage'
 import { useRememberedPanel } from '@renderer/lib/remembered-panel'
 import { EDITOR_COMMAND_OF, useFiles } from '@renderer/files-store'
@@ -30,7 +30,7 @@ import type { AppShortcut } from '@shared/app-shortcut'
 import { wslDistroOf } from '@shared/wsl-path'
 import type { AppUpdateState } from '@shared/app-update-state'
 import { filterTreeEntries, sortTreeEntries } from '@shared/project-sort'
-import { isFilesTabKey, isResidentTabKey } from '@shared/runnable'
+import { isFilesTabKey, isResidentTabKey, residentDataSourceTabKey } from '@shared/runnable'
 import {
   buildTreeEntries,
   dataSourceIdOfEntryKey,
@@ -93,7 +93,7 @@ function handleAppShortcut(shortcut: AppShortcut): void {
   const st = useApp.getState()
   const entry = st.currentEntryKey
   const kind = entry === null ? null : entryKindOfKey(entry)
-  // 内容搜索只对 Project 有意义；Files Tab 只有 Project 与 Server 有（服务器上 ⌥⌘F 聚焦「前往路径」）
+  // 内容搜索只对 Project 有意义；Files Tab 只有 Project 与 Server 有
   const proj = kind === 'project' ? entry : null
   const filesEntry = kind === 'project' || kind === 'server' ? entry : null
   const dataSourceEntry = kind === 'dataSource' ? entry : null
@@ -102,9 +102,17 @@ function handleAppShortcut(shortcut: AppShortcut): void {
     case 'focusProjectFilter':
       st.focusProjectFilter()
       return
-    case 'focusFilesFilter':
-      if (filesEntry) useFiles.getState().focusFilesFilter(filesEntry)
+    case 'focusFilesFilter': {
+      // 聚焦当前面板的筛选框：Data Source Tab 在前台时为它的目录（Redis 为键列表）筛选；否则项目与服务器为 Files 的
+      // 文件筛选（服务器为「前往路径」），数据源条目为它常驻的 Data Source Tab
+      if (!entry) return
+      const dataSourceTab =
+        activeDataSourceTabKey(entry) ??
+        (dataSourceEntry ? residentDataSourceTabKey(dataSourceEntry) : null)
+      if (dataSourceTab !== null) useDataSourceUi.getState().focusFilter(entry, dataSourceTab)
+      else if (filesEntry) useFiles.getState().focusFilesFilter(filesEntry)
       return
+    }
     case 'contentSearch':
       if (proj) st.setContentSearchOpen(true)
       return
@@ -150,8 +158,9 @@ function handleAppShortcut(shortcut: AppShortcut): void {
     }
     case 'prevEditorTab':
     case 'nextEditorTab':
-    case 'splitEditor': {
-      // 只在 Files Tab 在前台时作用于它的 Editor Tab
+    case 'splitEditor':
+    case 'cycleFilesFocus': {
+      // 只在 Files Tab 在前台时作用于它的 Editor Tab 与焦点
       if (!filesEntry) return
       const { activeKey } = resolveTabs(st, filesEntry)
       if (activeKey === null || !isFilesTabKey(activeKey)) return

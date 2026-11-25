@@ -3,13 +3,21 @@
 // 控件显隐、全屏整个播放器与点按手势用 Video.js（ADR-0065）。
 // 两者共用 B 站习惯的键盘操作（docs/prd/files-tab.md「音视频快捷键」）：空格播放 / 暂停，← / → 快退 / 快进 5 秒，
 // 播放中按住 ← 连续快退、按住 → 2 倍速；暂停时按住不进入播放：音频连续快退 / 快进，视频改为逐帧（轻按退 / 进一帧，
-// 按住连续退 / 进帧）。F 全屏（仅视频），M 静音；
-// ↑ / ↓ 按树里可见顺序切上一个 / 下一个媒体。
-// 守卫同看图：不抢输入框与弹层，焦点在文件树上时归树（空格除外），不要求焦点在播放器内。
+// 按住连续退 / 进帧）。F 全屏（仅视频），M 静音。换文件用 ↑ / ↓，归文件树。
+// 播放键两边一样（docs/prd/files-tab.md「按键归属」）：焦点在文件树、播放器、按钮上还是哪儿都不在都接，只让给输入框
+// 与弹层；焦点在文件树的文件夹行上时 ← / → 归文件树开合。
 // 调用方按文件给 key 重挂：换文件即换掉媒体元素，按住倍速等状态也不跨文件。
 // 键盘监听挂在 layout effect 里：换文件是读完文件才提交的（不是交互触发），普通 effect 要等新画面画出来才挂上，
-// 旧的又已随旧元素失效，这段空档里按下的空格会落到文件树、转进筛选框；layout effect 与新旧元素在同一次提交里交接。
-import { useCallback, useEffect, useLayoutEffect, useRef, useState, type RefObject } from 'react'
+// 旧的又已随旧元素失效，这段空档里按下的空格没人接；layout effect 与新旧元素在同一次提交里交接。
+import {
+  useCallback,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type RefObject
+} from 'react'
 import {
   Check,
   Expand,
@@ -47,7 +55,13 @@ import {
 } from '@renderer/components/ui/dropdown-menu'
 import { Slider } from '@renderer/components/ui/slider'
 import { TOOLBAR_BTN } from '@renderer/components/ui/toolbar'
-import { editableTarget, filesTreeTarget, overlayOpen } from '@renderer/lib/files-key-guards'
+import {
+  arrowOwnerOf,
+  FilesTreeRowContext,
+  filesKeyScope,
+  overlayOpen
+} from '@renderer/lib/files-key-guards'
+import { reachesContent } from '@renderer/lib/files-key-route'
 import { stepVideoFrame, trackVideoFrames, walkVideoFrames } from '@renderer/lib/files-video-frame'
 import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
@@ -215,17 +229,13 @@ export function FilesAvPreview({
   kind,
   src,
   mime,
-  active,
-  onPrev,
-  onNext
+  active
 }: {
   kind: 'audio' | 'video'
   src: string
   mime: string
   /** Files Tab 可见且为当前栏时才响应键盘 */
   active: boolean
-  onPrev?: () => void
-  onNext?: () => void
 }): React.JSX.Element {
   const mediaRef = useRef<HTMLMediaElement | null>(null)
   const setMedia = useCallback((el: HTMLMediaElement | null) => {
@@ -236,22 +246,7 @@ export function FilesAvPreview({
   /** 正按住 → 倍速播放（画面上出倍速标记；暂停中的视频按住逐帧不算，不出标记） */
   const [holding, setHolding] = useState(false)
 
-  // ↑ / ↓ 切上一个 / 下一个媒体（← / → 归快退快进与逐帧）
-  useLayoutEffect(() => {
-    if (!active || (!onPrev && !onNext)) return
-    const onKey = (e: KeyboardEvent): void => {
-      if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return
-      if (e.key !== 'ArrowUp' && e.key !== 'ArrowDown') return
-      if (editableTarget(e.target) || filesTreeTarget(e.target) || overlayOpen()) return
-      e.preventDefault()
-      e.stopPropagation()
-      if (e.key === 'ArrowUp') onPrev?.()
-      else onNext?.()
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [active, onPrev, onNext])
-
+  const treeRowIsDirectory = useContext(FilesTreeRowContext)
   // 播放键：空格、← / →（播放中按住 → 倍速；暂停中的视频逐帧）、F、M。焦点在播放器上时也拦下，免得控件自己的键盘操作再动一次
   useLayoutEffect(() => {
     if (!active) return
@@ -310,9 +305,14 @@ export function FilesAvPreview({
         key === 'm' ||
         (key === 'f' && kind === 'video')
       if (!handled) return
-      // 空格例外，焦点在文件树上也归播放：点树打开文件后焦点留在树上，而树顶筛选用不上空格
-      if (editableTarget(e.target) || overlayOpen()) return
-      if (key !== ' ' && filesTreeTarget(e.target)) return
+      // ← / → 的归属同其他正文（焦点在文件树的文件夹行上时归文件树），其余播放键两边都接
+      const arrow = key === 'arrowleft' || key === 'arrowright'
+      if (
+        arrow
+          ? arrowOwnerOf(e, 'av', treeRowIsDirectory()) !== 'content'
+          : !reachesContent(filesKeyScope(e.target))
+      )
+        return
       e.preventDefault()
       e.stopPropagation()
       if (key === 'arrowleft' || key === 'arrowright') {
@@ -350,7 +350,7 @@ export function FilesAvPreview({
       window.removeEventListener('blur', onBlur)
       endHold(false)
     }
-  }, [active, kind])
+  }, [active, kind, treeRowIsDirectory])
 
   return (
     <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-auto p-4">

@@ -50,8 +50,8 @@ export function useSheetFind({
   reveal: (cell: Cell) => void
   /** 查找的范围：变了即从头找 */
   scope: unknown
-  /** 关掉查找之后（焦点回表格）；要保持同一个引用 */
-  onClose: () => void
+  /** 关掉查找之后要做的（数据源的表格把焦点还给表格）；要保持同一个引用 */
+  onClose?: () => void
   /** 查找会话 */
   find: FindSession
   /** 提供正则开关（与编辑态共用查找栏的 CSV 预览） */
@@ -106,7 +106,7 @@ export function useSheetFind({
 
   const closeFind = useCallback(() => {
     closeSession()
-    onClose()
+    onClose?.()
   }, [closeSession, onClose])
 
   return {

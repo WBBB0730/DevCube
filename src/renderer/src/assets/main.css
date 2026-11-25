@@ -53,6 +53,7 @@
   --border-input: #4f5157;
   --separator: #1e1f22;
   --selection-row: #2d436e;
+  --selection-row-inactive: #43454a;
   --selection-row-hover: #35538f;
   --editor-selection: #224283;
   --link: #548af7;
@@ -190,6 +191,7 @@
     --border-input: #c9ccd6;
     --separator: #ebecf0;
     --selection-row: #d4e2ff;
+    --selection-row-inactive: #dfe1e5;
     --selection-row-hover: #c2d6fc;
     --editor-selection: #a6d2ff;
     --link: #006dcc;

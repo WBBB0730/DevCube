@@ -63,7 +63,7 @@ function attachWatcher(entry: PreviewEntry): void {
 }
 
 /**
- * 预览窗口只响应 Files 面板自己的键：筛选框聚焦、最近打开、Editor Tab 的关闭 / 切换 / 分屏，都交给页面——
+ * 预览窗口只响应 Files 面板自己的键：筛选框聚焦、最近打开、Editor Tab 的关闭 / 切换 / 分屏、焦点轮转，都交给页面——
  * Cmd/Ctrl+W 由页面先关 Editor Tab，关掉最后一个（或本来就没有）才关窗（docs/prd/files-editor-tabs.md「键位」）。
  * 项目 / Tab 类快捷键在此无意义，放行给页面。
  */
@@ -73,7 +73,8 @@ const PREVIEW_SHORTCUTS = new Set<AppShortcut['id']>([
   'closeTab',
   'prevEditorTab',
   'nextEditorTab',
-  'splitEditor'
+  'splitEditor',
+  'cycleFilesFocus'
 ])
 
 function wirePreviewShortcuts(win: BrowserWindow): void {

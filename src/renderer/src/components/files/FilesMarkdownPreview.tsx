@@ -39,6 +39,7 @@ import {
   type MarkdownFindIndexBlock,
   type MarkdownTocState
 } from '@renderer/lib/files-markdown'
+import { CONTENT_ATTR, useContentFocus } from '@renderer/lib/content-focus'
 import { usePagedPreviewKeys } from '@renderer/lib/files-paged-preview'
 import {
   lineAtPos,
@@ -375,13 +376,14 @@ export function FilesMarkdownPreview({
     [query, caseSensitive, wholeWord, regexp]
   )
 
-  const { closeFind: closeSession } = find
-  const closeFind = useCallback(() => {
-    closeSession()
-    containerRef.current?.focus({ preventScroll: true })
-  }, [closeSession])
+  const { closeFind } = find
 
-  usePagedPreviewKeys({ active, rootRef, findOpen: open, openFind, closeFind })
+  const getScroller = useCallback(() => containerRef.current, [])
+  usePagedPreviewKeys({ active, rootRef, findOpen: open, openFind, closeFind, getScroller })
+
+  // 进入正文（Enter、⇧⌘E 等，见 content-focus）即聚焦滚动容器：↑ / ↓、PageUp / PageDown 原生滚动
+  const focusContent = useCallback(() => containerRef.current?.focus({ preventScroll: true }), [])
+  useContentFocus(focusContent)
 
   // 在页面文字上找、标出全部命中与当前命中；查询、选项、当前命中或正文变了即重找。
   // 新一轮查找（含切到预览时查找已开着）从视口顶边起并滚到首个命中，上一个 / 下一个滚到所选命中
@@ -443,11 +445,12 @@ export function FilesMarkdownPreview({
           onClose={closeFind}
         />
       )}
-      {/* 可聚焦：点进正文后 Cmd+F / Esc 归本预览，PageUp / PageDown 原生滚动。
+      {/* 可聚焦：进了正文后 ↑ / ↓、PageUp / PageDown 原生滚动，Esc 关查找。
           停靠的目录宽交给版心让位（main.css「Markdown 预览的版心与目录」） */}
       <div
         ref={containerRef}
         tabIndex={-1}
+        {...CONTENT_ATTR}
         className="files-md-scroll min-h-0 flex-1 select-text overflow-y-auto bg-deepest outline-none"
         style={
           dockWidth === null

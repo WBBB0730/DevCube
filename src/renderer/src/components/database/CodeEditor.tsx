@@ -12,7 +12,7 @@ import {
   filesEditorTheme,
   filesHighlighting
 } from '@renderer/lib/cm6-setup'
-import { useContentFocus } from '@renderer/lib/data-source-content-focus'
+import { useContentFocus } from '@renderer/lib/content-focus'
 import { useEditorFind } from '@renderer/lib/use-editor-find'
 import { useFindSession } from '@renderer/lib/use-find-session'
 import { useApp } from '@renderer/store'

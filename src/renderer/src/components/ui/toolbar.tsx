@@ -22,6 +22,14 @@ export const TOOLBAR_BTN_SM =
 export const TOOLBAR_SELECT =
   'flex h-7 min-w-0 items-center gap-1 rounded border border-[color:var(--border-input)] bg-[var(--bg-elevated)] px-2 text-[13px] text-foreground outline-none transition hover:bg-[var(--bg-row-hover)] data-[popup-open]:bg-[var(--bg-row-hover)] focus-visible:ring-2 focus-visible:ring-ring disabled:pointer-events-none disabled:opacity-50'
 
+/**
+ * 工具栏上的钮按下不抢焦点（给工具栏容器的 onMouseDown）：焦点留在原处（正文、输入框），键盘接着用，同密码框的显示钮；
+ * 工具栏里的输入框照常聚焦。
+ */
+export function keepFocusOnPress(e: React.MouseEvent): void {
+  if (e.target instanceof Element && e.target.closest('button') !== null) e.preventDefault()
+}
+
 /** 钮组内分隔：1×12px `--border-input` 竖线（配 `role="separator"`） */
 export const TOOLBAR_SEPARATOR = 'mx-0.5 h-3 w-px shrink-0 bg-[var(--border-input)]'
 

@@ -18,14 +18,18 @@ export interface PendingFilesOpen {
   pin?: boolean
 }
 
-/** Editor Tab 的键盘命令（docs/prd/files-editor-tabs.md「键位」）：⌘W 关闭、⇧⌘[ / ⇧⌘] 切换、⌘\ 向右分屏 */
-export type FilesEditorCommand = 'close' | 'prev' | 'next' | 'split'
+/**
+ * 交给 Files 面板的键盘命令：Editor Tab 的 ⌘W 关闭、⇧⌘[ / ⇧⌘] 切换、⌘\ 向右分屏（docs/prd/files-editor-tabs.md「键位」），
+ * 与 ⇧⌘E 焦点在文件树与各栏正文之间轮转（docs/prd/files-tab.md「按键归属」）
+ */
+export type FilesEditorCommand = 'close' | 'prev' | 'next' | 'split' | 'focus'
 
-/** Editor Tab 的应用快捷键 → 交给 Files 面板的命令（主窗口与预览窗口壳共用） */
+/** 只在 Files Tab 在前台时生效的应用快捷键 → 交给 Files 面板的命令（主窗口与预览窗口壳共用） */
 export const EDITOR_COMMAND_OF = {
   prevEditorTab: 'prev',
   nextEditorTab: 'next',
-  splitEditor: 'split'
+  splitEditor: 'split',
+  cycleFilesFocus: 'focus'
 } as const satisfies Partial<Record<AppShortcut['id'], FilesEditorCommand>>
 
 interface FilesStore {
@@ -38,7 +42,7 @@ interface FilesStore {
   filterFocusNonceByKey: Record<string, number>
   /** +1 驱动 FilesPane 弹出「最近打开文件」下拉（⌘E / Ctrl+E）；键同上 */
   recentMenuNonceByKey: Record<string, number>
-  /** 交给 FilesPane 的 Editor Tab 命令（nonce 每次 +1，同一命令连按也算新的）；键同上 */
+  /** 交给 FilesPane 的键盘命令（nonce 每次 +1，同一命令连按也算新的）；键同上 */
   editorCommandByKey: Record<string, { command: FilesEditorCommand; nonce: number }>
   /** 打开项目内文件：聚焦 Files Tab，并排队打开路径（可带定位） */
   openInFiles: (projectPath: string, filePath: string, at?: FilesOpenPosition) => void
@@ -54,7 +58,7 @@ interface FilesStore {
   openRecentMenu: (entryKey: string) => void
   /** 只递增下拉 nonce、不碰 Tab（Preview Window 用：根路径即键） */
   bumpRecentMenu: (rootPath: string) => void
-  /** 把 Editor Tab 命令交给条目（或预览窗口根路径）的 Files 面板；调用方已确认 Files Tab 在前台 */
+  /** 把键盘命令交给条目（或预览窗口根路径）的 Files 面板；调用方已确认 Files Tab 在前台 */
   sendEditorCommand: (key: string, command: FilesEditorCommand) => void
 }
 

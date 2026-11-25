@@ -18,7 +18,7 @@ import {
   type CellSelectionDirection
 } from '@tanstack/react-table'
 import { FindBar } from '@renderer/components/files/FindBar'
-import { useContentFocus } from '@renderer/lib/data-source-content-focus'
+import { useContentFocus } from '@renderer/lib/content-focus'
 import type { SheetCellText } from '@renderer/lib/files-sheet'
 import { isPrimaryModifierEvent } from '@renderer/lib/shortcut-label'
 import { useFindSession } from '@renderer/lib/use-find-session'

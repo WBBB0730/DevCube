@@ -7,7 +7,7 @@
 // 被模式筛选挡住（不在列出的键里）时先清掉模式、重新列出。
 import { useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { Check, ChevronsDownUp, Database, Folder, KeyRound, Search } from 'lucide-react'
-import { BAR_INPUT_ICON, BarInput } from '@renderer/components/ui/bar-input'
+import { BAR_INPUT_ICON, BarInput, clearBarInputOnEscape } from '@renderer/components/ui/bar-input'
 import { DropdownMenuHint, DropdownMenuItem } from '@renderer/components/ui/dropdown-menu'
 import { RefreshButton, TOOLBAR_BTN } from '@renderer/components/ui/toolbar'
 import {
@@ -19,8 +19,11 @@ import {
 } from '@renderer/components/ui/tree'
 import { TREE_SCROLL, TreePanelBar, TreeRootRow } from '@renderer/components/ui/tree-panel'
 import { useRedisDatabases } from '@renderer/lib/data-source-context'
-import { typeToInput } from '@renderer/lib/type-to-input'
+import { useDataSourceUi } from '@renderer/data-source-store'
+import { shortcutTitle } from '@renderer/lib/shortcut-label'
+import { useFocusRequest } from '@renderer/lib/use-focus-request'
 import { useTreeVirtualReveal } from '@renderer/lib/use-tree-virtual-reveal'
+import { SHORTCUT } from '@shared/shortcut-label'
 import { cn } from '@renderer/lib/utils'
 import { redisDatabaseLabel, type ConsoleContext } from '@shared/data-source-context'
 import {
@@ -82,6 +85,12 @@ export function RedisKeyTree({
   const [expanded, setExpanded] = useState<ReadonlySet<string>>(new Set())
   const [menu, setMenu] = useState<DataSourceTreeMenuTarget | null>(null)
   const filterInputRef = useRef<HTMLInputElement>(null)
+  const filterHint = shortcutTitle(FILTER_HINT, SHORTCUT.filesFilter)
+  // ⌥⌘F：聚焦键列表的筛选框
+  useFocusRequest(
+    useDataSourceUi((s) => s.filterFocusNonceByTab[tabKey] ?? 0),
+    filterInputRef
+  )
   // 列的是控制台上下文所在的库：换了库（下拉切换、控制台里 SELECT）即重新列出；还没得知时先不列（连上后主进程先切到
   // Tab 记住的库）
   const known = context !== undefined
@@ -166,7 +175,7 @@ export function RedisKeyTree({
           submitTitle="筛选"
           spellCheck={false}
           leading={<Search className={BAR_INPUT_ICON} />}
-          title={FILTER_HINT}
+          title={filterHint}
           placeholder={FILTER_PLACEHOLDER}
         />
         <div className="flex shrink-0 items-center gap-0.5">
@@ -195,15 +204,7 @@ export function RedisKeyTree({
         ref={scrollRef}
         tabIndex={0}
         className={TREE_SCROLL}
-        // 焦点在树上打字转进树顶的筛选（只改草稿，回车才生效）
-        onKeyDown={(e) =>
-          typeToInput(e, {
-            query: draft,
-            inputRef: filterInputRef,
-            onChange: setDraft,
-            onClear: () => applyPattern('')
-          })
-        }
+        onKeyDown={(e) => clearBarInputOnEscape(e, draft, () => applyPattern(''))}
       >
         {outcome === null ? (
           <TreeHint loading>正在读取…</TreeHint>

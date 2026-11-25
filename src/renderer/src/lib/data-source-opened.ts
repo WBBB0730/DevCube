@@ -3,11 +3,11 @@
 // 记下它（跨重启恢复、最近打开）。要先核对还在不在的打开（恢复上次的、点最近打开）由调用方核对：开始时取一个判断结果
 // 是否还要用的函数，之后又打开了别的，那次的结果就不用了。
 // 点最近打开的一项打开后焦点进正文（同 Files 的最近打开文件），目录右键「在控制台中打开」切到控制台后焦点同样进它的
-// 编辑器：当前显示那一格里的正文挂载时登记（见 data-source-content-focus），打开时还没读到就等它登记；其间切到另一格即
+// 编辑器：当前显示那一格里的正文挂载时登记（见 content-focus），打开时还没读到就等它登记；其间切到另一格即
 // 作废。
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useDataSourceUi } from '@renderer/data-source-store'
-import type { ContentFocusRegister } from '@renderer/lib/data-source-content-focus'
+import type { ContentFocusRegister } from '@renderer/lib/content-focus'
 import type { DataSourceOpened, DataSourceSlot, DataSourceTabUi } from '@shared/data-source-ui'
 
 /** 打开过的还在不在：还在为 present，确知已不在为 absent，问不出来（连不上、无权）为 unknown。 */

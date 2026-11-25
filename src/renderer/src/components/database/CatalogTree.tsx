@@ -30,7 +30,7 @@ import {
   User,
   Zap
 } from 'lucide-react'
-import { BAR_INPUT_ICON, BarInput } from '@renderer/components/ui/bar-input'
+import { BAR_INPUT_ICON, BarInput, clearBarInputOnEscape } from '@renderer/components/ui/bar-input'
 import {
   Combobox,
   ComboboxContent,
@@ -58,8 +58,11 @@ import {
 } from '@renderer/lib/data-source-catalog-filter'
 import { useConsoleBusy, useContextSwitch } from '@renderer/lib/data-source-context'
 import { createKeyedSubscription } from '@renderer/lib/keyed-subscription'
-import { typeToInput } from '@renderer/lib/type-to-input'
+import { useDataSourceUi } from '@renderer/data-source-store'
+import { shortcutTitle } from '@renderer/lib/shortcut-label'
+import { useFocusRequest } from '@renderer/lib/use-focus-request'
 import { useTreeVirtualReveal } from '@renderer/lib/use-tree-virtual-reveal'
+import { SHORTCUT } from '@shared/shortcut-label'
 import {
   CATALOG_GROUP_LABELS,
   catalogDatabases,
@@ -237,6 +240,12 @@ export function CatalogTree({
   const [filterOverrides, setFilterOverrides] = useState<FilterOverrides>(NO_FILTER_OVERRIDES)
   const [menu, setMenu] = useState<CatalogMenuTarget | null>(null)
   const filterInputRef = useRef<HTMLInputElement>(null)
+  const filterHint = shortcutTitle(FILTER_HINT, SHORTCUT.filesFilter)
+  // ⌥⌘F：聚焦目录的筛选框
+  useFocusRequest(
+    useDataSourceUi((s) => s.filterFocusNonceByTab[tabKey] ?? 0),
+    filterInputRef
+  )
   const consoleSwitch = useContextSwitch(tabKey, context)
   const consoleBusy = useConsoleBusy(tabKey)
 
@@ -526,8 +535,8 @@ export function CatalogTree({
           onChange={updateFilter}
           escapeFocusRef={scrollRef}
           leading={<Search className={BAR_INPUT_ICON} />}
-          title={FILTER_HINT}
-          placeholder={FILTER_HINT}
+          title={filterHint}
+          placeholder={filterHint}
         />
         <div className="flex shrink-0 items-center gap-0.5">
           <RefreshButton
@@ -561,15 +570,7 @@ export function CatalogTree({
         ref={scrollRef}
         tabIndex={0}
         className={TREE_SCROLL}
-        // 焦点在树上打字转进树顶的筛选
-        onKeyDown={(e) =>
-          typeToInput(e, {
-            query: filter,
-            inputRef: filterInputRef,
-            onChange: updateFilter,
-            onClear: () => updateFilter('')
-          })
-        }
+        onKeyDown={(e) => clearBarInputOnEscape(e, filter, () => updateFilter(''))}
       >
         {shownRoot === undefined || filterPending ? (
           <TreeHint loading>正在读取…</TreeHint>

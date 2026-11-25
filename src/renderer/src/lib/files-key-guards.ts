@@ -1,8 +1,16 @@
 /**
- * Files 面板各正文（看图 / PDF / 音视频）的全局键盘监听共用的守卫：
- * 不抢输入框与弹层，不要求焦点落在预览内。
+ * Files 面板的键盘处理（文件面板自己的、各正文的）共用的守卫：按键此刻的处境，与方向键归谁
+ * （docs/prd/files-tab.md「按键归属」、ADR-0066；判定本身在 files-key-route）。
  */
+import { createContext } from 'react'
 import { isDialogOpen } from '@renderer/components/ui/dialog'
+import {
+  filesArrowOwner,
+  isFilesArrowKey,
+  type FilesArrowContent,
+  type FilesArrowOwner,
+  type FilesKeyScope
+} from './files-key-route'
 
 /** 有弹层正开着：弹窗（设置 / 表单 / 内容搜索等），或下拉 / 右键菜单（方向键、回车归菜单自己导航） */
 export function overlayOpen(): boolean {
@@ -20,18 +28,35 @@ export function editableTarget(el: EventTarget | null): boolean {
   )
 }
 
-/**
- * 事件目标在 Files 文件树里（树的滚动区标着 data-files-tree）：方向键只看焦点，焦点在树上全归树，
- * 正文的切媒体、翻页让位（docs/prd/files-tree-move-copy.md「方向键归属」）
- */
-export function filesTreeTarget(el: EventTarget | null): boolean {
-  return el instanceof Element && el.closest('[data-files-tree]') !== null
+/** 元素所在的「进得去」的正文（根上标着 CONTENT_ATTR，见 content-focus）；不在任何一个里为 null */
+export function filesContentOf(el: EventTarget | null): Element | null {
+  return el instanceof Element ? el.closest('[data-content]') : null
 }
 
-/** 无修饰键的方向键 → -1（← / ↑）或 1（→ / ↓）；其它为 null */
-export function arrowDirection(e: KeyboardEvent): -1 | 1 | null {
-  if (e.metaKey || e.ctrlKey || e.altKey || e.shiftKey) return null
-  if (e.key === 'ArrowLeft' || e.key === 'ArrowUp') return -1
-  if (e.key === 'ArrowRight' || e.key === 'ArrowDown') return 1
-  return null
+/** 一次按键的处境（见 FilesKeyScope）：文件树的滚动区标着 data-files-tree，焦点在里面即在文件树上 */
+export function filesKeyScope(target: EventTarget | null): FilesKeyScope {
+  if (overlayOpen()) return 'blocked'
+  if (editableTarget(target)) return 'typing'
+  if (filesContentOf(target) !== null) return 'content'
+  return target instanceof Element && target.closest('[data-files-tree]') !== null ? 'tree' : 'idle'
+}
+
+/**
+ * 文件树的焦点行此刻是不是文件夹（← / → 归文件树开合），由 FilesPane 给；各正文的键盘处理按键时读，
+ * 不随选中变化重挂监听。面板之外用到的正文（没有文件树）恒为否。
+ */
+export const FilesTreeRowContext = createContext<() => boolean>(() => false)
+
+/** 这次按键是不带 ⌘ / Ctrl / ⌥ 的方向键时它归谁；不是方向键为 null */
+export function arrowOwnerOf(
+  e: KeyboardEvent,
+  content: FilesArrowContent,
+  treeRowIsDirectory: boolean
+): FilesArrowOwner {
+  if (e.metaKey || e.ctrlKey || e.altKey || !isFilesArrowKey(e.key)) return null
+  return filesArrowOwner(e.key, e.shiftKey, {
+    scope: filesKeyScope(e.target),
+    treeRowIsDirectory,
+    content
+  })
 }

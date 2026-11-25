@@ -1,24 +1,34 @@
 /**
  * Files Tab 分页文档预览（PDF / PPT）共用的操作外壳：键盘、拖拽抓手、Cmd/Ctrl+滚轮缩放；表格预览只借键盘与滚轮缩放，
- * Markdown 预览只借查找键。
+ * 文本编辑器与 Markdown 预览只借查找键。
  * 渲染引擎各管各的，这里只把用户操作翻译成回调（docs/prd/files-pdf-preview.md、files-pptx-preview.md、files-xlsx-preview.md）。
  */
-import { useEffect, useRef, useState, type RefObject } from 'react'
-import { editableTarget, filesTreeTarget, overlayOpen } from './files-key-guards'
+import { useContext, useEffect, useRef, useState, type RefObject } from 'react'
+import {
+  arrowOwnerOf,
+  editableTarget,
+  FilesTreeRowContext,
+  filesKeyScope
+} from './files-key-guards'
+import { filesScrollStep, reachesContent } from './files-key-route'
 import { selectedTextWithin } from './find-seed'
 import { zoomFromWheel } from './files-media-zoom'
 import { isPrimaryModifierEvent } from './shortcut-label'
 
+/** 翻页滚动一次走视口高的多少（同 Chromium 原生的 PageDown） */
+const SCROLL_PAGE_RATIO = 0.875
+
 /**
- * 预览的全局键盘：
+ * 正文的键盘（归属见 files-key-route，docs/prd/files-tab.md「按键归属」）：
  * - Cmd/Ctrl+F 打开查找、Esc（焦点在预览内）关闭；
  * - Cmd/Ctrl+0 回基准倍率（分页文档 = 适应窗口，表格 = 工作表自带倍率）、Cmd/Ctrl +/- 逐档缩放。这三个键已从应用菜单的视图块里摘掉
  *  （Electron 的 viewMenu 自带整页缩放，菜单加速键优先级更高，留着就压住这里，见 ADR-0019）。
- *   不给缩放回调的预览（Markdown）这三个键一概不接；
- * - ←/→ 切上一个 / 下一个媒体文件；↑/↓ 始终上一页 / 下一页（不看档位，正文与缩略图侧栏内都如此），
- *   已在第一页 / 最后一页时再按就切文件——同看图的方向键切图：不抢输入框与弹层，不要求焦点在预览内。
- *   不给切文件 / 翻页回调的预览（表格：方向键归格子）这几个键一概不接。
- * Cmd+F / 缩放要求焦点在预览内或无焦点。
+ *   不给缩放回调的正文（文本、Markdown）这三个键一概不接；
+ * - 翻页滚动（PageUp / PageDown / Home / End / 空格）：焦点不在正文里（在文件树上或别处）时也滚这份正文；进了正文的
+ *   由浏览器原生处理。不给滚动容器的正文不接；
+ * - 分页文档（给了翻页回调的）：← / → 上一页 / 下一页，两边都接，到头停下；↑ / ↓ 只在进了正文后翻页，已在第一页 /
+ *   最后一页时再按就换文件（没进正文时 ↑ / ↓ 归文件树）。不给翻页回调的正文（表格：方向键归格子）这几个键一概不接。
+ * 查找与缩放不看焦点，只在弹层开着时让位。
  */
 export function usePagedPreviewKeys({
   active,
@@ -28,12 +38,13 @@ export function usePagedPreviewKeys({
   closeFind,
   resetZoom,
   stepZoom,
+  getScroller,
   getPage,
   goToPage,
   onPrevFile,
   onNextFile
 }: {
-  /** Files Tab 可见时才响应 */
+  /** Files Tab 可见且这一栏是当前栏时才响应 */
   active: boolean
   rootRef: RefObject<HTMLElement | null>
   findOpen: boolean
@@ -42,25 +53,25 @@ export function usePagedPreviewKeys({
   closeFind: () => void
   resetZoom?: () => void
   stepZoom?: (steps: 1 | -1) => void
-  /** 当前页（1 起）与总页数；文档未就绪为 null，↑/↓ 不接管；不分页的预览不给 */
+  /** 正文的滚动容器（翻页滚动的键滚它）；还没有时为 null。要保持同一个引用 */
+  getScroller?: () => HTMLElement | null
+  /** 当前页（1 起）与总页数；文档未就绪为 null，方向键不接管；不分页的正文不给 */
   getPage?: () => { page: number; pages: number } | null
   goToPage?: (page: number) => void
+  /** 进了正文后在第一页按 ↑ / 最后一页按 ↓：换到文件树里的上一个 / 下一个文件 */
   onPrevFile?: () => void
   onNextFile?: () => void
 }): void {
+  const treeRowIsDirectory = useContext(FilesTreeRowContext)
   useEffect(() => {
     if (!active) return
     const onKey = (e: KeyboardEvent): void => {
       const root = rootRef.current
       if (!root) return
       const target = e.target
-      const inside = target instanceof Node && root.contains(target)
-      /** 预览内或无焦点（焦点在 body），且不在输入框 */
-      const focusedHere = (): boolean =>
-        inside || (target === document.body && !editableTarget(target))
       const mod = isPrimaryModifierEvent(e)
       if (mod && !e.altKey && !e.shiftKey && e.key.toLowerCase() === 'f') {
-        if (!focusedHere() || overlayOpen()) return
+        if (filesKeyScope(target) === 'blocked') return
         e.preventDefault()
         e.stopPropagation()
         openFind(selectedTextWithin(root))
@@ -72,7 +83,7 @@ export function usePagedPreviewKeys({
         const zoomOut = e.code === 'Minus' || e.code === 'NumpadSubtract'
         const reset = e.code === 'Digit0' && !e.shiftKey
         if (zoomIn || zoomOut || reset) {
-          if (!focusedHere() || overlayOpen()) return
+          if (filesKeyScope(target) === 'blocked') return
           e.preventDefault()
           e.stopPropagation()
           if (reset) resetZoom()
@@ -80,39 +91,30 @@ export function usePagedPreviewKeys({
           return
         }
       }
-      const plain = !e.metaKey && !e.ctrlKey && !e.altKey && !e.shiftKey
-      if (
-        plain &&
-        (e.key === 'ArrowLeft' || e.key === 'ArrowRight') &&
-        (onPrevFile || onNextFile)
-      ) {
-        if (editableTarget(target) || filesTreeTarget(target) || overlayOpen()) return
+      const scroll = mod || e.altKey ? null : filesScrollStep(e.key, e.shiftKey)
+      if (scroll !== null) {
+        const scroller = getScroller?.()
+        if (!scroller || !reachesContent(filesKeyScope(target))) return
         e.preventDefault()
         e.stopPropagation()
-        if (e.key === 'ArrowLeft') onPrevFile?.()
-        else onNextFile?.()
+        if (scroll === 'start') scroller.scrollTo({ top: 0 })
+        else if (scroll === 'end') scroller.scrollTo({ top: scroller.scrollHeight })
+        else scroller.scrollBy({ top: scroll * scroller.clientHeight * SCROLL_PAGE_RATIO })
         return
       }
-      if (plain && (e.key === 'ArrowUp' || e.key === 'ArrowDown')) {
-        if (
-          !getPage ||
-          !goToPage ||
-          editableTarget(target) ||
-          filesTreeTarget(target) ||
-          overlayOpen()
-        )
-          return
+      if (getPage && goToPage && arrowOwnerOf(e, 'paged', treeRowIsDirectory()) === 'content') {
         const at = getPage()
         if (!at) return
         e.preventDefault()
         e.stopPropagation()
-        if (e.key === 'ArrowUp') {
-          if (at.page <= 1) onPrevFile?.()
-          else goToPage(at.page - 1)
-        } else if (at.page >= at.pages) onNextFile?.()
-        else goToPage(at.page + 1)
+        const back = e.key === 'ArrowLeft' || e.key === 'ArrowUp'
+        const edge = back ? at.page <= 1 : at.page >= at.pages
+        if (!edge) goToPage(at.page + (back ? -1 : 1))
+        else if (e.key === 'ArrowUp') onPrevFile?.()
+        else if (e.key === 'ArrowDown') onNextFile?.()
         return
       }
+      const inside = target instanceof Node && root.contains(target)
       if (e.key === 'Escape' && findOpen && inside && !editableTarget(target)) {
         e.preventDefault()
         closeFind()
@@ -128,10 +130,12 @@ export function usePagedPreviewKeys({
     closeFind,
     resetZoom,
     stepZoom,
+    getScroller,
     getPage,
     goToPage,
     onPrevFile,
-    onNextFile
+    onNextFile,
+    treeRowIsDirectory
   ])
 }
 

@@ -19,7 +19,7 @@ import { relPathUnderRoot } from '@renderer/lib/files-paths'
 import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import { cn } from '@renderer/lib/utils'
 import { RecentMenu, type RecentMenuItem } from '@renderer/components/ui/recent-menu'
-import { TOOLBAR_BTN, TOOLBAR_SEPARATOR } from '@renderer/components/ui/toolbar'
+import { keepFocusOnPress, TOOLBAR_BTN, TOOLBAR_SEPARATOR } from '@renderer/components/ui/toolbar'
 import { FILE_STATUS_COLOR } from '@renderer/components/git/git-details'
 import { FilesLocalContext } from './files-local-context'
 
@@ -117,6 +117,8 @@ export function FilesToolbar({
   return (
     <div
       className="flex h-10 shrink-0 cursor-default items-center gap-2 border-b border-[var(--separator)] bg-panel px-2 text-[13px] select-none"
+      // 点工具栏上的钮不离开正文：进了正文的仍在正文里（docs/prd/files-tab.md「按键归属」）
+      onMouseDown={keepFocusOnPress}
       onClick={(e) => {
         if (isDoubleClick(e)) onToggleTree()
       }}

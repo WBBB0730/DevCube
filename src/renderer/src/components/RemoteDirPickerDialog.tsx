@@ -6,14 +6,16 @@
 // 加载态同数据源的目录树：根还没读到时树区居中「正在读取…」，展开的目录还没读到时在子级位置出一行「正在读取…」。
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Folder, FolderOpen } from 'lucide-react'
-import { BarInput } from '@renderer/components/ui/bar-input'
+import { BarInput, clearBarInputOnEscape } from '@renderer/components/ui/bar-input'
 import { Button } from '@renderer/components/ui/button'
 import { ConnectPlaceholder } from '@renderer/components/ui/connect-placeholder'
 import { Dialog } from '@renderer/components/ui/dialog'
 import { DialogFooter } from '@renderer/components/ui/form-dialog'
 import {
+  TREE_FOCUS_GROUP,
   TREE_ICON,
   TREE_ROW_H,
+  TREE_ROW_SELECTED,
   TreeHint,
   TreeNoticeRow,
   TreeRow
@@ -21,13 +23,14 @@ import {
 import { TREE_SCROLL, TreePanelBar, TreeRootRow } from '@renderer/components/ui/tree-panel'
 import { ipcErrorMessage } from '@renderer/lib/ipc-error'
 import { useServerFilesState } from '@renderer/lib/server-files-state'
-import { typeToInput } from '@renderer/lib/type-to-input'
+import { shortcutTitle } from '@renderer/lib/shortcut-label'
 import { useTreeVirtualReveal } from '@renderer/lib/use-tree-virtual-reveal'
 import { cn } from '@renderer/lib/utils'
 import type { FilesDirEntry } from '@shared/files'
 import { joinLogicalPath } from '@shared/files-path'
 import { flattenFilesTree, type FilesTreeRow } from '@shared/files-tree-flatten'
 import { remoteCwdFromPicked, resolveRemoteInput } from '@shared/server-files'
+import { SHORTCUT } from '@shared/shortcut-label'
 
 const ROOT = '/'
 
@@ -76,6 +79,18 @@ export function RemoteDirPickerDialog({
   const [goQuery, setGoQuery] = useState('')
   const [goError, setGoError] = useState<string | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
+  // ⌥⌘F：聚焦「前往路径」（同各面板的树顶输入框）。对话框开着时应用快捷键一概不分发（见 App 的 handleAppShortcut），
+  // 这里自己接
+  useEffect(
+    () =>
+      window.api.onAppShortcut((shortcut) => {
+        if (shortcut.id !== 'focusFilesFilter') return
+        inputRef.current?.focus()
+        inputRef.current?.select()
+      }),
+    []
+  )
+  const goHint = shortcutTitle('前往路径…', SHORTCUT.filesFilter)
 
   const rows = useMemo(
     () => flattenFilesTree(ROOT, childrenByDir, expanded, notices, loadingDirs),
@@ -176,7 +191,7 @@ export function RemoteDirPickerDialog({
     void window.api.connectServerFiles(serverId)
   }, [serverId])
 
-  // 第一次连上：定位到工作目录里填的目录（没填、写法不对、不存在或不是目录时为家目录），焦点给树（打字转进「前往路径」）
+  // 第一次连上：定位到工作目录里填的目录（没填、写法不对、不存在或不是目录时为家目录），焦点给树（要输入路径按 ⌥⌘F）
   const startedRef = useRef(false)
   useEffect(() => {
     if (home === null || startedRef.current) return
@@ -255,8 +270,8 @@ export function RemoteDirPickerDialog({
                   onChange={changeGoQuery}
                   onSubmit={() => void goToPath()}
                   escapeFocusRef={scrollRef}
-                  title="前往路径…"
-                  placeholder="前往路径…"
+                  title={goHint}
+                  placeholder={goHint}
                 />
               </TreePanelBar>
               {goError !== null && (
@@ -264,67 +279,63 @@ export function RemoteDirPickerDialog({
                   {goError}
                 </div>
               )}
-              <TreeRootRow
-                title={ROOT}
-                icon={<FolderOpen className={TREE_ICON} />}
-                name={
-                  // 选中时名称转主色，同选中的树行
-                  <span style={{ color: selected === ROOT ? 'var(--fg-primary)' : undefined }}>
-                    {ROOT}
-                  </span>
-                }
-                className={cn('cursor-pointer', selected === ROOT && 'bg-[var(--selection-row)]')}
-                onClick={() => setSelected(ROOT)}
-              />
-              <div
-                ref={scrollRef}
-                tabIndex={0}
-                className={TREE_SCROLL}
-                onKeyDown={(e) =>
-                  typeToInput(e, {
-                    query: goQuery,
-                    inputRef,
-                    onChange: changeGoQuery,
-                    onClear: () => changeGoQuery('')
-                  })
-                }
-              >
-                {!(ROOT in childrenByDir) ? (
-                  <TreeHint loading>正在读取…</TreeHint>
-                ) : (
-                  <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
-                    {virtualizer.getVirtualItems().map((vi) => {
-                      const row = rows[vi.index]
-                      return (
-                        <div
-                          key={vi.key}
-                          className="absolute left-0 top-0 w-full"
-                          style={{ transform: `translateY(${vi.start}px)` }}
-                        >
-                          {row.notice ? (
-                            <TreeNoticeRow
-                              depth={row.depth}
-                              message={row.name}
-                              loading={row.loading}
-                            />
-                          ) : (
-                            <TreeRow
-                              depth={row.depth}
-                              expanded={expanded.has(row.path)}
-                              icon={<Folder className={TREE_ICON} />}
-                              name={row.name}
-                              selected={selected === row.path}
-                              onClick={() => {
-                                setSelected(row.path)
-                                void toggle(row.path)
-                              }}
-                            />
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
+              {/* 根行与列表是同一棵树：焦点在列表里时，选中的根行也是蓝的（见 ui/tree 的 TREE_ROW_SELECTED） */}
+              <div className={cn(TREE_FOCUS_GROUP, 'contents')}>
+                <TreeRootRow
+                  title={ROOT}
+                  icon={<FolderOpen className={TREE_ICON} />}
+                  name={
+                    // 选中时名称转主色，同选中的树行
+                    <span style={{ color: selected === ROOT ? 'var(--fg-primary)' : undefined }}>
+                      {ROOT}
+                    </span>
+                  }
+                  className={cn('cursor-pointer', selected === ROOT && TREE_ROW_SELECTED)}
+                  onClick={() => setSelected(ROOT)}
+                />
+                <div
+                  ref={scrollRef}
+                  tabIndex={0}
+                  className={TREE_SCROLL}
+                  onKeyDown={(e) => clearBarInputOnEscape(e, goQuery, () => changeGoQuery(''))}
+                >
+                  {!(ROOT in childrenByDir) ? (
+                    <TreeHint loading>正在读取…</TreeHint>
+                  ) : (
+                    <div className="relative w-full" style={{ height: virtualizer.getTotalSize() }}>
+                      {virtualizer.getVirtualItems().map((vi) => {
+                        const row = rows[vi.index]
+                        return (
+                          <div
+                            key={vi.key}
+                            className="absolute left-0 top-0 w-full"
+                            style={{ transform: `translateY(${vi.start}px)` }}
+                          >
+                            {row.notice ? (
+                              <TreeNoticeRow
+                                depth={row.depth}
+                                message={row.name}
+                                loading={row.loading}
+                              />
+                            ) : (
+                              <TreeRow
+                                depth={row.depth}
+                                expanded={expanded.has(row.path)}
+                                icon={<Folder className={TREE_ICON} />}
+                                name={row.name}
+                                selected={selected === row.path}
+                                onClick={() => {
+                                  setSelected(row.path)
+                                  void toggle(row.path)
+                                }}
+                              />
+                            )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
             </>
           )}

@@ -15,10 +15,7 @@ import {
 import { SheetTabs } from '@renderer/components/ui/sheet-tabs'
 import { TOOLBAR_BTN } from '@renderer/components/ui/toolbar'
 import { TreePanel } from '@renderer/components/ui/tree-panel'
-import {
-  ContentFocusContext,
-  type ContentFocusRegister
-} from '@renderer/lib/data-source-content-focus'
+import { ContentFocusContext, type ContentFocusRegister } from '@renderer/lib/content-focus'
 import { useRememberedPanel } from '@renderer/lib/remembered-panel'
 import type { DataSourceSlot } from '@shared/data-source-ui'
 

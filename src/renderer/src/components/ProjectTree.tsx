@@ -85,10 +85,11 @@ import { filterTreeEntries, sortTreeEntries } from '@shared/project-sort'
 import { SHORTCUT } from '@shared/shortcut-label'
 import { useDoubleClick } from '@renderer/lib/double-click'
 import { shortcutLabel, shortcutTitle } from '@renderer/lib/shortcut-label'
+import { useFocusRequest } from '@renderer/lib/use-focus-request'
+import { TREE_FOCUS_GROUP, TREE_ROW_SELECTED } from '@renderer/components/ui/tree'
 import { treeStickyLayout } from '@renderer/lib/tree-sticky'
-import { typeToInput } from '@renderer/lib/type-to-input'
 import { cn } from '@renderer/lib/utils'
-import { BAR_INPUT_ICON, BarInput } from '@renderer/components/ui/bar-input'
+import { BAR_INPUT_ICON, BarInput, clearBarInputOnEscape } from '@renderer/components/ui/bar-input'
 import { Popover, PopoverContent, PopoverTrigger } from '@renderer/components/ui/popover'
 import { LinuxMark } from '@renderer/components/ui/linux-mark'
 import { wslToLinuxPath } from '@shared/wsl-path'
@@ -205,7 +206,6 @@ export function ProjectTree(): React.JSX.Element {
   const listRef = useRef<HTMLDivElement>(null)
   const listContentRef = useRef<HTMLDivElement>(null)
   const filterInputRef = useRef<HTMLInputElement>(null)
-  const consumedFilterFocusNonce = useRef(0)
   const collapseAnchorRef = useRef<number | null>(null)
   const collapsePadRef = useRef(0)
   const lastScrollTopRef = useRef(0)
@@ -346,15 +346,7 @@ export function ProjectTree(): React.JSX.Element {
   }, [scrollToEntryKey, filtered, pinnedKeySet, clearScrollToEntryKey])
 
   // ⌥⌘P：聚焦项目筛选框并选中已有查询，方便直接覆盖输入。
-  useEffect(() => {
-    if (!projectFilterFocusNonce || projectFilterFocusNonce === consumedFilterFocusNonce.current)
-      return
-    consumedFilterFocusNonce.current = projectFilterFocusNonce
-    const input = filterInputRef.current
-    if (!input) return
-    input.focus()
-    input.select()
-  }, [projectFilterFocusNonce])
+  useFocusRequest(projectFilterFocusNonce, filterInputRef)
 
   useLayoutEffect(() => {
     const list = listRef.current
@@ -706,17 +698,9 @@ export function ProjectTree(): React.JSX.Element {
         ref={listRef}
         tabIndex={0}
         title={`切换项目、服务器或数据源 (${shortcutLabel(SHORTCUT.prevProject)} / ${shortcutLabel(SHORTCUT.nextProject)})`}
-        className="min-h-0 flex-1 overflow-auto px-1.5 pb-1.5 outline-none"
+        className={cn(TREE_FOCUS_GROUP, 'min-h-0 flex-1 overflow-auto px-1.5 pb-1.5 outline-none')}
         onScroll={forceCollapsed ? handleListScroll : undefined}
-        // 焦点在列表上打字转进顶上的筛选
-        onKeyDown={(e) =>
-          typeToInput(e, {
-            query: projectFilter,
-            inputRef: filterInputRef,
-            onChange: setProjectFilter,
-            onClear: () => setProjectFilter('')
-          })
-        }
+        onKeyDown={(e) => clearBarInputOnEscape(e, projectFilter, () => setProjectFilter(''))}
       >
         {filtered.length === 0 ? (
           <div className="flex h-full min-h-full items-center justify-center px-3 pb-10 text-[13px] text-muted-foreground">
@@ -1184,7 +1168,7 @@ function EntryHeader({
           ROW,
           'select-none bg-panel text-foreground [container-type:scroll-state]',
           selected
-            ? 'bg-[var(--selection-row)]'
+            ? TREE_ROW_SELECTED
             : rowHoverLike || isCurrent
               ? 'bg-[var(--bg-row-hover)]'
               : 'hover:bg-[var(--bg-row-hover)]',
@@ -1347,7 +1331,7 @@ function EntryRow({
             ROW,
             'select-none bg-panel text-foreground [container-type:scroll-state]',
             selected
-              ? 'bg-[var(--selection-row)]'
+              ? TREE_ROW_SELECTED
               : rowHoverLike || isCurrent
                 ? 'bg-[var(--bg-row-hover)]'
                 : 'hover:bg-[var(--bg-row-hover)]'
@@ -1671,7 +1655,7 @@ function RunnableRow({
   const rowClass = cn(
     ROW,
     selected
-      ? 'bg-[var(--selection-row)]'
+      ? TREE_ROW_SELECTED
       : rowHoverLike
         ? 'bg-[var(--bg-row-hover)]'
         : 'hover:bg-[var(--bg-row-hover)]'

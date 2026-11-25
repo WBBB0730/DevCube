@@ -10,6 +10,14 @@ export const TREE_ROW_H = 32
 /** 树行底样（不含状态底色，状态见 TreeRow）；不画焦点框（同其他控件），键盘停在哪一行靠选中底色看 */
 const TREE_ROW =
   'flex h-8 w-full cursor-pointer items-center gap-1 rounded px-1.5 text-left text-[13px] text-foreground outline-none transition-colors'
+/**
+ * 选中行的底（各树共用：这里的 TreeRow、左树的条目行与配置行）：焦点在这棵树上是 `--selection-row`（蓝），不在时是
+ * `--selection-row-inactive`（灰）——蓝即这棵树此刻接按键，灰时选中的是哪一行照旧看得出。树的容器标 TREE_FOCUS_GROUP
+ */
+export const TREE_ROW_SELECTED =
+  'bg-[var(--selection-row-inactive)] group-focus-within/tree:bg-[var(--selection-row)]'
+/** 树的容器：焦点在它里面时，其中的选中行（TREE_ROW_SELECTED）是蓝的 */
+export const TREE_FOCUS_GROUP = 'group/tree'
 /** 行内图标（文件夹 / 对象类型等）：14px、`--fg-icon` */
 export const TREE_ICON = 'size-3.5 shrink-0 text-[color:var(--fg-icon)]'
 /** 从别处拖进来时的落点行：行底 + 主色描边 */
@@ -23,7 +31,7 @@ function TreeIndent({ depth }: { depth: number }): React.JSX.Element | null {
 
 /**
  * 树行：缩进 + 展开箭头槽（叶子留空占位）+ 图标 + 名称（+ 紧跟名称的小标记）（+ 名称后的补充文字）。
- * 行底按状态：落点 > 选中（`--selection-row`，名称转 `--fg-primary`）> 右键菜单打开中（保持 hover 底）> hover。
+ * 行底按状态：落点 > 选中（TREE_ROW_SELECTED，名称转 `--fg-primary`）> 右键菜单打开中（保持 hover 底）> hover。
  * dimmed（Files 里被剪切、等着粘贴）时图标与名称半透明。可拖动的行给 draggable 与 onDragStart。
  * 给 onToggle 即点展开箭头单独开合（不经行的 onClick），行本身的单击另作他用（如 Files 单击只选中）。
  */
@@ -81,7 +89,7 @@ export function TreeRow({
         dropTarget
           ? TREE_DROP_TARGET
           : selected
-            ? 'bg-[var(--selection-row)]'
+            ? TREE_ROW_SELECTED
             : menuActive
               ? 'bg-[var(--bg-row-hover)]'
               : 'hover:bg-[var(--bg-row-hover)]',

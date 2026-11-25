@@ -137,11 +137,18 @@ import { FilesTreeIcon } from './FilesTreeIcon'
 import { EditorTabsDnd, FilesEditorTabs, type EditorTabsActions } from './FilesEditorTabs'
 import { FilesTextEditor, type EditorJumpRequest, type FilesPaneToolbar } from './FilesTextEditor'
 import {
-  arrowDirection,
-  editableTarget,
-  filesTreeTarget,
+  arrowOwnerOf,
+  filesContentOf,
+  FilesTreeRowContext,
   overlayOpen
 } from '@renderer/lib/files-key-guards'
+import type { FilesArrowContent, FilesArrowKey } from '@renderer/lib/files-key-route'
+import {
+  CONTENT_ATTR,
+  ContentFocusContext,
+  useContentFocus,
+  type ContentFocusRegister
+} from '@renderer/lib/content-focus'
 import { filterFilesTreeByType, type FilesTypeCategory } from '@shared/files-type-filter'
 import { FILES_ALL_TYPES, PreviewTypeFilterButton } from './PreviewTreeControls'
 import { relPathUnderRoot } from '@renderer/lib/files-paths'
@@ -151,11 +158,10 @@ import {
   type FilesOpenResult
 } from '@renderer/lib/files-backend'
 import { ipcErrorMessage } from '@renderer/lib/ipc-error'
-import { typeToInput } from '@renderer/lib/type-to-input'
 import { useTreeVirtualReveal } from '@renderer/lib/use-tree-virtual-reveal'
 import { useFiles, type FilesEditorCommand, type PendingFilesOpen } from '@renderer/files-store'
 import { useApp } from '@renderer/store'
-import { BAR_INPUT_ICON, BarInput } from '@renderer/components/ui/bar-input'
+import { BAR_INPUT_ICON, BarInput, clearBarInputOnEscape } from '@renderer/components/ui/bar-input'
 import { Button } from '@renderer/components/ui/button'
 import { CenteredHint } from '@renderer/components/ui/centered-hint'
 import { ConfirmDialog, ErrorDialog } from '@renderer/components/ui/form-dialog'
@@ -287,8 +293,65 @@ function docFrom(result: Exclude<FilesOpenResult, { kind: 'canceled' }>): FilesD
   return { loaded, conflict: null, saveError: null, saving: false }
 }
 
+/** 一栏的正文拿方向键做什么（见 files-key-route）：看图（含 SVG 预览态与服务器上的大媒体占位）、音视频、分页文档 */
+function arrowContentOf(loaded: FilesLoaded | null, sourcePreview: boolean): FilesArrowContent {
+  switch (loaded?.kind) {
+    case 'image':
+      return 'image'
+    case 'audio':
+    case 'video':
+      return 'av'
+    case 'pdf':
+    case 'pptx':
+      return 'paged'
+    case 'text':
+      return sourcePreview && isSvgPath(loaded.path) ? 'image' : null
+    case 'too-large':
+      return isMediaPreviewPath(loaded.path) ? 'image' : null
+    default:
+      return null
+  }
+}
+
 function isDirtyDoc(doc: FilesDoc | undefined): boolean {
   return doc?.loaded.kind === 'text' && doc.loaded.dirty
+}
+
+/**
+ * 一栏的正文登记聚焦方式的地方（见 content-focus；按栏与文件各一个，换了文件即重新登记）：进入正文时调登记的那个。
+ * 空态没有登记处。
+ */
+function PaneContentFocus({
+  paneId,
+  path,
+  onRegister,
+  children
+}: {
+  paneId: string
+  path: string | null
+  onRegister: (paneId: string, path: string, focus: () => void) => () => void
+  children: React.ReactNode
+}): React.JSX.Element {
+  const register = useMemo<ContentFocusRegister | null>(
+    () => (path === null ? null : (focus) => onRegister(paneId, path, focus)),
+    [paneId, path, onRegister]
+  )
+  return <ContentFocusContext.Provider value={register}>{children}</ContentFocusContext.Provider>
+}
+
+/**
+ * SQLite 文件的正文外框：里面是 Data Source Tab 那套视图，各格的键归它们自己，所以整块算「进得去」的正文；
+ * 进入正文时焦点落在外框上，再用 Tab 走到里面的控件。打不开时的占位（FilesPreviewError）盖满这一格。
+ */
+function SqliteContent({ children }: { children: React.ReactNode }): React.JSX.Element {
+  const ref = useRef<HTMLDivElement>(null)
+  const focus = useCallback(() => ref.current?.focus({ preventScroll: true }), [])
+  useContentFocus(focus)
+  return (
+    <div ref={ref} tabIndex={-1} {...CONTENT_ATTR} className="relative min-h-0 flex-1 outline-none">
+      {children}
+    </div>
+  )
 }
 
 /** 给一栏的当前文件建查找会话（hook 要在组件里调）：按「栏 + 文件」各记一份 */
@@ -492,11 +555,25 @@ export function FilesPane({
     path: string
     payload: GitGutterHunkClickPayload
   } | null>(null)
-  /** 编辑器跳转：内容搜索选中命中区间并滚到行、最近打开只聚焦（nonce 支持同位置重跳）；作用于哪一栏 */
+  /** 编辑器跳转：内容搜索选中命中区间并滚到行（nonce 支持同位置重跳）；作用于哪一栏 */
   const [editorJump, setEditorJump] = useState<(EditorJumpRequest & { paneId: string }) | null>(
     null
   )
   const editorJumpNonce = useRef(0)
+  /**
+   * 进入正文（docs/prd/files-tab.md「按键归属」、ADR-0066）：
+   * - paneBodyRefs：各栏正文区的外框（可聚焦）。⇧⌘E 走到进不去的正文（看图、音视频、空态）时焦点停在它上面；
+   * - contentFocusRefs：各栏正文登记的聚焦方式（进得去的正文才登记，见 content-focus），连同登记时这一栏显示的文件；
+   * - pendingEnterRef：要进、但正文还没登记（文件刚换上、编辑器还没建好）的那一次，登记上即进；
+   * - enteredPaneRef：焦点最近一次进的是哪一栏的正文，null 为没进。正文换掉、焦点落回页面时据此再进一次
+   *   （选中行变灰不靠它，是样式自己判定的，见 ui/tree 的 TREE_ROW_SELECTED）。
+   */
+  const paneBodyRefs = useRef(new Map<string, HTMLDivElement>())
+  const contentFocusRefs = useRef(new Map<string, { path: string; focus: () => void }>())
+  const pendingEnterRef = useRef<{ paneId: string; path: string } | null>(null)
+  const enteredPaneRef = useRef<string | null>(null)
+  /** ⇧⌘E 回到文件树：树可能刚展开，等它挂上再聚焦 */
+  const [treeFocusNonce, setTreeFocusNonce] = useState(0)
   const [ready, setReady] = useState(false)
   /** 看图：当前栏上一张/下一张普通位图的 dc-media URL，供提前解码；超大位图改为提前生成预览与金字塔。 */
   const [prefetch, setPrefetch] = useState<string[]>([])
@@ -625,6 +702,15 @@ export function FilesPane({
   )
   const navPaths = useMemo(() => keyRows.map((r) => r.path), [keyRows])
   const keyRowByPath = useMemo(() => new Map(keyRows.map((r) => [r.path, r])), [keyRows])
+  const keyRowByPathRef = useRef(keyRowByPath)
+  useLayoutEffect(() => {
+    keyRowByPathRef.current = keyRowByPath
+  }, [keyRowByPath])
+  /** 文件树的焦点行此刻是不是文件夹：各正文的键盘处理按键时读（见 FilesTreeRowContext） */
+  const treeRowIsDirectory = useCallback((): boolean => {
+    const focus = selectionRef.current.focus
+    return focus !== null && keyRowByPathRef.current.get(focus)?.isDirectory === true
+  }, [])
   // 原本看得见、现在看不见的（父文件夹被收起、被筛掉、已删除）移出选中：渲染期比对上一次看得见的行（React
   // 「渲染中调整 state」模式，非 effect）。筛选结果还没到时树是空的，不算
   const visiblePaths = useMemo(() => new Set(navPaths), [navPaths])
@@ -1269,10 +1355,10 @@ export function FilesPane({
   )
 
   /**
-   * 上一个 / 下一个媒体（位图 / SVG / PDF / PPT / 音视频）按**树里当前可见的顺序**走——跨目录、跨类型，
-   * 但只进已展开的目录（折叠的不自动钻），并尊重类型筛选；到头停下。以当前栏正显示的文件为起点，走「打开」
-   * （于是开进临时 Tab，docs/prd/files-editor-tabs.md「方向键切媒体」）。
-   * 当前栏正文是媒体才响应（看图 / SVG 预览态 / PDF / PPT / 音视频，及服务器上超过预览上限的媒体占位）。
+   * 上一个 / 下一个媒体（看图时的 ← / →）：媒体 = 位图 / SVG / PDF / PPT / 音视频，按**树里当前可见的顺序**走——跨目录、
+   * 跨类型、跳过别的文件，但只进已展开的目录（折叠的不自动钻），并尊重类型筛选；到头停下。以当前栏正显示的文件为起点，
+   * 走「打开」（于是开进临时 Tab，docs/prd/files-editor-tabs.md「方向键换文件」）。
+   * 当前栏正文是媒体才响应（看图 / SVG 预览态，及服务器上超过预览上限的媒体占位用到它）。
    * 服务器上的还在下载时，从正在打开的那个往下数：连按即连跳，不会反复重开同一个。
    */
   const goAdjacentMedia = useCallback(
@@ -1298,24 +1384,6 @@ export function FilesPane({
   )
   const goPrevImage = useCallback(() => void goAdjacentMedia(-1), [goAdjacentMedia])
   const goNextImage = useCallback(() => void goAdjacentMedia(1), [goAdjacentMedia])
-
-  // 当前栏是服务器上的大媒体占位（没有自己的键盘处理）：四个方向键切上一个 / 下一个媒体
-  // （同看图；守卫同看图——不抢输入框与弹层）
-  const arrowKeysHere =
-    currentLoaded?.kind === 'too-large' && isMediaPreviewPath(currentLoaded.path)
-  useEffect(() => {
-    if (!visible || !arrowKeysHere) return
-    const onKey = (e: KeyboardEvent): void => {
-      const dir = arrowDirection(e)
-      if (dir === null) return
-      if (editableTarget(e.target) || filesTreeTarget(e.target) || overlayOpen()) return
-      e.preventDefault()
-      e.stopPropagation()
-      void goAdjacentMedia(dir)
-    }
-    window.addEventListener('keydown', onKey, true)
-    return () => window.removeEventListener('keydown', onKey, true)
-  }, [visible, arrowKeysHere, goAdjacentMedia])
 
   // 当前栏在看图（位图或 SVG 预览态）或播音视频时预取相邻的媒体：图提前解码，音视频留下打开结果。
   // 方向键切过去、删完落到它时即刻换上，不留读文件的空档（空档里按的空格会落到还显示着的上一个文件上）
@@ -1376,6 +1444,50 @@ export function FilesPane({
     }
   }, [prefetchFrom, remote, flatRows, rootPath])
 
+  /** 元素在哪一栏的「进得去」的正文里；不在任何一栏的正文里为 null */
+  const enteredPaneOf = useCallback((el: Element | null): string | null => {
+    if (filesContentOf(el) === null) return null
+    for (const [paneId, body] of paneBodyRefs.current) if (body.contains(el)) return paneId
+    return null
+  }, [])
+
+  /**
+   * 进入某栏的正文（Enter、双击、⇧⌘E、最近打开等）：焦点先落到这一栏上，再交给正文登记的聚焦方式——文本进编辑器直接可键入，
+   * 表格、PDF / PPT、Markdown 预览进到里面；看图、音视频与空态没有「里面」，焦点就停在栏上。
+   * 正文还没登记（文件刚换上、编辑器还没建好）就等它登记（见 registerContentFocus）。
+   */
+  const enterContent = useCallback(
+    (paneId: string): void => {
+      const path = editorPaneOf(layoutRef.current, paneId)?.active ?? null
+      paneBodyRefs.current.get(paneId)?.focus({ preventScroll: true })
+      pendingEnterRef.current = null
+      if (path === null) return
+      const registered = contentFocusRefs.current.get(paneId)
+      if (registered?.path === path) registered.focus()
+      if (enteredPaneOf(document.activeElement) !== paneId)
+        pendingEnterRef.current = { paneId, path }
+    },
+    [enteredPaneOf]
+  )
+
+  /** 一栏的正文登记聚焦方式（见 PaneContentFocus）：正等着进这个文件的，登记上即进 */
+  const registerContentFocus = useCallback(
+    (paneId: string, path: string, focus: () => void): (() => void) => {
+      contentFocusRefs.current.set(paneId, { path, focus })
+      const pending = pendingEnterRef.current
+      if (pending !== null && pending.paneId === paneId && pending.path === path) {
+        focus()
+        if (enteredPaneOf(document.activeElement) === paneId) pendingEnterRef.current = null
+      }
+      return () => {
+        if (contentFocusRefs.current.get(paneId)?.focus === focus) {
+          contentFocusRefs.current.delete(paneId)
+        }
+      }
+    },
+    [enteredPaneOf]
+  )
+
   /** 在右侧文件树展开并滚到目标（不打开/切换正文）。 */
   const revealInTree = useCallback(
     async (logical: string, isDirectory: boolean): Promise<void> => {
@@ -1396,14 +1508,10 @@ export function FilesPane({
       await openFile(logical, { pane: paneId })
       // 已是当前文件时焦点行不变、不会跟随定位，须显式再滚一次（同「在文件树中显示」）
       scrollToRow(logical)
-      // 焦点进正文：文本进编辑器直接可键入（非文本不渲染编辑器，请求自然落空）
-      setEditorJump({
-        paneId: layoutRef.current.current,
-        path: logical,
-        nonce: ++editorJumpNonce.current
-      })
+      // 焦点进正文：文本进编辑器直接可键入（没打开成的不进）
+      if (activeEditorPath(layoutRef.current) === logical) enterContent(layoutRef.current.current)
     },
-    [expandToFile, openFile, scrollToRow]
+    [expandToFile, openFile, scrollToRow, enterContent]
   )
 
   /**
@@ -1497,7 +1605,11 @@ export function FilesPane({
         if (shown !== null) await expandToFile(shown)
         if (cancelled) return
         commitLayout(initial)
-        if (shown !== null) setSelection(selectOnly(shown))
+        if (shown !== null) {
+          setSelection(selectOnly(shown))
+          // 预览窗口打开时焦点在正文（docs/prd/files-tree-move-copy.md「方向键归属」）；文件还没读进来，等正文登记
+          enterContent(initial.current)
+        }
         setReady(true)
         return
       }
@@ -1532,6 +1644,7 @@ export function FilesPane({
     expandToFile,
     revealInTree,
     commitLayout,
+    enterContent,
     rootLogical
   ])
 
@@ -1612,11 +1725,14 @@ export function FilesPane({
       }
       await expandToFile(logical)
       await openFile(logical, { pin: req.pin })
+      const paneId = layoutRef.current.current
       if (req.at) {
         // 定位落在编辑器上：Markdown / SVG 若停在预览态先切回编辑
-        const paneId = layoutRef.current.current
         setPaneView(paneId, { sourcePreview: false })
         setEditorJump({ paneId, path: logical, ...req.at, nonce: ++editorJumpNonce.current })
+      } else if (host.kind === 'preview' && activeEditorPath(layoutRef.current) === logical) {
+        // 系统带进预览窗口的文件：焦点进正文（docs/prd/files-tree-move-copy.md「方向键归属」）
+        enterContent(paneId)
       }
     }
     for (const req of reqs) void pendingQueue(() => openPending(req))
@@ -1625,10 +1741,12 @@ export function FilesPane({
     pending,
     storeKey,
     backend,
+    host.kind,
     goToEntry,
     expandToFile,
     openFile,
     setPaneView,
+    enterContent,
     pendingQueue
   ])
 
@@ -1701,13 +1819,45 @@ export function FilesPane({
   )
 
   /**
-   * 键盘命令（⌘W、⇧⌘[ / ⇧⌘]、⌘\）：作用于当前栏。预览窗口里 ⌘W 关掉最后一个 Tab、或本来就没有打开的文件时关窗；
+   * ⇧⌘E：焦点在文件树与各栏正文之间轮转——文件树 → 左栏 → 右栏 → 文件树（docs/prd/files-tab.md「按键归属」）。
+   * 走到某栏即成为当前栏并进入它的正文（见 enterContent）；回到文件树时树隐藏着就先展开。
+   */
+  const cycleFocus = useCallback((): void => {
+    const { panes } = layoutRef.current
+    const focused = document.activeElement
+    // 走到了哪一栏：焦点在它的正文里；进不去的正文（没登记聚焦方式）焦点停在栏上也算。进得去的正文只是点过它的工具栏、
+    // 焦点停在栏上的不算，这一次就进它
+    const at = panes.findIndex((p) => {
+      if (paneBodyRefs.current.get(p.id)?.contains(focused) !== true) return false
+      return (
+        enteredPaneOf(focused) === p.id || contentFocusRefs.current.get(p.id)?.path !== p.active
+      )
+    })
+    const next = panes[at + 1]
+    if (next === undefined) {
+      setTreeVisible(true)
+      setTreeFocusNonce((n) => n + 1)
+      return
+    }
+    focusPane(next.id)
+    enterContent(next.id)
+  }, [focusPane, enterContent, enteredPaneOf])
+  useEffect(() => {
+    if (treeFocusNonce > 0) treeScrollRef.current?.focus({ preventScroll: true })
+  }, [treeFocusNonce, treeScrollRef])
+
+  /**
+   * 键盘命令（⌘W、⇧⌘[ / ⇧⌘]、⌘\、⇧⌘E）：作用于当前栏。预览窗口里 ⌘W 关掉最后一个 Tab、或本来就没有打开的文件时关窗；
    * 主窗口里没有可关的时无效（Files Tab 本身任何时候都不关）。
    */
   const runEditorCommand = useCallback(
     async (command: FilesEditorCommand): Promise<void> => {
       const base = layoutRef.current
       const pane = currentEditorPane(base)
+      if (command === 'focus') {
+        cycleFocus()
+        return
+      }
       if (command === 'split') {
         await splitTab()
         return
@@ -1726,7 +1876,7 @@ export function FilesPane({
       const next = await closeTab(pane.id, pane.active)
       if (next !== null && last) closeWindow?.()
     },
-    [host, splitTab, openFile, closeTab]
+    [host, cycleFocus, splitTab, openFile, closeTab]
   )
   // 收命令：只认挂载之后的（同 ⌥⌘F / ⌘E）；命令到时面板须可见
   const editorCommand = useFiles((s) => s.editorCommandByKey[storeKey])
@@ -2593,35 +2743,25 @@ export function FilesPane({
   }
 
   /**
-   * 进入文件（双击、Enter）：打开并固定（docs/prd/files-editor-tabs.md「固定」），再把焦点交给正文——文本进编辑器
-   * （直接可键入），其余离开文件树（焦点可能在树的某一行上），正文的方向键随即接管
+   * 进入文件（双击、Enter）：打开并固定（docs/prd/files-editor-tabs.md「固定」），再进入正文（见 enterContent）；
+   * 没打开成的不进
    */
   const enterFile = (path: string): void => {
     void openFile(path, { pin: true }).then(() => {
-      const active = document.activeElement
-      if (active instanceof HTMLElement && treeScrollRef.current?.contains(active)) active.blur()
-      setEditorJump({ paneId: layoutRef.current.current, path, nonce: ++editorJumpNonce.current })
+      if (activeEditorPath(layoutRef.current) === path) enterContent(layoutRef.current.current)
     })
   }
 
-  /** 焦点在树上的键：方向键同 WebStorm 的树，Enter / F2 / 删除 / 全选 / 剪切复制粘贴；其余可打印字符转进树顶输入 */
-  const onTreeKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
-    // 没连上时输入停用
-    if (remote && !connected) return
-    if (e.nativeEvent.isComposing) return
-    const { key } = e
-    const mod = isPrimaryModifierEvent(e.nativeEvent)
-    const bare = !e.metaKey && !e.ctrlKey && !e.altKey
-    const focus = selectionRef.current.focus
-    if (
-      bare &&
-      (key === 'ArrowUp' || key === 'ArrowDown' || key === 'ArrowLeft' || key === 'ArrowRight')
-    ) {
-      e.preventDefault()
-      const action = treeArrowAction(keyRows, focus, key, logicalParentPath)
+  /**
+   * 文件树上按一下方向键（同 WebStorm 的树）：↑ / ↓ 移动焦点行并选中（文件即打开，同单击），⇧ 为扩选；→ 在收起的文件夹上
+   * 展开、其余同 ↓，← 在展开的文件夹上收起、其余跳到所在文件夹
+   */
+  const treeArrow = useCallback(
+    (key: FilesArrowKey, shift: boolean): void => {
+      const action = treeArrowAction(keyRows, selectionRef.current.focus, key, logicalParentPath)
       if (action === null) return
-      if (e.shiftKey) {
-        if (action.kind === 'move' && (key === 'ArrowUp' || key === 'ArrowDown')) {
+      if (shift) {
+        if (action.kind === 'move') {
           setSelection((prev) => selectRange(prev, navPaths, action.path))
         }
         return
@@ -2632,14 +2772,63 @@ export function FilesPane({
       }
       setSelection(selectOnly(action.path))
       if (!keyRowByPath.get(action.path)?.isDirectory) void openFile(action.path)
-      return
-    }
+    },
+    [keyRows, navPaths, keyRowByPath, toggleDir, openFile]
+  )
+  /** 进了分页文档后翻到头再按 ↑ / ↓：换到文件树里的上一行 / 下一行 */
+  const goPrevFile = useCallback(() => treeArrow('ArrowUp', false), [treeArrow])
+  const goNextFile = useCallback(() => treeArrow('ArrowDown', false), [treeArrow])
+
+  const arrowContent = arrowContentOf(
+    currentLoaded,
+    (paneViews[currentPane.id] ?? DEFAULT_PANE_VIEW).sourcePreview
+  )
+  /**
+   * 方向键（归属见 files-key-route）：↑ / ↓ 换文件两边一样，焦点在文件树上、正文区上还是哪儿都不在都接；← / → 归文件树的
+   * 部分（文件夹开合等）与 ⇧ 扩选只在焦点在树上时接。归正文的由各正文自己接，按同一份判定，不会两头都接；只有服务器上的
+   * 大媒体占位没有自己的键盘处理，它的 ← / → 在这里接（换上一个 / 下一个媒体，同看图）。
+   */
+  const onArrowKey = useEffectEvent((e: KeyboardEvent): void => {
+    // 没连上时输入停用
+    if (remote && !connected) return
+    const focusRow = selection.focus === null ? undefined : keyRowByPath.get(selection.focus)
+    const owner = arrowOwnerOf(e, arrowContent, focusRow?.isDirectory === true)
+    if (owner === null || (owner === 'content' && currentLoaded?.kind !== 'too-large')) return
+    e.preventDefault()
+    e.stopPropagation()
+    if (owner === 'tree') treeArrow(e.key as FilesArrowKey, e.shiftKey)
+    else void goAdjacentMedia(e.key === 'ArrowLeft' ? -1 : 1)
+  })
+  useEffect(() => {
+    if (!visible) return
+    const onKey = (e: KeyboardEvent): void => onArrowKey(e)
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [visible])
+
+  /**
+   * 文件树自己的操作（docs/prd/files-tree-move-copy.md「键盘」）：只在焦点在树上时有——Enter 进入文件 / 开合文件夹、F2、
+   * 删除、全选、剪切复制粘贴，筛选有内容时 Esc 清空。方向键见 onArrowKey。
+   */
+  const onTreeKeyDown = (e: React.KeyboardEvent<HTMLDivElement>): void => {
+    // 没连上时输入停用
+    if (remote && !connected) return
+    if (e.nativeEvent.isComposing) return
+    const { key } = e
+    const mod = isPrimaryModifierEvent(e.nativeEvent)
+    const bare = !e.metaKey && !e.ctrlKey && !e.altKey
+    const focus = selectionRef.current.focus
     if (bare && !e.shiftKey && key === 'Enter') {
       const row = focus === null ? undefined : keyRowByPath.get(focus)
       if (!row) return
       e.preventDefault()
       if (row.isDirectory) void toggleDir(row.path)
       else enterFile(row.path)
+      return
+    }
+    if (bare && key === ' ') {
+      // 空格归正文（播放、翻页，在正文那边接下就到不了这里）；正文用不上时拦下，免得点了焦点所在的那一行
+      e.preventDefault()
       return
     }
     if (bare && !e.shiftKey && key === 'F2') {
@@ -2677,13 +2866,46 @@ export function FilesPane({
         return
       }
     }
-    typeToInput(e, {
-      query: remote ? goQuery : filterQuery,
-      inputRef: filterInputRef,
-      onChange: remote ? changeGoQuery : updateFilterQuery,
-      onClear: remote ? () => changeGoQuery('') : () => void exitFilter()
-    })
+    if (remote) clearBarInputOnEscape(e, goQuery, () => changeGoQuery(''))
+    else clearBarInputOnEscape(e, filterQuery, () => void exitFilter())
   }
+
+  // 焦点进了哪一栏的正文（enteredPaneRef）：跟着 focusin 走；点在不能聚焦的地方焦点落到页面上、没有 focusin，松开时按
+  // 实际焦点再算一次。焦点去了别处，还等着进正文的那一次（pendingEnterRef）作废
+  useEffect(() => {
+    if (!visible) return
+    const sync = (el: Element | null): void => {
+      enteredPaneRef.current = enteredPaneOf(el)
+      const pending = pendingEnterRef.current
+      if (pending !== null && paneBodyRefs.current.get(pending.paneId)?.contains(el) !== true) {
+        pendingEnterRef.current = null
+      }
+    }
+    const onFocusIn = (e: FocusEvent): void => sync(e.target instanceof Element ? e.target : null)
+    const onMouseUp = (): void => sync(document.activeElement)
+    sync(document.activeElement)
+    document.addEventListener('focusin', onFocusIn)
+    document.addEventListener('mouseup', onMouseUp, true)
+    return () => {
+      document.removeEventListener('focusin', onFocusIn)
+      document.removeEventListener('mouseup', onMouseUp, true)
+    }
+  }, [visible, enteredPaneOf])
+
+  // 进了正文之后这一栏换了文件或换了视图（切 Editor Tab、编辑 ↔ 预览、翻到头换文件）：原来拿着焦点的元素随旧正文卸掉、
+  // 焦点落到了页面上——对新正文再进一次，免得悄悄退出正文；新正文进不去（看图、音视频）或这一栏已收起，就此作罢
+  const shownKey = layout.panes
+    .map((p) => [p.id, p.active, (paneViews[p.id] ?? DEFAULT_PANE_VIEW).sourcePreview].join('\n'))
+    .join('\n\n')
+  const reenterContent = useEffectEvent((): void => {
+    const entered = enteredPaneRef.current
+    if (entered === null || enteredPaneOf(document.activeElement) === entered) return
+    enteredPaneRef.current = null
+    if (editorPaneOf(layoutRef.current, entered) !== undefined) enterContent(entered)
+  })
+  useEffect(() => {
+    reenterContent()
+  }, [shownKey])
 
   const treePanel = useRememberedPanel('treePanel')
   const editorSplit = useRememberedPanel('filesEditorSplit')
@@ -2715,8 +2937,8 @@ export function FilesPane({
     : (Object.keys(docs).find((p) => docs[p].conflict?.kind === 'changed') ?? null)
 
   /**
-   * 一栏：Editor Tab 行（开关开着时）+ 正文（各类型自带工具栏）。在栏里按下鼠标即成为当前栏；键盘（方向键、缩放、翻页、
-   * 查找）只作用于当前栏。
+   * 一栏：Editor Tab 行（开关开着时）+ 正文（各类型自带工具栏）。在栏里按下鼠标、或用 ⇧⌘E 走到它即成为当前栏；键盘
+   * （方向键、缩放、翻页、查找）只作用于当前栏。
    */
   const renderPane = (pane: EditorPane, find: FindSession): React.JSX.Element => {
     const path = pane.active
@@ -2849,8 +3071,6 @@ export function FilesPane({
             src={loaded.mediaUrl}
             mime={loaded.mime}
             active={active}
-            onPrev={goPrevImage}
-            onNext={goNextImage}
           />
         </div>
       )
@@ -2868,8 +3088,8 @@ export function FilesPane({
           viewState={viewState!}
           thumbnails={view.previewSidebar}
           onToggleThumbnails={toggleSidebar}
-          onPrev={goPrevImage}
-          onNext={goNextImage}
+          onPrev={goPrevFile}
+          onNext={goNextFile}
           toolbar={toolbar}
         />
       )
@@ -2891,10 +3111,9 @@ export function FilesPane({
       body = (
         <div className="flex h-full min-h-0 flex-col">
           <FilesToolbar {...toolbar} path={loaded.path} error={error} />
-          {/* 打不开时的占位（FilesPreviewError）盖满这一格 */}
-          <div className="relative min-h-0 flex-1">
+          <SqliteContent>
             <SqliteFileView key={loaded.path} rootPath={rootPath} filePath={loaded.path} />
-          </div>
+          </SqliteContent>
         </div>
       )
     } else if (loaded.kind === 'other') {
@@ -2963,7 +3182,13 @@ export function FilesPane({
           value={remote && connected && loaded !== null ? () => downloadFile(loaded.path) : null}
         >
           <div
-            className="relative min-h-0 flex-1"
+            ref={(el) => {
+              if (el === null) paneBodyRefs.current.delete(pane.id)
+              else paneBodyRefs.current.set(pane.id, el)
+            }}
+            // 可聚焦：⇧⌘E 走到进不去的正文（看图、音视频、空态）时焦点停在这里
+            tabIndex={-1}
+            className="relative min-h-0 flex-1 outline-none"
             onContextMenu={(e) => {
               // 任何已打开的条目都有正文菜单；空态没有。看图 / SVG 预览态另给「复制图片」取图源
               if (!loaded) return
@@ -2992,7 +3217,9 @@ export function FilesPane({
                 }}
               />
             )}
-            {body}
+            <PaneContentFocus paneId={pane.id} path={path} onRegister={registerContentFocus}>
+              {body}
+            </PaneContentFocus>
           </div>
         </FilesDownloadContext.Provider>
       </div>
@@ -3001,282 +3228,290 @@ export function FilesPane({
 
   return (
     <FilesLocalContext.Provider value={!remote}>
-      <ResizablePanelGroup {...treePanel.groupProps}>
-        <ResizablePanel className="relative bg-deepest">
-          {/* 编辑区：1–2 栏，每栏按自己的标识作键（分屏、另一栏收起时留下的那栏不重挂）；记住的比例只在分栏时挂到左栏上 */}
-          <EditorTabsDnd
-            layout={layout}
-            statusOf={statusOfPath}
-            unsaved={tabUnsaved}
-            onMove={moveTab}
-          >
-            <ResizablePanelGroup {...(split ? editorSplit.groupProps : {})}>
-              {layout.panes.flatMap((pane, i) => {
-                if (pane.active !== null) {
-                  // 这一栏第一次打开这个文件：阅读位置与查找取另一栏里那份
-                  const others = layout.panes.filter((p) => p !== pane).map((p) => p.id)
-                  seedPaneScope(findMemory, pane.id, pane.active, others, (v) => v)
-                  seedPaneScope(viewMemory, pane.id, pane.active, others, (v) => v.clone())
-                }
-                const panel = (
-                  <ResizablePanel
-                    key={pane.id}
-                    id={pane.id}
-                    {...(split && i === 0 ? editorSplit.panelProps : {})}
-                  >
-                    <PaneFindScope
-                      scope={pane.active === null ? null : paneScopeKey(pane.id, pane.active)}
-                      memory={findMemory}
+      <FilesTreeRowContext.Provider value={treeRowIsDirectory}>
+        <ResizablePanelGroup {...treePanel.groupProps}>
+          <ResizablePanel className="relative bg-deepest">
+            {/* 编辑区：1–2 栏，每栏按自己的标识作键（分屏、另一栏收起时留下的那栏不重挂）；记住的比例只在分栏时挂到左栏上 */}
+            <EditorTabsDnd
+              layout={layout}
+              statusOf={statusOfPath}
+              unsaved={tabUnsaved}
+              onMove={moveTab}
+            >
+              <ResizablePanelGroup {...(split ? editorSplit.groupProps : {})}>
+                {layout.panes.flatMap((pane, i) => {
+                  if (pane.active !== null) {
+                    // 这一栏第一次打开这个文件：阅读位置与查找取另一栏里那份
+                    const others = layout.panes.filter((p) => p !== pane).map((p) => p.id)
+                    seedPaneScope(findMemory, pane.id, pane.active, others, (v) => v)
+                    seedPaneScope(viewMemory, pane.id, pane.active, others, (v) => v.clone())
+                  }
+                  const panel = (
+                    <ResizablePanel
+                      key={pane.id}
+                      id={pane.id}
+                      {...(split && i === 0 ? editorSplit.panelProps : {})}
                     >
-                      {(find) => renderPane(pane, find)}
-                    </PaneFindScope>
-                  </ResizablePanel>
-                )
-                return i === 0
-                  ? [panel]
-                  : [<ResizableHandle key="split" {...editorSplit.handleProps} />, panel]
-              })}
-            </ResizablePanelGroup>
-          </EditorTabsDnd>
-        </ResizablePanel>
-        {treeVisible && <ResizableHandle {...treePanel.handleProps} />}
-        {treeVisible && (
-          <TreePanel
-            {...treePanel.panelProps}
-            onDragOver={onTreeDragOver}
-            onDragLeave={onTreeDragLeave}
-            onDrop={onTreeDrop}
-          >
-            <TreePanelBar>
-              {remote ? (
-                // 服务器：「前往路径」（绝对路径或 ~ 开头），回车即前往；没有文件索引，不做筛选
-                <BarInput
-                  ref={filterInputRef}
-                  value={goQuery}
-                  onChange={changeGoQuery}
-                  onSubmit={() => void goToPath()}
-                  escapeFocusRef={treeScrollRef}
-                  disabled={!connected}
-                  title={goHint}
-                  placeholder={goHint}
-                />
-              ) : (
-                <BarInput
-                  ref={filterInputRef}
-                  value={filterQuery}
-                  onChange={updateFilterQuery}
-                  onClear={() => void exitFilter()}
-                  escapeFocusRef={treeScrollRef}
-                  leading={<Search className={BAR_INPUT_ICON} />}
-                  title={filterHint}
-                  placeholder={filterHint}
-                />
-              )}
-              <div className="flex shrink-0 items-center gap-0.5">
-                {host.kind === 'preview' && (
-                  <PreviewTypeFilterButton
-                    typeFilter={host.typeFilter}
-                    onTypeFilterChange={host.onTypeFilterChange}
+                      <PaneFindScope
+                        scope={pane.active === null ? null : paneScopeKey(pane.id, pane.active)}
+                        memory={findMemory}
+                      >
+                        {(find) => renderPane(pane, find)}
+                      </PaneFindScope>
+                    </ResizablePanel>
+                  )
+                  return i === 0
+                    ? [panel]
+                    : [<ResizableHandle key="split" {...editorSplit.handleProps} />, panel]
+                })}
+              </ResizablePanelGroup>
+            </EditorTabsDnd>
+          </ResizablePanel>
+          {treeVisible && <ResizableHandle {...treePanel.handleProps} />}
+          {treeVisible && (
+            <TreePanel
+              {...treePanel.panelProps}
+              onDragOver={onTreeDragOver}
+              onDragLeave={onTreeDragLeave}
+              onDrop={onTreeDrop}
+            >
+              <TreePanelBar>
+                {remote ? (
+                  // 服务器：「前往路径」（绝对路径或 ~ 开头），回车即前往；没有文件索引，不做筛选
+                  <BarInput
+                    ref={filterInputRef}
+                    value={goQuery}
+                    onChange={changeGoQuery}
+                    onSubmit={() => void goToPath()}
+                    escapeFocusRef={treeScrollRef}
+                    disabled={!connected}
+                    title={goHint}
+                    placeholder={goHint}
+                  />
+                ) : (
+                  <BarInput
+                    ref={filterInputRef}
+                    value={filterQuery}
+                    onChange={updateFilterQuery}
+                    onClear={() => void exitFilter()}
+                    escapeFocusRef={treeScrollRef}
+                    leading={<Search className={BAR_INPUT_ICON} />}
+                    title={filterHint}
+                    placeholder={filterHint}
                   />
                 )}
-                <RefreshButton
-                  refreshing={refreshing > 0}
-                  title="刷新"
-                  disabled={!connected}
-                  onClick={() => void refreshFromDisk()}
-                />
-                {/* 服务器上不给「全部展开」：从 / 递归展开等于把整台服务器扫一遍 */}
-                {!remote && (
+                <div className="flex shrink-0 items-center gap-0.5">
+                  {host.kind === 'preview' && (
+                    <PreviewTypeFilterButton
+                      typeFilter={host.typeFilter}
+                      onTypeFilterChange={host.onTypeFilterChange}
+                    />
+                  )}
+                  <RefreshButton
+                    refreshing={refreshing > 0}
+                    title="刷新"
+                    disabled={!connected}
+                    onClick={() => void refreshFromDisk()}
+                  />
+                  {/* 服务器上不给「全部展开」：从 / 递归展开等于把整台服务器扫一遍 */}
+                  {!remote && (
+                    <button
+                      type="button"
+                      title="全部展开"
+                      className={TOOLBAR_BTN}
+                      onClick={() => void expandAllDirs()}
+                    >
+                      <ChevronsUpDown className="size-4" />
+                    </button>
+                  )}
                   <button
                     type="button"
-                    title="全部展开"
+                    title="全部折叠"
                     className={TOOLBAR_BTN}
-                    onClick={() => void expandAllDirs()}
+                    onClick={collapseAllDirs}
                   >
-                    <ChevronsUpDown className="size-4" />
+                    <ChevronsDownUp className="size-4" />
                   </button>
-                )}
-                <button
-                  type="button"
-                  title="全部折叠"
-                  className={TOOLBAR_BTN}
-                  onClick={collapseAllDirs}
-                >
-                  <ChevronsDownUp className="size-4" />
-                </button>
-                <button
-                  type="button"
-                  title="隐藏文件树"
-                  className={TOOLBAR_BTN}
-                  onClick={() => setTreeVisible(false)}
-                >
-                  <Minus className="size-4" />
-                </button>
-              </div>
-            </TreePanelBar>
-            {goError !== null && (
-              <div className="shrink-0 px-3 pt-1.5 text-xs text-[var(--status-failed)]">
-                {goError}
-              </div>
-            )}
-            {/* 当前根文件夹行：告诉你树的根在哪（预览窗口上翻下钻后不迷路），右键即空白区那份根菜单——
-              文件铺满时也永远点得到。固定在列表之上不随滚动走；它是全树的根，图标顶格（不占层级缩进位）。 */}
-            <TreeRootRow
-              title={rootLogical}
-              data-drop-dir={rootLogical}
-              icon={<FolderOpen className={TREE_ICON} />}
-              name={rootLogical.slice(rootLogical.lastIndexOf('/') + 1) || rootLogical}
-              dropTarget={dropDir === rootLogical}
-              menuActive={treeMenu !== null && treeMenu.path === rootLogical}
-              onContextMenu={(e) => openTreeMenu({ path: rootLogical, isDirectory: true }, e)}
-              onDisconnect={remote ? () => void disconnect() : undefined}
-            />
-            <div
-              ref={treeScrollRef}
-              tabIndex={0}
-              // 焦点在树上时方向键归树，正文的切媒体、翻页让位（见 files-key-guards 的 filesTreeTarget）
-              data-files-tree=""
-              className={TREE_SCROLL}
-              onContextMenu={(e) => openTreeMenu({ path: rootLogical, isDirectory: true }, e)}
-              onKeyDown={onTreeKeyDown}
-            >
-              {filterLoading ? (
-                <TreeHint loading>正在扫描…</TreeHint>
-              ) : filterEmpty ? (
-                <TreeHint>无匹配文件</TreeHint>
-              ) : (
-                <div className="relative w-full" style={{ height: rowVirtualizer.getTotalSize() }}>
-                  {rowVirtualizer.getVirtualItems().map((vi) => {
-                    const row = flatRows[vi.index]
-                    // 空白区（根）目标的菜单不点亮任何行；行集合本就不含根
-                    const menuActive = treeMenu !== null && treeMenu.path === row.path
-                    return (
-                      <div
-                        key={vi.key}
-                        className="absolute left-0 top-0 w-full"
-                        style={{ transform: `translateY(${vi.start}px)` }}
-                        data-drop-dir={row.notice ? undefined : uploadTargetDir(row)}
-                      >
-                        {row.notice ? (
-                          <TreeNoticeRow depth={row.depth} message={row.name} />
-                        ) : row.isDirectory ? (
-                          <TreeRow
-                            depth={row.depth}
-                            expanded={displayExpanded.has(row.path)}
-                            icon={<Folder className={TREE_ICON} />}
-                            name={row.name}
-                            mark={
-                              row.symlink && (
-                                <SymlinkMark symlink={row.symlink} onJump={jumpToLinkTarget(row)} />
-                              )
-                            }
-                            title={row.symlink && symlinkTitle(row.symlink)}
-                            selected={selection.paths.has(row.path)}
-                            menuActive={menuActive}
-                            dropTarget={dropDir === row.path}
-                            dimmed={!remote && cutPaths.has(row.path)}
-                            draggable={connected}
-                            onClick={(e) => clickRow(row, e)}
-                            onToggle={() => void toggleDir(row.path)}
-                            onContextMenu={(e) => openTreeMenu(row, e)}
-                            onDragStart={(e) => startRowDrag(row, e)}
-                          />
-                        ) : (
-                          <FileTreeFileRow
-                            name={row.name}
-                            depth={row.depth}
-                            symlink={row.symlink}
-                            onJumpToLinkTarget={jumpToLinkTarget(row)}
-                            selected={selection.paths.has(row.path)}
-                            menuActive={menuActive}
-                            dimmed={!remote && cutPaths.has(row.path)}
-                            draggable={connected}
-                            status={statusByRel.get(relPathUnderRoot(rootLogical, row.path))}
-                            onClick={(e) => clickRow(row, e)}
-                            onMenu={(e) => openTreeMenu(row, e)}
-                            onDragStart={(e) => startRowDrag(row, e)}
-                          />
-                        )}
-                      </div>
-                    )
-                  })}
+                  <button
+                    type="button"
+                    title="隐藏文件树"
+                    className={TOOLBAR_BTN}
+                    onClick={() => setTreeVisible(false)}
+                  >
+                    <Minus className="size-4" />
+                  </button>
+                </div>
+              </TreePanelBar>
+              {goError !== null && (
+                <div className="shrink-0 px-3 pt-1.5 text-xs text-[var(--status-failed)]">
+                  {goError}
                 </div>
               )}
-            </div>
-          </TreePanel>
-        )}
+              {/* 当前根文件夹行：告诉你树的根在哪（预览窗口上翻下钻后不迷路），右键即空白区那份根菜单——
+              文件铺满时也永远点得到。固定在列表之上不随滚动走；它是全树的根，图标顶格（不占层级缩进位）。 */}
+              <TreeRootRow
+                title={rootLogical}
+                data-drop-dir={rootLogical}
+                icon={<FolderOpen className={TREE_ICON} />}
+                name={rootLogical.slice(rootLogical.lastIndexOf('/') + 1) || rootLogical}
+                dropTarget={dropDir === rootLogical}
+                menuActive={treeMenu !== null && treeMenu.path === rootLogical}
+                onContextMenu={(e) => openTreeMenu({ path: rootLogical, isDirectory: true }, e)}
+                onDisconnect={remote ? () => void disconnect() : undefined}
+              />
+              <div
+                ref={treeScrollRef}
+                tabIndex={0}
+                // 焦点在里面即在文件树上：文件树自己的操作只在这时接（见 files-key-guards 的 filesKeyScope）
+                data-files-tree=""
+                className={TREE_SCROLL}
+                onContextMenu={(e) => openTreeMenu({ path: rootLogical, isDirectory: true }, e)}
+                onKeyDown={onTreeKeyDown}
+              >
+                {filterLoading ? (
+                  <TreeHint loading>正在扫描…</TreeHint>
+                ) : filterEmpty ? (
+                  <TreeHint>无匹配文件</TreeHint>
+                ) : (
+                  <div
+                    className="relative w-full"
+                    style={{ height: rowVirtualizer.getTotalSize() }}
+                  >
+                    {rowVirtualizer.getVirtualItems().map((vi) => {
+                      const row = flatRows[vi.index]
+                      // 空白区（根）目标的菜单不点亮任何行；行集合本就不含根
+                      const menuActive = treeMenu !== null && treeMenu.path === row.path
+                      return (
+                        <div
+                          key={vi.key}
+                          className="absolute left-0 top-0 w-full"
+                          style={{ transform: `translateY(${vi.start}px)` }}
+                          data-drop-dir={row.notice ? undefined : uploadTargetDir(row)}
+                        >
+                          {row.notice ? (
+                            <TreeNoticeRow depth={row.depth} message={row.name} />
+                          ) : row.isDirectory ? (
+                            <TreeRow
+                              depth={row.depth}
+                              expanded={displayExpanded.has(row.path)}
+                              icon={<Folder className={TREE_ICON} />}
+                              name={row.name}
+                              mark={
+                                row.symlink && (
+                                  <SymlinkMark
+                                    symlink={row.symlink}
+                                    onJump={jumpToLinkTarget(row)}
+                                  />
+                                )
+                              }
+                              title={row.symlink && symlinkTitle(row.symlink)}
+                              selected={selection.paths.has(row.path)}
+                              menuActive={menuActive}
+                              dropTarget={dropDir === row.path}
+                              dimmed={!remote && cutPaths.has(row.path)}
+                              draggable={connected}
+                              onClick={(e) => clickRow(row, e)}
+                              onToggle={() => void toggleDir(row.path)}
+                              onContextMenu={(e) => openTreeMenu(row, e)}
+                              onDragStart={(e) => startRowDrag(row, e)}
+                            />
+                          ) : (
+                            <FileTreeFileRow
+                              name={row.name}
+                              depth={row.depth}
+                              symlink={row.symlink}
+                              onJumpToLinkTarget={jumpToLinkTarget(row)}
+                              selected={selection.paths.has(row.path)}
+                              menuActive={menuActive}
+                              dimmed={!remote && cutPaths.has(row.path)}
+                              draggable={connected}
+                              status={statusByRel.get(relPathUnderRoot(rootLogical, row.path))}
+                              onClick={(e) => clickRow(row, e)}
+                              onMenu={(e) => openTreeMenu(row, e)}
+                              onDragStart={(e) => startRowDrag(row, e)}
+                            />
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            </TreePanel>
+          )}
 
-        {hunkPopup !== null && docs[hunkPopup.path]?.loaded.kind === 'text' && (
-          <FilesGutterHunkPopover
-            popup={hunkPopup.payload}
-            filePath={hunkPopup.path}
-            onUpdate={(payload) => setHunkPopup((prev) => prev && { ...prev, payload })}
-            onClose={() => setHunkPopup(null)}
-          />
-        )}
+          {hunkPopup !== null && docs[hunkPopup.path]?.loaded.kind === 'text' && (
+            <FilesGutterHunkPopover
+              popup={hunkPopup.payload}
+              filePath={hunkPopup.path}
+              onUpdate={(payload) => setHunkPopup((prev) => prev && { ...prev, payload })}
+              onClose={() => setHunkPopup(null)}
+            />
+          )}
 
-        <FilesContentMenu
-          menu={contentMenu}
-          server={serverActions}
-          connected={connected}
-          onClose={() => setContentMenu(null)}
-        />
-        <FilesTreeMenu
-          projectPath={rootPath}
-          terminal={host.kind === 'project'}
-          server={serverActions}
-          clipboard={clipboardActions}
-          {...(host.kind === 'preview'
-            ? {
-                onSetRoot: host.onSetRoot,
-                onAscend: host.onAscend,
-                onAddProject: host.onAddProject,
-                projectRegistered: host.projectRegistered
-              }
-            : {})}
-          projectRoot={rootLogical}
-          menu={treeMenu}
-          onGoToLinkTarget={(target, isDirectory) => void goToEntry(target, isDirectory)}
-          onClose={() => setTreeMenu(null)}
-          onRequest={(req) => {
-            // 菜单项随菜单卸掉，弹窗记下它当打开前的焦点就无处可还；先把焦点交回树，关掉后回到树（同在树上按键打开的）
-            treeScrollRef.current?.focus({ preventScroll: true })
-            setEntryDialog(req)
-          }}
-        />
-        {entryDialog !== null && (
-          <FilesEntryDialog
-            key={`${entryDialog.kind}:${
-              'dir' in entryDialog
-                ? entryDialog.dir
-                : 'path' in entryDialog
-                  ? entryDialog.path
-                  : entryDialog.entries.map((e) => e.path).join('\n')
-            }`}
-            request={entryDialog}
-            onClose={() => setEntryDialog(null)}
-            onSubmit={(name) => submitEntryDialog(entryDialog, name)}
+          <FilesContentMenu
+            menu={contentMenu}
+            server={serverActions}
+            connected={connected}
+            onClose={() => setContentMenu(null)}
           />
-        )}
-        {sameName !== null && (
-          <SameNameDialog
-            message={sameName.message}
-            batch={sameName.batch}
-            onAnswer={(action, applyToRest) => sameName.answer({ action, applyToRest })}
+          <FilesTreeMenu
+            projectPath={rootPath}
+            terminal={host.kind === 'project'}
+            server={serverActions}
+            clipboard={clipboardActions}
+            {...(host.kind === 'preview'
+              ? {
+                  onSetRoot: host.onSetRoot,
+                  onAscend: host.onAscend,
+                  onAddProject: host.onAddProject,
+                  projectRegistered: host.projectRegistered
+                }
+              : {})}
+            projectRoot={rootLogical}
+            menu={treeMenu}
+            onGoToLinkTarget={(target, isDirectory) => void goToEntry(target, isDirectory)}
+            onClose={() => setTreeMenu(null)}
+            onRequest={(req) => {
+              // 菜单项随菜单卸掉，弹窗记下它当打开前的焦点就无处可还；先把焦点交回树，关掉后回到树（同在树上按键打开的）
+              treeScrollRef.current?.focus({ preventScroll: true })
+              setEntryDialog(req)
+            }}
           />
-        )}
-        {opError !== null && <ErrorDialog message={opError} onClose={() => setOpError(null)} />}
+          {entryDialog !== null && (
+            <FilesEntryDialog
+              key={`${entryDialog.kind}:${
+                'dir' in entryDialog
+                  ? entryDialog.dir
+                  : 'path' in entryDialog
+                    ? entryDialog.path
+                    : entryDialog.entries.map((e) => e.path).join('\n')
+              }`}
+              request={entryDialog}
+              onClose={() => setEntryDialog(null)}
+              onSubmit={(name) => submitEntryDialog(entryDialog, name)}
+            />
+          )}
+          {sameName !== null && (
+            <SameNameDialog
+              message={sameName.message}
+              batch={sameName.batch}
+              onAnswer={(action, applyToRest) => sameName.answer({ action, applyToRest })}
+            />
+          )}
+          {opError !== null && <ErrorDialog message={opError} onClose={() => setOpError(null)} />}
 
-        {conflictPath !== null && (
-          <ConfirmDialog
-            title={`重载 “${baseName(conflictPath)}”？`}
-            message="文件已在磁盘上更改，当前还有未保存的编辑。重载会换成磁盘上的版本，丢掉这些编辑。"
-            cancelLabel="保留编辑器内容"
-            buttons={[{ label: '重载', onClick: () => reloadFromConflict(conflictPath) }]}
-            onCancel={() => keepEditorContent(conflictPath)}
-          />
-        )}
-      </ResizablePanelGroup>
+          {conflictPath !== null && (
+            <ConfirmDialog
+              title={`重载 “${baseName(conflictPath)}”？`}
+              message="文件已在磁盘上更改，当前还有未保存的编辑。重载会换成磁盘上的版本，丢掉这些编辑。"
+              cancelLabel="保留编辑器内容"
+              buttons={[{ label: '重载', onClick: () => reloadFromConflict(conflictPath) }]}
+              onCancel={() => keepEditorContent(conflictPath)}
+            />
+          )}
+        </ResizablePanelGroup>
+      </FilesTreeRowContext.Provider>
     </FilesLocalContext.Provider>
   )
 }

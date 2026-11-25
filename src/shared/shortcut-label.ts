@@ -168,6 +168,8 @@ export const SHORTCUT = {
   cycleTabPrev: { ctrl: true, shift: true, key: 'Tab' } satisfies ShortcutChord,
   /** Files 向右分屏（docs/prd/files-editor-tabs.md）；上一个 / 下一个 Editor Tab 随平台不同，见 editorTabShortcuts */
   splitEditor: { mod: true, key: '\\' } satisfies ShortcutChord,
+  /** Files 的焦点在文件树与各栏正文之间轮转（docs/prd/files-tab.md「按键归属」） */
+  cycleFilesFocus: { mod: true, shift: true, key: 'E' } satisfies ShortcutChord,
   // 以下为各视图自持的键（不进 matchAppShortcut），设置的快捷键列表与按钮 title 都要用；只在列表里出现的就地写在列表里
   /** 查找栏里的下一个 / 上一个（Files、Git、终端、数据源的查找栏） */
   findNext: { key: 'Enter' } satisfies ShortcutChord,

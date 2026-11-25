@@ -21,6 +21,8 @@ export type AppShortcut =
   | { id: 'prevEditorTab' }
   | { id: 'nextEditorTab' }
   | { id: 'splitEditor' }
+  /** Files 的焦点在文件树与各栏正文之间轮转（docs/prd/files-tab.md「按键归属」） */
+  | { id: 'cycleFilesFocus' }
 
 /** 与 Electron `Input` / DOM KeyboardEvent 对齐的最小字段。 */
 export interface ShortcutInput {
@@ -72,6 +74,12 @@ export function matchAppShortcut(input: ShortcutInput, ctx: ShortcutContext): Ap
   // CmdOrCtrl+Shift+F：内容搜索面板
   if (mod && shift && !alt && code === 'KeyF') {
     return { id: 'contentSearch' }
+  }
+
+  // CmdOrCtrl+Shift+E：Files 的焦点在文件树与各栏正文之间轮转；Files Tab 在前台时焦点不会在终端里，
+  // 焦点在终端时这个组合留给终端里的程序
+  if (mod && shift && !alt && code === 'KeyE') {
+    return ctx.terminalFocused && input.control ? null : { id: 'cycleFilesFocus' }
   }
 
   // CmdOrCtrl+1…9

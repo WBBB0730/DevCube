@@ -9,7 +9,8 @@
 //   与 ADR-0034）。查找会话按文件记（FilesPane 给）；CSV 与编辑态共用一份（切换不关、不清空），多一个正则开关。
 // - 缩放：Cmd/Ctrl+滚轮与捏合按光标、Cmd/Ctrl +/- 按视口中心逐档、Cmd/Ctrl+0 回工作表自带倍率，快捷键与 PDF / PPT
 //   共用（lib/files-paged-preview）；库在 DOM 渲染下不接滚轮缩放，这里自接，锚点换算见 lib/files-sheet。
-// - 方向键归格子（移动选中格），不切上一个 / 下一个文件；选中与复制用库的。
+// - 进了表格（Enter、点格子、⇧⌘E）方向键归格子（移动选中格），平时归文件树换文件（docs/prd/files-tab.md「按键归属」）；
+//   选中与复制用库的。
 // - 阅读位置记工作表、倍率与视口左上角的格（docs/prd/files-tab.md「阅读位置」）；CSV 的纵向折成源码行、与编辑态共用，
 //   两态切换按行对上。格子在表格里的位置只有库知道，读与滚经补丁给控制器加的接口（见 patches/ 与 ADR-0034）。
 // - 链接：库以 window.open 开外链，交主进程开窗守卫转系统浏览器（web-contents-guard）；表内跳转库自处理。
@@ -30,6 +31,7 @@ import {
 } from '@shared/files'
 import { LoadingHint } from '@renderer/components/ui/centered-hint'
 import { SheetTabs } from '@renderer/components/ui/sheet-tabs'
+import { CONTENT_ATTR, useContentFocus } from '@renderer/lib/content-focus'
 import { useCtrlWheelZoom, usePagedPreviewKeys } from '@renderer/lib/files-paged-preview'
 import {
   csvLinePoints,
@@ -132,13 +134,14 @@ export function FilesSheetPreview({
   const error = loadError ?? controller.error?.message ?? null
   const loading = !error && (!file || controller.isLoading)
 
-  // 表格就绪时把焦点交给表格：Cmd+F、缩放与方向键立即可用（同 PDF / PPT 打开即聚焦正文）；CSV 重转不再抢焦点
-  const focusedOnce = useRef(false)
+  // 进入正文（Enter、⇧⌘E 等，见 content-focus）即聚焦表格；表格就绪才进得去，打开文件本身不进正文
+  const focusSheet = useCallback(() => scrollerRef.current?.focus({ preventScroll: true }), [])
+  const getScroller = useCallback(() => scrollerRef.current, [])
+  useContentFocus(workbook ? focusSheet : null)
+  // 换工作表时滚动视口重挂：焦点原在表格里（或落在刚点的工作表标签上）的，接着落到新的那张上
   useEffect(() => {
-    if (!workbook || focusedOnce.current) return
-    focusedOnce.current = true
-    scrollerRef.current?.focus({ preventScroll: true })
-  }, [workbook])
+    if (rootRef.current?.contains(document.activeElement)) focusSheet()
+  }, [activeTabIndex, focusSheet])
 
   // —— 阅读位置 ——
   /** CSV：源码行与表格行号的对应点（纵向位置记在源码行上，与编辑态共用） */
@@ -321,15 +324,12 @@ export function FilesSheetPreview({
       selectCell({ row: cell.row, col: cell.col }, { reveal: true }),
     [selectCell]
   )
-  /** 关查找后焦点回表格 */
-  const focusSheet = useCallback(() => scrollerRef.current?.focus({ preventScroll: true }), [])
   // 起点为活动格，同 PDF / PPT 从当前页起
   const sheetFind = useSheetFind({
     buildCells,
     origin: activeCell,
     reveal: revealCell,
     scope: activeTabIndex,
-    onClose: focusSheet,
     find,
     regexpToggle: source.kind === 'csv'
   })
@@ -355,6 +355,7 @@ export function FilesSheetPreview({
     findOpen: sheetFind.open,
     openFind: sheetFind.openFind,
     closeFind: sheetFind.closeFind,
+    getScroller,
     resetZoom,
     stepZoom
   })
@@ -385,7 +386,11 @@ export function FilesSheetPreview({
   return (
     <div ref={rootRef} className="flex min-h-0 flex-1 flex-col">
       {sheetFind.open && <FindBar {...sheetFind.bar} />}
-      <div ref={wrapRef} className="relative flex min-h-0 flex-1 flex-col bg-deepest">
+      <div
+        ref={wrapRef}
+        {...CONTENT_ATTR}
+        className="relative flex min-h-0 flex-1 flex-col bg-deepest"
+      >
         {file && !tooLarge && (
           <XlsxViewer
             controller={controller}
