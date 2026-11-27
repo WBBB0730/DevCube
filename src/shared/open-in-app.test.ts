@@ -31,14 +31,17 @@ describe('buildClaudeCodeNewSessionUrl', () => {
 })
 
 describe('open-in-app catalog', () => {
-  it('三项按字母序且有中文不可用说明', () => {
-    expect([...OPEN_IN_APP_IDS]).toEqual(['claude', 'codex', 'cursor'])
+  it('四项按字母序且有中文不可用说明', () => {
+    expect([...OPEN_IN_APP_IDS]).toEqual(['claude', 'codex', 'cursor', 't3code'])
     expect(OPEN_IN_APP_LABELS.claude).toBe('Claude')
+    expect(OPEN_IN_APP_LABELS.t3code).toBe('T3 Code')
     expect(unavailableReasonFor('cursor')).toBe('未检测到 Cursor')
+    expect(unavailableReasonFor('t3code')).toBe('未检测到 T3 Code')
   })
 
   it('isOpenInAppId 校验', () => {
     expect(isOpenInAppId('cursor')).toBe(true)
+    expect(isOpenInAppId('t3code')).toBe(true)
     expect(isOpenInAppId('foo')).toBe(false)
   })
 })

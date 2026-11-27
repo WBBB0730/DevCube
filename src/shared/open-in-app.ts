@@ -1,22 +1,15 @@
-/** 项目「打开于」外部桌面工具（字母序：Claude / Codex / Cursor）。 */
+/** 项目「打开于」外部桌面工具（字母序：Claude / Codex / Cursor / T3 Code）。 */
 
-export const OPEN_IN_APP_IDS = ['claude', 'codex', 'cursor'] as const
+export const OPEN_IN_APP_IDS = ['claude', 'codex', 'cursor', 't3code'] as const
 export type OpenInAppId = (typeof OPEN_IN_APP_IDS)[number]
-
-export type OpenInAppStatus = {
-  id: OpenInAppId
-  label: string
-  available: boolean
-  /** 不可用时的 hover 说明 */
-  unavailableReason?: string
-}
 
 export type OpenInAppResult = { ok: true } | { ok: false; error: string }
 
 export const OPEN_IN_APP_LABELS: Record<OpenInAppId, string> = {
   claude: 'Claude',
   codex: 'Codex',
-  cursor: 'Cursor'
+  cursor: 'Cursor',
+  t3code: 'T3 Code'
 }
 
 /** Codex Desktop：官方 `codex://threads/new?path=` deep link。 */

@@ -22,7 +22,7 @@ import type { GitHubRepoProtocol } from './github'
 import type { GitAPI, GitRepoSettings, GitUiState, GitViewPrefs } from './git'
 import type { GitHubAPI } from './github'
 import type { GitCloneInput, GitCloneTargetState } from './git-clone'
-import type { OpenInAppId, OpenInAppResult, OpenInAppStatus } from './open-in-app'
+import type { OpenInAppId, OpenInAppResult } from './open-in-app'
 import type { PanelSizes, PanelSizesPatch } from './panel-sizes'
 import type { RendererBootstrap } from './renderer-bootstrap'
 import type {
@@ -844,8 +844,8 @@ export interface RunAPI extends GitAPI, GitHubAPI {
   openPath(path: string): Promise<void>
   /** 在系统文件管理器中定位并选中该文件（「在文件夹中显示」） */
   revealInFolder(path: string): Promise<void>
-  /** 探测 Claude / Codex / Cursor 是否已安装（项目「打开于」子菜单） */
-  listOpenInApps(): Promise<OpenInAppStatus[]>
+  /** 探测当前已安装的外部桌面工具（项目「打开于」子菜单，字母序） */
+  listOpenInApps(): Promise<OpenInAppId[]>
   /** 在外部桌面工具中打开已登记项目根；未装或失败时返回 ok:false */
   openInApp(id: OpenInAppId, projectPath: string): Promise<OpenInAppResult>
 

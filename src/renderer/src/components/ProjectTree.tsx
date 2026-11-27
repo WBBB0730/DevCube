@@ -17,6 +17,7 @@ import {
   ChevronRight,
   ClockArrowDown,
   ClockArrowUp,
+  Copy,
   SquareArrowOutUpRight,
   AppWindow,
   Database,
@@ -83,6 +84,7 @@ import {
 import { configKey, scriptKey } from '@shared/runnable'
 import { filterTreeEntries, sortTreeEntries } from '@shared/project-sort'
 import { SHORTCUT } from '@shared/shortcut-label'
+import { copyablePath } from '@shared/wsl-path'
 import { useDoubleClick } from '@renderer/lib/double-click'
 import { shortcutLabel, shortcutTitle } from '@renderer/lib/shortcut-label'
 import { useFocusRequest } from '@renderer/lib/use-focus-request'
@@ -110,7 +112,7 @@ import {
   DropdownMenuTrigger
 } from '@renderer/components/ui/dropdown-menu'
 import { OPEN_IN_APP_ICONS } from '@renderer/assets/open-in'
-import { OPEN_IN_APP_IDS, OPEN_IN_APP_LABELS, type OpenInAppStatus } from '@shared/open-in-app'
+import { OPEN_IN_APP_LABELS, type OpenInAppId } from '@shared/open-in-app'
 import { useApp } from '@renderer/store'
 import { openCloneDialog } from '@renderer/task-store'
 import { ConnectSubmenu } from '@renderer/components/ConnectSubmenu'
@@ -194,6 +196,10 @@ export function ProjectTree(): React.JSX.Element {
   const addProjectByPath = useApp((s) => s.addProjectByPath)
   const createProject = useApp((s) => s.createProject)
   const openConnectionDialog = useApp((s) => s.openConnectionDialog)
+
+  useEffect(() => {
+    void refreshOpenInApps()
+  }, [])
 
   // 拖项目时强制全部收起；松手后恢复各行原展开态（由 forceCollapsed 驱动，不改各行本地 open）。
   // 锚点用「所见视口 Y」（getBoundingClientRect，含吸顶卡住）；收起后关掉 sticky。
@@ -1762,8 +1768,71 @@ function MoreMenu({
   )
 }
 
+let cachedOpenInApps: OpenInAppId[] | null = null
+let openInAppsInFlight: Promise<OpenInAppId[]> | null = null
+
+function refreshOpenInApps(): Promise<OpenInAppId[]> {
+  if (!openInAppsInFlight) {
+    openInAppsInFlight = window.api
+      .listOpenInApps()
+      .then((list) => {
+        cachedOpenInApps = list
+        return list
+      })
+      .catch(() => cachedOpenInApps ?? [])
+      .finally(() => {
+        openInAppsInFlight = null
+      })
+  }
+  return openInAppsInFlight
+}
+
+function sameOpenInAppList(a: OpenInAppId[], b: OpenInAppId[]): boolean {
+  return a.length === b.length && a.every((id, i) => id === b[i])
+}
+
+/** 项目「打开于」子菜单：复用上次探测结果立即渲染，后台静默刷新；未装任何支持工具时不显示。 */
+function OpenInSubmenu({ projectPath }: { projectPath: string }): React.JSX.Element | null {
+  const [apps, setApps] = useState<OpenInAppId[]>(() => cachedOpenInApps ?? [])
+
+  useEffect(() => {
+    let cancelled = false
+    void refreshOpenInApps().then((list) => {
+      if (!cancelled) setApps((prev) => (sameOpenInAppList(prev, list) ? prev : list))
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  if (apps.length === 0) return null
+
+  return (
+    <DropdownMenuSub>
+      <DropdownMenuSubTrigger>
+        <SquareArrowOutUpRight className="size-4" /> 打开于
+      </DropdownMenuSubTrigger>
+      <DropdownMenuSubContent>
+        {apps.map((id) => (
+          <DropdownMenuItem
+            key={id}
+            onClick={() => {
+              void window.api.openInApp(id, projectPath).then((result) => {
+                if (!result.ok) console.warn(result.error)
+              })
+            }}
+          >
+            <img src={OPEN_IN_APP_ICONS[id]} alt="" className="size-4" />
+            {OPEN_IN_APP_LABELS[id]}
+          </DropdownMenuItem>
+        ))}
+      </DropdownMenuSubContent>
+    </DropdownMenuSub>
+  )
+}
+
 /**
- * 项目菜单项：⋮ 与右键共用（打开文件夹 / 打开于 / 在新窗口中打开 / 新建终端 / 新建配置 / 置顶 / 移除项目）。
+ * 项目菜单项：⋮ 与右键共用（打开文件夹 / 打开于 / 在新窗口中打开 / 复制路径 / 新建终端 / 新建配置 / 置顶 / 移除项目）。
  * 移除项目先确认：它的运行配置一并删除，运行中的进程与终端会被结束。
  */
 function ProjectMenuItems({
@@ -1788,58 +1857,23 @@ function ProjectMenuItems({
     })
     if (confirmed) await removeProject(projectPath)
   }
-  const [openInApps, setOpenInApps] = useState<OpenInAppStatus[] | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    void window.api.listOpenInApps().then((list) => {
-      if (!cancelled) setOpenInApps(list)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [])
-
-  const openInItems: OpenInAppStatus[] =
-    openInApps ??
-    OPEN_IN_APP_IDS.map((id) => ({
-      id,
-      label: OPEN_IN_APP_LABELS[id],
-      available: false,
-      unavailableReason: '检测中…'
-    }))
 
   return (
     <>
       <DropdownMenuItem onClick={() => void window.api.openPath(projectPath)}>
         <FolderOpen className="size-4" /> 打开文件夹
       </DropdownMenuItem>
-      <DropdownMenuSub>
-        <DropdownMenuSubTrigger>
-          <SquareArrowOutUpRight className="size-4" /> 打开于
-        </DropdownMenuSubTrigger>
-        <DropdownMenuSubContent>
-          {openInItems.map((app) => (
-            <DropdownMenuItem
-              key={app.id}
-              disabled={!app.available}
-              title={app.available ? undefined : app.unavailableReason}
-              onClick={() => {
-                if (!app.available) return
-                void window.api.openInApp(app.id, projectPath).then((result) => {
-                  if (!result.ok) console.warn(result.error)
-                })
-              }}
-            >
-              <img src={OPEN_IN_APP_ICONS[app.id]} alt="" className="size-4" />
-              {app.label}
-            </DropdownMenuItem>
-          ))}
-        </DropdownMenuSubContent>
-      </DropdownMenuSub>
+      <OpenInSubmenu projectPath={projectPath} />
       {/* 以项目根开一个 Preview Window（同一根复开即聚焦），见 docs/prd/file-preview-window.md */}
       <DropdownMenuItem onClick={() => void window.api.previewOpenRoot(projectPath)}>
         <AppWindow className="size-4" /> 在新窗口中打开
+      </DropdownMenuItem>
+      <DropdownMenuItem
+        onClick={() =>
+          void navigator.clipboard.writeText(copyablePath(projectPath)).catch(() => undefined)
+        }
+      >
+        <Copy className="size-4" /> 复制路径
       </DropdownMenuItem>
       <DropdownMenuItem onClick={() => void newTerminal(projectPath)}>
         <Terminal className="size-4" /> 新建终端

@@ -20,7 +20,7 @@
 6. 作为用户，我想在面板左侧**同时看到多个 Project 并列**，以便一眼掌握我在照看的所有项目。
 7. 作为用户，我想通过"更多"菜单**移除 Project**，以便清理不再需要的项目。
 8. 作为用户，我想通过项目行的「更多」菜单或右键菜单**打开文件夹**，以便在系统文件管理器中查看该项目目录。
-9. 作为用户，我想通过项目菜单的「打开于」在 **Claude / Codex / Cursor** 桌面端以该 Project 根目录开新会话，以便无缝跳到外部编码工具。
+9. 作为用户，我想通过项目菜单的「打开于」在 **Claude / Codex / Cursor / T3 Code** 桌面端以该 Project 根目录开新会话，以便无缝跳到外部编码工具。
 10. 作为用户，当 Project 有顶层 `package.json` 时，我想自动看到它的 scripts 作为 **Discovered Script** 候补，以便零配置直接开跑。
 11. 作为用户，我想让 Discovered Script **随 `package.json` 与约定指纹实时增删**，以便它始终反映项目现状。
 12. 作为用户，我想让一条 Discovered Script 在**被选中或运行后自动"晋升"**为一条 Run Configuration，以便我常用的那几条自动沉淀到"我的配置"。
@@ -95,7 +95,7 @@
 
 **IPC 边界。** 打开项目文件夹（`shell.openPath`）与「打开于」都只放行已登记的项目路径。主进程主动推给渲染端：会话输出增量、会话状态变更（运行中/成功/失败）、Discovered Script 增删、引用型配置被自动删除。
 
-**打开于。** 项目「更多」/右键菜单提供「打开于」子菜单（字母序：Claude、Codex、Cursor）。打开菜单时探测本机是否安装对应桌面端（应用路径或官方 CLI）；未装项置灰并 hover 说明原因。唤起方式见 ADR-0018：各工具走官方推荐入口，跨 macOS / Windows / Linux 适配。子项前缀品牌图标：Claude 用 Claude Desktop App 图标、Codex 用官方浅色标（蓝云 `>_`）、Cursor 用 Dock 同源 App icns（含 squircle 遮罩）。
+**打开于。** 项目「更多」/右键菜单提供「打开于」子菜单（字母序：Claude、Codex、Cursor、T3 Code）。探测本机已安装的桌面端（应用路径或官方 CLI），只展示已安装项；全部未装时隐藏整个「打开于」子菜单；复用上次探测结果渲染并在打开菜单时后台静默刷新。唤起方式见 ADR-0018：各工具走官方推荐入口，跨 macOS / Windows / Linux 适配。子项前缀品牌图标：Claude 用 Claude Desktop App 图标、Codex 用官方浅色标（蓝云 `>_`）、Cursor 与 T3 Code 用各自官方 macOS App 图标（含 squircle 遮罩）。
 
 **文件监听。** discovery 只**响应**每个 Project 根级的 `package.json` / lockfile / 约定指纹（不因整树事件对账）；与 Files / Git 共用每项目一条 @parcel/watcher 原生递归订阅（ADR-0021），由分类层挑出根级变更。
 
